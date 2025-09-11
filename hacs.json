@@ -1,5 +1,6 @@
 {
   "name": "EG4 Inverter",
   "content_in_root": true,
-  "homeassistant": "2023.9.0"
+  "homeassistant": "2023.9.0",
+  "version": "1.1.1"
 }
