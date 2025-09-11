@@ -275,26 +275,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> Dict[str, Any]:
         """Return device information."""
-        # Use cleaned battery name for device info
-        clean_battery_name = clean_battery_display_name(self._battery_key, self._serial)
-        
-        # Get firmware version from battery data
-        sw_version = "1.0.0"  # Default fallback
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(self._serial)
-            if device_data and "batteries" in device_data:
-                battery_data = device_data["batteries"].get(self._battery_key, {})
-                if "battery_firmware_version" in battery_data:
-                    sw_version = battery_data["battery_firmware_version"]
-        
-        return {
-            "identifiers": {(DOMAIN, f"{self._serial}_{self._battery_key}")},
-            "name": f"Battery {clean_battery_name}",
-            "manufacturer": "EG4 Electronics", 
-            "model": "Battery Module",
-            "serial_number": clean_battery_name,
-            "sw_version": sw_version,
-        }
+        return self.coordinator.get_battery_device_info(self._serial, self._battery_key)
 
     @property
     def native_value(self) -> Any:

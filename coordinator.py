@@ -899,12 +899,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         battery_data = device_data.get("batteries", {}).get(battery_key, {})
         battery_firmware = battery_data.get("battery_firmware_version", "1.0.0")
         
+        # Use cleaned battery name for display
+        from .utils import clean_battery_display_name
+        clean_battery_name = clean_battery_display_name(battery_key, serial)
+        
         return {
             "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
-            "name": f"Battery {battery_key}",
+            "name": f"Battery {clean_battery_name}",
             "manufacturer": "EG4 Electronics", 
             "model": "Battery Module",
-            "serial_number": f"{serial}_{battery_key}",
+            "serial_number": clean_battery_name,
             "sw_version": battery_firmware,
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }
