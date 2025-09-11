@@ -384,6 +384,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "dailyEnergy": "daily_energy", 
             "monthlyEnergy": "monthly_energy",
             "yearlyEnergy": "yearly_energy",
+            # State of charge (average for all batteries connected to this inverter)
+            "soc": "state_of_charge",
             # Today energy sensors (need division by 10)
             "todayYielding": "yield",
             "todayDischarging": "discharging",
