@@ -1,0 +1,10 @@
+refresh_data:
+  name: Refresh EG4 Data
+  description: Force refresh of all EG4 inverter data from the API
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: The configuration entry ID to refresh (optional, refreshes all if not specified)
+      required: false
+      selector:
+        text:

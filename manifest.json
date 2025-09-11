@@ -1,0 +1,14 @@
+{
+  "domain": "eg4_inverter",
+  "name": "EG4 Inverter",
+  "codeowners": ["@joyfulhouse"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/joyfulhouse/eg4_inverter",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/joyfulhouse/eg4_inverter/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.0",
+  "loggers": ["eg4_inverter"]
+}
