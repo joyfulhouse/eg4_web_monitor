@@ -849,20 +849,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         else:
             device_name = f"{model} {serial}"  # Normal devices include serial number
         
-        # Get firmware version based on device type
-        sw_version = "1.0.0"  # Default fallback
-        if device_type in ["gridboss", "inverter"]:
-            # For GridBOSS and inverter devices, get firmware from fwCode field
-            sw_version = device_data.get("firmware_version", "1.0.0")
-        
         device_info = {
             "identifiers": {(DOMAIN, serial)},
             "name": device_name,
             "manufacturer": "EG4 Electronics",
             "model": model,
-            "serial_number": serial,
-            "sw_version": sw_version,
         }
+        
+        # Add firmware version and serial number only for actual devices, not parallel groups
+        if device_type != "parallel_group":
+            device_info["serial_number"] = serial
+            
+            # Get firmware version for GridBOSS and inverter devices
+            sw_version = "1.0.0"  # Default fallback
+            if device_type in ["gridboss", "inverter"]:
+                sw_version = device_data.get("firmware_version", "1.0.0")
+            device_info["sw_version"] = sw_version
         
         # Add via_device for proper device hierarchy
         if device_type in ["inverter", "gridboss"]:
