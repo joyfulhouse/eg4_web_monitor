@@ -1,10 +1,10 @@
-# EG4 Inverter Home Assistant Integration
+# EG4 Web Monitor Home Assistant Integration
 
 ## 🚀 Production Ready - September 2025
 
 ### ✅ **Production Deployment Status: READY**
 
-The EG4 Inverter Home Assistant integration has completed comprehensive code review, optimization, and testing preparation. All major scaling issues have been resolved and the integration is ready for production deployment.
+The EG4 Web Monitor Home Assistant integration has completed comprehensive code review, optimization, and testing preparation. All major scaling issues have been resolved and the integration is ready for production deployment.
 
 #### **Completed Production Tasks**:
 
@@ -45,7 +45,7 @@ The EG4 Inverter Home Assistant integration has completed comprehensive code rev
 - Resolved PV voltage scaling for inverter sensors
 
 ## Project Overview
-This is a Home Assistant custom component that integrates EG4 Inverter devices with Home Assistant. It allows monitoring of inverter metrics and status through the unofficial EG4 web API. Supports multi-station architecture with comprehensive device hierarchy including GridBOSS MID devices and individual battery management.
+This is a Home Assistant custom component that integrates EG4 devices with Home Assistant through web monitoring. It allows monitoring of inverter metrics and status through the unofficial EG4 web API. Supports multi-station architecture with comprehensive device hierarchy including GridBOSS MID devices and individual battery management.
 
 ## Architecture and Approach
 
@@ -132,7 +132,7 @@ The integration uses a sophisticated 4-step configuration flow that ensures prop
 - **UI Logic**: 
   - If 1 plant: Auto-select and proceed to Step 3
   - If multiple plants: Show selection dropdown
-- **Integration Naming**: Create entry as "EG4 Inverter {station_name}"
+- **Integration Naming**: Create entry as "EG4 Web Monitor {station_name}"
 - **Unique ID**: `{username}_{plant_id}` for conflict prevention
 
 #### Step 3: Device Discovery & Creation
@@ -168,7 +168,7 @@ The integration uses a sophisticated 4-step configuration flow that ensures prop
 ### Device Hierarchy Structure
 
 ```
-EG4 Inverter {Station_Name}
+EG4 Web Monitor {Station_Name}
 └── Parallel Group (if exists)
     ├── GridBOSS Device (MID - Special Handling)
     │   ├── Grid Management Sensors
@@ -306,7 +306,7 @@ EG4 Inverter {Station_Name}
 All project steps have been successfully completed and implemented:
 
 #### ✅ Step 1: API Implementation - COMPLETED
-- **✅ Step 1a**: Research and implement similar to `https://github.com/twistedroutes/eg4_inverter_api`
+- **✅ Step 1a**: Research and implement similar to `https://github.com/twistedroutes/eg4_inverter_ha`
 - **✅ Step 1b**: Create the API implementation in `eg4_inverter_api/`
   - Complete EG4InverterAPI client with all required endpoints
   - Session management with auto-reauthentication
@@ -488,11 +488,11 @@ if sensor_type in power_energy_sensors and sensor_type not in essential_sensors:
 
 ### Phase 3: Integration Installation & Configuration
 
-1. **Add EG4 Inverter Integration**:
+1. **Add EG4 Web Monitor Integration**:
    - Go to: Settings → Devices & Services
    - Click: "Add Integration" (+ button)
-   - Search for: "EG4 Inverter"
-   - Click: "EG4 Inverter" from the list
+   - Search for: "EG4 Web Monitor"
+   - Click: "EG4 Web Monitor" from the list
 
 2. **Configuration Flow**:
    - **Step 1 - Credentials**:
@@ -508,12 +508,12 @@ if sensor_type in power_energy_sensors and sensor_type not in essential_sensors:
    
    - **Step 3 - Automatic Discovery**:
      - Integration will automatically discover devices
-     - Creates entry: "EG4 Inverter {Station_Name}"
+     - Creates entry: "EG4 Web Monitor {Station_Name}"
 
 ### Phase 4: Device & Entity Validation
 
 1. **Verify Device Creation**:
-   - Go to: Settings → Devices & Services → EG4 Inverter
+   - Go to: Settings → Devices & Services → EG4 Web Monitor
    - Check devices created:
      ```
      ✅ GridBOSS Device (if present)
@@ -595,7 +595,7 @@ if sensor_type in power_energy_sensors and sensor_type not in essential_sensors:
      ```yaml
      logger:
        logs:
-         eg4_inverter: debug
+         eg4_web_monitor: debug
      ```
 
 2. **Monitor Integration Logs**:
@@ -604,11 +604,11 @@ if sensor_type in power_energy_sensors and sensor_type not in essential_sensors:
    docker-compose logs -f homeassistant
    
    # Filter EG4 logs only
-   docker-compose logs homeassistant | grep eg4_inverter
+   docker-compose logs homeassistant | grep eg4_web_monitor
    ```
 
 3. **Key Log Messages to Validate**:
-   - ✅ "Setting up EG4 Inverter entry"
+   - ✅ "Setting up EG4 Web Monitor entry"
    - ✅ "Successfully authenticated with EG4 API"
    - ✅ "Successfully updated data for X devices"
    - ✅ "Added X sensor entities"

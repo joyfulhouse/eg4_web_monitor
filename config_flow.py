@@ -1,4 +1,4 @@
-"""Config flow for EG4 Inverter integration."""
+"""Config flow for EG4 Web Monitor integration."""
 
 import logging
 from typing import Any, Dict, Optional
@@ -33,8 +33,8 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class EG4InverterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for EG4 Inverter."""
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
 
@@ -182,7 +182,7 @@ class EG4InverterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         # Create entry title
-        title = f"EG4 Inverter - {plant_name}"
+        title = f"EG4 Web Monitor - {plant_name}"
 
         # Create entry data
         data = {

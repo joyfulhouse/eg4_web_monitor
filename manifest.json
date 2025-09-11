@@ -1,14 +1,14 @@
 {
-  "domain": "eg4_inverter",
-  "name": "EG4 Inverter",
+  "domain": "eg4_web_monitor",
+  "name": "EG4 Web Monitor",
   "codeowners": ["@joyfulhouse"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/joyfulhouse/eg4_inverter",
+  "documentation": "https://github.com/joyfulhouse/eg4_web_monitor",
   "integration_type": "device",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/joyfulhouse/eg4_inverter/issues",
+  "issue_tracker": "https://github.com/joyfulhouse/eg4_web_monitor/issues",
   "requirements": ["aiohttp>=3.8.0"],
   "version": "1.1.1",
-  "loggers": ["eg4_inverter"]
+  "loggers": ["eg4_web_monitor"]
 }

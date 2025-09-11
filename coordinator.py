@@ -1,4 +1,4 @@
-"""Data update coordinator for EG4 Inverter integration."""
+"""Data update coordinator for EG4 Web Monitor integration."""
 
 import asyncio
 import logging
@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Class to manage fetching EG4 Inverter data from the API."""
+    """Class to manage fetching EG4 Web Monitor data from the API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""

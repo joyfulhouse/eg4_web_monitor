@@ -1,4 +1,4 @@
-"""EG4 Inverter integration for Home Assistant."""
+"""EG4 Web Monitor integration for Home Assistant."""
 
 import logging
 import voluptuous as vol
@@ -23,8 +23,8 @@ REFRESH_DATA_SCHEMA = vol.Schema({
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up EG4 Inverter from a config entry."""
-    _LOGGER.debug("Setting up EG4 Inverter entry: %s", entry.entry_id)
+    """Set up EG4 Web Monitor from a config entry."""
+    _LOGGER.debug("Setting up EG4 Web Monitor entry: %s", entry.entry_id)
 
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
@@ -53,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    _LOGGER.debug("Unloading EG4 Inverter entry: %s", entry.entry_id)
+    _LOGGER.debug("Unloading EG4 Web Monitor entry: %s", entry.entry_id)
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

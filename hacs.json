@@ -1,5 +1,5 @@
 {
-  "name": "EG4 Inverter",
+  "name": "EG4 Web Monitor",
   "content_in_root": true,
   "homeassistant": "2023.9.0",
   "version": "1.1.1"

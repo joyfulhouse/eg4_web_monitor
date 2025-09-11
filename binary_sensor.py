@@ -1,4 +1,4 @@
-"""Binary sensor platform for EG4 Inverter integration."""
+"""Binary sensor platform for EG4 Web Monitor integration."""
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -24,7 +24,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up EG4 Inverter binary sensor entities."""
+    """Set up EG4 Web Monitor binary sensor entities."""
     coordinator: EG4DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
     
     entities: List[BinarySensorEntity] = []
@@ -88,7 +88,7 @@ def _create_device_binary_sensors(
 
 
 class EG4BinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Representation of an EG4 Inverter binary sensor."""
+    """Representation of an EG4 Web Monitor binary sensor."""
 
     def __init__(
         self,
