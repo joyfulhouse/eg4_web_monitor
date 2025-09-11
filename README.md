@@ -373,3 +373,7 @@ This is an unofficial integration not affiliated with EG4 Electronics. Use at yo
 [license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_inverter?style=for-the-badge
 [hacs]: https://hacs.xyz
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge
+[user_profile]: https://github.com/joyfulhouse
+[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
+[buymecoffee]: https://www.buymeacoffee.com/joyfulhouse
