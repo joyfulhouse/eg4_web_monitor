@@ -855,15 +855,36 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # For GridBOSS and inverter devices, get firmware from fwCode field
             sw_version = device_data.get("firmware_version", "1.0.0")
         
-        return {
+        device_info = {
             "identifiers": {(DOMAIN, serial)},
             "name": device_name,
             "manufacturer": "EG4 Electronics",
             "model": model,
             "serial_number": serial,
             "sw_version": sw_version,
-            # Removed via_device to avoid warnings - creates flat device structure
         }
+        
+        # Add via_device for proper device hierarchy
+        if device_type in ["inverter", "gridboss"]:
+            # Check if this device belongs to a parallel group
+            parallel_group_serial = self._get_parallel_group_for_device(serial)
+            if parallel_group_serial:
+                device_info["via_device"] = (DOMAIN, parallel_group_serial)
+        
+        return device_info
+
+    def _get_parallel_group_for_device(self, device_serial: str) -> Optional[str]:
+        """Get the parallel group serial that contains this device."""
+        if not self.data or "devices" not in self.data:
+            return None
+            
+        # Check if a parallel group exists - if so, all inverters and gridboss devices are part of it
+        for serial, device_data in self.data["devices"].items():
+            if device_data.get("type") == "parallel_group":
+                # Found a parallel group - return its serial as the parent
+                return serial
+        
+        return None
 
     def get_battery_device_info(self, serial: str, battery_key: str) -> Optional[Dict[str, Any]]:
         """Get device information for a specific battery."""
@@ -874,14 +895,18 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not device_data or battery_key not in device_data.get("batteries", {}):
             return None
             
+        # Get battery-specific data for firmware version
+        battery_data = device_data.get("batteries", {}).get(battery_key, {})
+        battery_firmware = battery_data.get("battery_firmware_version", "1.0.0")
+        
         return {
             "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
             "name": f"Battery {battery_key}",
             "manufacturer": "EG4 Electronics", 
             "model": "Battery Module",
             "serial_number": f"{serial}_{battery_key}",
-            "sw_version": "1.0.0",
-            # Removed via_device to avoid timing warnings - devices still show in registry
+            "sw_version": battery_firmware,
+            "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }
 
     def _extract_parallel_group_sensors(self, parallel_energy: Dict[str, Any]) -> Dict[str, Any]:
