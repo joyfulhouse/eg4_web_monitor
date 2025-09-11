@@ -1,0 +1,1 @@
+"""Tests for EG4 Inverter API."""

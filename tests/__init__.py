@@ -1,0 +1,1 @@
+"""EG4 Inverter integration tests."""
