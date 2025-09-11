@@ -164,7 +164,7 @@ The integration will automatically discover and configure:
 - **Simplified Energy Sensors**: Cleaner, more intuitive naming
   - `today_yield` → `yield` (daily energy generation)
   - `total_yield` → `yield_lifetime` (lifetime energy generation)
-  - Applied to all energy types: charging, discharging, load, grid feed, etc.
+  - Applied to all energy types: charging, discharging, load, grid export, etc.
 - **Entity IDs Simplified**: Consistent naming throughout the integration
 
 #### ✅ **GridBOSS Enhancements** 

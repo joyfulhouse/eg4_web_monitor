@@ -318,14 +318,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "todayDischarging": "discharging",
             "todayCharging": "charging",
             "todayLoad": "load",
-            "todayGridFeed": "grid_feed", 
-            "todayGridConsumption": "grid_consumption",
+            "todayGridFeed": "grid_export", 
+            "todayGridConsumption": "grid_import",
             "totalYielding": "yield_lifetime",
             "totalDischarging": "discharging_lifetime",
             "totalCharging": "charging_lifetime",
             "totalLoad": "load_lifetime",
-            "totalGridFeed": "grid_feed_lifetime",
-            "totalGridConsumption": "grid_consumption_lifetime",
+            "totalGridFeed": "grid_export_lifetime",
+            "totalGridConsumption": "grid_import_lifetime",
             # Status sensors
             "status": "status_code",
             "statusText": "status_text",        }
@@ -334,9 +334,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         divide_by_10_sensors = {
             # Energy sensors (to convert to kWh)
             "yield", "discharging", "charging",
-            "load", "grid_feed", "grid_consumption",
+            "load", "grid_export", "grid_import",
             "yield_lifetime", "discharging_lifetime", "charging_lifetime", 
-            "load_lifetime", "grid_feed_lifetime", "grid_consumption_lifetime"
+            "load_lifetime", "grid_export_lifetime", "grid_import_lifetime"
         }
         
         # Voltage fields that need division by 10
@@ -389,23 +389,23 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "todayDischarging": "discharging",
             "todayCharging": "charging",
             "todayLoad": "load",
-            "todayGridFeed": "grid_feed", 
-            "todayGridConsumption": "grid_consumption",
+            "todayGridFeed": "grid_export", 
+            "todayGridConsumption": "grid_import",
             # Total energy sensors (need division by 10)
             "totalYielding": "yield_lifetime",
             "totalDischarging": "discharging_lifetime",
             "totalCharging": "charging_lifetime",
             "totalLoad": "load_lifetime",
-            "totalGridFeed": "grid_feed_lifetime",
-            "totalGridConsumption": "grid_consumption_lifetime",
+            "totalGridFeed": "grid_export_lifetime",
+            "totalGridConsumption": "grid_import_lifetime",
         }
         
         # These sensors need values divided by 10 to convert to kWh
         divide_by_10_sensors = {
             "yield", "discharging", "charging",
-            "load", "grid_feed", "grid_consumption",
+            "load", "grid_export", "grid_import",
             "yield_lifetime", "discharging_lifetime", "charging_lifetime", 
-            "load_lifetime", "grid_feed_lifetime", "grid_consumption_lifetime"
+            "load_lifetime", "grid_export_lifetime", "grid_import_lifetime"
         }
         
         for api_field, sensor_type in field_mapping.items():
@@ -895,24 +895,24 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "todayYielding": "yield",
             "todayDischarging": "discharging", 
             "todayCharging": "charging",
-            "todayExport": "grid_feed",
-            "todayImport": "grid_consumption",
+            "todayExport": "grid_export",
+            "todayImport": "grid_import",
             "todayUsage": "consumption",
             # Total energy values (need division by 10)
             "totalYielding": "yield_lifetime",
             "totalDischarging": "discharging_lifetime",
             "totalCharging": "charging_lifetime", 
-            "totalExport": "grid_feed_lifetime",
-            "totalImport": "grid_consumption_lifetime",
+            "totalExport": "grid_export_lifetime",
+            "totalImport": "grid_import_lifetime",
             "totalUsage": "consumption_lifetime",
         }
         
         # These sensors need values divided by 10 to convert to kWh
         divide_by_10_sensors = {
             "yield", "discharging", "charging",
-            "grid_feed", "grid_consumption", "consumption",
+            "grid_export", "grid_import", "consumption",
             "yield_lifetime", "discharging_lifetime", "charging_lifetime",
-            "grid_feed_lifetime", "grid_consumption_lifetime", "consumption_lifetime"
+            "grid_export_lifetime", "grid_import_lifetime", "consumption_lifetime"
         }
         
         for api_field, sensor_type in field_mapping.items():
