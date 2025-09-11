@@ -170,15 +170,15 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:home-lightning-bolt",
     },
-    "grid_feed": {
-        "name": "Grid Feed",
+    "grid_export": {
+        "name": "Grid Export",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-export",
     },
-    "grid_consumption": {
-        "name": "Grid Consumption",
+    "grid_import": {
+        "name": "Grid Import",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
@@ -214,15 +214,15 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:home-lightning-bolt",
     },
-    "grid_feed_lifetime": {
-        "name": "Grid Feed (Lifetime)",
+    "grid_export_lifetime": {
+        "name": "Grid Export (Lifetime)",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-export",
     },
-    "grid_consumption_lifetime": {
-        "name": "Grid Consumption (Lifetime)",
+    "grid_import_lifetime": {
+        "name": "Grid Import (Lifetime)",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
@@ -1308,15 +1308,15 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "todayDischarging": "discharging",
     "todayCharging": "charging",
     "todayLoad": "load",
-    "todayGridFeed": "grid_feed",
-    "todayGridConsumption": "grid_consumption",
+    "todayGridFeed": "grid_export",
+    "todayGridConsumption": "grid_import",
     # Total energy values (need division by 10)
     "totalYielding": "yield_lifetime",
     "totalDischarging": "discharging_lifetime",
     "totalCharging": "charging_lifetime",
     "totalLoad": "load_lifetime",
-    "totalGridFeed": "grid_feed_lifetime",
-    "totalGridConsumption": "grid_consumption_lifetime",
+    "totalGridFeed": "grid_export_lifetime",
+    "totalGridConsumption": "grid_import_lifetime",
 }
 
 INVERTER_ENERGY_FIELD_MAPPING = {
@@ -1330,15 +1330,15 @@ INVERTER_ENERGY_FIELD_MAPPING = {
     "todayDischarging": "discharging",
     "todayCharging": "charging",
     "todayLoad": "load",
-    "todayGridFeed": "grid_feed", 
-    "todayGridConsumption": "grid_consumption",
+    "todayGridFeed": "grid_export", 
+    "todayGridConsumption": "grid_import",
     # Total energy values (need division by 10)
     "totalYielding": "yield_lifetime",
     "totalDischarging": "discharging_lifetime",
     "totalCharging": "charging_lifetime",
     "totalLoad": "load_lifetime",
-    "totalGridFeed": "grid_feed_lifetime",
-    "totalGridConsumption": "grid_consumption_lifetime",
+    "totalGridFeed": "grid_export_lifetime",
+    "totalGridConsumption": "grid_import_lifetime",
 }
 
 GRIDBOSS_FIELD_MAPPING = {
@@ -1460,14 +1460,14 @@ PARALLEL_GROUP_FIELD_MAPPING = {
     "todayYielding": "yield",
     "todayDischarging": "discharging", 
     "todayCharging": "charging",
-    "todayExport": "grid_feed",
-    "todayImport": "grid_consumption",
+    "todayExport": "grid_export",
+    "todayImport": "grid_import",
     "todayUsage": "consumption",
     # Total energy values (need division by 10)
     "totalYielding": "yield_lifetime",
     "totalDischarging": "discharging_lifetime",
     "totalCharging": "charging_lifetime", 
-    "totalExport": "grid_feed_lifetime",
-    "totalImport": "grid_consumption_lifetime",
+    "totalExport": "grid_export_lifetime",
+    "totalImport": "grid_import_lifetime",
     "totalUsage": "consumption_lifetime",
 }
