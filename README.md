@@ -376,4 +376,4 @@ This is an unofficial integration not affiliated with EG4 Electronics. Use at yo
 [maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge
 [user_profile]: https://github.com/joyfulhouse
 [buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
-[buymecoffee]: https://www.buymeacoffee.com/joyfulhouse
+[buymecoffee]: https://www.buymeacoffee.com/btli
