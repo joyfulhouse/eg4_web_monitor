@@ -1,4 +1,4 @@
-"""Constants for the EG4 Inverter integration."""
+"""Constants for the EG4 Web Monitor integration."""
 
 from homeassistant.const import (
     UnitOfElectricCurrent,
@@ -10,7 +10,7 @@ from homeassistant.const import (
 )
 
 # Integration constants
-DOMAIN = "eg4_inverter"
+DOMAIN = "eg4_web_monitor"
 DEFAULT_UPDATE_INTERVAL = 30  # seconds
 DEFAULT_BASE_URL = "https://monitor.eg4electronics.com"
 

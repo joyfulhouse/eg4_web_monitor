@@ -1,4 +1,4 @@
-"""Sensor platform for EG4 Inverter integration."""
+"""Sensor platform for EG4 Web Monitor integration."""
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -28,7 +28,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up EG4 Inverter sensor entities."""
+    """Set up EG4 Web Monitor sensor entities."""
     coordinator: EG4DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
     
     entities: List[SensorEntity] = []
@@ -140,7 +140,7 @@ def _create_parallel_group_sensors(
 
 
 class EG4InverterSensor(CoordinatorEntity, SensorEntity):
-    """Representation of an EG4 Inverter sensor."""
+    """Representation of an EG4 Web Monitor sensor."""
 
     def __init__(
         self,

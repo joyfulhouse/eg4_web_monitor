@@ -1,6 +1,10 @@
-# EG4 Inverter Home Assistant Integration
+# EG4 Web Monitor Home Assistant Integration
 
 A comprehensive Home Assistant custom component for monitoring EG4 Solar Inverters and GridBOSS devices through the EG4 Monitor web API.
+
+## 🙏 Credits
+
+This integration was inspired by and built upon the excellent work by [@twistedroutes](https://github.com/twistedroutes) and their [eg4_inverter_ha](https://github.com/twistedroutes/eg4_inverter_ha) project. We extend our sincere gratitude for their pioneering efforts in EG4 device integration for Home Assistant.
 
 [![GitHub Release][releases-shield]][releases]
 [![GitHub Activity][commits-shield]][commits]
@@ -44,12 +48,12 @@ A comprehensive Home Assistant custom component for monitoring EG4 Solar Inverte
 1. **Add Custom Repository**:
    - In HACS, go to "Integrations" 
    - Click the three dots menu → "Custom repositories"
-   - Add URL: `https://github.com/joyfulhouse/eg4_inverter`
+   - Add URL: `https://github.com/joyfulhouse/eg4_web_monitor`
    - Category: "Integration"
    - Click "Add"
 
 2. **Install Integration**:
-   - Search for "EG4 Inverter" in HACS
+   - Search for "EG4 Web Monitor" in HACS
    - Click "Download"
    - Restart Home Assistant
 
@@ -58,7 +62,7 @@ A comprehensive Home Assistant custom component for monitoring EG4 Solar Inverte
 1. **Download Integration**:
    ```bash
    cd /config/custom_components
-   git clone https://github.com/joyfulhouse/eg4_inverter.git eg4_inverter
+   git clone https://github.com/joyfulhouse/eg4_web_monitor.git eg4_web_monitor
    ```
 
 2. **Restart Home Assistant**:
@@ -70,8 +74,8 @@ A comprehensive Home Assistant custom component for monitoring EG4 Solar Inverte
 
 1. Go to **Settings** → **Devices & Services**
 2. Click **"Add Integration"** (+ button)
-3. Search for **"EG4 Inverter"**
-4. Click **"EG4 Inverter"** from the list
+3. Search for **"EG4 Web Monitor"**
+4. Click **"EG4 Web Monitor"** from the list
 
 ### Step 2: Enter Credentials
 
@@ -223,14 +227,14 @@ The integration uses the following EG4 Monitor API endpoints:
 ### Single Station Setup
 ```yaml
 # Automatically configured through UI
-# Creates: "EG4 Inverter Home Solar System"
+# Creates: "EG4 Web Monitor Home Solar System"
 ```
 
 ### Multiple Station Setup  
 ```yaml
 # Create separate integration instances:
-# 1. "EG4 Inverter Home Solar System" 
-# 2. "EG4 Inverter Cabin Solar System"
+# 1. "EG4 Web Monitor Home Solar System" 
+# 2. "EG4 Web Monitor Cabin Solar System"
 # Each monitors different plantId
 ```
 
@@ -283,7 +287,7 @@ Enable debug logging in `configuration.yaml`:
 logger:
   default: warning
   logs:
-    custom_components.eg4_inverter: debug
+    custom_components.eg4_web_monitor: debug
 ```
 
 ### Network Issues
@@ -350,7 +354,7 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 - [Troubleshooting Guide](docs/troubleshooting.md)
 
 ### Community
-- [GitHub Issues](https://github.com/joyfulhouse/eg4_inverter/issues)
+- [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
 - [Home Assistant Community Forum](https://community.home-assistant.io)
 - [EG4 Electronics Support](https://eg4electronics.com/support)
 
@@ -366,11 +370,11 @@ This is an unofficial integration not affiliated with EG4 Electronics. Use at yo
 
 **Enjoy monitoring your EG4 solar system with Home Assistant!** ☀️🏠⚡
 
-[releases-shield]: https://img.shields.io/github/v/release/joyfulhouse/eg4_inverter?style=for-the-badge
-[releases]: https://github.com/joyfulhouse/eg4_inverter/releases
-[commits-shield]: https://img.shields.io/github/commit-activity/y/joyfulhouse/eg4_inverter?style=for-the-badge
-[commits]: https://github.com/joyfulhouse/eg4_inverter/commits/main
-[license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_inverter?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/joyfulhouse/eg4_web_monitor?style=for-the-badge
+[releases]: https://github.com/joyfulhouse/eg4_web_monitor/releases
+[commits-shield]: https://img.shields.io/github/commit-activity/y/joyfulhouse/eg4_web_monitor?style=for-the-badge
+[commits]: https://github.com/joyfulhouse/eg4_web_monitor/commits/main
+[license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [hacs]: https://hacs.xyz
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
 [maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge
