@@ -18,7 +18,8 @@ from .const import (
 )
 from .eg4_inverter_api import EG4InverterAPI
 from .utils import (
-    extract_individual_battery_sensors, clean_battery_display_name, read_device_parameters_ranges
+    extract_individual_battery_sensors, clean_battery_display_name, read_device_parameters_ranges,
+    apply_sensor_scaling
 )
 from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
 
@@ -327,7 +328,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         divide_by_10_sensors = DIVIDE_BY_10_SENSORS
 
         # Voltage fields that need division by 10
-        divide_voltage_by_10_fields = {"vacr", "vpv1", "vpv2", "vpv3"}
+        divide_voltage_by_10_fields = {"vacr", "vpv1", "vpv2", "vpv3", "vBat"}
 
         for api_field, sensor_type in field_mapping.items():
             if api_field in runtime:
@@ -407,7 +408,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if api_field in battery:
                 value = battery[api_field]
                 if value is not None:
-                    sensors[sensor_type] = value
+                    # Apply scaling for sensors that need it
+                    scaled_value = apply_sensor_scaling(sensor_type, value, "inverter")
+                    sensors[sensor_type] = scaled_value
 
         return sensors
 

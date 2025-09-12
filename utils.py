@@ -9,7 +9,11 @@ _LOGGER = logging.getLogger(__name__)
 DIVIDE_BY_10_SENSORS: Set[str] = {
     "ac_voltage", "ac_frequency", "battery_voltage", "battery_temperature",
     "temperature", "radiator_1_temperature", "radiator_2_temperature",
-    "pv_voltage_1", "pv_voltage_2", "pv_voltage_3", "internal_temperature"
+    "pv_voltage_1", "pv_voltage_2", "pv_voltage_3", "internal_temperature",
+    # Individual battery voltage sensors from batteryArray
+    "battery_real_voltage", "battery_cell_voltage_max", "battery_cell_voltage_min",
+    # PV voltage sensors from runtime data
+    "pv1_voltage", "pv2_voltage", "pv3_voltage", "dc_voltage"
 }
 
 DIVIDE_BY_100_SENSORS: Set[str] = {
