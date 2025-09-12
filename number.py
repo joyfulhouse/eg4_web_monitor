@@ -1,5 +1,6 @@
 """Number platform for EG4 Web Monitor integration."""
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -124,8 +125,11 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 self._current_value = value
                 self.async_write_ha_state()
                 
-                # Trigger a coordinator refresh to get updated data
-                await self.coordinator.async_request_refresh()
+                # Trigger parameter refresh for all inverters when any parameter changes
+                _LOGGER.info("Parameter changed for %s, refreshing parameters for all inverters", self.serial)
+                
+                # Create background task to refresh all device parameters and then update all SOC entities
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
                 
                 _LOGGER.info("Successfully set System Charge SOC Limit for %s to %d%%", 
                            self.serial, int_value)
@@ -136,6 +140,38 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.error("Failed to set System Charge SOC Limit for %s: %s", self.serial, e)
             raise HomeAssistantError(f"Failed to set SOC limit: {e}") from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all SOC limit entities."""
+        try:
+            # First refresh all device parameters
+            await self.coordinator.refresh_all_device_parameters()
+            
+            # Get all SOC limit entities from the platform
+            platform = self.platform
+            if platform is not None:
+                # Find all SOC limit entities and trigger their updates
+                soc_entities = [
+                    entity for entity in platform.entities.values() 
+                    if isinstance(entity, SystemChargeSOCLimitNumber)
+                ]
+                
+                _LOGGER.info("Updating %d SOC limit entities after parameter refresh", len(soc_entities))
+                
+                # Update all SOC limit entities
+                update_tasks = []
+                for entity in soc_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+                
+                # Execute all entity updates concurrently
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                
+                # Trigger coordinator refresh for general data
+                await self.coordinator.async_request_refresh()
+                
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
 
     async def async_update(self) -> None:
         """Update the entity."""

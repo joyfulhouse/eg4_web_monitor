@@ -54,6 +54,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self.devices: Dict[str, Dict[str, Any]] = {}
         self.device_sensors: Dict[str, List[str]] = {}
         
+        # Parameter refresh tracking
+        self._last_parameter_refresh: Optional[datetime] = None
+        self._parameter_refresh_interval = timedelta(hours=1)  # Hourly parameter refresh
+        
         super().__init__(
             hass,
             _LOGGER,
@@ -82,6 +86,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Fetch data from API endpoint."""
         try:
             _LOGGER.debug("Fetching data for plant %s", self.plant_id)
+            
+            # Check if hourly parameter refresh is due
+            if self._should_refresh_parameters():
+                _LOGGER.info("Hourly parameter refresh is due, refreshing all device parameters")
+                # Don't await this to avoid blocking the main data update
+                self.hass.async_create_task(self._hourly_parameter_refresh())
             
             # Get comprehensive data for all devices in the plant
             data = await self.api.get_all_device_data(self.plant_id)
@@ -982,3 +992,106 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def _extract_parallel_group_binary_sensors(self, parallel_energy: Dict[str, Any]) -> Dict[str, Any]:
         """Extract binary sensor data from parallel group energy response."""
         return {}
+
+    async def refresh_all_device_parameters(self) -> None:
+        """Refresh parameters for all inverter devices when any parameter changes."""
+        try:
+            _LOGGER.info("Refreshing parameters for all inverter devices due to parameter change")
+            
+            # Get all inverter devices from current data
+            if not self.data or "devices" not in self.data:
+                _LOGGER.warning("No device data available for parameter refresh")
+                return
+                
+            inverter_serials = []
+            for serial, device_data in self.data["devices"].items():
+                device_type = device_data.get("type", "unknown")
+                if device_type == "inverter":
+                    inverter_serials.append(serial)
+            
+            if not inverter_serials:
+                _LOGGER.warning("No inverter devices found for parameter refresh")
+                return
+            
+            # Refresh parameters for all inverters in parallel
+            refresh_tasks = []
+            for serial in inverter_serials:
+                task = self._refresh_device_parameters(serial)
+                refresh_tasks.append(task)
+            
+            # Execute all parameter refreshes concurrently
+            results = await asyncio.gather(*refresh_tasks, return_exceptions=True)
+            
+            # Log results
+            success_count = 0
+            for i, result in enumerate(results):
+                serial = inverter_serials[i]
+                if isinstance(result, Exception):
+                    _LOGGER.error("Failed to refresh parameters for %s: %s", serial, result)
+                else:
+                    success_count += 1
+                    
+            _LOGGER.info("Successfully refreshed parameters for %d/%d inverters", success_count, len(inverter_serials))
+            
+        except Exception as e:
+            _LOGGER.error("Error during all-device parameter refresh: %s", e)
+
+    async def _refresh_device_parameters(self, serial: str) -> None:
+        """Refresh parameters for a specific device."""
+        try:
+            # Read all parameter ranges for the device
+            register_ranges = [
+                (0, 127),      # Base parameters  
+                (127, 127),    # Extended parameters range 1
+                (240, 127),    # Extended parameters range 2
+            ]
+            
+            # Read all register ranges simultaneously
+            tasks = []
+            for start_register, point_number in register_ranges:
+                task = self.api.read_parameters(
+                    inverter_sn=serial,
+                    start_register=start_register,
+                    point_number=point_number
+                )
+                tasks.append(task)
+            
+            # Execute all reads in parallel
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process responses to update device parameter cache
+            parameter_data = {}
+            for i, response in enumerate(responses):
+                if isinstance(response, Exception):
+                    start_register = register_ranges[i][0]
+                    _LOGGER.debug("Failed to read register range %d for %s: %s", start_register, serial, response)
+                    continue
+                
+                if response and response.get("success", False):
+                    # Merge parameter data from this range
+                    for key, value in response.items():
+                        if key != "success" and value is not None:
+                            parameter_data[key] = value
+            
+            _LOGGER.debug("Refreshed %d parameters for device %s", len(parameter_data), serial)
+            
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
+            raise
+
+    async def _hourly_parameter_refresh(self) -> None:
+        """Perform hourly parameter refresh for all inverters."""
+        try:
+            await self.refresh_all_device_parameters()
+            # Update last parameter refresh time
+            self._last_parameter_refresh = dt_util.utcnow()
+        except Exception as e:
+            _LOGGER.error("Error during hourly parameter refresh: %s", e)
+
+    def _should_refresh_parameters(self) -> bool:
+        """Check if hourly parameter refresh is due."""
+        if self._last_parameter_refresh is None:
+            return True
+            
+        time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
+        return time_since_refresh >= self._parameter_refresh_interval
