@@ -71,8 +71,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if len(self._plants) == 1:
                     plant = self._plants[0]
                     return await self._create_entry(
-                        plant_id=plant["plantId"],
-                        plant_name=plant["name"]
+                        plant_id=plant["plantId"], plant_name=plant["name"]
                     )
 
                 # Multiple plants - show selection step
@@ -120,7 +119,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     return await self._create_entry(
                         plant_id=selected_plant["plantId"],
-                        plant_name=selected_plant["name"]
+                        plant_name=selected_plant["name"],
                     )
 
             except Exception as e:
@@ -129,8 +128,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Build plant selection schema
         plant_options = {
-            plant["plantId"]: plant["name"]
-            for plant in self._plants or []
+            plant["plantId"]: plant["name"] for plant in self._plants or []
         }
 
         plant_schema = vol.Schema(

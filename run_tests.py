@@ -12,9 +12,10 @@ def install_test_requirements():
     requirements_file = Path(__file__).parent / "tests" / "requirements.txt"
     if requirements_file.exists():
         print("📦 Installing test requirements...")
-        subprocess.run([
-            sys.executable, "-m", "pip", "install", "-r", str(requirements_file)
-        ], check=True)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
+            check=True,
+        )
         print("✅ Test requirements installed")
     else:
         print("⚠️  Test requirements file not found")
@@ -32,12 +33,14 @@ def run_tests(coverage=False, verbose=False, test_filter=None):
     cmd = [sys.executable, "-m", "pytest"]
 
     if coverage:
-        cmd.extend([
-            "--cov=.",
-            "--cov-report=html:htmlcov",
-            "--cov-report=term-missing",
-            "--cov-fail-under=80"
-        ])
+        cmd.extend(
+            [
+                "--cov=.",
+                "--cov-report=html:htmlcov",
+                "--cov-report=term-missing",
+                "--cov-fail-under=80",
+            ]
+        )
 
     if verbose:
         cmd.append("-v")
@@ -79,17 +82,25 @@ def run_linting():
 
     # Check if flake8 is available
     try:
-        subprocess.run([sys.executable, "-m", "flake8", "--version"],
-                      capture_output=True, check=True)
+        subprocess.run(
+            [sys.executable, "-m", "flake8", "--version"],
+            capture_output=True,
+            check=True,
+        )
 
         # Run flake8 on the integration code
-        result = subprocess.run([
-            sys.executable, "-m", "flake8",
-            ".",
-            "--exclude=tests,homeassistant-dev,samples,__pycache__,.git",
-            "--max-line-length=120",
-            "--ignore=E501,W503"
-        ], cwd=Path(__file__).parent)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "flake8",
+                ".",
+                "--exclude=tests,homeassistant-dev,samples,__pycache__,.git",
+                "--max-line-length=120",
+                "--ignore=E501,W503",
+            ],
+            cwd=Path(__file__).parent,
+        )
 
         if result.returncode == 0:
             print("✅ Code linting passed!")
@@ -105,19 +116,21 @@ def run_linting():
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Test runner for EG4 Inverter integration")
-    parser.add_argument("--install", action="store_true",
-                       help="Install test requirements")
-    parser.add_argument("--coverage", action="store_true",
-                       help="Generate coverage report")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                       help="Verbose output")
-    parser.add_argument("--filter", "-k",
-                       help="Filter tests by pattern")
-    parser.add_argument("--lint", action="store_true",
-                       help="Run code linting")
-    parser.add_argument("--all", action="store_true",
-                       help="Run all checks (tests, coverage, linting)")
+    parser = argparse.ArgumentParser(
+        description="Test runner for EG4 Inverter integration"
+    )
+    parser.add_argument(
+        "--install", action="store_true", help="Install test requirements"
+    )
+    parser.add_argument(
+        "--coverage", action="store_true", help="Generate coverage report"
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--filter", "-k", help="Filter tests by pattern")
+    parser.add_argument("--lint", action="store_true", help="Run code linting")
+    parser.add_argument(
+        "--all", action="store_true", help="Run all checks (tests, coverage, linting)"
+    )
 
     args = parser.parse_args()
 
@@ -137,9 +150,7 @@ def main():
     if not any([args.install, args.lint]) or args.all:
         # Run tests by default
         test_result = run_tests(
-            coverage=args.coverage,
-            verbose=args.verbose,
-            test_filter=args.filter
+            coverage=args.coverage, verbose=args.verbose, test_filter=args.filter
         )
         exit_code = max(exit_code, test_result)
 

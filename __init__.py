@@ -17,9 +17,11 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
 
 SERVICE_REFRESH_DATA = "refresh_data"
 
-REFRESH_DATA_SCHEMA = vol.Schema({
-    vol.Optional("entry_id"): cv.string,
-})
+REFRESH_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): cv.string,
+    }
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -93,7 +95,11 @@ async def _handle_refresh_data(call: ServiceCall) -> None:
 
     # Refresh all coordinators
     for coordinator in coordinators_to_refresh:
-        _LOGGER.info("Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id)
+        _LOGGER.info(
+            "Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id
+        )
         await coordinator.async_request_refresh()
 
-    _LOGGER.info("Refresh completed for %d coordinator(s)", len(coordinators_to_refresh))
+    _LOGGER.info(
+        "Refresh completed for %d coordinator(s)", len(coordinators_to_refresh)
+    )

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import aiohttp
@@ -52,8 +52,7 @@ class EG4InverterAPI:
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
             self._session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=self.timeout
+                connector=connector, timeout=self.timeout
             )
         return self._session
 
@@ -98,6 +97,7 @@ class EG4InverterAPI:
         encoded_data = None
         if data:
             from urllib.parse import urlencode
+
             encoded_data = urlencode(data)
 
         try:
@@ -219,7 +219,9 @@ class EG4InverterAPI:
             "POST", "/WManage/api/inverter/getInverterEnergyInfo", data=data
         )
 
-    async def get_inverter_energy_info_parallel(self, serial_number: str) -> Dict[str, Any]:
+    async def get_inverter_energy_info_parallel(
+        self, serial_number: str
+    ) -> Dict[str, Any]:
         """Get parallel inverter energy information."""
         data = {"serialNum": serial_number}
 
@@ -280,7 +282,9 @@ class EG4InverterAPI:
                 parallel_groups = plant.get("parallelGroups", [])
                 break
 
-        _LOGGER.info(f"Found {len(serial_numbers)} devices for plant {plant_id}: {list(serial_numbers)}")
+        _LOGGER.info(
+            f"Found {len(serial_numbers)} devices for plant {plant_id}: {list(serial_numbers)}"
+        )
         _LOGGER.info(f"GridBOSS devices: {list(gridboss_serials)}")
 
         # Try to get additional device discovery data (but don't fail if it doesn't work)
@@ -290,7 +294,9 @@ class EG4InverterAPI:
         # Disable problematic discovery endpoints - core functionality works without them
         parallel_groups_data = None
         inverter_overview_data = None
-        _LOGGER.debug("Skipping parallel groups and inverter overview discovery endpoints (not essential for core functionality)")
+        _LOGGER.debug(
+            "Skipping parallel groups and inverter overview discovery endpoints (not essential for core functionality)"
+        )
 
         # Fetch data for all devices concurrently
         tasks = []
@@ -312,7 +318,9 @@ class EG4InverterAPI:
             try:
                 # Use the first available serial number to get parallel group energy data
                 first_serial = next(iter(serial_numbers))
-                parallel_energy_data = await self.get_inverter_energy_info_parallel(first_serial)
+                parallel_energy_data = await self.get_inverter_energy_info_parallel(
+                    first_serial
+                )
                 _LOGGER.debug("Successfully retrieved parallel group energy data")
             except Exception as e:
                 _LOGGER.warning(f"Failed to get parallel group energy data: {e}")
@@ -371,7 +379,9 @@ class EG4InverterAPI:
             _LOGGER.error(f"Failed to get GridBOSS data for {serial_number}: {e}")
             raise
 
-    async def read_parameters(self, inverter_sn: str, start_register: int = 0, point_number: int = 127) -> Dict[str, Any]:
+    async def read_parameters(
+        self, inverter_sn: str, start_register: int = 0, point_number: int = 127
+    ) -> Dict[str, Any]:
         """Read parameters from an inverter using the remote read endpoint.
 
         Args:
@@ -386,21 +396,33 @@ class EG4InverterAPI:
         data = {
             "inverterSn": inverter_sn,
             "startRegister": start_register,
-            "pointNumber": point_number
+            "pointNumber": point_number,
         }
 
-        _LOGGER.debug("Reading parameters from inverter %s: start_register=%s, point_number=%s",
-                      inverter_sn, start_register, point_number)
+        _LOGGER.debug(
+            "Reading parameters from inverter %s: start_register=%s, point_number=%s",
+            inverter_sn,
+            start_register,
+            point_number,
+        )
 
         try:
             response = await self._make_request("POST", endpoint, data)
             return response
         except Exception as e:
-            _LOGGER.error("Failed to read parameters from inverter %s: %s", inverter_sn, e)
+            _LOGGER.error(
+                "Failed to read parameters from inverter %s: %s", inverter_sn, e
+            )
             raise EG4APIError(f"Parameter read failed for {inverter_sn}: {e}") from e
 
-    async def write_parameter(self, inverter_sn: str, hold_param: str, value_text: str,
-                            client_type: str = "WEB", remote_set_type: str = "NORMAL") -> Dict[str, Any]:
+    async def write_parameter(
+        self,
+        inverter_sn: str,
+        hold_param: str,
+        value_text: str,
+        client_type: str = "WEB",
+        remote_set_type: str = "NORMAL",
+    ) -> Dict[str, Any]:
         """Write a parameter to an inverter using the remote write endpoint.
 
         Args:
@@ -419,14 +441,21 @@ class EG4InverterAPI:
             "holdParam": hold_param,
             "valueText": value_text,
             "clientType": client_type,
-            "remoteSetType": remote_set_type
+            "remoteSetType": remote_set_type,
         }
 
-        _LOGGER.debug("Writing parameter to inverter %s: %s=%s", inverter_sn, hold_param, value_text)
+        _LOGGER.debug(
+            "Writing parameter to inverter %s: %s=%s",
+            inverter_sn,
+            hold_param,
+            value_text,
+        )
 
         try:
             response = await self._make_request("POST", endpoint, data)
             return response
         except Exception as e:
-            _LOGGER.error("Failed to write parameter to inverter %s: %s", inverter_sn, e)
+            _LOGGER.error(
+                "Failed to write parameter to inverter %s: %s", inverter_sn, e
+            )
             raise EG4APIError(f"Parameter write failed for {inverter_sn}: {e}") from e

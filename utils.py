@@ -1,5 +1,6 @@
 """Utility functions for EG4 Inverter integration."""
 
+import asyncio
 import logging
 from typing import Dict, Any, Set
 
@@ -7,66 +8,163 @@ _LOGGER = logging.getLogger(__name__)
 
 # Scaling constants - consolidated from duplicated sets across coordinator
 DIVIDE_BY_10_SENSORS: Set[str] = {
-    "ac_voltage", "ac_frequency", "battery_voltage", "battery_temperature",
-    "temperature", "radiator_1_temperature", "radiator_2_temperature",
-    "pv_voltage_1", "pv_voltage_2", "pv_voltage_3", "internal_temperature",
+    "ac_voltage",
+    "ac_frequency",
+    "battery_voltage",
+    "battery_temperature",
+    "temperature",
+    "radiator_1_temperature",
+    "radiator_2_temperature",
+    "pv_voltage_1",
+    "pv_voltage_2",
+    "pv_voltage_3",
+    "internal_temperature",
     # Individual battery voltage sensors from batteryArray
-    "battery_real_voltage", "battery_cell_voltage_max", "battery_cell_voltage_min",
+    "battery_real_voltage",
+    "battery_cell_voltage_max",
+    "battery_cell_voltage_min",
     # PV voltage sensors from runtime data
-    "pv1_voltage", "pv2_voltage", "pv3_voltage", "dc_voltage"
+    "pv1_voltage",
+    "pv2_voltage",
+    "pv3_voltage",
+    "dc_voltage",
 }
 
 DIVIDE_BY_100_SENSORS: Set[str] = {
     # Frequency sensors (convert to Hz from centihertz)
-    "frequency", "generator_frequency", "phase_lock_frequency",
+    "frequency",
+    "generator_frequency",
+    "phase_lock_frequency",
     # Standard inverter energy sensors (convert to kWh from Wh/100)
-    "daily_energy_generation", "daily_energy_consumption", "daily_energy_charging",
-    "daily_energy_discharging", "daily_energy_import", "daily_energy_export",
-    "total_energy_generation", "total_energy_consumption", "charging_lifetime",
-    "discharging_lifetime", "yield_lifetime", "load_lifetime", "total_energy_import", "total_energy_export"
+    "daily_energy_generation",
+    "daily_energy_consumption",
+    "daily_energy_charging",
+    "daily_energy_discharging",
+    "daily_energy_import",
+    "daily_energy_export",
+    "total_energy_generation",
+    "total_energy_consumption",
+    "charging_lifetime",
+    "discharging_lifetime",
+    "yield_lifetime",
+    "load_lifetime",
+    "total_energy_import",
+    "total_energy_export",
 }
 
 # GridBOSS specific scaling sets
 GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = {
     # Voltage sensors (convert to V from decivolts)
-    "grid_voltage_l1", "grid_voltage_l2", "load_voltage_l1", "load_voltage_l2",
-    "ups_voltage", "grid_voltage", "generator_voltage",
+    "grid_voltage_l1",
+    "grid_voltage_l2",
+    "load_voltage_l1",
+    "load_voltage_l2",
+    "ups_voltage",
+    "grid_voltage",
+    "generator_voltage",
     # Current sensors (convert to A from deciamps)
-    "grid_current_l1", "grid_current_l2", "load_current_l1", "load_current_l2",
-    "ups_current_l1", "ups_current_l2", "generator_current_l1", "generator_current_l2",
+    "grid_current_l1",
+    "grid_current_l2",
+    "load_current_l1",
+    "load_current_l2",
+    "ups_current_l1",
+    "ups_current_l2",
+    "generator_current_l1",
+    "generator_current_l2",
     # GridBOSS energy sensors (convert to kWh from Wh/10)
-    "ups_l1", "ups_l2", "ups_lifetime_l1", "ups_lifetime_l2",
-    "grid_export_l1", "grid_export_l2", "grid_import_l1", "grid_import_l2",
-    "grid_export_lifetime_l1", "grid_export_lifetime_l2", "grid_import_lifetime_l1", "grid_import_lifetime_l2",
-    "load_l1", "load_l2", "load_lifetime_l1", "load_lifetime_l2",
-    "ac_couple1_l1", "ac_couple1_l2", "ac_couple1_lifetime_l1", "ac_couple1_lifetime_l2",
-    "ac_couple2_l1", "ac_couple2_l2", "ac_couple2_lifetime_l1", "ac_couple2_lifetime_l2",
-    "ac_couple3_l1", "ac_couple3_l2", "ac_couple3_lifetime_l1", "ac_couple3_lifetime_l2",
-    "ac_couple4_l1", "ac_couple4_l2", "ac_couple4_lifetime_l1", "ac_couple4_lifetime_l2",
-    "smart_load1_l1", "smart_load1_l2", "smart_load1_lifetime_l1", "smart_load1_lifetime_l2",
-    "smart_load2_l1", "smart_load2_l2", "smart_load2_lifetime_l1", "smart_load2_lifetime_l2",
-    "smart_load3_l1", "smart_load3_l2", "smart_load3_lifetime_l1", "smart_load3_lifetime_l2",
-    "smart_load4_l1", "smart_load4_l2", "smart_load4_lifetime_l1", "smart_load4_lifetime_l2",
-    "energy_to_user", "ups_energy"
+    "ups_l1",
+    "ups_l2",
+    "ups_lifetime_l1",
+    "ups_lifetime_l2",
+    "grid_export_l1",
+    "grid_export_l2",
+    "grid_import_l1",
+    "grid_import_l2",
+    "grid_export_lifetime_l1",
+    "grid_export_lifetime_l2",
+    "grid_import_lifetime_l1",
+    "grid_import_lifetime_l2",
+    "load_l1",
+    "load_l2",
+    "load_lifetime_l1",
+    "load_lifetime_l2",
+    "ac_couple1_l1",
+    "ac_couple1_l2",
+    "ac_couple1_lifetime_l1",
+    "ac_couple1_lifetime_l2",
+    "ac_couple2_l1",
+    "ac_couple2_l2",
+    "ac_couple2_lifetime_l1",
+    "ac_couple2_lifetime_l2",
+    "ac_couple3_l1",
+    "ac_couple3_l2",
+    "ac_couple3_lifetime_l1",
+    "ac_couple3_lifetime_l2",
+    "ac_couple4_l1",
+    "ac_couple4_l2",
+    "ac_couple4_lifetime_l1",
+    "ac_couple4_lifetime_l2",
+    "smart_load1_l1",
+    "smart_load1_l2",
+    "smart_load1_lifetime_l1",
+    "smart_load1_lifetime_l2",
+    "smart_load2_l1",
+    "smart_load2_l2",
+    "smart_load2_lifetime_l1",
+    "smart_load2_lifetime_l2",
+    "smart_load3_l1",
+    "smart_load3_l2",
+    "smart_load3_lifetime_l1",
+    "smart_load3_lifetime_l2",
+    "smart_load4_l1",
+    "smart_load4_l2",
+    "smart_load4_lifetime_l1",
+    "smart_load4_lifetime_l2",
+    "energy_to_user",
+    "ups_energy",
 }
 
 # Power and energy sensors that should be filtered when zero (except essential ones)
-POWER_ENERGY_SENSORS: Set[str] = {
-    # GridBOSS power sensors
-    "load_power", "smart_load_power", "generator_power",
-    "load_power_l1", "load_power_l2",
-    "ups_power_l1", "ups_power_l2", "generator_power_l1", "generator_power_l2",
-    "smart_load1_power_l1", "smart_load1_power_l2", "smart_load2_power_l1", "smart_load2_power_l2",
-    "smart_load3_power_l1", "smart_load3_power_l2", "smart_load4_power_l1", "smart_load4_power_l2",
-    # Runtime power sensors from inverter data that need zero filtering
-    "eps_load_power", "grid_load_power", "gen_power", "hybrid_power",
-} | DIVIDE_BY_100_SENSORS | GRIDBOSS_DIVIDE_BY_10_SENSORS  # Include all energy sensors for filtering
+POWER_ENERGY_SENSORS: Set[str] = (
+    {
+        # GridBOSS power sensors
+        "load_power",
+        "smart_load_power",
+        "generator_power",
+        "load_power_l1",
+        "load_power_l2",
+        "ups_power_l1",
+        "ups_power_l2",
+        "generator_power_l1",
+        "generator_power_l2",
+        "smart_load1_power_l1",
+        "smart_load1_power_l2",
+        "smart_load2_power_l1",
+        "smart_load2_power_l2",
+        "smart_load3_power_l1",
+        "smart_load3_power_l2",
+        "smart_load4_power_l1",
+        "smart_load4_power_l2",
+        # Runtime power sensors from inverter data that need zero filtering
+        "eps_load_power",
+        "grid_load_power",
+        "gen_power",
+        "hybrid_power",
+    }
+    | DIVIDE_BY_100_SENSORS
+    | GRIDBOSS_DIVIDE_BY_10_SENSORS
+)  # Include all energy sensors for filtering
 
 # Essential sensors that should never be filtered out even when 0
 ESSENTIAL_SENSORS: Set[str] = {
-    "grid_power", "grid_power_l1", "grid_power_l2",
+    "grid_power",
+    "grid_power_l1",
+    "grid_power_l2",
     # Smart Port status sensors should always be shown, even when 0 (Unused)
-    "smart_port1_status", "smart_port2_status", "smart_port3_status", "smart_port4_status"
+    "smart_port1_status",
+    "smart_port2_status",
+    "smart_port3_status",
+    "smart_port4_status",
 }
 
 
@@ -79,7 +177,9 @@ def validate_api_response(data: Dict[str, Any], required_fields: list = None) ->
     if required_fields:
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
-            _LOGGER.warning("Missing required fields in API response: %s", missing_fields)
+            _LOGGER.warning(
+                "Missing required fields in API response: %s", missing_fields
+            )
             return False
 
     return True
@@ -87,27 +187,34 @@ def validate_api_response(data: Dict[str, Any], required_fields: list = None) ->
 
 def validate_sensor_value(value: Any, sensor_type: str) -> Any:
     """Validate and sanitize sensor values."""
-    if value is None:
+    # Early returns for None and empty/invalid values
+    if value is None or value in ("", "N/A"):
         return None
 
-    # Handle empty strings and "N/A" values
-    if value == "" or value == "N/A":
-        return None
-
-    # For numeric sensors, try to convert to appropriate type
-    if sensor_type in DIVIDE_BY_10_SENSORS | DIVIDE_BY_100_SENSORS | GRIDBOSS_DIVIDE_BY_10_SENSORS:
+    # Handle numeric sensors that need type conversion
+    if (
+        sensor_type
+        in DIVIDE_BY_10_SENSORS | DIVIDE_BY_100_SENSORS | GRIDBOSS_DIVIDE_BY_10_SENSORS
+    ):
         try:
             return float(value)
         except (ValueError, TypeError):
-            _LOGGER.warning("Could not convert %s value %s to float for sensor %s", type(value), value, sensor_type)
+            _LOGGER.warning(
+                "Could not convert %s value %s to float for sensor %s",
+                type(value),
+                value,
+                sensor_type,
+            )
             return None
 
-    # For string sensors, ensure it's a valid string
+    # Handle string sensors - convert numbers to strings or strip existing strings
     if isinstance(value, (int, float)):
         return str(value)
-    elif isinstance(value, str):
+
+    if isinstance(value, str):
         return value.strip()
 
+    # Return value as-is for other types
     return value
 
 
@@ -121,13 +228,22 @@ def safe_division(value: Any, divisor: float, sensor_type: str) -> Any:
         result = numeric_value / divisor
         return result
     except (ValueError, TypeError, ZeroDivisionError) as e:
-        _LOGGER.warning("Could not divide %s value %s by %s for sensor %s: %s",
-                       type(value), value, divisor, sensor_type, e)
+        _LOGGER.warning(
+            "Could not divide %s value %s by %s for sensor %s: %s",
+            type(value),
+            value,
+            divisor,
+            sensor_type,
+            e,
+        )
         return None
 
 
-def apply_sensor_scaling(sensor_type: str, value: Any, device_type: str = "inverter") -> Any:
+def apply_sensor_scaling(
+    sensor_type: str, value: Any, device_type: str = "inverter"
+) -> Any:
     """Apply appropriate scaling to sensor values based on sensor type and device type."""
+    # Early return for None values
     if value is None:
         return None
 
@@ -136,25 +252,33 @@ def apply_sensor_scaling(sensor_type: str, value: Any, device_type: str = "inver
     if validated_value is None:
         return None
 
-    # Power sensors that display in kW (divide by 1000 from W)
+    # Define scaling mappings
     kw_sensors = {"ac_power", "dc_power", "battery_power", "load_power", "pv_total_power"}
 
-    # Apply device-specific scaling with safe division
+    # Determine scaling factor based on device type and sensor type
+    scaling_factor = None
+
+
     if device_type == "gridboss":
         if sensor_type in GRIDBOSS_DIVIDE_BY_10_SENSORS:
-            return safe_division(validated_value, 10.0, sensor_type)
+            scaling_factor = 10.0
         elif sensor_type in DIVIDE_BY_100_SENSORS:
-            return safe_division(validated_value, 100.0, sensor_type)
+            scaling_factor = 100.0
     else:
         # Standard inverter scaling
         if sensor_type in kw_sensors:
-            return safe_division(validated_value, 1000.0, sensor_type)
+            scaling_factor = 1000.0
         elif sensor_type in DIVIDE_BY_10_SENSORS:
-            return safe_division(validated_value, 10.0, sensor_type)
+            scaling_factor = 10.0
         elif sensor_type in DIVIDE_BY_100_SENSORS:
-            return safe_division(validated_value, 100.0, sensor_type)
+            scaling_factor = 100.0
 
-    return validated_value
+    # Apply scaling if needed, otherwise return validated value
+    return (
+        safe_division(validated_value, scaling_factor, sensor_type)
+        if scaling_factor is not None
+        else validated_value
+    )
 
 
 def should_filter_zero_sensor(sensor_type: str, value: Any) -> bool:
@@ -211,23 +335,34 @@ def _is_valid_numeric(value) -> bool:
         return False
 
 
-def _process_sensor_value(api_field: str, value: Any, sensor_type: str) -> Any:
+def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
     """Process sensor value with proper scaling based on API field."""
     if value is None or value == "" or value == "N/A":
         return None
 
     # Apply scaling based on API field type
-    if api_field in ["totalVoltage", "batMaxCellVoltage", "batMinCellVoltage"] and isinstance(value, (int, float)):
+    if api_field in [
+        "totalVoltage",
+        "batMaxCellVoltage",
+        "batMinCellVoltage",
+    ] and isinstance(value, (int, float)):
         # Voltage fields are scaled by 100x, need to divide by 100
         value = value / 100.0
     elif api_field in ["current"] and isinstance(value, (int, float)):
         # Current is scaled by 10x, need to divide by 10
         value = value / 10.0
-    elif api_field in ["batMaxCellTemp", "batMinCellTemp", "ambientTemp", "mosTemp"] and isinstance(value, (int, float)):
+    elif api_field in [
+        "batMaxCellTemp",
+        "batMinCellTemp",
+        "ambientTemp",
+        "mosTemp",
+    ] and isinstance(value, (int, float)):
         # Temperature fields are scaled by 10x, need to divide by 10
         value = value / 10.0
     # Capacity fields are already in Ah, no scaling needed
-    # elif api_field in ["currentRemainCapacity", "currentFullCapacity"] and isinstance(value, (int, float)):
+    # elif api_field in ["currentRemainCapacity", "currentFullCapacity"] and isinstance(
+    #     value, (int, float)
+    # ):
     #     # Capacity fields are in mAh, convert to Ah by dividing by 1000
     #     value = value / 1000.0
 
@@ -277,23 +412,43 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
         if api_field in bat_data:
             value = bat_data[api_field]
             if value is not None and value != "" and value != "N/A":
-                sensors[sensor_type] = _process_sensor_value(api_field, value, sensor_type)
+                sensors[sensor_type] = _process_sensor_value(
+                    api_field, value, sensor_type
+                )
 
     # Process conditional temperature sensors - only if data exists and not empty
     for api_field, sensor_type in temperature_sensors.items():
         if api_field in bat_data:
             value = bat_data[api_field]
-            if value is not None and value != "" and value != "N/A" and _is_valid_numeric(value):
-                sensors[sensor_type] = _process_sensor_value(api_field, value, sensor_type)
-                _LOGGER.debug("Created temperature sensor %s with value %s", sensor_type, value)
+            if (
+                value is not None
+                and value != ""
+                and value != "N/A"
+                and _is_valid_numeric(value)
+            ):
+                sensors[sensor_type] = _process_sensor_value(
+                    api_field, value, sensor_type
+                )
+                _LOGGER.debug(
+                    "Created temperature sensor %s with value %s", sensor_type, value
+                )
 
     # Process conditional voltage sensors - only if data exists and not empty
     for api_field, sensor_type in voltage_sensors.items():
         if api_field in bat_data:
             value = bat_data[api_field]
-            if value is not None and value != "" and value != "N/A" and _is_valid_numeric(value):
-                sensors[sensor_type] = _process_sensor_value(api_field, value, sensor_type)
-                _LOGGER.debug("Created voltage sensor %s with value %s", sensor_type, value)
+            if (
+                value is not None
+                and value != ""
+                and value != "N/A"
+                and _is_valid_numeric(value)
+            ):
+                sensors[sensor_type] = _process_sensor_value(
+                    api_field, value, sensor_type
+                )
+                _LOGGER.debug(
+                    "Created voltage sensor %s with value %s", sensor_type, value
+                )
 
     # Process conditional cell number sensors - only if data exists
     for api_field, sensor_type in cell_number_sensors.items():
@@ -305,26 +460,35 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
                     if isinstance(value, str):
                         value = int(value)
                     sensors[sensor_type] = value
-                    _LOGGER.debug("Created cell number sensor %s with value %s", sensor_type, value)
+                    _LOGGER.debug(
+                        "Created cell number sensor %s with value %s",
+                        sensor_type,
+                        value,
+                    )
                 except (ValueError, TypeError):
-                    _LOGGER.debug("Skipping invalid cell number for %s: %s", sensor_type, value)
+                    _LOGGER.debug(
+                        "Skipping invalid cell number for %s: %s", sensor_type, value
+                    )
 
-    _LOGGER.debug("Extracted %d battery sensors for battery: %s", len(sensors), list(sensors.keys()))
+    _LOGGER.debug(
+        "Extracted %d battery sensors for battery: %s",
+        len(sensors),
+        list(sensors.keys()),
+    )
     return sensors
 
 
 async def read_device_parameters_ranges(api_client, inverter_sn: str):
     """Shared function to read all parameter ranges for a device.
-    
+
     Consolidates the duplicate register reading logic used in coordinator.py and number.py.
     """
-    import asyncio
-    
+
     # Define standard register ranges
     register_ranges = [
-        (0, 127),      # Base parameters
-        (127, 127),    # Extended parameters range 1
-        (240, 127),    # Extended parameters range 2
+        (0, 127),  # Base parameters
+        (127, 127),  # Extended parameters range 1
+        (240, 127),  # Extended parameters range 2
     ]
 
     # Read all register ranges simultaneously for better performance
@@ -333,7 +497,7 @@ async def read_device_parameters_ranges(api_client, inverter_sn: str):
         task = api_client.read_parameters(
             inverter_sn=inverter_sn,
             start_register=start_register,
-            point_number=point_number
+            point_number=point_number,
         )
         tasks.append(task)
 
