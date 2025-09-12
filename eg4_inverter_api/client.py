@@ -370,3 +370,63 @@ class EG4InverterAPI:
         except Exception as e:
             _LOGGER.error(f"Failed to get GridBOSS data for {serial_number}: {e}")
             raise
+
+    async def read_parameters(self, inverter_sn: str, start_register: int = 0, point_number: int = 127) -> Dict[str, Any]:
+        """Read parameters from an inverter using the remote read endpoint.
+        
+        Args:
+            inverter_sn: The inverter serial number
+            start_register: Starting register address (default: 0)
+            point_number: Number of registers to read (default: 127)
+            
+        Returns:
+            Dict containing the parameter read response
+        """
+        endpoint = "/WManage/web/maintain/remoteRead/read"
+        data = {
+            "inverterSn": inverter_sn,
+            "startRegister": start_register,
+            "pointNumber": point_number
+        }
+        
+        _LOGGER.debug("Reading parameters from inverter %s: start_register=%s, point_number=%s", 
+                      inverter_sn, start_register, point_number)
+        
+        try:
+            response = await self._make_request("POST", endpoint, data)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to read parameters from inverter %s: %s", inverter_sn, e)
+            raise EG4APIError(f"Parameter read failed for {inverter_sn}: {e}") from e
+
+    async def write_parameter(self, inverter_sn: str, hold_param: str, value_text: str, 
+                            client_type: str = "WEB", remote_set_type: str = "NORMAL") -> Dict[str, Any]:
+        """Write a parameter to an inverter using the remote write endpoint.
+        
+        Args:
+            inverter_sn: The inverter serial number
+            hold_param: The parameter name to write (e.g., "HOLD_SYSTEM_CHARGE_SOC_LIMIT")
+            value_text: The value to write as string
+            client_type: Client type (default: "WEB")
+            remote_set_type: Remote set type (default: "NORMAL")
+            
+        Returns:
+            Dict containing the parameter write response
+        """
+        endpoint = "/WManage/web/maintain/remoteSet/write"
+        data = {
+            "inverterSn": inverter_sn,
+            "holdParam": hold_param,
+            "valueText": value_text,
+            "clientType": client_type,
+            "remoteSetType": remote_set_type
+        }
+        
+        _LOGGER.debug("Writing parameter to inverter %s: %s=%s", inverter_sn, hold_param, value_text)
+        
+        try:
+            response = await self._make_request("POST", endpoint, data)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to write parameter to inverter %s: %s", inverter_sn, e)
+            raise EG4APIError(f"Parameter write failed for {inverter_sn}: {e}") from e

@@ -1,0 +1,235 @@
+"""Number platform for EG4 Web Monitor integration."""
+
+import logging
+from typing import Any, Dict, Optional
+
+from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
+
+from .const import DOMAIN
+from .coordinator import EG4DataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up EG4 Web Monitor number entities from a config entry."""
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    
+    entities = []
+    
+    # Create number entities for each inverter device (not GridBOSS or parallel groups)
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        device_type = device_data.get("type")
+        if device_type == "inverter":
+            entities.append(SystemChargeSOCLimitNumber(coordinator, serial))
+    
+    if entities:
+        _LOGGER.info("Added %d number entities", len(entities))
+        async_add_entities(entities, update_before_add=True)
+    else:
+        _LOGGER.info("No number entities created")
+
+
+class SystemChargeSOCLimitNumber(NumberEntity):
+    """Number entity for System Charge SOC Limit control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        self.coordinator = coordinator
+        self.serial = serial
+        
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+        
+        # Entity configuration
+        self._attr_name = "System Charge SOC Limit"
+        self._attr_unique_id = f"{serial}_system_charge_soc_limit"
+        self._attr_entity_id = f"number.{model.lower().replace(' ', '_')}_{serial}_system_charge_soc_limit"
+        
+        # Number configuration for SOC limit (10-101%) - integer only
+        self._attr_native_min_value = 10
+        self._attr_native_max_value = 101
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-charging-80"
+        
+        # Set precision to 0 decimal places (integers only)
+        self._attr_native_precision = 0
+        
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+        
+        # Current value - will be loaded from device
+        self._current_value = None
+        
+        _LOGGER.debug("Created System Charge SOC Limit number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current SOC limit value as integer."""
+        # Return the cached value if available
+        if hasattr(self, '_current_value') and self._current_value is not None:
+            return int(round(self._current_value))
+        # Return None to indicate unknown value - will be loaded asynchronously
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the SOC limit value."""
+        try:
+            # Convert to integer and validate range - must be integer between 10-101
+            int_value = int(round(value))
+            if int_value < 10 or int_value > 101:
+                raise ValueError(f"SOC limit must be an integer between 10-101%, got {int_value}")
+            
+            # Validate that the input is actually an integer (no decimals)
+            if abs(value - int_value) > 0.01:  # Allow small floating point tolerance
+                raise ValueError(f"SOC limit must be an integer value, got {value}")
+            
+            _LOGGER.info("Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value)
+            
+            # Use the API client to write the parameter
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_SYSTEM_CHARGE_SOC_LIMIT",
+                value_text=str(int_value)
+            )
+            
+            _LOGGER.debug("Parameter write response for %s: %s", self.serial, response)
+            
+            # Check if the write was successful
+            if response.get("success", False):
+                # Update the stored value
+                self._current_value = value
+                self.async_write_ha_state()
+                
+                # Trigger a coordinator refresh to get updated data
+                await self.coordinator.async_request_refresh()
+                
+                _LOGGER.info("Successfully set System Charge SOC Limit for %s to %d%%", 
+                           self.serial, int_value)
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(f"Failed to set SOC limit: {error_msg}")
+                
+        except Exception as e:
+            _LOGGER.error("Failed to set System Charge SOC Limit for %s: %s", self.serial, e)
+            raise HomeAssistantError(f"Failed to set SOC limit: {e}") from e
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        # Refresh the SOC limit value from the device periodically
+        try:
+            current_value = await self._read_current_soc_limit()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug("SOC limit for %s updated from %s%% to %s%%", 
+                             self.serial, self._current_value, current_value)
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error("Failed to update SOC limit for %s: %s", self.serial, e)
+        
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_soc_limit(self) -> Optional[float]:
+        """Read the current SOC limit from the device by reading all register ranges."""
+        try:
+            import asyncio
+            
+            # Define all register ranges to read simultaneously
+            register_ranges = [
+                (0, 127),      # Base parameters  
+                (127, 127),    # Extended parameters range 1
+                (240, 127),    # Extended parameters range 2
+            ]
+            
+            # Read all register ranges simultaneously for better performance
+            tasks = []
+            for start_register, point_number in register_ranges:
+                task = self.coordinator.api.read_parameters(
+                    inverter_sn=self.serial,
+                    start_register=start_register,
+                    point_number=point_number
+                )
+                tasks.append(task)
+            
+            # Execute all reads in parallel
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process responses and look for HOLD_SYSTEM_CHARGE_SOC_LIMIT in any range
+            for i, response in enumerate(responses):
+                if isinstance(response, Exception):
+                    start_register = register_ranges[i][0]
+                    _LOGGER.debug("Failed to read register range %d for %s: %s", start_register, self.serial, response)
+                    continue
+                
+                if response and response.get("success", False):
+                    start_register = register_ranges[i][0]
+                    _LOGGER.debug("Parameter read response for %s (reg %d): success=True", self.serial, start_register)
+                    
+                    # Check for HOLD_SYSTEM_CHARGE_SOC_LIMIT in this response
+                    soc_limit = self._extract_system_charge_soc_limit(response, start_register)
+                    if soc_limit is not None:
+                        return soc_limit
+            
+            # If HOLD_SYSTEM_CHARGE_SOC_LIMIT not found in any register range
+            _LOGGER.error("HOLD_SYSTEM_CHARGE_SOC_LIMIT parameter not found in any register range for %s", self.serial)
+                    
+        except Exception as e:
+            _LOGGER.error("Error reading SOC limit for %s: %s", self.serial, e)
+        
+        return None
+
+    def _extract_system_charge_soc_limit(self, response: dict, start_register: int) -> Optional[int]:
+        """Extract HOLD_SYSTEM_CHARGE_SOC_LIMIT from parameter response as integer."""
+        if "HOLD_SYSTEM_CHARGE_SOC_LIMIT" in response and response["HOLD_SYSTEM_CHARGE_SOC_LIMIT"] is not None:
+            try:
+                raw_value = float(response["HOLD_SYSTEM_CHARGE_SOC_LIMIT"])
+                int_value = int(round(raw_value))
+                
+                if 10 <= int_value <= 101:  # Validate range
+                    _LOGGER.info("Found HOLD_SYSTEM_CHARGE_SOC_LIMIT for %s (reg %d): %d%%", 
+                               self.serial, start_register, int_value)
+                    return int_value
+                else:
+                    _LOGGER.warning("HOLD_SYSTEM_CHARGE_SOC_LIMIT for %s (reg %d) out of range: %d%%", 
+                                  self.serial, start_register, int_value)
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning("Failed to parse HOLD_SYSTEM_CHARGE_SOC_LIMIT for %s (reg %d): %s", 
+                              self.serial, start_register, e)
+        
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+        
+        # Read the current SOC limit from the device
+        try:
+            current_value = await self._read_current_soc_limit()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info("Loaded SOC limit for %s: %s%%", self.serial, current_value)
+            else:
+                # Set a reasonable default if we can't read the current value
+                self._current_value = 90
+                _LOGGER.warning("Could not read SOC limit for %s, using default: 90%%", self.serial)
+        except Exception as e:
+            _LOGGER.error("Failed to initialize SOC limit for %s: %s", self.serial, e)
+            self._current_value = 90  # Safe default

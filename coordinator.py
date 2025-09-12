@@ -842,6 +842,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not device_data:
             return None
             
+        # Device info debug logging removed for performance
+            
         # Special handling for parallel group device naming
         model = device_data.get("model", "Unknown")
         device_type = device_data.get("type", "unknown")
@@ -882,7 +884,21 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self.data or "devices" not in self.data:
             return None
             
-        # Check if a parallel group exists - if so, all inverters and gridboss devices are part of it
+        # Check parallel groups info to see which devices belong to which group
+        parallel_groups_info = self.data.get("parallel_groups_info", [])
+        if parallel_groups_info:
+            for group in parallel_groups_info:
+                # Check if this device is listed in the group's inverter list
+                inverter_list = group.get("inverterList", [])
+                for inverter in inverter_list:
+                    if inverter.get("serialNum") == device_serial:
+                        # This device belongs to this parallel group
+                        group_letter = group.get("parallelGroup", "")
+                        if group_letter:
+                            return "parallel_group"  # Return the parallel group serial
+                        
+        # Fallback: if no specific group membership found but a parallel group exists,
+        # assume all inverter/gridboss devices are part of it
         for serial, device_data in self.data["devices"].items():
             if device_data.get("type") == "parallel_group":
                 # Found a parallel group - return its serial as the parent
