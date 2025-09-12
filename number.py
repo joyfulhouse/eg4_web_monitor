@@ -7,6 +7,7 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
@@ -38,22 +39,28 @@ async def async_setup_entry(
         _LOGGER.info("No number entities created")
 
 
-class SystemChargeSOCLimitNumber(NumberEntity):
+class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
     """Number entity for System Charge SOC Limit control."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self.serial = serial
         
         # Get device info
         device_data = coordinator.data.get("devices", {}).get(serial, {})
         model = device_data.get("model", "Unknown")
         
-        # Entity configuration
-        self._attr_name = "System Charge SOC Limit"
-        self._attr_unique_id = f"{serial}_system_charge_soc_limit"
-        self._attr_entity_id = f"number.{model.lower().replace(' ', '_')}_{serial}_system_charge_soc_limit"
+        # Entity configuration - explicit entity_id to override registry caching
+        # Clean model name for entity ID - following same pattern as sensors
+        clean_model = model.lower().replace(' ', '_').replace('-', '_')
+        
+        # Set entity attributes - unique_id is key for proper entity registration
+        self._attr_name = f"{clean_model} {serial.lower()} System Charge SOC Limit"
+        self._attr_unique_id = f"{clean_model}_{serial.lower()}_system_charge_soc_limit"
+        
+        _LOGGER.debug("Creating SOC Limit entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s", 
+                     model, clean_model, serial, self._attr_name, self._attr_unique_id)
         
         # Number configuration for SOC limit (10-101%) - integer only
         self._attr_native_min_value = 10

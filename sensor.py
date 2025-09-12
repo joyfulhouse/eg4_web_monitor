@@ -89,6 +89,18 @@ def _create_inverter_sensors(
                         sensor_key=sensor_key,
                     )
                 )
+        
+        # Create calculated Cell Voltage Delta sensor for each battery
+        # Check if we have the required cell voltage data
+        if (battery_sensors.get("battery_cell_voltage_max") is not None and 
+            battery_sensors.get("battery_cell_voltage_min") is not None):
+            entities.append(
+                EG4BatteryCellVoltageDeltaSensor(
+                    coordinator=coordinator,
+                    serial=serial,
+                    battery_key=battery_key,
+                )
+            )
     
     return entities
 
@@ -290,6 +302,80 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         batteries = device_data.get("batteries", {})
         battery_data = batteries.get(self._battery_key, {})
         return battery_data.get(self._sensor_key)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.data is not None
+            and "devices" in self.coordinator.data
+            and self._serial in self.coordinator.data["devices"]
+            and "error" not in self.coordinator.data["devices"][self._serial]
+            and self._battery_key in self.coordinator.data["devices"][self._serial].get("batteries", {})
+        )
+
+
+class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
+    """Representation of an EG4 Battery Cell Voltage Delta sensor."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        battery_key: str,
+    ) -> None:
+        """Initialize the battery cell voltage delta sensor."""
+        super().__init__(coordinator)
+        
+        self._serial = serial
+        self._battery_key = battery_key
+        
+        # Get device info
+        device_data = coordinator.data["devices"].get(serial, {})
+        model = device_data.get("model", "Unknown")
+        
+        # Clean up battery display name to remove redundant serial numbers
+        from .utils import clean_battery_display_name
+        clean_battery_name = clean_battery_display_name(battery_key, serial)
+        clean_battery_id = battery_key.replace("_", "").replace("-", "").lower()
+        
+        # Entity configuration
+        self._attr_name = f"Battery {clean_battery_name} Cell Voltage Delta"
+        self._attr_unique_id = f"{serial}_{battery_key}_cell_voltage_delta"
+        self._attr_entity_id = f"sensor.battery_{serial.lower()}_{clean_battery_id}_cell_voltage_delta"
+        
+        # Sensor configuration
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_device_class = SensorDeviceClass.VOLTAGE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:battery-sync"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_suggested_display_precision = 3
+        
+        # Device registry
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
+        }
+
+    @property
+    def native_value(self) -> Optional[float]:
+        """Return the calculated cell voltage delta."""
+        device_data = self.coordinator.data["devices"].get(self._serial, {})
+        batteries = device_data.get("batteries", {})
+        battery_data = batteries.get(self._battery_key, {})
+        
+        # Get cell voltage max and min
+        cell_voltage_max = battery_data.get("battery_cell_voltage_max")
+        cell_voltage_min = battery_data.get("battery_cell_voltage_min")
+        
+        if cell_voltage_max is None or cell_voltage_min is None:
+            return None
+            
+        # Calculate absolute difference (delta)
+        voltage_delta = abs(cell_voltage_max - cell_voltage_min)
+        
+        return voltage_delta
 
     @property
     def available(self) -> bool:
