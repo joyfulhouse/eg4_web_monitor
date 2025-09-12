@@ -8,6 +8,11 @@ samples/
 eg4_inverter_api/samples/*.json
 samples/*.json
 
+# Test directories (contain sensitive information)
+tests/
+test_env/
+eg4_inverter_api/tests/
+
 # Python
 __pycache__/
 *.py[cod]
