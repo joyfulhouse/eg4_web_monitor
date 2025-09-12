@@ -299,6 +299,34 @@ EG4 Web Monitor {Station_Name}
 - **✅ Binary Sensor Cleanup**: All invalid binary sensors completely removed, integration now creates 0 binary sensor entities
 - **✅ Runtime Data Integration**: Coordinator now properly extracts and maps runtime data fields to new sensor entities
 
+### ✅ September 2025 - Release 1.2.3: Comprehensive Parameter Refresh System
+- **✅ Multi-Inverter Parameter Synchronization**: When any parameter is changed on one inverter, all inverters automatically refresh their parameters
+  - Cross-device parameter updates ensure system-wide synchronization
+  - SOC limit changes on FlexBOSS21 trigger parameter refresh on 18KPV and vice versa
+  - All SOC limit entities update simultaneously with current device values
+- **✅ Hourly Automatic Parameter Refresh**: Added background hourly parameter refresh for all inverter devices
+  - Parameters refresh every hour automatically without blocking regular data updates
+  - Smart scheduling with first refresh on startup, then hourly thereafter
+  - Concurrent parameter reads for optimal performance across multiple devices
+- **✅ Enhanced Parameter Management**: Complete parameter refresh system implementation
+  - `refresh_all_device_parameters()`: Refresh parameters for all inverters concurrently
+  - `_refresh_device_parameters()`: Refresh specific device parameters with comprehensive register reads
+  - `_hourly_parameter_refresh()`: Background hourly refresh task processing
+  - `_should_refresh_parameters()`: Smart interval checking and refresh timing
+- **✅ Cross-Inverter Parameter Fixes**: Resolved issues where parameter changes on one inverter didn't update other inverters
+  - Background task processing to avoid UI blocking during parameter refresh
+  - Enhanced entity update system ensures all SOC limit values stay synchronized
+  - Comprehensive error handling and logging for parameter refresh operations
+
+### ✅ September 2025 - Release 1.2.2: SOC Limit Entity Management  
+- **✅ Cell Voltage Delta Sensors**: Added calculated sensors showing voltage difference between highest and lowest battery cells
+  - Entity IDs: `sensor.battery_44300e0585_01_cell_voltage_delta` 
+  - Real-time cell imbalance monitoring for battery health assessment
+- **✅ SOC Limit Entity Naming**: Fixed entity naming to include device model for better organization
+  - Before: `number.system_charge_soc_limit` (generic, caused conflicts)
+  - After: `number.flexboss21_44300e0585_system_charge_soc_limit` (device-specific)
+- **✅ SOC Limit Availability**: Resolved entity availability issues and proper entity registry handling
+
 ## Project Status ✅
 
 ### ✅ COMPLETED - Project Plan Implementation
