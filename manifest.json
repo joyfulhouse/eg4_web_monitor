@@ -9,6 +9,6 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/joyfulhouse/eg4_web_monitor/issues",
   "requirements": ["aiohttp>=3.8.0"],
-  "version": "1.2.3",
+  "version": "1.2.4",
   "loggers": ["eg4_web_monitor"]
 }

@@ -36,7 +36,7 @@ SENSOR_TYPES = {
         "icon": "mdi:solar-power",
     },
     "dc_power": {
-        "name": "DC Power", 
+        "name": "DC Power",
         "unit": UnitOfPower.WATT,
         "device_class": "power",
         "state_class": "measurement",
@@ -63,7 +63,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
-    
+
     # Voltage sensors
     "ac_voltage": {
         "name": "AC Voltage",
@@ -87,7 +87,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
-    
+
     # Current sensors
     "ac_current": {
         "name": "AC Current",
@@ -110,7 +110,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
-    
+
     # Energy sensors
     "total_energy": {
         "name": "Total Energy",
@@ -140,7 +140,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:calendar-year",
     },
-    
+
     # Current day energy sensors (values need to be divided by 10)
     "yield": {
         "name": "Yield",
@@ -184,7 +184,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
-    
+
     # Lifetime energy sensors (values need to be divided by 10)
     "yield_lifetime": {
         "name": "Yield (Lifetime)",
@@ -228,7 +228,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
-    
+
     # Frequency
     "frequency": {
         "name": "Frequency",
@@ -237,7 +237,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:sine-wave",
     },
-    
+
     # Temperature
     "temperature": {
         "name": "Temperature",
@@ -246,7 +246,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:thermometer",
     },
-    
+
     # Battery specific
     "state_of_charge": {
         "name": "State of Charge",
@@ -266,7 +266,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:counter",
     },
-    
+
     # Additional battery sensors from batteryArray
     "battery_real_voltage": {
         "name": "Voltage",
@@ -332,7 +332,7 @@ SENSOR_TYPES = {
         "icon": "mdi:thermometer-chevron-up",
     },
     "battery_cell_temp_min": {
-        "name": "Min Cell Temperature", 
+        "name": "Min Cell Temperature",
         "unit": UnitOfTemperature.CELSIUS,
         "device_class": "temperature",
         "state_class": "measurement",
@@ -418,7 +418,7 @@ SENSOR_TYPES = {
         "name": "Warning Status",
         "icon": "mdi:alert",
     },
-    
+
     # PV String sensors
     "pv1_voltage": {
         "name": "PV1 Voltage",
@@ -462,7 +462,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:solar-panel",
     },
-    
+
     # GridBOSS MidBox specific sensors
     "grid_voltage_l1": {
         "name": "Grid Voltage L1",
@@ -472,7 +472,7 @@ SENSOR_TYPES = {
         "icon": "mdi:transmission-tower",
     },
     "grid_voltage_l2": {
-        "name": "Grid Voltage L2", 
+        "name": "Grid Voltage L2",
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": "voltage",
         "state_class": "measurement",
@@ -639,7 +639,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
     },
-    
+
     # Status sensors (diagnostic)
     "status_code": {
         "name": "Status Code",
@@ -651,7 +651,7 @@ SENSOR_TYPES = {
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
-    
+
     # New runtime sensors
     "pv_total_power": {
         "name": "PV Total Power",
@@ -681,7 +681,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:radiator",
     },
-    
+
     # GridBOSS Smart Load sensors
     "smart_load_power": {
         "name": "Smart Load Power",
@@ -718,7 +718,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:electric-switch",
     },
-    
+
     # GridBOSS Smart Port Status sensors
     "smart_port1_status": {
         "name": "Smart Port 1 Status",
@@ -740,7 +740,7 @@ SENSOR_TYPES = {
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
     },
-    
+
     # GridBOSS AC Couple energy sensors
     "ac_couple1_today": {
         "name": "AC Couple 1 Today",
@@ -752,7 +752,7 @@ SENSOR_TYPES = {
     "ac_couple1_total": {
         "name": "AC Couple 1 Total",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "device_class": "energy", 
+        "device_class": "energy",
         "state_class": "total_increasing",
         "icon": "mdi:solar-power",
     },
@@ -767,7 +767,7 @@ SENSOR_TYPES = {
         "name": "AC Couple 2 Total",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
-        "state_class": "total_increasing", 
+        "state_class": "total_increasing",
         "icon": "mdi:solar-power",
     },
     "ac_couple3_today": {
@@ -798,7 +798,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:solar-power",
     },
-    
+
     # GridBOSS Generator sensors
     "generator_voltage": {
         "name": "Generator Voltage",
@@ -821,8 +821,8 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:engine",
     },
-    
-    # GridBOSS Phase Lock Frequency  
+
+    # GridBOSS Phase Lock Frequency
     "phase_lock_frequency": {
         "name": "Phase Lock Frequency",
         "unit": UnitOfFrequency.HERTZ,
@@ -830,7 +830,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:sine-wave",
     },
-    
+
     # GridBOSS Generator L1/L2 sensors
     "generator_current_l1": {
         "name": "Generator Current L1",
@@ -840,7 +840,7 @@ SENSOR_TYPES = {
         "icon": "mdi:engine",
     },
     "generator_current_l2": {
-        "name": "Generator Current L2", 
+        "name": "Generator Current L2",
         "unit": UnitOfElectricCurrent.AMPERE,
         "device_class": "current",
         "state_class": "measurement",
@@ -860,7 +860,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:engine",
     },
-    
+
     # GridBOSS Smart Load L1/L2 Power sensors
     "smart_load1_power_l1": {
         "name": "Smart Load 1 Power L1",
@@ -918,7 +918,7 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:electric-switch",
     },
-    
+
     # GridBOSS UPS Energy sensors
     "ups_l1": {
         "name": "UPS Consumption L1",
@@ -948,7 +948,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:battery-charging-wireless",
     },
-    
+
     # GridBOSS Grid Export Energy sensors
     "grid_export_l1": {
         "name": "Grid Export L1",
@@ -978,7 +978,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-export",
     },
-    
+
     # GridBOSS Grid Import Energy sensors
     "grid_import_l1": {
         "name": "Grid Import L1",
@@ -1008,7 +1008,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
-    
+
     # GridBOSS Load Energy sensors
     "load_l1": {
         "name": "Load L1",
@@ -1038,7 +1038,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:home-lightning-bolt",
     },
-    
+
     # GridBOSS AC Couple Energy sensors L1/L2
     "ac_couple1_l1": {
         "name": "AC Couple 1 L1",
@@ -1152,7 +1152,7 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:solar-power",
     },
-    
+
     # GridBOSS Smart Load Energy sensors L1/L2
     "smart_load1_l1": {
         "name": "Smart Load 1 L1",
@@ -1268,41 +1268,42 @@ SENSOR_TYPES = {
     },
 }
 
-# Binary sensor types
-BINARY_SENSOR_TYPES = {
-}
 
 # Sensor field mappings to reduce duplication
 INVERTER_RUNTIME_FIELD_MAPPING = {
     # System information sensors
     "status": "status_code",
     "statusText": "status_text",
-    
-    # Power sensors  
+
+    # Power sensors
     "pinv": "ac_power",
     "ppv": "pv_total_power",
+    "ppv1": "pv1_power",
+    "ppv2": "pv2_power", 
+    "ppv3": "pv3_power",
     "pCharge": "battery_power_charging",
-    "pDisCharge": "battery_power_discharging", 
-    
+    "pDisCharge": "battery_power_discharging",
+
     # Voltage sensors
     "acVoltage": "ac_voltage",
     "dcVoltage": "dc_voltage",
     "vacr": "ac_voltage",  # AC Voltage (needs division by 10)
     "vBat": "battery_voltage",
     "vpv1": "pv1_voltage",
-    "vpv2": "pv2_voltage", 
+    "vpv2": "pv2_voltage",
     "vpv3": "pv3_voltage",
-    
+
     # Current sensors
     "acCurrent": "ac_current",
     "dcCurrent": "dc_current",
-    
+
     # Other sensors
+    "soc": "state_of_charge",
     "frequency": "frequency",
     "tinner": "internal_temperature",
-    "tradiator1": "radiator_1_temperature", 
-    "tradiator2": "radiator_2_temperature",
-    
+    "tradiator1": "radiator1_temperature",
+    "tradiator2": "radiator2_temperature",
+
     # Energy sensors (today values - need division by 10)
     "todayYielding": "yield",
     "todayDischarging": "discharging",
@@ -1322,7 +1323,7 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
 INVERTER_ENERGY_FIELD_MAPPING = {
     # Basic energy information
     "totalEnergy": "total_energy",
-    "dailyEnergy": "daily_energy", 
+    "dailyEnergy": "daily_energy",
     "monthlyEnergy": "monthly_energy",
     "yearlyEnergy": "yearly_energy",
     # Today energy sensors (need division by 10)
@@ -1330,7 +1331,7 @@ INVERTER_ENERGY_FIELD_MAPPING = {
     "todayDischarging": "discharging",
     "todayCharging": "charging",
     "todayLoad": "load",
-    "todayGridFeed": "grid_export", 
+    "todayGridFeed": "grid_export",
     "todayGridConsumption": "grid_import",
     # Total energy values (need division by 10)
     "totalYielding": "yield_lifetime",
@@ -1344,18 +1345,18 @@ INVERTER_ENERGY_FIELD_MAPPING = {
 GRIDBOSS_FIELD_MAPPING = {
     # Frequency sensors (need division by 100)
     "gridFreq": "frequency",
-    "genFreq": "generator_frequency", 
+    "genFreq": "generator_frequency",
     "phaseLockFreq": "phase_lock_frequency",
-    
+
     # GridBOSS MidBox voltage sensors (need division by 10)
     "gridL1RmsVolt": "grid_voltage_l1",
-    "gridL2RmsVolt": "grid_voltage_l2", 
+    "gridL2RmsVolt": "grid_voltage_l2",
     "upsL1RmsVolt": "load_voltage_l1",
     "upsL2RmsVolt": "load_voltage_l2",
     "upsRmsVolt": "ups_voltage",
     "gridRmsVolt": "grid_voltage",
     "genRmsVolt": "generator_voltage",
-    
+
     # GridBOSS MidBox current sensors (need division by 10)
     "gridL1RmsCurr": "grid_current_l1",
     "gridL2RmsCurr": "grid_current_l2",
@@ -1365,11 +1366,11 @@ GRIDBOSS_FIELD_MAPPING = {
     "upsL2RmsCurr": "ups_current_l2",
     "genL1RmsCurr": "generator_current_l1",
     "genL2RmsCurr": "generator_current_l2",
-    
+
     # Power sensors
     "gridL1ActivePower": "grid_power_l1",
     "gridL2ActivePower": "grid_power_l2",
-    "loadL1ActivePower": "load_power_l1", 
+    "loadL1ActivePower": "load_power_l1",
     "loadL2ActivePower": "load_power_l2",
     "upsL1ActivePower": "ups_power_l1",
     "upsL2ActivePower": "ups_power_l2",
@@ -1377,41 +1378,41 @@ GRIDBOSS_FIELD_MAPPING = {
     "genL2ActivePower": "generator_power_l2",
     "smartLoad1L1ActivePower": "smart_load1_power_l1",
     "smartLoad1L2ActivePower": "smart_load1_power_l2",
-    "smartLoad2L1ActivePower": "smart_load2_power_l1", 
+    "smartLoad2L1ActivePower": "smart_load2_power_l1",
     "smartLoad2L2ActivePower": "smart_load2_power_l2",
     "smartLoad3L1ActivePower": "smart_load3_power_l1",
     "smartLoad3L2ActivePower": "smart_load3_power_l2",
     "smartLoad4L1ActivePower": "smart_load4_power_l1",
     "smartLoad4L2ActivePower": "smart_load4_power_l2",
-    
+
     # Smart Port status sensors
     "smartPort1Status": "smart_port1_status",
     "smartPort2Status": "smart_port2_status",
     "smartPort3Status": "smart_port3_status",
     "smartPort4Status": "smart_port4_status",
-    
+
     # Energy sensors - UPS daily and lifetime values (need division by 10)
     "eUpsTodayL1": "ups_l1",
     "eUpsTodayL2": "ups_l2",
     "eUpsTotalL1": "ups_lifetime_l1",
     "eUpsTotalL2": "ups_lifetime_l2",
-    
+
     # Energy sensors - Grid interaction daily and lifetime values (need division by 10)
     "eToGridTodayL1": "grid_export_l1",
     "eToGridTodayL2": "grid_export_l2",
-    "eToUserTodayL1": "grid_import_l1", 
+    "eToUserTodayL1": "grid_import_l1",
     "eToUserTodayL2": "grid_import_l2",
     "eToGridTotalL1": "grid_export_lifetime_l1",
     "eToGridTotalL2": "grid_export_lifetime_l2",
     "eToUserTotalL1": "grid_import_lifetime_l1",
     "eToUserTotalL2": "grid_import_lifetime_l2",
-    
+
     # Energy sensors - Load daily and lifetime values (need division by 10)
     "eLoadTodayL1": "load_l1",
     "eLoadTodayL2": "load_l2",
     "eLoadTotalL1": "load_lifetime_l1",
     "eLoadTotalL2": "load_lifetime_l2",
-    
+
     # Energy sensors - AC Couple daily values (need division by 10)
     "eACcouple1TodayL1": "ac_couple1_l1",
     "eACcouple1TodayL2": "ac_couple1_l2",
@@ -1430,7 +1431,7 @@ GRIDBOSS_FIELD_MAPPING = {
     "eACcouple3TotalL2": "ac_couple3_lifetime_l2",
     "eACcouple4TotalL1": "ac_couple4_lifetime_l1",
     "eACcouple4TotalL2": "ac_couple4_lifetime_l2",
-    
+
     # Energy sensors - Smart Load daily values (need division by 10)
     "eSmartLoad1TodayL1": "smart_load1_l1",
     "eSmartLoad1TodayL2": "smart_load1_l2",
@@ -1449,7 +1450,7 @@ GRIDBOSS_FIELD_MAPPING = {
     "eSmartLoad3TotalL2": "smart_load3_lifetime_l2",
     "eSmartLoad4TotalL1": "smart_load4_lifetime_l1",
     "eSmartLoad4TotalL2": "smart_load4_lifetime_l2",
-    
+
     # Other energy sensors (need division by 10)
     "eEnergyToUser": "energy_to_user",
     "eUpsEnergy": "ups_energy",
@@ -1458,7 +1459,7 @@ GRIDBOSS_FIELD_MAPPING = {
 PARALLEL_GROUP_FIELD_MAPPING = {
     # Today energy values (need division by 10)
     "todayYielding": "yield",
-    "todayDischarging": "discharging", 
+    "todayDischarging": "discharging",
     "todayCharging": "charging",
     "todayExport": "grid_export",
     "todayImport": "grid_import",
@@ -1466,8 +1467,28 @@ PARALLEL_GROUP_FIELD_MAPPING = {
     # Total energy values (need division by 10)
     "totalYielding": "yield_lifetime",
     "totalDischarging": "discharging_lifetime",
-    "totalCharging": "charging_lifetime", 
+    "totalCharging": "charging_lifetime",
     "totalExport": "grid_export_lifetime",
     "totalImport": "grid_import_lifetime",
     "totalUsage": "consumption_lifetime",
+}
+
+# Shared sensor lists to reduce duplication
+DIVIDE_BY_10_SENSORS = {
+    "yield", "discharging", "charging", "load", "grid_export", "grid_import", "consumption",
+    "yield_lifetime", "discharging_lifetime", "charging_lifetime", "load_lifetime", 
+    "grid_export_lifetime", "grid_import_lifetime", "consumption_lifetime",
+    # GridBOSS energy sensors
+    "ups_l1", "ups_l2", "ups_lifetime_l1", "ups_lifetime_l2",
+    "grid_export_l1", "grid_export_l2", "grid_import_l1", "grid_import_l2",
+    "grid_export_lifetime_l1", "grid_export_lifetime_l2", "grid_import_lifetime_l1", "grid_import_lifetime_l2",
+    "load_l1", "load_l2", "load_lifetime_l1", "load_lifetime_l2",
+    "ac_couple1_l1", "ac_couple1_l2", "ac_couple1_lifetime_l1", "ac_couple1_lifetime_l2",
+    "ac_couple2_l1", "ac_couple2_l2", "ac_couple2_lifetime_l1", "ac_couple2_lifetime_l2",
+    "ac_couple3_l1", "ac_couple3_l2", "ac_couple3_lifetime_l1", "ac_couple3_lifetime_l2",
+    "ac_couple4_l1", "ac_couple4_l2", "ac_couple4_lifetime_l1", "ac_couple4_lifetime_l2",
+    "smart_load1_l1", "smart_load1_l2", "smart_load1_lifetime_l1", "smart_load1_lifetime_l2",
+    "smart_load2_l1", "smart_load2_l2", "smart_load2_lifetime_l1", "smart_load2_lifetime_l2",
+    "smart_load3_l1", "smart_load3_l2", "smart_load3_lifetime_l1", "smart_load3_lifetime_l2",
+    "smart_load4_l1", "smart_load4_l2", "smart_load4_lifetime_l1", "smart_load4_lifetime_l2",
 }

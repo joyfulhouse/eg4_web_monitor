@@ -6,13 +6,12 @@ from typing import Any, Dict, Optional
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CONF_BASE_URL,
-    CONF_PLANT_ID, 
+    CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
     DEFAULT_BASE_URL,
@@ -63,7 +62,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Test authentication and get plants
                 await self._test_credentials()
-                
+
                 # Check if we already have an entry for this user
                 await self.async_set_unique_id(self._username)
                 self._abort_if_unique_id_configured()
@@ -108,7 +107,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 plant_id = user_input[CONF_PLANT_ID]
-                
+
                 # Find the selected plant
                 selected_plant = None
                 for plant in self._plants:
@@ -130,7 +129,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Build plant selection schema
         plant_options = {
-            plant["plantId"]: plant["name"] 
+            plant["plantId"]: plant["name"]
             for plant in self._plants or []
         }
 

@@ -32,7 +32,7 @@ class EG4InverterAPI:
         self.base_url = base_url.rstrip("/")
         self.verify_ssl = verify_ssl
         self.timeout = ClientTimeout(total=timeout)
-        
+
         self._session: Optional[aiohttp.ClientSession] = None
         self._session_id: Optional[str] = None
         self._session_expires: Optional[datetime] = None
@@ -184,7 +184,7 @@ class EG4InverterAPI:
         if isinstance(result, dict) and "rows" in result:
             self._plants = result["rows"]
             return self._plants
-        
+
         raise EG4APIError("Invalid plants response format")
 
     async def get_parallel_group_details(self, serial_number: str) -> Dict[str, Any]:
@@ -258,10 +258,10 @@ class EG4InverterAPI:
         serial_numbers = set()
         gridboss_serials = set()
         device_info = {}
-        
+
         # Get fresh login data to access device information
         login_data = await self.login()
-        
+
         # Extract devices from login response plants array
         for plant in login_data.get("plants", []):
             if str(plant.get("plantId")) == str(plant_id):
@@ -270,23 +270,23 @@ class EG4InverterAPI:
                     if serial:
                         serial_numbers.add(serial)
                         device_info[serial] = device
-                        
+
                         # Check if this is a GridBOSS device
                         model = device.get("deviceTypeText4APP", "").lower()
                         if "gridboss" in model or "grid boss" in model:
                             gridboss_serials.add(serial)
-                
+
                 # Also extract parallel group information
                 parallel_groups = plant.get("parallelGroups", [])
                 break
-        
+
         _LOGGER.info(f"Found {len(serial_numbers)} devices for plant {plant_id}: {list(serial_numbers)}")
         _LOGGER.info(f"GridBOSS devices: {list(gridboss_serials)}")
 
         # Try to get additional device discovery data (but don't fail if it doesn't work)
         parallel_groups_data = None
         inverter_overview_data = None
-        
+
         # Disable problematic discovery endpoints - core functionality works without them
         parallel_groups_data = None
         inverter_overview_data = None
@@ -294,7 +294,7 @@ class EG4InverterAPI:
 
         # Fetch data for all devices concurrently
         tasks = []
-        
+
         for serial in serial_numbers:
             if serial in gridboss_serials:
                 # GridBOSS device - get midbox runtime
@@ -373,12 +373,12 @@ class EG4InverterAPI:
 
     async def read_parameters(self, inverter_sn: str, start_register: int = 0, point_number: int = 127) -> Dict[str, Any]:
         """Read parameters from an inverter using the remote read endpoint.
-        
+
         Args:
             inverter_sn: The inverter serial number
             start_register: Starting register address (default: 0)
             point_number: Number of registers to read (default: 127)
-            
+
         Returns:
             Dict containing the parameter read response
         """
@@ -388,10 +388,10 @@ class EG4InverterAPI:
             "startRegister": start_register,
             "pointNumber": point_number
         }
-        
-        _LOGGER.debug("Reading parameters from inverter %s: start_register=%s, point_number=%s", 
+
+        _LOGGER.debug("Reading parameters from inverter %s: start_register=%s, point_number=%s",
                       inverter_sn, start_register, point_number)
-        
+
         try:
             response = await self._make_request("POST", endpoint, data)
             return response
@@ -399,17 +399,17 @@ class EG4InverterAPI:
             _LOGGER.error("Failed to read parameters from inverter %s: %s", inverter_sn, e)
             raise EG4APIError(f"Parameter read failed for {inverter_sn}: {e}") from e
 
-    async def write_parameter(self, inverter_sn: str, hold_param: str, value_text: str, 
+    async def write_parameter(self, inverter_sn: str, hold_param: str, value_text: str,
                             client_type: str = "WEB", remote_set_type: str = "NORMAL") -> Dict[str, Any]:
         """Write a parameter to an inverter using the remote write endpoint.
-        
+
         Args:
             inverter_sn: The inverter serial number
             hold_param: The parameter name to write (e.g., "HOLD_SYSTEM_CHARGE_SOC_LIMIT")
             value_text: The value to write as string
             client_type: Client type (default: "WEB")
             remote_set_type: Remote set type (default: "NORMAL")
-            
+
         Returns:
             Dict containing the parameter write response
         """
@@ -421,9 +421,9 @@ class EG4InverterAPI:
             "clientType": client_type,
             "remoteSetType": remote_set_type
         }
-        
+
         _LOGGER.debug("Writing parameter to inverter %s: %s=%s", inverter_sn, hold_param, value_text)
-        
+
         try:
             response = await self._make_request("POST", endpoint, data)
             return response

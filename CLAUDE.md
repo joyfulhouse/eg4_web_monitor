@@ -287,6 +287,23 @@ EG4 Web Monitor {Station_Name}
 
 ## Recent Updates ✅
 
+### ✅ September 2025 - Release 1.2.4: Code Quality & Missing Sensor Fixes
+- **✅ Code Quality Improvements**: Significantly reduced code duplication and improved maintainability
+  - Pylint score improved from 7.90/10 to 9.39/10
+  - Consolidated field mappings in const.py to reduce code duplication
+  - Created shared utility functions for register reading (`read_device_parameters_ranges`)
+  - Removed duplicate function definitions and unused imports
+  - Extracted common sensor lists to shared constants (`DIVIDE_BY_10_SENSORS`)
+- **✅ Missing Sensor Resolution**: Fixed previously unavailable sensors
+  - Added missing PV power sensor mappings: `ppv1` → `pv1_power`, `ppv2` → `pv2_power`, `ppv3` → `pv3_power`
+  - Added missing SOC sensor mapping: `soc` → `state_of_charge` for runtime data
+  - Fixed radiator temperature sensor mapping inconsistency: `tradiator1/2` → `radiator1/2_temperature`
+  - Entity count increased from 219 to 231 sensors with all previously unavailable sensors now functional
+- **✅ Parameter Synchronization Maintained**: Ensured cross-inverter parameter updates continue working
+  - Fixed regression in shared utility function that was causing parameter sync issues
+  - All SOC limit changes properly propagate across multiple inverters
+  - Background parameter refresh system fully operational
+
 ### ✅ September 2025 - Sensor Refinements
 - **✅ Invalid Binary Sensors Removed**: Removed "Battery Charging", "Grid Connected", and "Inverter Status" binary sensors that were providing inaccurate data
 - **✅ New Runtime Sensors Added**: 

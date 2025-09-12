@@ -13,7 +13,7 @@ from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.NUMBER]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
 
 SERVICE_REFRESH_DATA = "refresh_data"
 
@@ -28,7 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
-    
+
     # Perform initial data fetch
     await coordinator.async_config_entry_first_refresh()
 
@@ -62,7 +62,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Clean up coordinator
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.api.close()
-        
+
         # Remove from hass data
         hass.data[DOMAIN].pop(entry.entry_id)
 
@@ -73,9 +73,9 @@ async def _handle_refresh_data(call: ServiceCall) -> None:
     """Handle refresh data service call."""
     hass = call.hass
     entry_id = call.data.get("entry_id")
-    
+
     coordinators_to_refresh = []
-    
+
     if entry_id:
         # Refresh specific coordinator
         if entry_id in hass.data.get(DOMAIN, {}):
@@ -86,14 +86,14 @@ async def _handle_refresh_data(call: ServiceCall) -> None:
     else:
         # Refresh all coordinators
         coordinators_to_refresh = list(hass.data.get(DOMAIN, {}).values())
-    
+
     if not coordinators_to_refresh:
         _LOGGER.warning("No EG4 coordinators found to refresh")
         return
-    
+
     # Refresh all coordinators
     for coordinator in coordinators_to_refresh:
         _LOGGER.info("Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id)
         await coordinator.async_request_refresh()
-    
+
     _LOGGER.info("Refresh completed for %d coordinator(s)", len(coordinators_to_refresh))
