@@ -258,11 +258,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Process parallel group energy data."""
         # Extract the group name from parallel groups info
         group_name = "Parallel Group"  # Default fallback
-        if parallel_groups_info and len(parallel_groups_info) > 0:
+        if parallel_groups_info and len(parallel_groups_info) > 1:
+            # Only add letter suffix if there are multiple groups
             first_group = parallel_groups_info[0]
             group_letter = first_group.get("parallelGroup", "")
             if group_letter:
                 group_name = f"Parallel Group {group_letter}"
+            # For single group, keep the simple "Parallel Group" name
 
         processed = {
             "serial": "parallel_group",
