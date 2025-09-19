@@ -272,14 +272,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Don't fail the entire update if quick charge status fails
             processed["quick_charge_status"] = {"status": False, "error": str(e)}
 
-        # Process battery backup status by reading FUNC_EPS_EN parameter
+        # Process battery backup status by reading FUNC_EPS_EN parameter from base parameters
         try:
-            # Read the specific parameter that controls battery backup (cached with 5-minute TTL)
-            # This call will benefit from API response caching for performance
-            battery_backup_params = await self.api.read_parameters(serial, 127, 127)  # Read register 127 range
+            # Read base parameters (0-127) where FUNC_EPS_EN is likely located (cached with 2-minute TTL)
+            battery_backup_params = await self.api.read_parameters(serial, 0, 127)
             if battery_backup_params and battery_backup_params.get("success"):
                 func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
                 
+            if func_eps_en is not None:
                 # Enhanced debugging to understand the actual API response
                 _LOGGER.info(
                     "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)", 
@@ -315,7 +315,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     processed["parameters"][serial] = {}
                 processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
             else:
-                processed["battery_backup_status"] = {"enabled": False, "error": "Failed to read parameters"}
+                processed["battery_backup_status"] = {"enabled": False, "error": "FUNC_EPS_EN parameter not found in base parameters"}
+                _LOGGER.warning("FUNC_EPS_EN parameter not found in base parameters for device %s", serial)
         except Exception as e:
             _LOGGER.debug("Failed to get battery backup status for device %s: %s", serial, e)
             # Don't fail the entire update if battery backup status fails
