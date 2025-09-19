@@ -21,8 +21,6 @@ DIVIDE_BY_10_SENSORS: Set[str] = {
     "internal_temperature",
     # Individual battery voltage sensors from batteryArray
     "battery_real_voltage",
-    "battery_cell_voltage_max",
-    "battery_cell_voltage_min",
     # PV voltage sensors from runtime data
     "pv1_voltage",
     "pv2_voltage",
@@ -50,6 +48,9 @@ DIVIDE_BY_100_SENSORS: Set[str] = {
     "load_lifetime",
     "total_energy_import",
     "total_energy_export",
+    # Individual battery cell voltage sensors (convert from centivolts to volts)
+    "battery_cell_voltage_max",
+    "battery_cell_voltage_min",
 }
 
 # GridBOSS specific scaling sets
