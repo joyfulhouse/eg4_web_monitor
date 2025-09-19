@@ -28,6 +28,7 @@ This integration was inspired by and built upon the excellent work by [@twistedr
 - **Grid Integration**: Import/export tracking, grid status monitoring
 - **Smart Load Management**: GridBOSS smart port monitoring and control
 - **Quick Charge Control**: Start and stop quick charging directly from Home Assistant with real-time status monitoring
+- **Battery Backup Control**: Enable and disable Emergency Power Supply (EPS) mode for battery backup functionality
 
 ### 🏠 **Multi-Station Architecture**
 - Support for multiple solar installations per account
@@ -97,6 +98,7 @@ The integration will automatically discover and configure:
 - ✅ Individual battery modules
 - ✅ Parallel group configurations
 - ✅ Quick Charge switches for compatible inverters (FlexBOSS, 18KPV, 12KPV, XP series)
+- ✅ Battery Backup switches for Emergency Power Supply (EPS) control
 
 ## Device Types & Sensors
 
@@ -119,20 +121,33 @@ The integration will automatically discover and configure:
 - **Status**: System status with intelligent text conversion
 - **Firmware Version**: Device firmware information
 
-### Quick Charge Control
+### Switch Controls
 
-#### Switch Entity
+#### Quick Charge Control
 - **Quick Charge Switch**: Direct battery charging control with real-time status
   - Entity ID: `switch.{model}_{serial}_quick_charge`
   - Icon: Battery charging indicator
   - Optimistic state updates for immediate UI feedback
 
-#### Features
+**Features**:
 - **Instant Control**: Start/stop quick charging with immediate UI response
 - **Real-time Status**: Automatic status monitoring using `hasUnclosedQuickChargeTask`
 - **Task Tracking**: Task ID and status attributes for detailed monitoring
 - **Device Compatibility**: Automatic detection for FlexBOSS, 18KPV, 12KPV, XP series
 - **Error Handling**: Graceful fallback on API errors with state reversion
+
+#### Battery Backup Control  
+- **Battery Backup Switch**: Emergency Power Supply (EPS) mode control
+  - Entity ID: `switch.{model}_{serial}_battery_backup`
+  - Icon: Battery charging indicator
+  - Parameter-based state synchronization
+
+**Features**:
+- **EPS Mode Control**: Enable/disable Emergency Power Supply functionality
+- **Parameter Sync**: Real-time status sync with `FUNC_EPS_EN` parameter
+- **Optimistic Updates**: Immediate UI feedback with state validation
+- **Cross-Device Sync**: Parameter changes trigger updates across all inverters
+- **Robust Error Handling**: Graceful state reversion on API failures
 
 ### Individual Battery Sensors (Per Battery)
 
@@ -208,9 +223,11 @@ sensor.eg4_flexboss21_44300e0585_total_energy_generation
 sensor.battery_44300e0585_01_state_of_charge
 sensor.battery_44300e0585_01_cell_voltage_delta
 
-# Quick Charge Switches
+# Switch Controls
 switch.flexboss21_44300e0585_quick_charge
+switch.flexboss21_44300e0585_battery_backup
 switch.18kpv_4512670118_quick_charge
+switch.18kpv_4512670118_battery_backup
 
 # GridBOSS Sensors
 sensor.eg4_gridboss_4524850115_grid_power_l1
