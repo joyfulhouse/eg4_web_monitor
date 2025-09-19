@@ -41,8 +41,14 @@ async def async_setup_entry(
         _LOGGER.debug("Processing device %s with type: %s", serial, device_type)
 
         # Get device info for proper naming
-        device_info = coordinator.data.get("device_info", {}).get(serial, {})
-        model = device_info.get("deviceTypeText4APP", "Unknown")
+        device_type = device_data.get("type", "unknown")
+        if device_type == "parallel_group":
+            # For parallel groups, get model from device data itself
+            model = device_data.get("model", "Parallel Group")
+        else:
+            # For other devices, get model from device_info from API
+            device_info = coordinator.data.get("device_info", {}).get(serial, {})
+            model = device_info.get("deviceTypeText4APP", "Unknown")
 
         # Create refresh button for all device types
         entities.append(EG4RefreshButton(coordinator, serial, device_data, model))

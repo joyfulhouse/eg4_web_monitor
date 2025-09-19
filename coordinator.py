@@ -170,6 +170,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         parallel_groups_info = raw_data.get("parallel_groups_info", [])
         _LOGGER.info("Parallel group debug - parallel_energy success: %s, parallel_groups_info: %s", 
                      parallel_energy.get("success") if parallel_energy else None, parallel_groups_info)
+        
+        # Only create parallel group if the API indicates parallel groups exist
         if parallel_energy and parallel_energy.get("success"):
             _LOGGER.debug("Processing parallel group energy data")
             processed["devices"][
@@ -371,16 +373,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def _process_parallel_group_data(
         self,
-        parallel_energy: Dict[str, Any],
+        parallel_energy: Dict[str, Any] = None,
         parallel_groups_info: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Process parallel group energy data."""
-        _LOGGER.info("Processing parallel group data - parallel_groups_info: %s", parallel_groups_info)
+        _LOGGER.info("Processing parallel group data - parallel_energy: %s, parallel_groups_info: %s", 
+                     bool(parallel_energy), parallel_groups_info)
         
         # Extract the group name from parallel groups info
         group_name = "Parallel Group"  # Default fallback
-        _LOGGER.warning("DEBUG: Processing parallel group - parallel_groups_info length: %s, content: %s", 
-                       len(parallel_groups_info) if parallel_groups_info else "None", parallel_groups_info)
         if parallel_groups_info and len(parallel_groups_info) > 0:
             # Extract group letter from first group
             first_group = parallel_groups_info[0]
@@ -401,15 +402,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "sensors": {},
             "binary_sensors": {},
         }
-        _LOGGER.warning("DEBUG: Created parallel group device with model: '%s'", group_name)
 
-        # Extract parallel group energy sensors
-        processed["sensors"].update(
-            self._extract_parallel_group_sensors(parallel_energy)
-        )
-        processed["binary_sensors"].update(
-            self._extract_parallel_group_binary_sensors(parallel_energy)
-        )
+        # Extract parallel group energy sensors if available
+        if parallel_energy:
+            processed["sensors"].update(
+                self._extract_parallel_group_sensors(parallel_energy)
+            )
+            processed["binary_sensors"].update(
+                self._extract_parallel_group_binary_sensors(parallel_energy)
+            )
 
         return processed
 
@@ -987,9 +988,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Special handling for parallel group device naming
         model = device_data.get("model", "Unknown")
         device_type = device_data.get("type", "unknown")
-        
-        if device_type == "parallel_group":
-            _LOGGER.warning("DEBUG: get_device_info for parallel_group - serial: %s, model: '%s'", serial, model)
 
         if device_type == "parallel_group":
             # Use just the model name for parallel groups (e.g., "Parallel Group A")
