@@ -22,13 +22,17 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor button entities."""
+    _LOGGER.info("Setting up EG4 Web Monitor button entities for entry %s", entry.entry_id)
     coordinator: EG4DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities: List[ButtonEntity] = []
 
     if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for button setup")
+        _LOGGER.warning("No device data available for button setup - coordinator.data: %s", coordinator.data)
         return
+
+    _LOGGER.info("Found %d devices for button setup: %s", 
+                 len(coordinator.data["devices"]), list(coordinator.data["devices"].keys()))
 
     # Create refresh diagnostic buttons for all devices
     for serial, device_data in coordinator.data["devices"].items():
