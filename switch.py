@@ -32,27 +32,36 @@ async def async_setup_entry(
     # Create quick charge switch entities for compatible devices
     for serial, device_data in coordinator.data["devices"].items():
         device_type = device_data.get("type", "unknown")
+        _LOGGER.debug("Processing device %s with type: %s", serial, device_type)
 
         # Only create quick charge switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
             # Get device model for compatibility check
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
-            model = device_info.get("deviceTypeText4APP", "").lower()
+            model = device_info.get("deviceTypeText4APP", "Unknown")
+            model_lower = model.lower()
+            
+            _LOGGER.info(
+                "Evaluating quick charge compatibility for device %s: model='%s' (original), model_lower='%s'",
+                serial, model, model_lower
+            )
 
             # Check if device model is known to support quick charge
             # Based on the feature request, this appears to be for standard inverters
-            supported_models = ["flexboss", "18kpv", "12kpv", "xp"]
+            supported_models = ["flexboss", "18kpv", "18k", "12kpv", "12k", "xp"]
 
-            if any(supported in model for supported in supported_models):
+            if any(supported in model_lower for supported in supported_models):
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
-                _LOGGER.debug(
-                    "Added quick charge switch for compatible device %s (%s)", serial, model
+                _LOGGER.info(
+                    "✅ Added quick charge switch for compatible device %s (%s)", serial, model
                 )
             else:
-                _LOGGER.debug(
-                    "Skipping quick charge switch for device %s (%s) - compatibility unknown",
-                    serial, model
+                _LOGGER.warning(
+                    "❌ Skipping quick charge switch for device %s (%s) - model not in supported list %s",
+                    serial, model, supported_models
                 )
+        else:
+            _LOGGER.debug("Skipping device %s - not an inverter (type: %s)", serial, device_type)
 
     if entities:
         _LOGGER.info("Adding %d quick charge switch entities", len(entities))
