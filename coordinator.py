@@ -133,8 +133,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         processed = {
             "plant_id": self.plant_id,
             "devices": {},
-            "parallel_groups": raw_data.get("parallel_groups", {}),
-            "inverter_overview": raw_data.get("inverter_overview", {}),
             "device_info": raw_data.get("device_info", {}),
             "last_update": dt_util.utcnow(),
         }
@@ -365,24 +363,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 if model:
                     return model
 
-            # Check parallel groups
-            parallel_groups = self.data.get("parallel_groups", {})
-            if isinstance(parallel_groups, dict):
-                for group in parallel_groups.get("data", []):
-                    for device in group.get("inverterList", []):
-                        if device.get("serialNum") == serial:
-                            model = device.get("deviceTypeText4APP")
-                            if model:
-                                return model
-
-            # Check inverter overview
-            inverter_overview = self.data.get("inverter_overview", {})
-            if isinstance(inverter_overview, dict):
-                for device in inverter_overview.get("data", []):
-                    if device.get("serialNum") == serial:
-                        model = device.get("deviceTypeText4APP")
-                        if model:
-                            return model
+            # Note: parallel_groups and inverter_overview discovery endpoints
+            # have been disabled as they were problematic and not essential
 
         # Store device info temporarily during device setup for fallback
         if hasattr(self, "_temp_device_info"):

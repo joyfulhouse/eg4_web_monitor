@@ -189,8 +189,6 @@ class EG4InverterAPI:
 
     # Endpoint constants
     _ENDPOINTS = {
-        "parallel_group_details": "/WManage/api/inverterOverview/getParallelGroupDetails",
-        "inverter_overview": "/WManage/api/inverterOverview/list",
         "inverter_runtime": "/WManage/api/inverter/getInverterRuntime",
         "inverter_energy": "/WManage/api/inverter/getInverterEnergyInfo",
         "inverter_energy_parallel": "/WManage/api/inverter/getInverterEnergyInfoParallel",
@@ -224,14 +222,6 @@ class EG4InverterAPI:
             
         return await self._make_request("POST", self._ENDPOINTS[endpoint_key], data=data)
 
-    async def get_parallel_group_details(self, serial_number: str) -> Dict[str, Any]:
-        """Get parallel group details for a device."""
-        return await self._request_with_serial("parallel_group_details", serial_number)
-
-    async def get_inverter_overview(self, plant_id: str) -> Dict[str, Any]:
-        """Get inverter overview for a plant."""
-        data = {"plantId": plant_id, "page": 1}
-        return await self._make_request("POST", self._ENDPOINTS["inverter_overview"], data=data)
 
     async def get_inverter_runtime(self, serial_number: str) -> Dict[str, Any]:
         """Get inverter runtime data."""
@@ -331,10 +321,8 @@ class EG4InverterAPI:
 
         # Organize results
         result = {
-            "parallel_groups": None,  # Discovery endpoints disabled
             "parallel_groups_info": parallel_groups,  # From login response
             "parallel_energy": parallel_energy_data,
-            "inverter_overview": None,  # Discovery endpoints disabled
             "device_info": device_info,  # Include device info from login
             "devices": {},
         }
