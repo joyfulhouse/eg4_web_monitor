@@ -992,6 +992,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if device_type == "parallel_group":
             # Use just the model name for parallel groups (e.g., "Parallel Group A")
             device_name = model
+            _LOGGER.warning("DEBUG: Parallel group device_name set to: '%s' (model: '%s', serial: '%s')", device_name, model, serial)
         else:
             device_name = f"{model} {serial}"  # Normal devices include serial number
 
