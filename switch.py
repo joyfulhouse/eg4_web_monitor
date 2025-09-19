@@ -29,12 +29,12 @@ async def async_setup_entry(
         _LOGGER.warning("No device data available for switch setup")
         return
 
-    # Create quick charge switch entities for compatible devices
+    # Create switch entities for compatible devices
     for serial, device_data in coordinator.data["devices"].items():
         device_type = device_data.get("type", "unknown")
         _LOGGER.debug("Processing device %s with type: %s", serial, device_type)
 
-        # Only create quick charge switches for standard inverters (not GridBOSS)
+        # Only create switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
             # Get device model for compatibility check
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
@@ -42,23 +42,30 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             _LOGGER.info(
-                "Evaluating quick charge compatibility for device %s: "
+                "Evaluating switch compatibility for device %s: "
                 "model='%s' (original), model_lower='%s'",
                 serial, model, model_lower
             )
 
-            # Check if device model is known to support quick charge
+            # Check if device model is known to support switch functions
             # Based on the feature request, this appears to be for standard inverters
             supported_models = ["flexboss", "18kpv", "18k", "12kpv", "12k", "xp"]
 
             if any(supported in model_lower for supported in supported_models):
+                # Add quick charge switch
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
                 _LOGGER.info(
                     "✅ Added quick charge switch for compatible device %s (%s)", serial, model
                 )
+                
+                # Add battery backup switch
+                entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
+                _LOGGER.info(
+                    "✅ Added battery backup switch for compatible device %s (%s)", serial, model
+                )
             else:
                 _LOGGER.warning(
-                    "❌ Skipping quick charge switch for device %s (%s) - "
+                    "❌ Skipping switches for device %s (%s) - "
                     "model not in supported list %s",
                     serial, model, supported_models
                 )
@@ -66,10 +73,10 @@ async def async_setup_entry(
             _LOGGER.debug("Skipping device %s - not an inverter (type: %s)", serial, device_type)
 
     if entities:
-        _LOGGER.info("Adding %d quick charge switch entities", len(entities))
+        _LOGGER.info("Adding %d switch entities (quick charge and battery backup)", len(entities))
         async_add_entities(entities)
     else:
-        _LOGGER.info("No quick charge switch entities to add")
+        _LOGGER.info("No switch entities to add")
 
 
 class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
@@ -212,6 +219,139 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
         except Exception as e:
             _LOGGER.error("Failed to stop quick charge for device %s: %s", self._serial, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch to control battery backup (EPS) functionality."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        device_data: Dict[str, Any],
+    ) -> None:
+        """Initialize the battery backup switch."""
+        super().__init__(coordinator)
+
+        self._serial = serial
+        self._device_data = device_data
+
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: Optional[bool] = None
+
+        # Get device info from coordinator data
+        device_info = coordinator.data.get("device_info", {}).get(serial, {})
+        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+
+        # Create unique identifiers
+        model_clean = self._model.lower().replace(" ", "").replace("-", "")
+        self._attr_unique_id = f"{serial}_battery_backup"
+        self._attr_entity_id = f"switch.{model_clean}_{serial}_battery_backup"
+
+        # Set device attributes
+        self._attr_name = f"{self._model} {serial} Battery Backup"
+        self._attr_icon = "mdi:battery-outline"
+
+        # Device info for grouping
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, serial)},
+            "name": f"{self._model}_{serial}",
+            "manufacturer": "EG4 Electronics",
+            "model": self._model,
+            "serial_number": serial,
+        }
+
+    @property
+    def is_on(self) -> Optional[bool]:
+        """Return True if battery backup is enabled."""
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        # Check parameter data from coordinator
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            device_params = self.coordinator.data["parameters"].get(self._serial, {})
+            return device_params.get("FUNC_EPS_EN", False)
+
+        # Default to False if we don't have parameter information
+        return False
+
+    @property
+    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+        """Return extra state attributes."""
+        attributes = {}
+
+        # Add parameter details if available
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            device_params = self.coordinator.data["parameters"].get(self._serial, {})
+            func_eps_en = device_params.get("FUNC_EPS_EN")
+
+            if func_eps_en is not None:
+                attributes["func_eps_en"] = func_eps_en
+
+            # Add optimistic state indicator for debugging
+            if self._optimistic_state is not None:
+                attributes["optimistic_state"] = self._optimistic_state
+
+        return attributes if attributes else None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Check if the device supports battery backup
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            # Only available for inverter devices (not GridBOSS)
+            return device_data.get("type") == "inverter"
+        return False
+
+    async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Enable battery backup."""
+        try:
+            _LOGGER.debug("Enabling battery backup for device %s", self._serial)
+
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = True
+            self.async_write_ha_state()
+
+            # Call the API
+            await self.coordinator.api.enable_battery_backup(self._serial)
+            _LOGGER.info("Successfully enabled battery backup for device %s", self._serial)
+
+            # Clear optimistic state and request coordinator parameter refresh
+            self._optimistic_state = None
+            await self.coordinator.async_refresh_device_parameters(self._serial)
+
+        except Exception as e:
+            _LOGGER.error("Failed to enable battery backup for device %s: %s", self._serial, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+    async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
+        """Disable battery backup."""
+        try:
+            _LOGGER.debug("Disabling battery backup for device %s", self._serial)
+
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = False
+            self.async_write_ha_state()
+
+            # Call the API
+            await self.coordinator.api.disable_battery_backup(self._serial)
+            _LOGGER.info("Successfully disabled battery backup for device %s", self._serial)
+
+            # Clear optimistic state and request coordinator parameter refresh
+            self._optimistic_state = None
+            await self.coordinator.async_refresh_device_parameters(self._serial)
+
+        except Exception as e:
+            _LOGGER.error("Failed to disable battery backup for device %s: %s", self._serial, e)
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()

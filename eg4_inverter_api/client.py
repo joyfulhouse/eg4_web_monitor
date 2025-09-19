@@ -536,3 +536,72 @@ class EG4InverterAPI:
         except Exception as e:
             _LOGGER.error("Failed to get quick charge status for inverter %s: %s", serial_number, e)
             raise EG4APIError(f"Quick charge status check failed for {serial_number}: {e}") from e
+
+    async def enable_battery_backup(self, serial_number: str) -> Dict[str, Any]:
+        """Enable battery backup (EPS) for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the battery backup enable response
+        """
+        data = {
+            "inverterSn": serial_number,
+            "functionParam": "FUNC_EPS_EN",
+            "enable": "true",
+            "clientType": "WEB",
+            "remoteSetType": "NORMAL"
+        }
+
+        _LOGGER.debug("Enabling battery backup for inverter %s", serial_number)
+
+        try:
+            response = await self._make_request(
+                "POST", "/WManage/web/maintain/remoteSet/functionControl", data
+            )
+            _LOGGER.info("Successfully enabled battery backup for inverter %s", serial_number)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to enable battery backup for inverter %s: %s", serial_number, e)
+            raise EG4APIError(f"Battery backup enable failed for {serial_number}: {e}") from e
+
+    async def disable_battery_backup(self, serial_number: str) -> Dict[str, Any]:
+        """Disable battery backup (EPS) for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the battery backup disable response
+        """
+        data = {
+            "inverterSn": serial_number,
+            "functionParam": "FUNC_EPS_EN",
+            "enable": "false",
+            "clientType": "WEB",
+            "remoteSetType": "NORMAL"
+        }
+
+        _LOGGER.debug("Disabling battery backup for inverter %s", serial_number)
+
+        try:
+            response = await self._make_request(
+                "POST", "/WManage/web/maintain/remoteSet/functionControl", data
+            )
+            _LOGGER.info("Successfully disabled battery backup for inverter %s", serial_number)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to disable battery backup for inverter %s: %s", serial_number, e)
+            raise EG4APIError(f"Battery backup disable failed for {serial_number}: {e}") from e
+
+    def get_battery_backup_status(self, parameters: Dict[str, Any]) -> bool:
+        """Extract battery backup status from parameter data.
+
+        Args:
+            parameters: Dictionary containing device parameters
+
+        Returns:
+            True if battery backup is enabled, False otherwise
+        """
+        return parameters.get("FUNC_EPS_EN", False)

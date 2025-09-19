@@ -1,6 +1,14 @@
 # Secrets and credentials
 secrets.py
 
+# Claude
+claude/
+.claude/
+
+# Announcements and drafts
+announcement.md
+announcements/
+
 # API response samples (may contain sensitive data)
 eg4_inverter_api/samples/
 samples/
