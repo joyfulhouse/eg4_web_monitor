@@ -44,7 +44,7 @@ class EG4InverterAPI:
         await self.login()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # pylint: disable=unused-argument
         """Async context manager exit."""
         await self.close()
 
@@ -187,64 +187,72 @@ class EG4InverterAPI:
 
         raise EG4APIError("Invalid plants response format")
 
+    # Endpoint constants
+    _ENDPOINTS = {
+        "parallel_group_details": "/WManage/api/inverterOverview/getParallelGroupDetails",
+        "inverter_overview": "/WManage/api/inverterOverview/list",
+        "inverter_runtime": "/WManage/api/inverter/getInverterRuntime",
+        "inverter_energy": "/WManage/api/inverter/getInverterEnergyInfo",
+        "inverter_energy_parallel": "/WManage/api/inverter/getInverterEnergyInfoParallel",
+        "battery_info": "/WManage/api/battery/getBatteryInfo",
+        "midbox_runtime": "/WManage/api/midbox/getMidboxRuntime",
+        "quick_charge_status": "/WManage/web/config/quickCharge/getStatusInfo",
+        "parameter_read": "/WManage/web/maintain/remoteRead/read",
+        "parameter_write": "/WManage/web/maintain/remoteSet/write",
+        "function_control": "/WManage/web/maintain/remoteSet/functionControl",
+    }
+
+    async def _request_with_serial(
+        self, 
+        endpoint_key: str, 
+        serial_number: str,
+        extra_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Make a request with serialNum parameter.
+        
+        Args:
+            endpoint_key: Key to look up endpoint in _ENDPOINTS
+            serial_number: The device serial number
+            extra_data: Additional data to include in request
+            
+        Returns:
+            Dict containing the API response
+        """
+        data = {"serialNum": serial_number}
+        if extra_data:
+            data.update(extra_data)
+            
+        return await self._make_request("POST", self._ENDPOINTS[endpoint_key], data=data)
+
     async def get_parallel_group_details(self, serial_number: str) -> Dict[str, Any]:
         """Get parallel group details for a device."""
-        data = {"serialNum": serial_number}
-
-        return await self._make_request(
-            "POST", "/WManage/api/inverterOverview/getParallelGroupDetails", data=data
-        )
+        return await self._request_with_serial("parallel_group_details", serial_number)
 
     async def get_inverter_overview(self, plant_id: str) -> Dict[str, Any]:
         """Get inverter overview for a plant."""
         data = {"plantId": plant_id, "page": 1}
-
-        return await self._make_request(
-            "POST", "/WManage/api/inverterOverview/list", data=data
-        )
+        return await self._make_request("POST", self._ENDPOINTS["inverter_overview"], data=data)
 
     async def get_inverter_runtime(self, serial_number: str) -> Dict[str, Any]:
         """Get inverter runtime data."""
-        data = {"serialNum": serial_number}
-
-        return await self._make_request(
-            "POST", "/WManage/api/inverter/getInverterRuntime", data=data
-        )
+        return await self._request_with_serial("inverter_runtime", serial_number)
 
     async def get_inverter_energy_info(self, serial_number: str) -> Dict[str, Any]:
         """Get inverter energy information."""
-        data = {"serialNum": serial_number}
+        return await self._request_with_serial("inverter_energy", serial_number)
 
-        return await self._make_request(
-            "POST", "/WManage/api/inverter/getInverterEnergyInfo", data=data
-        )
-
-    async def get_inverter_energy_info_parallel(
-        self, serial_number: str
-    ) -> Dict[str, Any]:
+    async def get_inverter_energy_info_parallel(self, serial_number: str) -> Dict[str, Any]:
         """Get parallel inverter energy information."""
-        data = {"serialNum": serial_number}
-
-        return await self._make_request(
-            "POST", "/WManage/api/inverter/getInverterEnergyInfoParallel", data=data
-        )
+        return await self._request_with_serial("inverter_energy_parallel", serial_number)
 
     async def get_battery_info(self, serial_number: str) -> Dict[str, Any]:
         """Get battery information for an inverter."""
-        data = {"serialNum": serial_number}
-
-        return await self._make_request(
-            "POST", "/WManage/api/battery/getBatteryInfo", data=data
-        )
+        return await self._request_with_serial("battery_info", serial_number)
 
     async def get_midbox_runtime(self, serial_number: str) -> Dict[str, Any]:
         """Get MidBox (GridBOSS) runtime data."""
-        data = {"serialNum": serial_number}
-
         try:
-            return await self._make_request(
-                "POST", "/WManage/api/midbox/getMidboxRuntime", data=data
-            )
+            return await self._request_with_serial("midbox_runtime", serial_number)
         except EG4APIError as e:
             if "DEVICE_ERROR_UNSUPPORT_DEVICE_TYPE" in str(e):
                 raise EG4DeviceError(
@@ -288,13 +296,7 @@ class EG4InverterAPI:
         )
         _LOGGER.info("GridBOSS devices: %s", list(gridboss_serials))
 
-        # Try to get additional device discovery data (but don't fail if it doesn't work)
-        parallel_groups_data = None
-        inverter_overview_data = None
-
-        # Disable problematic discovery endpoints - core functionality works without them
-        parallel_groups_data = None
-        inverter_overview_data = None
+        # Skip problematic discovery endpoints - core functionality works without them
         _LOGGER.debug(
             "Skipping parallel groups and inverter overview discovery endpoints "
             "(not essential for core functionality)"
@@ -329,10 +331,10 @@ class EG4InverterAPI:
 
         # Organize results
         result = {
-            "parallel_groups": parallel_groups_data,
+            "parallel_groups": None,  # Discovery endpoints disabled
             "parallel_groups_info": parallel_groups,  # From login response
             "parallel_energy": parallel_energy_data,
-            "inverter_overview": inverter_overview_data,
+            "inverter_overview": None,  # Discovery endpoints disabled
             "device_info": device_info,  # Include device info from login
             "devices": {},
         }
@@ -381,6 +383,47 @@ class EG4InverterAPI:
             _LOGGER.error("Failed to get GridBOSS data for %s: %s", serial_number, e)
             raise
 
+    async def _request_with_inverter_sn(
+        self,
+        endpoint_key: Optional[str],
+        inverter_sn: str,
+        operation: str,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Make a request with inverterSn parameter and standardized error handling.
+        
+        Args:
+            endpoint_key: Key to look up endpoint in _ENDPOINTS (None for custom endpoint)
+            inverter_sn: The inverter serial number
+            operation: Description of operation for logging/errors
+            **kwargs: Additional data to include in request
+                     _custom_endpoint: Use this endpoint instead of looking up endpoint_key
+            
+        Returns:
+            Dict containing the API response
+        """
+        # Extract custom endpoint if provided
+        custom_endpoint = kwargs.pop("_custom_endpoint", None)
+        data = {"inverterSn": inverter_sn, **kwargs}
+        
+        # Determine endpoint to use
+        if custom_endpoint:
+            endpoint = custom_endpoint
+        elif endpoint_key:
+            endpoint = self._ENDPOINTS[endpoint_key]
+        else:
+            raise ValueError("Either endpoint_key or _custom_endpoint must be provided")
+        
+        _LOGGER.debug("%s for inverter %s", operation.capitalize(), inverter_sn)
+        
+        try:
+            response = await self._make_request("POST", endpoint, data)
+            _LOGGER.debug("Successfully completed %s for inverter %s", operation, inverter_sn)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed %s for inverter %s: %s", operation, inverter_sn, e)
+            raise EG4APIError(f"{operation.capitalize()} failed for {inverter_sn}: {e}") from e
+
     async def read_parameters(
         self, inverter_sn: str, start_register: int = 0, point_number: int = 127
     ) -> Dict[str, Any]:
@@ -394,28 +437,13 @@ class EG4InverterAPI:
         Returns:
             Dict containing the parameter read response
         """
-        endpoint = "/WManage/web/maintain/remoteRead/read"
-        data = {
-            "inverterSn": inverter_sn,
-            "startRegister": start_register,
-            "pointNumber": point_number,
-        }
-
-        _LOGGER.debug(
-            "Reading parameters from inverter %s: start_register=%s, point_number=%s",
+        return await self._request_with_inverter_sn(
+            "parameter_read",
             inverter_sn,
-            start_register,
-            point_number,
+            f"parameter read (reg {start_register}, count {point_number})",
+            startRegister=start_register,
+            pointNumber=point_number
         )
-
-        try:
-            response = await self._make_request("POST", endpoint, data)
-            return response
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to read parameters from inverter %s: %s", inverter_sn, e
-            )
-            raise EG4APIError(f"Parameter read failed for {inverter_sn}: {e}") from e
 
     async def write_parameter(  # pylint: disable=too-many-arguments
         self,
@@ -438,30 +466,15 @@ class EG4InverterAPI:
         Returns:
             Dict containing the parameter write response
         """
-        endpoint = "/WManage/web/maintain/remoteSet/write"
-        data = {
-            "inverterSn": inverter_sn,
-            "holdParam": hold_param,
-            "valueText": value_text,
-            "clientType": client_type,
-            "remoteSetType": remote_set_type,
-        }
-
-        _LOGGER.debug(
-            "Writing parameter to inverter %s: %s=%s",
+        return await self._request_with_inverter_sn(
+            "parameter_write",
             inverter_sn,
-            hold_param,
-            value_text,
+            f"parameter write ({hold_param}={value_text})",
+            holdParam=hold_param,
+            valueText=value_text,
+            clientType=client_type,
+            remoteSetType=remote_set_type
         )
-
-        try:
-            response = await self._make_request("POST", endpoint, data)
-            return response
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to write parameter to inverter %s: %s", inverter_sn, e
-            )
-            raise EG4APIError(f"Parameter write failed for {inverter_sn}: {e}") from e
 
     async def control_quick_charge(
         self,
@@ -480,23 +493,16 @@ class EG4InverterAPI:
         Returns:
             Dict containing the quick charge control response
         """
-        data = {
-            "inverterSn": serial_number,
-            "clientType": client_type
-        }
-
         action = "start" if start else "stop"
         endpoint = f"/WManage/web/config/quickCharge/{action}"
         
-        _LOGGER.debug("%s quick charge for inverter %s", action.capitalize(), serial_number)
-
-        try:
-            response = await self._make_request("POST", endpoint, data)
-            _LOGGER.info("Successfully %sed quick charge for inverter %s", action, serial_number)
-            return response
-        except Exception as e:
-            _LOGGER.error("Failed to %s quick charge for inverter %s: %s", action, serial_number, e)
-            raise EG4APIError(f"Quick charge {action} failed for {serial_number}: {e}") from e
+        return await self._request_with_inverter_sn(
+            None,  # Custom endpoint, not in _ENDPOINTS
+            serial_number,
+            f"quick charge {action}",
+            clientType=client_type,
+            _custom_endpoint=endpoint
+        )
 
     async def start_quick_charge(self, serial_number: str) -> Dict[str, Any]:
         """Start quick charge for specified inverter.
@@ -529,18 +535,11 @@ class EG4InverterAPI:
         Returns:
             Dict containing the quick charge status
         """
-        data = {"inverterSn": serial_number}
-
-        _LOGGER.debug("Getting quick charge status for inverter %s", serial_number)
-
-        try:
-            response = await self._make_request(
-                "POST", "/WManage/web/config/quickCharge/getStatusInfo", data
-            )
-            return response
-        except Exception as e:
-            _LOGGER.error("Failed to get quick charge status for inverter %s: %s", serial_number, e)
-            raise EG4APIError(f"Quick charge status check failed for {serial_number}: {e}") from e
+        return await self._request_with_inverter_sn(
+            "quick_charge_status",
+            serial_number,
+            "quick charge status check"
+        )
 
     async def control_function_parameter(  # pylint: disable=too-many-arguments
         self,
@@ -563,37 +562,16 @@ class EG4InverterAPI:
         Returns:
             Dict containing the function control response
         """
-        data = {
-            "inverterSn": serial_number,
-            "functionParam": function_param,
-            "enable": "true" if enable else "false",
-            "clientType": client_type,
-            "remoteSetType": remote_set_type
-        }
-
         action = "enable" if enable else "disable"
-        _LOGGER.debug(
-            "%s function parameter %s for inverter %s",
-            action.capitalize(), function_param, serial_number
+        return await self._request_with_inverter_sn(
+            "function_control",
+            serial_number,
+            f"{action} function parameter {function_param}",
+            functionParam=function_param,
+            enable="true" if enable else "false",
+            clientType=client_type,
+            remoteSetType=remote_set_type
         )
-
-        try:
-            response = await self._make_request(
-                "POST", "/WManage/web/maintain/remoteSet/functionControl", data
-            )
-            _LOGGER.info(
-                "Successfully %sd function parameter %s for inverter %s",
-                action, function_param, serial_number
-            )
-            return response
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to %s function parameter %s for inverter %s: %s",
-                action, function_param, serial_number, e
-            )
-            raise EG4APIError(
-                f"Function parameter {function_param} {action} failed for {serial_number}: {e}"
-            ) from e
 
     async def enable_battery_backup(self, serial_number: str) -> Dict[str, Any]:
         """Enable battery backup (EPS) for specified inverter.
