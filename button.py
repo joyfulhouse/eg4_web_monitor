@@ -31,7 +31,7 @@ async def async_setup_entry(
         _LOGGER.warning("No device data available for button setup - coordinator.data: %s", coordinator.data)
         return
 
-    _LOGGER.info("Found %d devices for button setup: %s", 
+    _LOGGER.info("Found %d devices for button setup: %s",
                  len(coordinator.data["devices"]), list(coordinator.data["devices"].keys()))
 
     # Create refresh diagnostic buttons for all devices
@@ -48,25 +48,22 @@ async def async_setup_entry(
         _LOGGER.info("✅ Added refresh button for device %s (%s)", serial, model)
 
     # Also create refresh buttons for individual batteries
-    if "battery_devices" in coordinator.data:
-        for battery_key, _ in coordinator.data["battery_devices"].items():
-            # Extract serial and battery info from battery_key
-            if "_" in battery_key:
-                parts = battery_key.split("_", 1)
-                parent_serial = parts[0]
-                battery_id = parts[1]
+    for serial, device_data in coordinator.data["devices"].items():
+        # Check if this device has individual batteries
+        if "batteries" in device_data:
+            device_info = coordinator.data.get("device_info", {}).get(serial, {})
+            parent_model = device_info.get("deviceTypeText4APP", "Unknown")
 
-                # Get parent device info
-                parent_info = coordinator.data.get("device_info", {}).get(parent_serial, {})
-                parent_model = parent_info.get("deviceTypeText4APP", "Unknown")
+            for battery_key, _ in device_data["batteries"].items():
+                # Create refresh button for each individual battery
                 entities.append(EG4BatteryRefreshButton(
                     coordinator=coordinator,
-                    parent_serial=parent_serial,
+                    parent_serial=serial,
                     battery_key=battery_key,
                     parent_model=parent_model,
-                    battery_id=battery_id,
+                    battery_id=battery_key,  # Use battery_key as the display ID
                 ))
-                _LOGGER.info("✅ Added refresh button for battery %s", battery_key)
+                _LOGGER.info("✅ Added refresh button for battery %s (parent: %s)", battery_key, serial)
 
     if entities:
         _LOGGER.info("Adding %d refresh button entities", len(entities))
@@ -227,13 +224,11 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        # Button is available if parent device exists and has battery data
+        # Button is available if parent device exists and has this specific battery
         if self.coordinator.data and "devices" in self.coordinator.data:
-            parent_exists = self._parent_serial in self.coordinator.data["devices"]
-            battery_exists = False
-            if "battery_devices" in self.coordinator.data:
-                battery_exists = self._battery_key in self.coordinator.data["battery_devices"]
-            return parent_exists and battery_exists
+            parent_device = self.coordinator.data["devices"].get(self._parent_serial, {})
+            if parent_device and "batteries" in parent_device:
+                return self._battery_key in parent_device["batteries"]
         return False
 
     @property
@@ -272,7 +267,15 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
                 self.coordinator.api.clear_cache()
                 _LOGGER.debug("Cleared all cache for fresh battery data")
 
-            # Step 3: Force immediate coordinator refresh
+            # Step 3: Force immediate API call for battery data (most targeted)
+            try:
+                _LOGGER.debug("Calling battery API directly for fresh data")
+                await self.coordinator.api.get_battery_info(self._parent_serial)
+                _LOGGER.debug("Successfully fetched fresh battery data from API")
+            except Exception as api_error:
+                _LOGGER.warning("Direct battery API call failed: %s", api_error)
+
+            # Step 4: Force immediate coordinator refresh to update all entities
             await self.coordinator.async_request_refresh()
             _LOGGER.info("Successfully refreshed data for battery %s", self._battery_key)
         except Exception as e:
