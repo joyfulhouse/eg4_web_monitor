@@ -279,11 +279,34 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             battery_backup_params = await self.api.read_parameters(serial, 127, 127)  # Read register 127 range
             if battery_backup_params and battery_backup_params.get("success"):
                 func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
+                
+                # Enhanced debugging to understand the actual API response
+                _LOGGER.info(
+                    "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)", 
+                    serial, func_eps_en, type(func_eps_en).__name__
+                )
+                
+                # Convert to boolean with explicit handling of different value types
+                if func_eps_en is None:
+                    enabled = False
+                elif isinstance(func_eps_en, str):
+                    # Handle string values like "1", "0", "true", "false"
+                    enabled = func_eps_en.lower() not in ("0", "false", "off", "disabled", "")
+                elif isinstance(func_eps_en, (int, float)):
+                    # Handle numeric values where 0 = disabled, non-zero = enabled
+                    enabled = bool(func_eps_en != 0)
+                else:
+                    # Default boolean conversion
+                    enabled = bool(func_eps_en)
+                
                 processed["battery_backup_status"] = {
                     "FUNC_EPS_EN": func_eps_en,
-                    "enabled": bool(func_eps_en) if func_eps_en is not None else False
+                    "enabled": enabled
                 }
-                _LOGGER.debug("Retrieved battery backup status for device %s: %s", serial, func_eps_en)
+                _LOGGER.info(
+                    "Battery backup status for %s: raw=%r, enabled=%s", 
+                    serial, func_eps_en, enabled
+                )
                 
                 # Update the coordinator's parameter cache with this fresh data
                 if "parameters" not in processed:
