@@ -48,9 +48,6 @@ DIVIDE_BY_100_SENSORS: Set[str] = {
     "load_lifetime",
     "total_energy_import",
     "total_energy_export",
-    # Individual battery cell voltage sensors (convert from centivolts to volts)
-    "battery_cell_voltage_max",
-    "battery_cell_voltage_min",
 }
 
 # GridBOSS specific scaling sets
@@ -347,8 +344,8 @@ def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
         "batMaxCellVoltage",
         "batMinCellVoltage",
     ] and isinstance(value, (int, float)):
-        # Voltage fields are scaled by 100x, need to divide by 100
-        value = value / 100.0
+        # Cell voltage fields are scaled by 1000x (millivolts), need to divide by 1000
+        value = value / 1000.0
     elif api_field in ["current"] and isinstance(value, (int, float)):
         # Current is scaled by 10x, need to divide by 10
         value = value / 10.0

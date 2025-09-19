@@ -193,23 +193,22 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._parent_model = parent_model
         self._battery_id = battery_id
 
-        # Create unique identifiers
-        model_clean = parent_model.lower().replace(" ", "").replace("-", "")
-        self._attr_unique_id = f"{battery_key}_refresh_data"
-        self._attr_entity_id = f"button.{model_clean}_{parent_serial}_battery_{battery_id}_refresh_data"
+        # Create unique identifiers - match battery device pattern
+        self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
+        self._attr_entity_id = f"button.battery_{parent_serial}_{battery_key}_refresh_data"
 
         # Set device attributes
         self._attr_name = f"{parent_model} {parent_serial} Battery {battery_id} Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-        # Device info for grouping with battery
+        # Device info for grouping with battery - must match coordinator.get_battery_device_info()
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, battery_key)},
-            "name": f"Battery_{battery_id}",
-            "manufacturer": "EG4 Electronics",
+            "identifiers": {(DOMAIN, f"{parent_serial}_{battery_key}")},
+            "name": f"Battery {battery_key}",  # Will be cleaned by coordinator
+            "manufacturer": "EG4 Electronics", 
             "model": f"{parent_model} Battery",
-            "serial_number": battery_key,
+            "serial_number": f"{parent_serial}_{battery_key}",
             "via_device": (DOMAIN, parent_serial),
         }
 
