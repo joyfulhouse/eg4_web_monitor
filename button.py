@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -197,8 +198,9 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
         self._attr_entity_id = f"button.battery_{parent_serial}_{battery_key}_refresh_data"
 
-        # Set device attributes
-        self._attr_name = f"{parent_model} {parent_serial} Battery {battery_id} Refresh Data"
+        # Set device attributes - use clean battery name format
+        clean_battery_name = clean_battery_display_name(battery_key, parent_serial)
+        self._attr_name = f"Battery {clean_battery_name} Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
