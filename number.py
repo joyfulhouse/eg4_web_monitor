@@ -76,7 +76,7 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_native_step = 1
         self._attr_native_unit_of_measurement = "%"
         self._attr_mode = NumberMode.BOX
-        self._attr_icon = "mdi:battery-charging-80"
+        self._attr_icon = "mdi:battery-charging"
 
         # Set precision to 0 decimal places (integers only)
         self._attr_native_precision = 0
