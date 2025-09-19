@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import read_device_parameters_ranges
+from .utils import read_device_parameters_ranges, process_parameter_responses
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,20 +224,10 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             )
 
             # Process responses and look for HOLD_SYSTEM_CHARGE_SOC_LIMIT in any range
-            register_starts = [0, 127, 240]  # Corresponding to the ranges in utils
-            for i, response in enumerate(responses):
-                if isinstance(response, Exception):
-                    start_register = register_starts[i]
-                    _LOGGER.debug(
-                        "Failed to read register range %d for %s: %s",
-                        start_register,
-                        self.serial,
-                        response,
-                    )
-                    continue
-
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
                 if response and response.get("success", False):
-                    start_register = register_starts[i]
                     _LOGGER.debug(
                         "Parameter read response for %s (reg %d): success=True",
                         self.serial,

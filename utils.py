@@ -4,6 +4,13 @@ import asyncio
 import logging
 from typing import Dict, Any, Set
 
+from .const import (
+    DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
+    GRIDBOSS_ENERGY_SENSORS,
+    VOLTAGE_SENSORS,
+    CURRENT_SENSORS,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Scaling constants - consolidated from duplicated sets across coordinator
@@ -28,99 +35,13 @@ DIVIDE_BY_10_SENSORS: Set[str] = {
     "dc_voltage",
 }
 
-DIVIDE_BY_100_SENSORS: Set[str] = {
-    # Frequency sensors (convert to Hz from centihertz)
-    "frequency",
-    "generator_frequency",
-    "phase_lock_frequency",
-    # Standard inverter energy sensors (convert to kWh from Wh/100)
-    "daily_energy_generation",
-    "daily_energy_consumption",
-    "daily_energy_charging",
-    "daily_energy_discharging",
-    "daily_energy_import",
-    "daily_energy_export",
-    "total_energy_generation",
-    "total_energy_consumption",
-    "charging_lifetime",
-    "discharging_lifetime",
-    "yield_lifetime",
-    "load_lifetime",
-    "total_energy_import",
-    "total_energy_export",
-}
+# Using const.py to avoid duplication
+DIVIDE_BY_100_SENSORS: Set[str] = CONST_DIVIDE_BY_100_SENSORS
 
-# GridBOSS specific scaling sets
-GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = {
-    # Voltage sensors (convert to V from decivolts)
-    "grid_voltage_l1",
-    "grid_voltage_l2",
-    "load_voltage_l1",
-    "load_voltage_l2",
-    "ups_voltage",
-    "grid_voltage",
-    "generator_voltage",
-    # Current sensors (convert to A from deciamps)
-    "grid_current_l1",
-    "grid_current_l2",
-    "load_current_l1",
-    "load_current_l2",
-    "ups_current_l1",
-    "ups_current_l2",
-    "generator_current_l1",
-    "generator_current_l2",
-    # GridBOSS energy sensors (convert to kWh from Wh/10)
-    "ups_l1",
-    "ups_l2",
-    "ups_lifetime_l1",
-    "ups_lifetime_l2",
-    "grid_export_l1",
-    "grid_export_l2",
-    "grid_import_l1",
-    "grid_import_l2",
-    "grid_export_lifetime_l1",
-    "grid_export_lifetime_l2",
-    "grid_import_lifetime_l1",
-    "grid_import_lifetime_l2",
-    "load_l1",
-    "load_l2",
-    "load_lifetime_l1",
-    "load_lifetime_l2",
-    "ac_couple1_l1",
-    "ac_couple1_l2",
-    "ac_couple1_lifetime_l1",
-    "ac_couple1_lifetime_l2",
-    "ac_couple2_l1",
-    "ac_couple2_l2",
-    "ac_couple2_lifetime_l1",
-    "ac_couple2_lifetime_l2",
-    "ac_couple3_l1",
-    "ac_couple3_l2",
-    "ac_couple3_lifetime_l1",
-    "ac_couple3_lifetime_l2",
-    "ac_couple4_l1",
-    "ac_couple4_l2",
-    "ac_couple4_lifetime_l1",
-    "ac_couple4_lifetime_l2",
-    "smart_load1_l1",
-    "smart_load1_l2",
-    "smart_load1_lifetime_l1",
-    "smart_load1_lifetime_l2",
-    "smart_load2_l1",
-    "smart_load2_l2",
-    "smart_load2_lifetime_l1",
-    "smart_load2_lifetime_l2",
-    "smart_load3_l1",
-    "smart_load3_l2",
-    "smart_load3_lifetime_l1",
-    "smart_load3_lifetime_l2",
-    "smart_load4_l1",
-    "smart_load4_l2",
-    "smart_load4_lifetime_l1",
-    "smart_load4_lifetime_l2",
-    "energy_to_user",
-    "ups_energy",
-}
+# GridBOSS specific scaling sets - using const.py to avoid duplication
+GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = (
+    GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
+)
 
 # Power and energy sensors that should be filtered when zero (except essential ones)
 POWER_ENERGY_SENSORS: Set[str] = (
@@ -501,3 +422,22 @@ async def read_device_parameters_ranges(api_client, inverter_sn: str):
 
     # Execute all reads in parallel
     return await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def process_parameter_responses(responses, device_serial: str, _logger):
+    """Process parameter responses and handle exceptions.
+    
+    Consolidates duplicate response processing logic.
+    """
+    register_starts = [0, 127, 240]  # Corresponding to the ranges above
+    for i, response in enumerate(responses):
+        if isinstance(response, Exception):
+            start_register = register_starts[i]
+            _logger.debug(
+                "Failed to read register range %d for %s: %s",
+                start_register,
+                device_serial,
+                response,
+            )
+            continue
+        yield i, response, register_starts[i]

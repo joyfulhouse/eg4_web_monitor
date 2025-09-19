@@ -20,13 +20,19 @@ from .const import (
     INVERTER_RUNTIME_FIELD_MAPPING,
     INVERTER_ENERGY_FIELD_MAPPING,
     PARALLEL_GROUP_FIELD_MAPPING,
+    GRIDBOSS_FIELD_MAPPING,
     DIVIDE_BY_10_SENSORS,
+    DIVIDE_BY_100_SENSORS,
+    GRIDBOSS_ENERGY_SENSORS,
+    VOLTAGE_SENSORS,
+    CURRENT_SENSORS,
 )
 from .eg4_inverter_api import EG4InverterAPI
 from .utils import (
     extract_individual_battery_sensors,
     clean_battery_display_name,
     read_device_parameters_ranges,
+    process_parameter_responses,
     apply_sensor_scaling,
 )
 from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
@@ -42,7 +48,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self.entry = entry
         self.plant_id = entry.data[CONF_PLANT_ID]
 
-        # Initialize API client
+        # Initialize API clien
         self.api = EG4InverterAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
@@ -102,7 +108,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Don't await this to avoid blocking the main data update
                 self.hass.async_create_task(self._hourly_parameter_refresh())
 
-            # Get comprehensive data for all devices in the plant
+            # Get comprehensive data for all devices in the plan
             data = await self.api.get_all_device_data(self.plant_id)
 
             # Process and structure the data
@@ -168,10 +174,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Process parallel group energy data if available
         parallel_energy = raw_data.get("parallel_energy")
         parallel_groups_info = raw_data.get("parallel_groups_info", [])
-        _LOGGER.info("Parallel group debug - parallel_energy success: %s, parallel_groups_info: %s", 
-                     parallel_energy.get("success") if parallel_energy else None, parallel_groups_info)
-        
-        # Only create parallel group if the API indicates parallel groups exist
+        _LOGGER.debug(
+            "Parallel group data - success: %s, groups: %s",
+            parallel_energy.get("success") if parallel_energy else None, parallel_groups_info
+        )
+        # Only create parallel group if the API indicates parallel groups exis
         if parallel_energy and parallel_energy.get("success"):
             _LOGGER.debug("Processing parallel group energy data")
             processed["devices"][
@@ -278,7 +285,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Process battery backup status by reading FUNC_EPS_EN parameter from base parameters
         try:
-            # Read base parameters (0-127) where FUNC_EPS_EN is likely located (cached with 2-minute TTL)
+            # Read base parameters (0-127) where FUNC_EPS_EN is likely located
+            # (cached with 2-minute TTL)
             battery_backup_params = await self.api.read_parameters(serial, 0, 127)
             func_eps_en = None
             if battery_backup_params and battery_backup_params.get("success"):
@@ -317,8 +325,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     processed["parameters"][serial] = {}
                 processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
             else:
-                processed["battery_backup_status"] = {"enabled": False, "error": "FUNC_EPS_EN parameter not found in base parameters"}
-                _LOGGER.warning("FUNC_EPS_EN parameter not found in base parameters for device %s", serial)
+                processed["battery_backup_status"] = {
+                    "enabled": False,
+                    "error": "FUNC_EPS_EN parameter not found in base parameters"
+                }
+                _LOGGER.warning(
+                    "FUNC_EPS_EN parameter not found in base parameters for device %s", serial
+                )
         except Exception as e:
             _LOGGER.debug("Failed to get battery backup status for device %s: %s", serial, e)
             # Don't fail the entire update if battery backup status fails
@@ -377,23 +390,26 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         parallel_groups_info: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Process parallel group energy data."""
-        _LOGGER.info("Processing parallel group data - parallel_energy: %s, parallel_groups_info: %s", 
-                     bool(parallel_energy), parallel_groups_info)
-        
+        _LOGGER.debug(
+            "Processing parallel group data - energy: %s, groups: %s",
+            bool(parallel_energy), parallel_groups_info)
+
         # Extract the group name from parallel groups info
         group_name = "Parallel Group"  # Default fallback
         if parallel_groups_info and len(parallel_groups_info) > 0:
             # Extract group letter from first group
             first_group = parallel_groups_info[0]
             group_letter = first_group.get("parallelGroup", "")
-            _LOGGER.info("Parallel group naming - first_group: %s, group_letter: %s", first_group, group_letter)
-            
+            _LOGGER.debug(
+                "Parallel group naming - group_letter: %s", group_letter
+            )
+
             if group_letter:
-                # Always include the letter if available, regardless of group count
+                # Always include the letter if available, regardless of group coun
                 group_name = f"Parallel Group {group_letter}"
-                _LOGGER.info("Set parallel group name to: %s", group_name)
+                _LOGGER.debug("Set parallel group name to: %s", group_name)
             else:
-                _LOGGER.info("No group letter found, using default name: %s", group_name)
+                _LOGGER.debug("No group letter found, using default name: %s", group_name)
 
         processed = {
             "serial": "parallel_group",
@@ -478,7 +494,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             )
                             continue
 
-                    # Apply camel casing for status text
+                    # Apply camel casing for status tex
                     if sensor_type == "status_text" and isinstance(value, str):
                         value = self._to_camel_case(value)
 
@@ -542,7 +558,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if api_field in battery:
                 value = battery[api_field]
                 if value is not None:
-                    # Apply scaling for sensors that need it
+                    # Apply scaling for sensors that need i
                     scaled_value = apply_sensor_scaling(sensor_type, value, "inverter")
                     sensors[sensor_type] = scaled_value
 
@@ -593,112 +609,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
         sensors = {}
 
+        # Use field mapping from const.py to avoid duplication
         field_mapping = {
-            # Core Power sensors
+            # Core Power sensors (not in const.py)
             "hybridPower": "load_power",
             "smartLoadPower": "smart_load_power",
-            # Frequency sensors
-            "gridFreq": "frequency",
-            "genFreq": "generator_frequency",
-            "phaseLockFreq": "phase_lock_frequency",
-            # GridBOSS MidBox voltage sensors (actual API field names)
-            "gridL1RmsVolt": "grid_voltage_l1",
-            "gridL2RmsVolt": "grid_voltage_l2",
-            "upsL1RmsVolt": "load_voltage_l1",
-            "upsL2RmsVolt": "load_voltage_l2",
-            "upsRmsVolt": "ups_voltage",
-            "gridRmsVolt": "grid_voltage",
-            "genRmsVolt": "generator_voltage",
-            # GridBOSS MidBox current sensors (actual API field names)
-            "gridL1RmsCurr": "grid_current_l1",
-            "gridL2RmsCurr": "grid_current_l2",
-            "loadL1RmsCurr": "load_current_l1",
-            "loadL2RmsCurr": "load_current_l2",
-            "upsL1RmsCurr": "ups_current_l1",
-            "upsL2RmsCurr": "ups_current_l2",
-            "genL1RmsCurr": "generator_current_l1",
-            "genL2RmsCurr": "generator_current_l2",
-            # GridBOSS MidBox power sensors (actual API field names)
-            "gridL1ActivePower": "grid_power_l1",
-            "gridL2ActivePower": "grid_power_l2",
-            "loadL1ActivePower": "load_power_l1",
-            "loadL2ActivePower": "load_power_l2",
-            "upsL1ActivePower": "ups_power_l1",
-            "upsL2ActivePower": "ups_power_l2",
-            "genL1ActivePower": "generator_power_l1",
-            "genL2ActivePower": "generator_power_l2",
-            # Smart Load Power sensors
-            "smartLoad1L1ActivePower": "smart_load1_power_l1",
-            "smartLoad1L2ActivePower": "smart_load1_power_l2",
-            "smartLoad2L1ActivePower": "smart_load2_power_l1",
-            "smartLoad2L2ActivePower": "smart_load2_power_l2",
-            "smartLoad3L1ActivePower": "smart_load3_power_l1",
-            "smartLoad3L2ActivePower": "smart_load3_power_l2",
-            "smartLoad4L1ActivePower": "smart_load4_power_l1",
-            "smartLoad4L2ActivePower": "smart_load4_power_l2",
-            # Smart Port Status sensors (diagnostic)
-            "smartPort1Status": "smart_port1_status",
-            "smartPort2Status": "smart_port2_status",
-            "smartPort3Status": "smart_port3_status",
-            "smartPort4Status": "smart_port4_status",
-            # Energy sensors - UPS/backup load daily values
-            "eUpsTodayL1": "ups_l1",
-            "eUpsTodayL2": "ups_l2",
-            # Energy sensors - UPS/backup load lifetime values
-            "eUpsTotalL1": "ups_lifetime_l1",
-            "eUpsTotalL2": "ups_lifetime_l2",
-            # Energy sensors - Grid interaction daily values
-            "eToGridTodayL1": "grid_export_l1",
-            "eToGridTodayL2": "grid_export_l2",
-            "eToUserTodayL1": "grid_import_l1",
-            "eToUserTodayL2": "grid_import_l2",
-            # Energy sensors - Grid interaction lifetime values
-            "eToGridTotalL1": "grid_export_lifetime_l1",
-            "eToGridTotalL2": "grid_export_lifetime_l2",
-            "eToUserTotalL1": "grid_import_lifetime_l1",
-            "eToUserTotalL2": "grid_import_lifetime_l2",
-            # Energy sensors - Non-backup load daily values
-            "eLoadTodayL1": "load_l1",
-            "eLoadTodayL2": "load_l2",
-            # Energy sensors - Non-backup load lifetime values
-            "eLoadTotalL1": "load_lifetime_l1",
-            "eLoadTotalL2": "load_lifetime_l2",
-            # Energy sensors - AC Couple daily values
-            "eACcouple1TodayL1": "ac_couple1_l1",
-            "eACcouple1TodayL2": "ac_couple1_l2",
-            "eACcouple2TodayL1": "ac_couple2_l1",
-            "eACcouple2TodayL2": "ac_couple2_l2",
-            "eACcouple3TodayL1": "ac_couple3_l1",
-            "eACcouple3TodayL2": "ac_couple3_l2",
-            "eACcouple4TodayL1": "ac_couple4_l1",
-            "eACcouple4TodayL2": "ac_couple4_l2",
-            # Energy sensors - AC Couple lifetime values
-            "eACcouple1TotalL1": "ac_couple1_lifetime_l1",
-            "eACcouple1TotalL2": "ac_couple1_lifetime_l2",
-            "eACcouple2TotalL1": "ac_couple2_lifetime_l1",
-            "eACcouple2TotalL2": "ac_couple2_lifetime_l2",
-            "eACcouple3TotalL1": "ac_couple3_lifetime_l1",
-            "eACcouple3TotalL2": "ac_couple3_lifetime_l2",
-            "eACcouple4TotalL1": "ac_couple4_lifetime_l1",
-            "eACcouple4TotalL2": "ac_couple4_lifetime_l2",
-            # Smart Load Energy sensors - daily values
-            "eSmartLoad1TodayL1": "smart_load1_l1",
-            "eSmartLoad1TodayL2": "smart_load1_l2",
-            "eSmartLoad2TodayL1": "smart_load2_l1",
-            "eSmartLoad2TodayL2": "smart_load2_l2",
-            "eSmartLoad3TodayL1": "smart_load3_l1",
-            "eSmartLoad3TodayL2": "smart_load3_l2",
-            "eSmartLoad4TodayL1": "smart_load4_l1",
-            "eSmartLoad4TodayL2": "smart_load4_l2",
-            # Smart Load Energy sensors - lifetime values
-            "eSmartLoad1TotalL1": "smart_load1_lifetime_l1",
-            "eSmartLoad1TotalL2": "smart_load1_lifetime_l2",
-            "eSmartLoad2TotalL1": "smart_load2_lifetime_l1",
-            "eSmartLoad2TotalL2": "smart_load2_lifetime_l2",
-            "eSmartLoad3TotalL1": "smart_load3_lifetime_l1",
-            "eSmartLoad3TotalL2": "smart_load3_lifetime_l2",
-            "eSmartLoad4TotalL1": "smart_load4_lifetime_l1",
-            "eSmartLoad4TotalL2": "smart_load4_lifetime_l2",
+            **GRIDBOSS_FIELD_MAPPING,  # Import all the standardized mappings
         }
 
         for api_field, sensor_type in field_mapping.items():
@@ -728,89 +644,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         sensors[sensor_type] = value
                         continue
 
-                    # Apply division by 10 for GridBOSS energy and voltage sensors
-                    gridboss_divide_by_10_sensors = {
-                        # UPS energy sensors
-                        "ups_l1",
-                        "ups_l2",
-                        "ups_lifetime_l1",
-                        "ups_lifetime_l2",
-                        # Grid export/import energy sensors
-                        "grid_export_l1",
-                        "grid_export_l2",
-                        "grid_import_l1",
-                        "grid_import_l2",
-                        "grid_export_lifetime_l1",
-                        "grid_export_lifetime_l2",
-                        "grid_import_lifetime_l1",
-                        "grid_import_lifetime_l2",
-                        # Load energy sensors
-                        "load_l1",
-                        "load_l2",
-                        "load_lifetime_l1",
-                        "load_lifetime_l2",
-                        # AC Couple energy sensors
-                        "ac_couple1_l1",
-                        "ac_couple1_l2",
-                        "ac_couple1_lifetime_l1",
-                        "ac_couple1_lifetime_l2",
-                        "ac_couple2_l1",
-                        "ac_couple2_l2",
-                        "ac_couple2_lifetime_l1",
-                        "ac_couple2_lifetime_l2",
-                        "ac_couple3_l1",
-                        "ac_couple3_l2",
-                        "ac_couple3_lifetime_l1",
-                        "ac_couple3_lifetime_l2",
-                        "ac_couple4_l1",
-                        "ac_couple4_l2",
-                        "ac_couple4_lifetime_l1",
-                        "ac_couple4_lifetime_l2",
-                        # Smart Load energy sensors
-                        "smart_load1_l1",
-                        "smart_load1_l2",
-                        "smart_load1_lifetime_l1",
-                        "smart_load1_lifetime_l2",
-                        "smart_load2_l1",
-                        "smart_load2_l2",
-                        "smart_load2_lifetime_l1",
-                        "smart_load2_lifetime_l2",
-                        "smart_load3_l1",
-                        "smart_load3_l2",
-                        "smart_load3_lifetime_l1",
-                        "smart_load3_lifetime_l2",
-                        "smart_load4_l1",
-                        "smart_load4_l2",
-                        "smart_load4_lifetime_l1",
-                        "smart_load4_lifetime_l2",
-                        # Other energy sensors
-                        "energy_to_user",
-                        "ups_energy",
-                        # Voltage sensors (convert from decivolts to volts)
-                        "grid_voltage_l1",
-                        "grid_voltage_l2",
-                        "load_voltage_l1",
-                        "load_voltage_l2",
-                        "ups_voltage",
-                        "grid_voltage",
-                        "generator_voltage",
-                        # Current sensors (convert from deciamps to amps)
-                        "grid_current_l1",
-                        "grid_current_l2",
-                        "load_current_l1",
-                        "load_current_l2",
-                        "ups_current_l1",
-                        "ups_current_l2",
-                        "generator_current_l1",
-                        "generator_current_l2",
-                    }
+                    # Use sensor lists from const.py to avoid duplication
+                    gridboss_divide_by_10_sensors = (
+                        GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
+                    )
 
                     # GridBOSS frequency sensors need division by 100
-                    gridboss_divide_by_100_sensors = {
-                        "frequency",
-                        "generator_frequency",
-                        "phase_lock_frequency",
-                    }
+                    # Use frequency sensors from const.py to avoid duplication
+                    gridboss_divide_by_100_sensors = DIVIDE_BY_100_SENSORS
 
                     if sensor_type in gridboss_divide_by_10_sensors:
                         try:
@@ -897,7 +738,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             gen_l2 = _safe_numeric(sensors["generator_power_l2"])
             sensors["generator_power"] = gen_l1 + gen_l2
 
-        # Calculate AC Couple aggregate today values for each port
+        # Calculate AC Couple aggregate today values for each por
         for port in range(1, 5):
             l1_key = f"ac_couple{port}_today_l1"
             l2_key = f"ac_couple{port}_today_l2"
@@ -906,7 +747,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 l2_val = _safe_numeric(sensors[l2_key])
                 sensors[f"ac_couple{port}_today"] = l1_val + l2_val
 
-        # Calculate AC Couple aggregate total values for each port
+        # Calculate AC Couple aggregate total values for each por
         for port in range(1, 5):
             l1_key = f"ac_couple{port}_total_l1"
             l2_key = f"ac_couple{port}_total_l2"
@@ -931,7 +772,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Identify sensors to remove for unused Smart Ports (status = 0)
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():
-            if status == 0:  # Unused Smart Port
+            if status == 0:  # Unused Smart Por
                 _LOGGER.debug(
                     "Smart Port %d is unused (status=0), removing related sensors", port
                 )
@@ -1030,7 +871,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         parallel_groups_info = self.data.get("parallel_groups_info", [])
         if parallel_groups_info:
             for group in parallel_groups_info:
-                # Check if this device is listed in the group's inverter list
+                # Check if this device is listed in the group's inverter lis
                 inverter_list = group.get("inverterList", [])
                 for inverter in inverter_list:
                     if inverter.get("serialNum") == device_serial:
@@ -1043,10 +884,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         return None
 
         # Fallback: if no specific group membership found but a parallel group exists,
-        # assume all inverter/gridboss devices are part of it
+        # assume all inverter/gridboss devices are part of i
         for serial, device_data in self.data["devices"].items():
             if device_data.get("type") == "parallel_group":
-                # Found a parallel group - return its serial as the parent
+                # Found a parallel group - return its serial as the paren
                 return serial
 
         return None
@@ -1201,17 +1042,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Process responses to update device parameter cache
             parameter_data = {}
-            register_starts = [0, 127, 240]  # Corresponding to the ranges in utils
-            for i, response in enumerate(responses):
-                if isinstance(response, Exception):
-                    start_register = register_starts[i]
-                    _LOGGER.debug(
-                        "Failed to read register range %d for %s: %s",
-                        start_register,
-                        serial,
-                        response,
-                    )
-                    continue
+            for _, response, _ in process_parameter_responses(responses, serial, _LOGGER):
 
                 if response and response.get("success", False):
                     # Merge parameter data from this range

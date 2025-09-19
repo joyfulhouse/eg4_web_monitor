@@ -60,7 +60,7 @@ def run_tests(coverage=False, verbose=False, test_filter=None):
     print(f"🧪 Running tests: {' '.join(cmd[2:])}")
 
     try:
-        result = subprocess.run(cmd, cwd=Path(__file__).parent)
+        result = subprocess.run(cmd, cwd=Path(__file__).parent, check=False)
         if result.returncode == 0:
             print("✅ All tests passed!")
             if coverage:
@@ -100,6 +100,7 @@ def run_linting():
                 "--ignore=E501,W503",
             ],
             cwd=Path(__file__).parent,
+            check=False,
         )
 
         if result.returncode == 0:

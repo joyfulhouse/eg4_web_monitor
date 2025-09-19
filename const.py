@@ -1498,3 +1498,90 @@ DIVIDE_BY_10_SENSORS = {
     "smart_load4_lifetime_l1",
     "smart_load4_lifetime_l2",
 }
+
+# GridBOSS-specific sensor lists
+DIVIDE_BY_100_SENSORS = {
+    "frequency",
+    "generator_frequency", 
+    "phase_lock_frequency",
+}
+
+VOLTAGE_SENSORS = {
+    "grid_voltage_l1",
+    "grid_voltage_l2",
+    "load_voltage_l1",
+    "load_voltage_l2",
+    "ups_voltage",
+    "grid_voltage",
+    "generator_voltage",
+}
+
+CURRENT_SENSORS = {
+    "grid_current_l1",
+    "grid_current_l2",
+    "load_current_l1",
+    "load_current_l2",
+    "ups_current_l1",
+    "ups_current_l2",
+    "generator_current_l1",
+    "generator_current_l2",
+}
+
+GRIDBOSS_ENERGY_SENSORS = {
+    # UPS energy sensors
+    "ups_l1",
+    "ups_l2",
+    "ups_lifetime_l1",
+    "ups_lifetime_l2",
+    # Grid export/import energy sensors
+    "grid_export_l1",
+    "grid_export_l2",
+    "grid_import_l1",
+    "grid_import_l2",
+    "grid_export_lifetime_l1",
+    "grid_export_lifetime_l2",
+    "grid_import_lifetime_l1",
+    "grid_import_lifetime_l2",
+    # Load energy sensors
+    "load_l1",
+    "load_l2",
+    "load_lifetime_l1",
+    "load_lifetime_l2",
+    # AC Couple energy sensors
+    "ac_couple1_l1",
+    "ac_couple1_l2",
+    "ac_couple1_lifetime_l1",
+    "ac_couple1_lifetime_l2",
+    "ac_couple2_l1",
+    "ac_couple2_l2",
+    "ac_couple2_lifetime_l1",
+    "ac_couple2_lifetime_l2",
+    "ac_couple3_l1",
+    "ac_couple3_l2",
+    "ac_couple3_lifetime_l1",
+    "ac_couple3_lifetime_l2",
+    "ac_couple4_l1",
+    "ac_couple4_l2",
+    "ac_couple4_lifetime_l1",
+    "ac_couple4_lifetime_l2",
+    # Smart Load energy sensors
+    "smart_load1_l1",
+    "smart_load1_l2",
+    "smart_load1_lifetime_l1",
+    "smart_load1_lifetime_l2",
+    "smart_load2_l1",
+    "smart_load2_l2",
+    "smart_load2_lifetime_l1",
+    "smart_load2_lifetime_l2",
+    "smart_load3_l1",
+    "smart_load3_l2",
+    "smart_load3_lifetime_l1",
+    "smart_load3_lifetime_l2",
+    "smart_load4_l1",
+    "smart_load4_l2",
+    "smart_load4_lifetime_l1",
+    "smart_load4_lifetime_l2",
+    # Other energy sensors
+    "energy_to_user",
+    "ups_energy",
+}
