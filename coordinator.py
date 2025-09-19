@@ -139,6 +139,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "last_update": dt_util.utcnow(),
         }
 
+        # Preserve existing parameter data from previous updates
+        if self.data and "parameters" in self.data:
+            processed["parameters"] = self.data["parameters"]
+
         # Store device info temporarily for model extraction
         self._temp_device_info = raw_data.get("device_info", {})
 
@@ -177,6 +181,28 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Clear temporary device info
         if hasattr(self, "_temp_device_info"):
             delattr(self, "_temp_device_info")
+
+        # Check if we need to refresh parameters for any inverters that don't have them
+        if "parameters" not in processed:
+            processed["parameters"] = {}
+
+        inverters_needing_params = []
+        for serial, device_data in processed["devices"].items():
+            if (device_data.get("type") == "inverter" and
+                serial not in processed["parameters"]):
+                inverters_needing_params.append(serial)
+
+        # If there are inverters without parameters, refresh them
+        if inverters_needing_params:
+            _LOGGER.info(
+                "Refreshing parameters for %d new inverters: %s",
+                len(inverters_needing_params),
+                inverters_needing_params
+            )
+            # Don't await this to avoid blocking the data update
+            self.hass.async_create_task(
+                self._refresh_missing_parameters(inverters_needing_params, processed)
+            )
 
         return processed
 
@@ -1150,6 +1176,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         if key != "success" and value is not None:
                             parameter_data[key] = value
 
+            # Store parameter data in coordinator data structure
+            # Note: self.data is managed by the coordinator base class
+            if hasattr(self, 'data') and self.data is not None:
+                if "parameters" not in self.data:
+                    self.data["parameters"] = {}
+                self.data["parameters"][serial] = parameter_data
+
             _LOGGER.debug(
                 "Refreshed %d parameters for device %s", len(parameter_data), serial
             )
@@ -1157,6 +1190,28 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
             raise
+
+    async def _refresh_missing_parameters(
+        self, inverter_serials: List[str], processed_data: Dict[str, Any]
+    ) -> None:
+        """Refresh parameters for inverters that don't have them yet."""
+        try:
+            for serial in inverter_serials:
+                try:
+                    await self._refresh_device_parameters(serial)
+                    # Update the processed data with new parameter data
+                    if (self.data and "parameters" in self.data and
+                        serial in self.data["parameters"]):
+                        processed_data["parameters"][serial] = self.data["parameters"][serial]
+                except Exception as e:
+                    _LOGGER.error(
+                        "Failed to refresh missing parameters for %s: %s", serial, e
+                    )
+
+            # Request a coordinator refresh to update entities with new parameter data
+            await self.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("Error during missing parameter refresh: %s", e)
 
     async def _hourly_parameter_refresh(self) -> None:
         """Perform hourly parameter refresh for all inverters."""
