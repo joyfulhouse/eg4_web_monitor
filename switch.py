@@ -57,7 +57,6 @@ async def async_setup_entry(
                 _LOGGER.info(
                     "✅ Added quick charge switch for compatible device %s (%s)", serial, model
                 )
-                
                 # Add battery backup switch
                 entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
                 _LOGGER.info(

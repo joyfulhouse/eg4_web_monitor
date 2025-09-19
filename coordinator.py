@@ -1060,7 +1060,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Get all inverter devices from current data
             if not self.data or "devices" not in self.data:
-                _LOGGER.debug("No device data available for parameter refresh - integration may still be initializing")
+                _LOGGER.debug(
+                    "No device data available for parameter refresh - "
+                    "integration may still be initializing"
+                )
                 return
 
             inverter_serials = []
@@ -1104,20 +1107,20 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def async_refresh_device_parameters(self, serial: str) -> None:
         """Public method to refresh parameters for a specific device.
-        
+
         This method is called by switch entities after parameter changes
         to ensure the state reflects the actual device configuration.
-        
+
         Args:
             serial: The inverter serial number to refresh parameters for
         """
         try:
             _LOGGER.debug("Refreshing parameters for device %s", serial)
             await self._refresh_device_parameters(serial)
-            
+
             # Request a coordinator refresh to update all entities
             await self.async_request_refresh()
-            
+
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
 
