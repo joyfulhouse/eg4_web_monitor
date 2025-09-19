@@ -274,7 +274,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Process battery backup status by reading FUNC_EPS_EN parameter
         try:
-            # Read the specific parameter that controls battery backup
+            # Read the specific parameter that controls battery backup (cached with 5-minute TTL)
+            # This call will benefit from API response caching for performance
             battery_backup_params = await self.api.read_parameters(serial, 127, 127)  # Read register 127 range
             if battery_backup_params and battery_backup_params.get("success"):
                 func_eps_en = battery_backup_params.get("FUNC_EPS_EN")

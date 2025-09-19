@@ -49,15 +49,15 @@ class EG4InverterAPI:
         self._cache_ttl_config = {
             # Static data - cache longer
             "battery_info": timedelta(minutes=5),      # Battery info changes slowly
-            "parameter_read": timedelta(minutes=10),   # Parameters rarely change
             
+            # Control parameters - cache medium term for responsiveness vs performance
+            "parameter_read": timedelta(minutes=2),    # Parameters change when user controls devices
+            "quick_charge_status": timedelta(minutes=1), # Status changes during operations
+
             # Dynamic data - cache shorter
             "inverter_runtime": timedelta(seconds=20), # Runtime data changes frequently
-            "inverter_energy": timedelta(minutes=2),   # Energy data changes moderately  
-            "midbox_runtime": timedelta(seconds=30),   # GridBOSS runtime changes frequently
-            
-            # Control status - cache very short
-            "quick_charge_status": timedelta(seconds=10), # Status changes quickly during operations
+            "inverter_energy": timedelta(seconds=20),   # Energy data changes moderately  
+            "midbox_runtime": timedelta(seconds=20),   # GridBOSS runtime changes frequently
         }
 
     async def __aenter__(self):
