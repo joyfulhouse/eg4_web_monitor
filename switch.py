@@ -40,9 +40,10 @@ async def async_setup_entry(
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
             model = device_info.get("deviceTypeText4APP", "Unknown")
             model_lower = model.lower()
-            
+
             _LOGGER.info(
-                "Evaluating quick charge compatibility for device %s: model='%s' (original), model_lower='%s'",
+                "Evaluating quick charge compatibility for device %s: "
+                "model='%s' (original), model_lower='%s'",
                 serial, model, model_lower
             )
 
@@ -57,7 +58,8 @@ async def async_setup_entry(
                 )
             else:
                 _LOGGER.warning(
-                    "❌ Skipping quick charge switch for device %s (%s) - model not in supported list %s",
+                    "❌ Skipping quick charge switch for device %s (%s) - "
+                    "model not in supported list %s",
                     serial, model, supported_models
                 )
         else:
@@ -84,7 +86,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
         self._serial = serial
         self._device_data = device_data
-        
+
         # Optimistic state for immediate UI feedback
         self._optimistic_state: Optional[bool] = None
 
@@ -116,7 +118,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
             return self._optimistic_state
-            
+
         # Check if we have quick charge status data from coordinator
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
@@ -135,7 +137,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
     def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
         """Return extra state attributes."""
         attributes = {}
-        
+
         # Add quick charge task details if available
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
@@ -145,16 +147,16 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
                 # Add useful status information as attributes
                 task_id = quick_charge_status.get("unclosedQuickChargeTaskId")
                 task_status = quick_charge_status.get("unclosedQuickChargeTaskStatus")
-                
+
                 if task_id:
                     attributes["task_id"] = task_id
                 if task_status:
                     attributes["task_status"] = task_status
-                    
+
                 # Add optimistic state indicator for debugging
                 if self._optimistic_state is not None:
                     attributes["optimistic_state"] = self._optimistic_state
-        
+
         return attributes if attributes else None
 
     @property
@@ -171,15 +173,15 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         """Turn on quick charge."""
         try:
             _LOGGER.debug("Starting quick charge for device %s", self._serial)
-            
+
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = True
             self.async_write_ha_state()
-            
+
             # Call the API
             await self.coordinator.api.start_quick_charge(self._serial)
             _LOGGER.info("Successfully started quick charge for device %s", self._serial)
-            
+
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
             await self.coordinator.async_request_refresh()
@@ -195,15 +197,15 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         """Turn off quick charge."""
         try:
             _LOGGER.debug("Stopping quick charge for device %s", self._serial)
-            
+
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = False
             self.async_write_ha_state()
-            
+
             # Call the API
             await self.coordinator.api.stop_quick_charge(self._serial)
             _LOGGER.info("Successfully stopped quick charge for device %s", self._serial)
-            
+
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
             await self.coordinator.async_request_refresh()
