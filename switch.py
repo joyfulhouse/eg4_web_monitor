@@ -101,7 +101,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
         # Set device attributes
         self._attr_name = f"{self._model} {serial} Quick Charge"
-        self._attr_icon = "mdi:battery-charging-fast"
+        self._attr_icon = "mdi:battery-charging"
 
         # Device info for grouping
         self._attr_device_info = {
