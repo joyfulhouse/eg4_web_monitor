@@ -271,12 +271,23 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         if self._optimistic_state is not None:
             return self._optimistic_state
 
-        # Check parameter data from coordinator
+        # Check battery backup status data from coordinator (real-time)
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            battery_backup_status = device_data.get("battery_backup_status")
+            
+            if battery_backup_status and isinstance(battery_backup_status, dict):
+                # Use the enabled field from battery backup status
+                enabled = battery_backup_status.get("enabled")
+                if enabled is not None:
+                    return bool(enabled)
+
+        # Fallback: Check parameter data from coordinator
         if self.coordinator.data and "parameters" in self.coordinator.data:
             device_params = self.coordinator.data["parameters"].get(self._serial, {})
             return device_params.get("FUNC_EPS_EN", False)
 
-        # Default to False if we don't have parameter information
+        # Default to False if we don't have any information
         return False
 
     @property
@@ -284,17 +295,33 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         """Return extra state attributes."""
         attributes = {}
 
-        # Add parameter details if available
-        if self.coordinator.data and "parameters" in self.coordinator.data:
+        # Add battery backup status details if available
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            battery_backup_status = device_data.get("battery_backup_status")
+            
+            if battery_backup_status and isinstance(battery_backup_status, dict):
+                # Add battery backup status information
+                func_eps_en = battery_backup_status.get("FUNC_EPS_EN")
+                if func_eps_en is not None:
+                    attributes["func_eps_en"] = func_eps_en
+                
+                # Add any error information
+                error = battery_backup_status.get("error")
+                if error:
+                    attributes["status_error"] = error
+
+        # Fallback: Add parameter details if available
+        if not attributes and self.coordinator.data and "parameters" in self.coordinator.data:
             device_params = self.coordinator.data["parameters"].get(self._serial, {})
             func_eps_en = device_params.get("FUNC_EPS_EN")
 
             if func_eps_en is not None:
                 attributes["func_eps_en"] = func_eps_en
 
-            # Add optimistic state indicator for debugging
-            if self._optimistic_state is not None:
-                attributes["optimistic_state"] = self._optimistic_state
+        # Add optimistic state indicator for debugging
+        if self._optimistic_state is not None:
+            attributes["optimistic_state"] = self._optimistic_state
 
         return attributes if attributes else None
 

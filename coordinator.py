@@ -272,6 +272,31 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Don't fail the entire update if quick charge status fails
             processed["quick_charge_status"] = {"status": False, "error": str(e)}
 
+        # Process battery backup status by reading FUNC_EPS_EN parameter
+        try:
+            # Read the specific parameter that controls battery backup
+            battery_backup_params = await self.api.read_parameters(serial, 127, 127)  # Read register 127 range
+            if battery_backup_params and battery_backup_params.get("success"):
+                func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
+                processed["battery_backup_status"] = {
+                    "FUNC_EPS_EN": func_eps_en,
+                    "enabled": bool(func_eps_en) if func_eps_en is not None else False
+                }
+                _LOGGER.debug("Retrieved battery backup status for device %s: %s", serial, func_eps_en)
+                
+                # Update the coordinator's parameter cache with this fresh data
+                if "parameters" not in processed:
+                    processed["parameters"] = {}
+                if serial not in processed["parameters"]:
+                    processed["parameters"][serial] = {}
+                processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
+            else:
+                processed["battery_backup_status"] = {"enabled": False, "error": "Failed to read parameters"}
+        except Exception as e:
+            _LOGGER.debug("Failed to get battery backup status for device %s: %s", serial, e)
+            # Don't fail the entire update if battery backup status fails
+            processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
+
         return processed
 
     async def _process_gridboss_data(
