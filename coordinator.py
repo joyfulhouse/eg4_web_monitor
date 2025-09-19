@@ -238,6 +238,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         battery_sensors = extract_individual_battery_sensors(bat_data)
                         processed["batteries"][battery_key] = battery_sensors
 
+        # Process quick charge status
+        try:
+            quick_charge_status = await self.api.get_quick_charge_status(serial)
+            processed["quick_charge_status"] = quick_charge_status
+            _LOGGER.debug("Retrieved quick charge status for device %s", serial)
+        except Exception as e:
+            _LOGGER.debug("Failed to get quick charge status for device %s: %s", serial, e)
+            # Don't fail the entire update if quick charge status fails
+            processed["quick_charge_status"] = {"status": False, "error": str(e)}
+
         return processed
 
     async def _process_gridboss_data(
