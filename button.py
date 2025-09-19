@@ -100,15 +100,19 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         device_type = device_data.get("type", "unknown")
         if device_type == "parallel_group":
             # Special handling for parallel group entity IDs
+            _LOGGER.warning("DEBUG: Entity ID generation - device_type: %s, model: '%s'", device_type, model)
             if "Parallel Group" in model and len(model) > len("Parallel Group"):
                 # Extract letter from "Parallel Group A" -> "parallel_group_a"
                 group_letter = model.replace("Parallel Group", "").strip().lower()
                 entity_id_suffix = f"parallel_group_{group_letter}_refresh_data"
+                _LOGGER.warning("DEBUG: Extracted group_letter: '%s', entity_id_suffix: '%s'", group_letter, entity_id_suffix)
             else:
                 # Fallback for just "Parallel Group" -> "parallel_group_refresh_data"
                 entity_id_suffix = "parallel_group_refresh_data"
+                _LOGGER.warning("DEBUG: Using fallback entity_id_suffix: '%s'", entity_id_suffix)
             self._attr_entity_id = f"button.{entity_id_suffix}"
             self._attr_unique_id = f"{serial}_refresh_data"
+            _LOGGER.warning("DEBUG: Final entity_id: '%s'", self._attr_entity_id)
         else:
             # Normal device entity ID generation
             model_clean = model.lower().replace(" ", "").replace("-", "")
