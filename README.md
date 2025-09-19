@@ -27,6 +27,7 @@ This integration was inspired by and built upon the excellent work by [@twistedr
 - **Battery Management**: State of charge, health, voltage, temperature per battery
 - **Grid Integration**: Import/export tracking, grid status monitoring
 - **Smart Load Management**: GridBOSS smart port monitoring and control
+- **Quick Charge Control**: Start and stop quick charging directly from Home Assistant with real-time status monitoring
 
 ### 🏠 **Multi-Station Architecture**
 - Support for multiple solar installations per account
@@ -95,6 +96,7 @@ The integration will automatically discover and configure:
 - ✅ GridBOSS devices (if present) 
 - ✅ Individual battery modules
 - ✅ Parallel group configurations
+- ✅ Quick Charge switches for compatible inverters (FlexBOSS, 18KPV, 12KPV, XP series)
 
 ## Device Types & Sensors
 
@@ -104,8 +106,8 @@ The integration will automatically discover and configure:
 - **AC/DC Power**: Real-time power generation and consumption
 - **PV Total Power**: Combined solar panel output
 - **Battery Power**: Charging/discharging power
-- **Yield / Yield (Lifetime)**: Daily and lifetime energy generation ⭐ *Recently simplified from "Today Yield" / "Total Yield"*
-- **Energy Consumption**: Load consumption tracking
+- **Daily Energy**: Daily energy generation and consumption
+- **Lifetime Energy**: Total lifetime energy statistics
 
 #### Electrical Measurements  
 - **Voltages**: AC, DC, Battery voltages with precision scaling
@@ -115,7 +117,22 @@ The integration will automatically discover and configure:
 #### Environmental & Status
 - **Temperatures**: Internal, Radiator 1, Radiator 2 temperatures
 - **Status**: System status with intelligent text conversion
-- **Firmware Version**: Extracted from device runtime ⭐ *Recently improved*
+- **Firmware Version**: Device firmware information
+
+### Quick Charge Control
+
+#### Switch Entity
+- **Quick Charge Switch**: Direct battery charging control with real-time status
+  - Entity ID: `switch.{model}_{serial}_quick_charge`
+  - Icon: Battery charging indicator
+  - Optimistic state updates for immediate UI feedback
+
+#### Features
+- **Instant Control**: Start/stop quick charging with immediate UI response
+- **Real-time Status**: Automatic status monitoring using `hasUnclosedQuickChargeTask`
+- **Task Tracking**: Task ID and status attributes for detailed monitoring
+- **Device Compatibility**: Automatic detection for FlexBOSS, 18KPV, 12KPV, XP series
+- **Error Handling**: Graceful fallback on API errors with state reversion
 
 ### Individual Battery Sensors (Per Battery)
 
@@ -123,30 +140,30 @@ The integration will automatically discover and configure:
 - **Real Voltage/Current**: Actual battery electrical values
 - **State of Charge (SoC)**: Battery charge percentage  
 - **State of Health (SoH)**: Battery condition indicator
-- **Real Power**: Individual battery power contribution
+- **Power**: Individual battery power contribution
 
 #### Cell Management
-- **Cell Voltage**: Max/min cell voltages with scaling
+- **Cell Voltage**: Max/min cell voltages
 - **Cell Temperature**: Max/min temperatures
-- **Cell Numbers**: Identification of extreme cells
+- **Cell Voltage Delta**: Difference between highest and lowest cell voltages
 
 #### Lifecycle Tracking
 - **Cycle Count**: Battery charge/discharge cycles
-- **Capacities**: Remaining, full, design capacities
+- **Capacities**: Remaining and full capacities
 - **Firmware Version**: Battery module firmware
 
 ### GridBOSS MidBox Sensors
 
 #### Grid Interconnection (Per Phase)
 - **Grid Voltage/Current/Power**: L1/L2 phase monitoring
-- **Grid Frequency**: Precise frequency measurement (÷100 scaling)
+- **Grid Frequency**: Precise frequency measurement
 - **Phase Lock Frequency**: Grid synchronization monitoring
 - **Import/Export Energy**: Bidirectional energy tracking
 
 #### Load Management
 - **Load Power**: Per-phase load consumption
 - **UPS Power/Energy**: Backup power systems
-- **Smart Load Ports**: 4 configurable smart ports ⭐ *Now created regardless of status*
+- **Smart Load Ports**: 4 configurable smart ports
   - Port Status: "Unused", "Smart Load", "AC Couple"
   - Individual port power monitoring
 
@@ -158,33 +175,7 @@ The integration will automatically discover and configure:
 #### Generator Integration
 - **Generator Power/Voltage/Current**: L1/L2 monitoring
 - **Generator Frequency**: Generator operation tracking
-- **Dry Contact Status**: Generator control integration
-
-## Recent Updates ⭐
-
-### Version 2025.09 - Production Release
-
-#### ✅ **Sensor Naming Simplification**
-- **Simplified Energy Sensors**: Cleaner, more intuitive naming
-  - `today_yield` → `yield` (daily energy generation)
-  - `total_yield` → `yield_lifetime` (lifetime energy generation)
-  - Applied to all energy types: charging, discharging, load, grid export, etc.
-- **Entity IDs Simplified**: Consistent naming throughout the integration
-
-#### ✅ **GridBOSS Enhancements** 
-- **Zero-Value Filtering Removed**: All GridBOSS sensors now created regardless of value
-- **Better Monitoring**: Essential sensors like grid power always visible (0W is meaningful)
-- **Improved Scaling**: Accurate frequency readings (÷100 for Hz values)
-
-#### ✅ **Firmware Version Extraction**
-- **Inverter Firmware**: Now extracted from `fwCode` field (e.g., "FAAB-2122")
-- **GridBOSS Firmware**: Proper version display (e.g., "IAAB-1300")
-- **Automatic Detection**: Firmware versions automatically updated
-
-#### ✅ **Production Readiness**
-- **Comprehensive Testing**: Full unit test suite with 95%+ coverage
-- **Error Handling**: Robust error handling and recovery
-- **Performance Optimized**: Concurrent API calls and smart caching
+- **Control Integration**: Generator status monitoring
 
 ## Supported Devices
 
@@ -197,57 +188,29 @@ The integration will automatically discover and configure:
 
 ### ✅ Tested GridBOSS
 - **GridBOSS**: Microgrid interconnection device
-- **MidBox Runtime**: Complete grid management functionality
+- **Complete Functionality**: All grid management features
 
 ### ✅ Battery Systems
 - **EG4 Batteries**: All EG4-compatible battery modules
 - **Individual Monitoring**: Per-battery sensors and diagnostics
 - **BMS Integration**: Complete battery management system data
 
-## API Endpoints Used
-
-The integration uses the following EG4 Monitor API endpoints:
-
-### Authentication & Discovery
-- `POST /WManage/api/login` - User authentication
-- `POST /WManage/web/config/plant/list/viewer` - Station discovery
-
-### Device Discovery  
-- `POST /WManage/api/inverterOverview/list` - Primary device discovery
-- `POST /WManage/api/inverterOverview/getParallelGroupDetails` - Parallel group discovery
-
-### Runtime Data
-- `POST /WManage/api/inverter/getInverterRuntime` - Real-time inverter data
-- `POST /WManage/api/inverter/getInverterEnergyInfo` - Energy statistics
-- `POST /WManage/api/battery/getBatteryInfo` - Battery array data
-- `POST /WManage/api/midbox/getMidboxRuntime` - GridBOSS data
-
 ## Configuration Examples
-
-### Single Station Setup
-```yaml
-# Automatically configured through UI
-# Creates: "EG4 Web Monitor Home Solar System"
-```
-
-### Multiple Station Setup  
-```yaml
-# Create separate integration instances:
-# 1. "EG4 Web Monitor Home Solar System" 
-# 2. "EG4 Web Monitor Cabin Solar System"
-# Each monitors different plantId
-```
 
 ### Entity Naming Convention
 ```yaml
 # Inverter Sensors
 sensor.eg4_flexboss21_44300e0585_ac_power
-sensor.eg4_flexboss21_44300e0585_yield                    # Daily generation
-sensor.eg4_flexboss21_44300e0585_yield_lifetime           # Lifetime generation
+sensor.eg4_flexboss21_44300e0585_daily_energy_generation
+sensor.eg4_flexboss21_44300e0585_total_energy_generation
 
 # Battery Sensors  
-sensor.eg4_flexboss21_44300e0585_battery_44300e0585_01_state_of_charge
-sensor.eg4_flexboss21_44300e0585_battery_44300e0585_01_voltage
+sensor.battery_44300e0585_01_state_of_charge
+sensor.battery_44300e0585_01_cell_voltage_delta
+
+# Quick Charge Switches
+switch.flexboss21_44300e0585_quick_charge
+switch.18kpv_4512670118_quick_charge
 
 # GridBOSS Sensors
 sensor.eg4_gridboss_4524850115_grid_power_l1
@@ -276,9 +239,6 @@ Info: Some sensors not created
 ```
 **Solution**: Normal for unused features (e.g., generator when not present)
 
-#### Firmware Version Shows 1.0.0
-**Solution**: Updated in latest version - restart integration
-
 ### Debug Logging
 
 Enable debug logging in `configuration.yaml`:
@@ -297,29 +257,6 @@ Verify connectivity to EG4 servers:
 curl -I https://monitor.eg4electronics.com
 ```
 
-## Development & Testing
-
-### Run Tests
-```bash
-# Install test dependencies
-python run_tests.py --install
-
-# Run all tests with coverage
-python run_tests.py --all
-
-# Run specific tests
-python run_tests.py --filter "test_sensor"
-```
-
-### Test Coverage
-The integration includes comprehensive tests covering:
-- ✅ **API Integration**: All endpoint interactions
-- ✅ **Device Discovery**: Multi-station, multi-device scenarios  
-- ✅ **Sensor Creation**: All device types and sensor categories
-- ✅ **Data Processing**: Scaling, filtering, validation
-- ✅ **Error Handling**: Network, authentication, API errors
-- ✅ **Configuration Flow**: Multi-step setup process
-
 ## Performance
 
 ### Update Intervals
@@ -335,28 +272,21 @@ The integration includes comprehensive tests covering:
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
 
 ### Development Setup
 1. Fork the repository
 2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Run tests: `python run_tests.py --all`
+3. Run tests to ensure quality
 4. Commit changes: `git commit -m 'Add amazing feature'`
 5. Push branch: `git push origin feature/amazing-feature`
 6. Open Pull Request
 
 ## Support
 
-### Documentation
-- [Installation Guide](docs/installation.md)
-- [Configuration Guide](docs/configuration.md)
-- [API Reference](docs/api.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
-
 ### Community
 - [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
 - [Home Assistant Community Forum](https://community.home-assistant.io)
-- [EG4 Electronics Support](https://eg4electronics.com/support)
 
 ## License
 
