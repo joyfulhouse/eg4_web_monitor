@@ -218,6 +218,9 @@ class EG4InverterAPI:
 
             # Set session expiry (2 hours as per documentation)
             self._session_expires = datetime.now() + timedelta(hours=2)
+            
+            # Clear parameter cache on new login to ensure fresh data
+            self._clear_parameter_cache()
 
             _LOGGER.info("Successfully authenticated with EG4 API")
             return result
@@ -487,6 +490,19 @@ class EG4InverterAPI:
         
         if keys_to_remove:
             _LOGGER.debug("Invalidated %d cached entries for device %s", len(keys_to_remove), serial_number)
+    
+    def _clear_parameter_cache(self) -> None:
+        """Clear all parameter-related cache entries."""
+        keys_to_remove = []
+        for cache_key in self._response_cache:
+            if cache_key.startswith("parameter_read:") or cache_key.startswith("quick_charge_status:"):
+                keys_to_remove.append(cache_key)
+        
+        for key in keys_to_remove:
+            del self._response_cache[key]
+        
+        if keys_to_remove:
+            _LOGGER.debug("Cleared %d parameter cache entries", len(keys_to_remove))
 
     async def _request_with_inverter_sn(
         self,
@@ -509,7 +525,6 @@ class EG4InverterAPI:
         """
         # Extract custom endpoint if provided
         custom_endpoint = kwargs.pop("_custom_endpoint", None)
-        data = {"inverterSn": inverter_sn, **kwargs}
         
         # Determine endpoint to use
         if custom_endpoint:
@@ -519,10 +534,26 @@ class EG4InverterAPI:
         else:
             raise ValueError("Either endpoint_key or _custom_endpoint must be provided")
         
+        # Check cache first if this endpoint is cacheable
+        cache_key = None
+        if endpoint_key and endpoint_key in self._cache_ttl_config:
+            cache_params = {"inverterSn": inverter_sn, **kwargs}
+            cache_key = self._get_cache_key(endpoint_key, **cache_params)
+            
+            if self._is_cache_valid(cache_key, endpoint_key):
+                _LOGGER.debug("Cache hit for %s:%s", endpoint_key, inverter_sn)
+                return self._response_cache[cache_key]["response"]
+        
+        data = {"inverterSn": inverter_sn, **kwargs}
         _LOGGER.debug("%s for inverter %s", operation.capitalize(), inverter_sn)
         
         try:
             response = await self._make_request("POST", endpoint, data)
+            
+            # Cache the response if this endpoint is cacheable
+            if cache_key and endpoint_key in self._cache_ttl_config:
+                self._cache_response(cache_key, response)
+                _LOGGER.debug("Cached response for %s:%s", endpoint_key, inverter_sn)
             
             # Invalidate cache for write operations that might change device state
             if endpoint_key in ["parameter_write", "function_control"] or custom_endpoint:
