@@ -97,12 +97,31 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         self._model = model
 
         # Create unique identifiers
-        model_clean = model.lower().replace(" ", "").replace("-", "")
-        self._attr_unique_id = f"{serial}_refresh_data"
-        self._attr_entity_id = f"button.{model_clean}_{serial}_refresh_data"
+        device_type = device_data.get("type", "unknown")
+        if device_type == "parallel_group":
+            # Special handling for parallel group entity IDs
+            if "Parallel Group" in model and len(model) > len("Parallel Group"):
+                # Extract letter from "Parallel Group A" -> "parallel_group_a"
+                group_letter = model.replace("Parallel Group", "").strip().lower()
+                entity_id_suffix = f"parallel_group_{group_letter}_refresh_data"
+            else:
+                # Fallback for just "Parallel Group" -> "parallel_group_refresh_data"
+                entity_id_suffix = "parallel_group_refresh_data"
+            self._attr_entity_id = f"button.{entity_id_suffix}"
+            self._attr_unique_id = f"{serial}_refresh_data"
+        else:
+            # Normal device entity ID generation
+            model_clean = model.lower().replace(" ", "").replace("-", "")
+            self._attr_unique_id = f"{serial}_refresh_data"
+            self._attr_entity_id = f"button.{model_clean}_{serial}_refresh_data"
 
         # Set device attributes
-        self._attr_name = f"{model} {serial} Refresh Data"
+        if device_type == "parallel_group":
+            # For parallel groups, don't include the "parallel_group" serial in the name
+            self._attr_name = f"{model} Refresh Data"
+        else:
+            # For other devices, include serial number
+            self._attr_name = f"{model} {serial} Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
