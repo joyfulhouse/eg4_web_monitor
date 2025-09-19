@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlencode
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -18,13 +18,14 @@ _LOGGER = logging.getLogger(__name__)
 class EG4InverterAPI:
     """EG4 Inverter API Client."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         username: str,
         password: str,
+        *,
         base_url: str = "https://monitor.eg4electronics.com",
         verify_ssl: bool = True,
-        timeout: int = 30,
+        timeout: int = 30
     ):
         """Initialize the EG4 Inverter API client."""
         self.username = username
@@ -96,12 +97,10 @@ class EG4InverterAPI:
         # URL-encode the data for form submission
         encoded_data = None
         if data:
-            from urllib.parse import urlencode
-
             encoded_data = urlencode(data)
 
         try:
-            _LOGGER.debug(f"Making {method} request to {url} with data: {data}")
+            _LOGGER.debug("Making %s request to %s with data: %s", method, url, data)
             async with session.request(
                 method, url, headers=headers, data=encoded_data
             ) as response:
@@ -148,6 +147,7 @@ class EG4InverterAPI:
 
             # Extract session ID from cookies
             session = await self._get_session()
+            # pylint: disable=protected-access
             if hasattr(session, "_cookie_jar") and session._cookie_jar:
                 for cookie in session._cookie_jar:
                     if cookie.key == "JSESSIONID":
@@ -166,7 +166,7 @@ class EG4InverterAPI:
             return result
 
         except Exception as e:
-            _LOGGER.error(f"Login failed: {e}")
+            _LOGGER.error("Login failed: %s", e)
             raise EG4AuthError(f"Login failed: {e}") from e
 
     async def get_plants(self) -> List[Dict[str, Any]]:
@@ -283,9 +283,10 @@ class EG4InverterAPI:
                 break
 
         _LOGGER.info(
-            f"Found {len(serial_numbers)} devices for plant {plant_id}: {list(serial_numbers)}"
+            "Found %d devices for plant %s: %s",
+            len(serial_numbers), plant_id, list(serial_numbers)
         )
-        _LOGGER.info(f"GridBOSS devices: {list(gridboss_serials)}")
+        _LOGGER.info("GridBOSS devices: %s", list(gridboss_serials))
 
         # Try to get additional device discovery data (but don't fail if it doesn't work)
         parallel_groups_data = None
@@ -295,7 +296,8 @@ class EG4InverterAPI:
         parallel_groups_data = None
         inverter_overview_data = None
         _LOGGER.debug(
-            "Skipping parallel groups and inverter overview discovery endpoints (not essential for core functionality)"
+            "Skipping parallel groups and inverter overview discovery endpoints "
+            "(not essential for core functionality)"
         )
 
         # Fetch data for all devices concurrently
@@ -323,7 +325,7 @@ class EG4InverterAPI:
                 )
                 _LOGGER.debug("Successfully retrieved parallel group energy data")
             except Exception as e:
-                _LOGGER.warning(f"Failed to get parallel group energy data: {e}")
+                _LOGGER.warning("Failed to get parallel group energy data: %s", e)
 
         # Organize results
         result = {
@@ -338,7 +340,7 @@ class EG4InverterAPI:
         for i, serial in enumerate(serial_numbers):
             data = device_data[i]
             if isinstance(data, Exception):
-                _LOGGER.error(f"Failed to get data for device {serial}: {data}")
+                _LOGGER.error("Failed to get data for device %s: %s", serial, data)
                 result["devices"][serial] = {"error": str(data)}
             else:
                 result["devices"][serial] = data
@@ -363,7 +365,7 @@ class EG4InverterAPI:
                 "battery": battery,
             }
         except Exception as e:
-            _LOGGER.error(f"Failed to get inverter data for {serial_number}: {e}")
+            _LOGGER.error("Failed to get inverter data for %s: %s", serial_number, e)
             raise
 
     async def _get_gridboss_data(self, serial_number: str) -> Dict[str, Any]:
@@ -376,7 +378,7 @@ class EG4InverterAPI:
                 "midbox": midbox_data,
             }
         except Exception as e:
-            _LOGGER.error(f"Failed to get GridBOSS data for {serial_number}: {e}")
+            _LOGGER.error("Failed to get GridBOSS data for %s: %s", serial_number, e)
             raise
 
     async def read_parameters(
@@ -415,13 +417,14 @@ class EG4InverterAPI:
             )
             raise EG4APIError(f"Parameter read failed for {inverter_sn}: {e}") from e
 
-    async def write_parameter(
+    async def write_parameter(  # pylint: disable=too-many-arguments
         self,
         inverter_sn: str,
         hold_param: str,
         value_text: str,
+        *,
         client_type: str = "WEB",
-        remote_set_type: str = "NORMAL",
+        remote_set_type: str = "NORMAL"
     ) -> Dict[str, Any]:
         """Write a parameter to an inverter using the remote write endpoint.
 
@@ -459,3 +462,77 @@ class EG4InverterAPI:
                 "Failed to write parameter to inverter %s: %s", inverter_sn, e
             )
             raise EG4APIError(f"Parameter write failed for {inverter_sn}: {e}") from e
+
+    async def start_quick_charge(self, serial_number: str) -> Dict[str, Any]:
+        """Start quick charge for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the quick charge start response
+        """
+        data = {
+            "inverterSn": serial_number,
+            "clientType": "WEB"
+        }
+
+        _LOGGER.debug("Starting quick charge for inverter %s", serial_number)
+
+        try:
+            response = await self._make_request(
+                "POST", "/WManage/web/config/quickCharge/start", data
+            )
+            _LOGGER.info("Successfully started quick charge for inverter %s", serial_number)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to start quick charge for inverter %s: %s", serial_number, e)
+            raise EG4APIError(f"Quick charge start failed for {serial_number}: {e}") from e
+
+    async def stop_quick_charge(self, serial_number: str) -> Dict[str, Any]:
+        """Stop quick charge for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the quick charge stop response
+        """
+        data = {
+            "inverterSn": serial_number,
+            "clientType": "WEB"
+        }
+
+        _LOGGER.debug("Stopping quick charge for inverter %s", serial_number)
+
+        try:
+            response = await self._make_request(
+                "POST", "/WManage/web/config/quickCharge/stop", data
+            )
+            _LOGGER.info("Successfully stopped quick charge for inverter %s", serial_number)
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to stop quick charge for inverter %s: %s", serial_number, e)
+            raise EG4APIError(f"Quick charge stop failed for {serial_number}: {e}") from e
+
+    async def get_quick_charge_status(self, serial_number: str) -> Dict[str, Any]:
+        """Get current quick charge status for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the quick charge status
+        """
+        data = {"inverterSn": serial_number}
+
+        _LOGGER.debug("Getting quick charge status for inverter %s", serial_number)
+
+        try:
+            response = await self._make_request(
+                "POST", "/WManage/web/config/quickCharge/getStatusInfo", data
+            )
+            return response
+        except Exception as e:
+            _LOGGER.error("Failed to get quick charge status for inverter %s: %s", serial_number, e)
+            raise EG4APIError(f"Quick charge status check failed for {serial_number}: {e}") from e

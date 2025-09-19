@@ -238,6 +238,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         battery_sensors = extract_individual_battery_sensors(bat_data)
                         processed["batteries"][battery_key] = battery_sensors
 
+        # Process quick charge status
+        try:
+            quick_charge_status = await self.api.get_quick_charge_status(serial)
+            processed["quick_charge_status"] = quick_charge_status
+            _LOGGER.debug("Retrieved quick charge status for device %s", serial)
+        except Exception as e:
+            _LOGGER.debug("Failed to get quick charge status for device %s: %s", serial, e)
+            # Don't fail the entire update if quick charge status fails
+            processed["quick_charge_status"] = {"status": False, "error": str(e)}
+
         return processed
 
     async def _process_gridboss_data(
@@ -956,9 +966,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 for inverter in inverter_list:
                     if inverter.get("serialNum") == device_serial:
                         # This device belongs to this parallel group
-                        group_letter = group.get("parallelGroup", "")
-                        if group_letter:
-                            return "parallel_group"  # Return the parallel group serial
+                        # Find the actual parallel group device serial in our devices
+                        for serial, device_data in self.data["devices"].items():
+                            if device_data.get("type") == "parallel_group":
+                                return serial  # Return the actual parallel group device serial
+                        # If no parallel group device found, don't set via_device
+                        return None
 
         # Fallback: if no specific group membership found but a parallel group exists,
         # assume all inverter/gridboss devices are part of it
@@ -1033,7 +1046,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return sensors
 
     def _extract_parallel_group_binary_sensors(
-        self, _parallel_energy: Dict[str, Any]
+        self, parallel_energy: Dict[str, Any]  # pylint: disable=unused-argument
     ) -> Dict[str, Any]:
         """Extract binary sensor data from parallel group energy response."""
         return {}
@@ -1047,7 +1060,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Get all inverter devices from current data
             if not self.data or "devices" not in self.data:
-                _LOGGER.warning("No device data available for parameter refresh")
+                _LOGGER.debug("No device data available for parameter refresh - integration may still be initializing")
                 return
 
             inverter_serials = []
