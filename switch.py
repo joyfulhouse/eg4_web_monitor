@@ -275,7 +275,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             battery_backup_status = device_data.get("battery_backup_status")
-            
+
             if battery_backup_status and isinstance(battery_backup_status, dict):
                 # Use the enabled field from battery backup status
                 enabled = battery_backup_status.get("enabled")
@@ -299,13 +299,12 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             battery_backup_status = device_data.get("battery_backup_status")
-            
+
             if battery_backup_status and isinstance(battery_backup_status, dict):
                 # Add battery backup status information
                 func_eps_en = battery_backup_status.get("FUNC_EPS_EN")
                 if func_eps_en is not None:
                     attributes["func_eps_en"] = func_eps_en
-                
                 # Add any error information
                 error = battery_backup_status.get("error")
                 if error:

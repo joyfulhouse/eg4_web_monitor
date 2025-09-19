@@ -276,16 +276,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             # Read base parameters (0-127) where FUNC_EPS_EN is likely located (cached with 2-minute TTL)
             battery_backup_params = await self.api.read_parameters(serial, 0, 127)
+            func_eps_en = None
             if battery_backup_params and battery_backup_params.get("success"):
                 func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
-                
+
             if func_eps_en is not None:
                 # Enhanced debugging to understand the actual API response
                 _LOGGER.info(
-                    "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)", 
+                    "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)",
                     serial, func_eps_en, type(func_eps_en).__name__
                 )
-                
                 # Convert to boolean with explicit handling of different value types
                 if func_eps_en is None:
                     enabled = False
@@ -298,16 +298,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 else:
                     # Default boolean conversion
                     enabled = bool(func_eps_en)
-                
                 processed["battery_backup_status"] = {
                     "FUNC_EPS_EN": func_eps_en,
                     "enabled": enabled
                 }
                 _LOGGER.info(
-                    "Battery backup status for %s: raw=%r, enabled=%s", 
+                    "Battery backup status for %s: raw=%r, enabled=%s",
                     serial, func_eps_en, enabled
                 )
-                
                 # Update the coordinator's parameter cache with this fresh data
                 if "parameters" not in processed:
                     processed["parameters"] = {}
