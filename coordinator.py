@@ -168,6 +168,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Process parallel group energy data if available
         parallel_energy = raw_data.get("parallel_energy")
         parallel_groups_info = raw_data.get("parallel_groups_info", [])
+        _LOGGER.info("Parallel group debug - parallel_energy success: %s, parallel_groups_info: %s", 
+                     parallel_energy.get("success") if parallel_energy else None, parallel_groups_info)
         if parallel_energy and parallel_energy.get("success"):
             _LOGGER.debug("Processing parallel group energy data")
             processed["devices"][
@@ -373,15 +375,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         parallel_groups_info: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Process parallel group energy data."""
+        _LOGGER.info("Processing parallel group data - parallel_groups_info: %s", parallel_groups_info)
+        
         # Extract the group name from parallel groups info
         group_name = "Parallel Group"  # Default fallback
-        if parallel_groups_info and len(parallel_groups_info) > 1:
-            # Only add letter suffix if there are multiple groups
+        if parallel_groups_info and len(parallel_groups_info) > 0:
+            # Extract group letter from first group
             first_group = parallel_groups_info[0]
             group_letter = first_group.get("parallelGroup", "")
+            _LOGGER.info("Parallel group naming - first_group: %s, group_letter: %s", first_group, group_letter)
+            
             if group_letter:
+                # Always include the letter if available, regardless of group count
                 group_name = f"Parallel Group {group_letter}"
-            # For single group, keep the simple "Parallel Group" name
+                _LOGGER.info("Set parallel group name to: %s", group_name)
+            else:
+                _LOGGER.info("No group letter found, using default name: %s", group_name)
 
         processed = {
             "serial": "parallel_group",
