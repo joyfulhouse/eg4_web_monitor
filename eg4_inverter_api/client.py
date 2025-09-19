@@ -372,7 +372,6 @@ class EG4InverterAPI:
 
                     # Also extract parallel group information
                     parallel_groups = plant.get("parallelGroups", [])
-                    _LOGGER.info("DEBUG: Found plant %s, parallel_groups: %s", plant.get("plantId"), parallel_groups)
                     break
             
             # Cache the device discovery data
@@ -434,7 +433,6 @@ class EG4InverterAPI:
             "device_info": device_info,  # Include device info from login
             "devices": {},
         }
-        _LOGGER.info("DEBUG: Returning parallel_groups_info: %s", parallel_groups)
 
         for i, serial in enumerate(serial_numbers):
             data = device_data[i]

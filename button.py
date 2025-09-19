@@ -45,8 +45,6 @@ async def async_setup_entry(
         if device_type == "parallel_group":
             # For parallel groups, get model from device data itself
             model = device_data.get("model", "Parallel Group")
-            _LOGGER.warning("DEBUG: Button creation for parallel_group - serial: %s, device_data_model: '%s', final_model: '%s'", 
-                           serial, device_data.get("model"), model)
         else:
             # For other devices, get model from device_info from API
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
