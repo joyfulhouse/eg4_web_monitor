@@ -45,6 +45,8 @@ async def async_setup_entry(
         if device_type == "parallel_group":
             # For parallel groups, get model from device data itself
             model = device_data.get("model", "Parallel Group")
+            _LOGGER.warning("DEBUG: Button creation for parallel_group - serial: %s, device_data_model: '%s', final_model: '%s'", 
+                           serial, device_data.get("model"), model)
         else:
             # For other devices, get model from device_info from API
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
@@ -125,14 +127,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-        # Device info for grouping
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, serial)},
-            "name": f"{model}_{serial}",
-            "manufacturer": "EG4 Electronics",
-            "model": model,
-            "serial_number": serial,
-        }
+        # Device info will be provided by the device_info property
 
         # Set entity description
         self.entity_description = ButtonEntityDescription(
@@ -141,6 +136,11 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
             icon="mdi:refresh",
             entity_category=EntityCategory.DIAGNOSTIC,
         )
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info(self._serial)
 
     @property
     def available(self) -> bool:
