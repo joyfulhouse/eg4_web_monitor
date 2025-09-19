@@ -99,6 +99,7 @@ The integration will automatically discover and configure:
 - ✅ Parallel group configurations
 - ✅ Quick Charge switches for compatible inverters (FlexBOSS, 18KPV, 12KPV, XP series)
 - ✅ Battery Backup switches for Emergency Power Supply (EPS) control
+- ✅ Diagnostic refresh buttons for all devices and individual batteries
 
 ## Device Types & Sensors
 
@@ -148,6 +149,35 @@ The integration will automatically discover and configure:
 - **Optimistic Updates**: Immediate UI feedback with state validation
 - **Cross-Device Sync**: Parameter changes trigger updates across all inverters
 - **Robust Error Handling**: Graceful state reversion on API failures
+
+### Diagnostic Refresh Controls
+
+#### Device Refresh Buttons
+- **Device Refresh Button**: Cache invalidation and data refresh for all device types
+  - Entity ID: `button.{model}_{serial}_refresh_data`
+  - Icon: Refresh indicator
+  - Entity Category: Diagnostic
+
+**Features**:
+- **Cache Invalidation**: Clears device-specific cache for fresh data retrieval
+- **Parameter Refresh**: Automatic parameter refresh for inverter devices
+- **Immediate API Calls**: Forces fresh data retrieval bypassing cache
+- **Device Compatibility**: Available for all device types (Inverters, GridBOSS, Parallel Groups)
+- **Real-time Updates**: Triggers coordinator refresh for immediate entity updates
+
+#### Battery Refresh Buttons
+- **Battery Refresh Button**: Individual battery cache invalidation and refresh
+  - Entity ID: `button.battery_{serial}_{battery_id}_refresh_data`
+  - Name: `Battery {serial}-{id} Refresh Data`
+  - Icon: Refresh indicator
+  - Entity Category: Diagnostic
+
+**Features**:
+- **Targeted Battery Refresh**: Direct battery API calls with cache clearing
+- **Device Hierarchy**: Buttons assigned to existing battery devices (no duplicate devices)
+- **Comprehensive Cache Clear**: Invalidates both device and battery-specific cache entries
+- **Fresh Data Guarantee**: Ensures latest battery data from EG4 API
+- **Immediate Updates**: Forces coordinator refresh to update all battery sensors
 
 ### Individual Battery Sensors (Per Battery)
 
@@ -228,6 +258,13 @@ switch.flexboss21_44300e0585_quick_charge
 switch.flexboss21_44300e0585_battery_backup
 switch.18kpv_4512670118_quick_charge
 switch.18kpv_4512670118_battery_backup
+
+# Refresh Buttons
+button.flexboss21_44300e0585_refresh_data
+button.18kpv_4512670118_refresh_data
+button.eg4gridboss_4524850115_refresh_data
+button.battery_44300e0585_01_refresh_data
+button.battery_4512670118_02_refresh_data
 
 # GridBOSS Sensors
 sensor.eg4_gridboss_4524850115_grid_power_l1

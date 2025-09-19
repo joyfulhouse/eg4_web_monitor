@@ -287,6 +287,47 @@ EG4 Web Monitor {Station_Name}
 
 ## Recent Updates ✅
 
+### ✅ September 2025 - Release 1.3.2: Diagnostic Refresh & Advanced Caching System
+- **✅ Diagnostic Refresh Buttons**: Comprehensive cache invalidation and data refresh system
+  - **Device Refresh Buttons**: Added refresh buttons for all device types (Inverters, GridBOSS, Parallel Groups)
+    - Entity IDs: `button.{model}_{serial}_refresh_data` (e.g., `button.flexboss21_44300e0585_refresh_data`)
+    - **Cache Invalidation**: Device-specific cache clearing with immediate API refresh
+    - **Parameter Refresh**: Automatic parameter refresh for inverter devices during refresh
+    - **Entity Category**: Diagnostic buttons for organized device management
+  - **Battery Refresh Buttons**: Individual battery refresh functionality with proper device assignment
+    - Entity IDs: `button.battery_{serial}_{battery_id}_refresh_data` (e.g., `button.battery_4512670118_01_refresh_data`)
+    - **Targeted Refresh**: Direct battery API calls with cache invalidation
+    - **Device Hierarchy**: Buttons properly assigned to existing battery devices (not creating new devices)
+    - **Streamlined Naming**: Clean button names like "Battery 4512670118-01 Refresh Data"
+- **✅ Advanced API Caching System**: Comprehensive performance optimization with intelligent cache management
+  - **Differentiated TTL**: Dynamic cache expiration based on data volatility
+    - Device Discovery: 15 minutes (static data, reduce repeated logins)
+    - Battery Info: 5 minutes (semi-static battery data)
+    - Parameter Reads: 2 minutes (control parameters, balance performance vs responsiveness)
+    - Quick Charge Status: 1 minute (control state monitoring)
+    - Runtime/Energy: 20 seconds (dynamic sensor data)
+  - **Smart Cache Invalidation**: Automatic cache clearing for write operations
+    - Parameter writes trigger parameter cache invalidation
+    - Quick charge/battery backup control invalidates relevant caches
+    - Startup cache clearing ensures fresh data on integration reload
+  - **Performance Improvements**: Significantly reduced API calls and improved response times
+    - Device discovery caching eliminates repeated login calls during setup
+    - Response caching with concurrent request deduplication
+    - Enhanced session management with proper cache integration
+- **✅ Battery Cell Voltage Precision Fix**: Corrected scaling for accurate lithium cell voltage readings
+  - **Issue**: Battery cell voltages showing 33.36V instead of realistic 3.336V for lithium cells
+  - **Fix**: Changed scaling from ÷100 to ÷1000 for millivolt precision in cell voltage fields
+  - **Result**: Accurate cell voltage readings (3.3-3.7V range) for proper battery monitoring
+  - **Affected Sensors**: `battery_cell_voltage_max`, `battery_cell_voltage_min`, `battery_real_voltage`
+- **✅ Battery Backup Status Accuracy**: Fixed incorrect battery backup status reading
+  - **Issue**: Battery backup showing "off" when actually enabled
+  - **Fix**: Changed parameter reading from extended registers (127-254) to base parameters (0-127) where `FUNC_EPS_EN` is located
+  - **Result**: Accurate battery backup status synchronization with actual EPS mode state
+- **✅ Parallel Group Naming Improvements**: Enhanced parallel group detection and naming logic
+  - **Issue**: Single parallel groups not being named properly due to logic error
+  - **Fix**: Improved parallel group detection to handle both single and multiple group scenarios
+  - **Result**: Proper device naming and hierarchy for all parallel group configurations
+
 ### ✅ September 2025 - Release 1.2.4: Code Quality & Missing Sensor Fixes
 - **✅ Code Quality Improvements**: Significantly reduced code duplication and improved maintainability
   - Pylint score improved from 7.90/10 to 9.39/10
