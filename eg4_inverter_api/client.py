@@ -38,6 +38,27 @@ class EG4InverterAPI:
         self._session_id: Optional[str] = None
         self._session_expires: Optional[datetime] = None
         self._plants: Optional[List[Dict[str, Any]]] = None
+        
+        # Device discovery cache to avoid repeated login calls
+        self._device_cache: Dict[str, Dict[str, Any]] = {}
+        self._device_cache_expires: Optional[datetime] = None
+        self._device_cache_ttl = timedelta(minutes=15)  # Cache device info for 15 minutes
+        
+        # Response cache for API endpoints with TTL
+        self._response_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_ttl_config = {
+            # Static data - cache longer
+            "battery_info": timedelta(minutes=5),      # Battery info changes slowly
+            "parameter_read": timedelta(minutes=10),   # Parameters rarely change
+            
+            # Dynamic data - cache shorter
+            "inverter_runtime": timedelta(seconds=20), # Runtime data changes frequently
+            "inverter_energy": timedelta(minutes=2),   # Energy data changes moderately  
+            "midbox_runtime": timedelta(seconds=30),   # GridBOSS runtime changes frequently
+            
+            # Control status - cache very short
+            "quick_charge_status": timedelta(seconds=10), # Status changes quickly during operations
+        }
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -61,6 +82,42 @@ class EG4InverterAPI:
         """Close the session."""
         if self._session and not self._session.closed:
             await self._session.close()
+            
+    def _get_cache_key(self, endpoint_key: str, **params) -> str:
+        """Generate a cache key for an endpoint and parameters."""
+        # Sort parameters for consistent cache keys
+        param_str = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+        return f"{endpoint_key}:{param_str}"
+    
+    def _is_cache_valid(self, cache_key: str, endpoint_key: str) -> bool:
+        """Check if cached response is still valid."""
+        if cache_key not in self._response_cache:
+            return False
+            
+        cache_entry = self._response_cache[cache_key]
+        cache_time = cache_entry.get("timestamp")
+        if not cache_time:
+            return False
+            
+        ttl = self._cache_ttl_config.get(endpoint_key, timedelta(seconds=30))
+        return datetime.now() < cache_time + ttl
+    
+    def _cache_response(self, cache_key: str, response: Dict[str, Any]) -> None:
+        """Cache a response with timestamp."""
+        self._response_cache[cache_key] = {
+            "timestamp": datetime.now(),
+            "response": response
+        }
+        
+        # Cleanup old cache entries (keep last 100 entries)
+        if len(self._response_cache) > 100:
+            # Remove oldest entries
+            sorted_entries = sorted(
+                self._response_cache.items(),
+                key=lambda x: x[1]["timestamp"]
+            )
+            for old_key, _ in sorted_entries[:-80]:  # Keep 80 most recent
+                del self._response_cache[old_key]
 
     async def _ensure_authenticated(self):
         """Ensure we have a valid authenticated session."""
@@ -216,11 +273,30 @@ class EG4InverterAPI:
         Returns:
             Dict containing the API response
         """
+        # Check cache first if this endpoint is cacheable
+        if endpoint_key in self._cache_ttl_config:
+            cache_params = {"serialNum": serial_number}
+            if extra_data:
+                cache_params.update(extra_data)
+            cache_key = self._get_cache_key(endpoint_key, **cache_params)
+            
+            if self._is_cache_valid(cache_key, endpoint_key):
+                _LOGGER.debug("Cache hit for %s:%s", endpoint_key, serial_number)
+                return self._response_cache[cache_key]["response"]
+        
+        # Make the actual request
         data = {"serialNum": serial_number}
         if extra_data:
             data.update(extra_data)
             
-        return await self._make_request("POST", self._ENDPOINTS[endpoint_key], data=data)
+        response = await self._make_request("POST", self._ENDPOINTS[endpoint_key], data=data)
+        
+        # Cache the response if this endpoint is cacheable
+        if endpoint_key in self._cache_ttl_config:
+            self._cache_response(cache_key, response)
+            _LOGGER.debug("Cached response for %s:%s", endpoint_key, serial_number)
+            
+        return response
 
 
     async def get_inverter_runtime(self, serial_number: str) -> Dict[str, Any]:
@@ -254,31 +330,56 @@ class EG4InverterAPI:
 
     async def get_all_device_data(self, plant_id: str) -> Dict[str, Any]:
         """Get comprehensive data for all devices in a plant."""
-        # Use device information from login response instead of broken discovery endpoints
-        serial_numbers = set()
-        gridboss_serials = set()
-        device_info = {}
+        # Check if we have cached device discovery data
+        cache_key = f"plant_{plant_id}"
+        now = datetime.now()
+        
+        if (cache_key in self._device_cache and 
+            self._device_cache_expires and 
+            now < self._device_cache_expires):
+            _LOGGER.debug("Using cached device discovery data for plant %s", plant_id)
+            cached_data = self._device_cache[cache_key]
+            serial_numbers = cached_data["serial_numbers"]
+            gridboss_serials = cached_data["gridboss_serials"]
+            device_info = cached_data["device_info"]
+            parallel_groups = cached_data["parallel_groups"]
+        else:
+            _LOGGER.debug("Refreshing device discovery data for plant %s", plant_id)
+            # Get fresh login data to access device information
+            login_data = await self.login()
+            
+            serial_numbers = set()
+            gridboss_serials = set()
+            device_info = {}
+            parallel_groups = []
 
-        # Get fresh login data to access device information
-        login_data = await self.login()
+            # Extract devices from login response plants array
+            for plant in login_data.get("plants", []):
+                if str(plant.get("plantId")) == str(plant_id):
+                    for device in plant.get("inverters", []):
+                        serial = device.get("serialNum")
+                        if serial:
+                            serial_numbers.add(serial)
+                            device_info[serial] = device
 
-        # Extract devices from login response plants array
-        for plant in login_data.get("plants", []):
-            if str(plant.get("plantId")) == str(plant_id):
-                for device in plant.get("inverters", []):
-                    serial = device.get("serialNum")
-                    if serial:
-                        serial_numbers.add(serial)
-                        device_info[serial] = device
+                            # Check if this is a GridBOSS device
+                            model = device.get("deviceTypeText4APP", "").lower()
+                            if "gridboss" in model or "grid boss" in model:
+                                gridboss_serials.add(serial)
 
-                        # Check if this is a GridBOSS device
-                        model = device.get("deviceTypeText4APP", "").lower()
-                        if "gridboss" in model or "grid boss" in model:
-                            gridboss_serials.add(serial)
-
-                # Also extract parallel group information
-                parallel_groups = plant.get("parallelGroups", [])
-                break
+                    # Also extract parallel group information
+                    parallel_groups = plant.get("parallelGroups", [])
+                    break
+            
+            # Cache the device discovery data
+            self._device_cache[cache_key] = {
+                "serial_numbers": serial_numbers,
+                "gridboss_serials": gridboss_serials,
+                "device_info": device_info,
+                "parallel_groups": parallel_groups
+            }
+            self._device_cache_expires = now + self._device_cache_ttl
+            _LOGGER.debug("Cached device discovery data for %d devices", len(serial_numbers))
 
         _LOGGER.info(
             "Found %d devices for plant %s: %s",
@@ -307,8 +408,9 @@ class EG4InverterAPI:
         device_data = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Try to get parallel group energy data using any available serial
+        # Only fetch if we have multiple devices (indicating a parallel group)
         parallel_energy_data = None
-        if serial_numbers:
+        if len(serial_numbers) > 1:
             try:
                 # Use the first available serial number to get parallel group energy data
                 first_serial = next(iter(serial_numbers))
@@ -318,6 +420,8 @@ class EG4InverterAPI:
                 _LOGGER.debug("Successfully retrieved parallel group energy data")
             except Exception as e:
                 _LOGGER.warning("Failed to get parallel group energy data: %s", e)
+        else:
+            _LOGGER.debug("Single device setup, skipping parallel group energy data")
 
         # Organize results
         result = {
@@ -371,6 +475,19 @@ class EG4InverterAPI:
             _LOGGER.error("Failed to get GridBOSS data for %s: %s", serial_number, e)
             raise
 
+    def _invalidate_cache_for_device(self, serial_number: str) -> None:
+        """Invalidate cached responses for a specific device."""
+        keys_to_remove = []
+        for cache_key in self._response_cache:
+            if f"serialNum={serial_number}" in cache_key or f"inverterSn={serial_number}" in cache_key:
+                keys_to_remove.append(cache_key)
+        
+        for key in keys_to_remove:
+            del self._response_cache[key]
+        
+        if keys_to_remove:
+            _LOGGER.debug("Invalidated %d cached entries for device %s", len(keys_to_remove), serial_number)
+
     async def _request_with_inverter_sn(
         self,
         endpoint_key: Optional[str],
@@ -406,6 +523,12 @@ class EG4InverterAPI:
         
         try:
             response = await self._make_request("POST", endpoint, data)
+            
+            # Invalidate cache for write operations that might change device state
+            if endpoint_key in ["parameter_write", "function_control"] or custom_endpoint:
+                self._invalidate_cache_for_device(inverter_sn)
+                _LOGGER.debug("Invalidated cache for device %s after %s", inverter_sn, operation)
+            
             _LOGGER.debug("Successfully completed %s for inverter %s", operation, inverter_sn)
             return response
         except Exception as e:
@@ -593,3 +716,46 @@ class EG4InverterAPI:
             True if battery backup is enabled, False otherwise
         """
         return parameters.get("FUNC_EPS_EN", False)
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring and debugging.
+        
+        Returns:
+            Dict containing cache statistics
+        """
+        now = datetime.now()
+        device_cache_valid = (
+            self._device_cache_expires and now < self._device_cache_expires
+        )
+        
+        # Count valid vs expired entries in response cache
+        valid_entries = 0
+        expired_entries = 0
+        
+        for cache_key, cache_entry in self._response_cache.items():
+            endpoint_key = cache_key.split(":")[0]
+            if self._is_cache_valid(cache_key, endpoint_key):
+                valid_entries += 1
+            else:
+                expired_entries += 1
+        
+        return {
+            "device_cache": {
+                "entries": len(self._device_cache),
+                "valid": device_cache_valid,
+                "expires": self._device_cache_expires.isoformat() if self._device_cache_expires else None
+            },
+            "response_cache": {
+                "total_entries": len(self._response_cache),
+                "valid_entries": valid_entries,
+                "expired_entries": expired_entries,
+                "cache_hit_potential": f"{valid_entries}/{len(self._response_cache)}" if self._response_cache else "0/0"
+            }
+        }
+    
+    def clear_cache(self) -> None:
+        """Clear all cached data."""
+        self._device_cache.clear()
+        self._response_cache.clear()
+        self._device_cache_expires = None
+        _LOGGER.info("Cleared all cached data")
