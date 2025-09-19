@@ -84,6 +84,9 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
         self._serial = serial
         self._device_data = device_data
+        
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: Optional[bool] = None
 
         # Get device info from coordinator data
         device_info = coordinator.data.get("device_info", {}).get(serial, {})
@@ -110,21 +113,49 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def is_on(self) -> Optional[bool]:
         """Return True if quick charge is on."""
-        # Check if we have quick charge status data
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+            
+        # Check if we have quick charge status data from coordinator
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             quick_charge_status = device_data.get("quick_charge_status")
 
-            if quick_charge_status:
-                # Parse the quick charge status response
-                # This will depend on the actual API response format
-                status = quick_charge_status.get("status")
-                if status is not None:
-                    # Assuming status is a boolean or integer where 1/True means active
-                    return bool(status)
+            if quick_charge_status and isinstance(quick_charge_status, dict):
+                # Parse the hasUnclosedQuickChargeTask field from getStatusInfo response
+                has_unclosed_task = quick_charge_status.get("hasUnclosedQuickChargeTask")
+                if has_unclosed_task is not None:
+                    return bool(has_unclosed_task)
 
         # Default to False if we don't have status information
         return False
+
+    @property
+    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+        """Return extra state attributes."""
+        attributes = {}
+        
+        # Add quick charge task details if available
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            quick_charge_status = device_data.get("quick_charge_status")
+
+            if quick_charge_status and isinstance(quick_charge_status, dict):
+                # Add useful status information as attributes
+                task_id = quick_charge_status.get("unclosedQuickChargeTaskId")
+                task_status = quick_charge_status.get("unclosedQuickChargeTaskStatus")
+                
+                if task_id:
+                    attributes["task_id"] = task_id
+                if task_status:
+                    attributes["task_status"] = task_status
+                    
+                # Add optimistic state indicator for debugging
+                if self._optimistic_state is not None:
+                    attributes["optimistic_state"] = self._optimistic_state
+        
+        return attributes if attributes else None
 
     @property
     def available(self) -> bool:
@@ -140,24 +171,46 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         """Turn on quick charge."""
         try:
             _LOGGER.debug("Starting quick charge for device %s", self._serial)
+            
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = True
+            self.async_write_ha_state()
+            
+            # Call the API
             await self.coordinator.api.start_quick_charge(self._serial)
-
-            # Request immediate coordinator update to reflect the change
+            _LOGGER.info("Successfully started quick charge for device %s", self._serial)
+            
+            # Clear optimistic state and request coordinator update for real status
+            self._optimistic_state = None
             await self.coordinator.async_request_refresh()
 
         except Exception as e:
             _LOGGER.error("Failed to start quick charge for device %s: %s", self._serial, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
             raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
         """Turn off quick charge."""
         try:
             _LOGGER.debug("Stopping quick charge for device %s", self._serial)
+            
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = False
+            self.async_write_ha_state()
+            
+            # Call the API
             await self.coordinator.api.stop_quick_charge(self._serial)
-
-            # Request immediate coordinator update to reflect the change
+            _LOGGER.info("Successfully stopped quick charge for device %s", self._serial)
+            
+            # Clear optimistic state and request coordinator update for real status
+            self._optimistic_state = None
             await self.coordinator.async_request_refresh()
 
         except Exception as e:
             _LOGGER.error("Failed to stop quick charge for device %s: %s", self._serial, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
             raise
