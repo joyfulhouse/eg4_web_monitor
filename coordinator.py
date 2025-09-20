@@ -76,6 +76,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Temporary device info storage for model extraction
         self._temp_device_info: Dict[str, Any] = {}
 
+        # Individual energy processing queue
+        self._pending_individual_energy_serials: List[str] = []
+
         super().__init__(
             hass,
             _LOGGER,
@@ -201,6 +204,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 parallel_energy, parallel_groups_info
             )
 
+        # Process individual inverter energy data in batches with rate limiting
+        if self._pending_individual_energy_serials:
+            await self._process_individual_energy_batch(processed)
+            self._pending_individual_energy_serials.clear()
+
         # Clear temporary device info
         if hasattr(self, "_temp_device_info"):
             delattr(self, "_temp_device_info")
@@ -270,6 +278,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Process energy data
         if energy and isinstance(energy, dict):
             processed["sensors"].update(self._extract_energy_sensors(energy))
+
+        # Store inverter serial for batched individual energy processing
+        self._pending_individual_energy_serials.append(serial)
+        _LOGGER.debug("Added inverter %s to individual energy processing queue", serial)
 
         # Process battery data
         if battery and isinstance(battery, dict):
@@ -364,6 +376,79 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
 
         return processed
+
+    async def _process_individual_energy_batch(self, processed: Dict[str, Any]) -> None:
+        """Process individual inverter energy data in batches with rate limiting."""
+        serials = self._pending_individual_energy_serials
+        if not serials:
+            return
+
+        _LOGGER.debug(
+            "Processing individual energy data for %d inverters with rate limiting",
+            len(serials)
+        )
+
+        # Process in batches of 3 with 1 second delay between batches to avoid API overload
+        batch_size = 3
+        delay_between_batches = 1.0
+
+        for i in range(0, len(serials), batch_size):
+            batch = serials[i:i + batch_size]
+            _LOGGER.debug("Processing batch %d: %s", i // batch_size + 1, batch)
+
+            # Process batch concurrently but limit batch size
+            tasks = []
+            for serial in batch:
+                tasks.append(self._fetch_individual_energy(serial))
+
+            try:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Apply results to processed data
+                for serial, result in zip(batch, results):
+                    if isinstance(result, Exception):
+                        _LOGGER.debug(
+                            "Failed to get individual energy for %s: %s", serial, result
+                        )
+                        continue
+
+                    if result and result.get("success") and serial in processed["devices"]:
+                        _LOGGER.debug("Individual energy API response for %s: %s",
+                                    serial, list(result.keys()))
+                        energy_sensors = self._extract_energy_sensors(result)
+                        _LOGGER.debug("Extracted %d energy sensors: %s",
+                                    len(energy_sensors), list(energy_sensors.keys()))
+                        processed["devices"][serial]["sensors"].update(energy_sensors)
+                        _LOGGER.debug(
+                            "Added %d individual energy sensors for %s",
+                            len(energy_sensors), serial
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "Invalid individual energy response for %s: success=%s, "
+                            "serial_in_devices=%s",
+                            serial, result.get("success") if result else "None",
+                            serial in processed["devices"]
+                        )
+
+            except Exception as e:
+                _LOGGER.warning("Error processing individual energy batch: %s", e)
+
+            # Add delay between batches (except for last batch)
+            if i + batch_size < len(serials):
+                await asyncio.sleep(delay_between_batches)
+
+    async def _fetch_individual_energy(self, serial: str) -> Optional[Dict[str, Any]]:
+        """Fetch individual inverter energy data with error handling."""
+        try:
+            result = await self.api.get_inverter_energy_info(serial)
+            if result and result.get("success"):
+                return result
+            _LOGGER.debug("No individual energy data for %s", serial)
+            return None
+        except Exception as e:
+            _LOGGER.debug("Failed to fetch individual energy for %s: %s", serial, e)
+            return None
 
     async def _process_gridboss_data(
         self, serial: str, device_data: Dict[str, Any]

@@ -1241,6 +1241,31 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:electric-switch",
     },
+    # Individual Inverter Energy API additional sensors
+    "inverter_power_rating": {
+        "name": "Power Rating",
+        "unit": None,
+        "device_class": None,
+        "state_class": None,
+        "icon": "mdi:lightning-bolt",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "inverter_lost_status": {
+        "name": "Connection Lost",
+        "unit": None,
+        "device_class": None,
+        "state_class": None,
+        "icon": "mdi:access-point-network-off",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "inverter_has_runtime_data": {
+        "name": "Has Runtime Data",
+        "unit": None,
+        "device_class": None,
+        "state_class": None,
+        "icon": "mdi:database-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
 }
 
 
@@ -1290,27 +1315,6 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "totalGridConsumption": "grid_import_lifetime",
 }
 
-INVERTER_ENERGY_FIELD_MAPPING = {
-    # Basic energy information
-    "totalEnergy": "total_energy",
-    "dailyEnergy": "daily_energy",
-    "monthlyEnergy": "monthly_energy",
-    "yearlyEnergy": "yearly_energy",
-    # Today energy sensors (need division by 10)
-    "todayYielding": "yield",
-    "todayDischarging": "discharging",
-    "todayCharging": "charging",
-    "todayLoad": "load",
-    "todayGridFeed": "grid_export",
-    "todayGridConsumption": "grid_import",
-    # Total energy values (need division by 10)
-    "totalYielding": "yield_lifetime",
-    "totalDischarging": "discharging_lifetime",
-    "totalCharging": "charging_lifetime",
-    "totalLoad": "load_lifetime",
-    "totalGridFeed": "grid_export_lifetime",
-    "totalGridConsumption": "grid_import_lifetime",
-}
 
 GRIDBOSS_FIELD_MAPPING = {
     # Frequency sensors (need division by 100)
@@ -1432,6 +1436,28 @@ PARALLEL_GROUP_FIELD_MAPPING = {
     "totalImport": "grid_import_lifetime",
     "totalUsage": "consumption_lifetime",
 }
+
+# Add individual inverter energy fields to the existing parallel group mapping
+# This extends the parallel group mapping to include additional fields from individual inverter API
+PARALLEL_GROUP_FIELD_MAPPING.update({
+    # Additional fields from individual inverter energy API
+    "soc": "state_of_charge",
+    "powerRatingText": "inverter_power_rating",
+    "lost": "inverter_lost_status", 
+    "hasRuntimeData": "inverter_has_runtime_data",
+})
+
+# Use the same field mapping for both parallel group and individual inverter energy data
+# This ensures consistent entity creation across different API endpoints
+INVERTER_ENERGY_FIELD_MAPPING = PARALLEL_GROUP_FIELD_MAPPING.copy()
+
+# Add basic energy information fields that might come from other endpoints
+INVERTER_ENERGY_FIELD_MAPPING.update({
+    "totalEnergy": "total_energy",
+    "dailyEnergy": "daily_energy", 
+    "monthlyEnergy": "monthly_energy",
+    "yearlyEnergy": "yearly_energy",
+})
 
 # Shared sensor lists to reduce duplication
 DIVIDE_BY_10_SENSORS = {
