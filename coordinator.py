@@ -227,7 +227,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         inverter_serials = [serial for serial, device_data in processed["devices"].items() 
                            if device_data.get("type") == "inverter"]
         if inverter_serials:
-            _LOGGER.info("Refreshing working mode parameters from base registers (0-127) for %d inverters", len(inverter_serials))
+            _LOGGER.info("Refreshing working mode parameters from both register ranges (0-127 and 127-254) for %d inverters", len(inverter_serials))
             # Make this blocking during initial setup to ensure working mode data is available
             try:
                 await self._refresh_working_mode_parameters_for_all(inverter_serials)
@@ -1162,31 +1162,58 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return False
     
     async def _read_working_mode_parameters(self, serial_number: str) -> Dict[str, Any]:
-        """Read working mode parameters from base register range (0-127)."""
+        """Read working mode parameters from both base (0-127) and extended (127-254) register ranges."""
         try:
-            # Read working mode parameters from base registers (0-127)
-            # Based on user feedback that working mode parameters are in base parameters, not extended
-            response = await self.api.read_parameters(
-                inverter_sn=serial_number,
-                start_register=0,
-                point_number=127
-            )
+            # Working mode parameters are split across two register ranges
+            # Read both ranges concurrently for performance
+            tasks = [
+                self.api.read_parameters(
+                    inverter_sn=serial_number,
+                    start_register=0,
+                    point_number=127
+                ),
+                self.api.read_parameters(
+                    inverter_sn=serial_number,
+                    start_register=127,
+                    point_number=127
+                )
+            ]
             
-            if response and response.get("success", False):
-                # Log the actual parameter values for debugging
-                working_mode_params = {k: v for k, v in response.items() 
-                                     if k in ['FUNC_BATTERY_BACKUP_CTRL', 'FUNC_GRID_PEAK_SHAVING', 
-                                             'FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN']}
-                _LOGGER.info("Working mode parameters for device %s (register 0-127): %s", serial_number, working_mode_params)
+            base_response, extended_response = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Combine responses from both register ranges
+            combined_params = {}
+            
+            # Process base register response (0-127)
+            if isinstance(base_response, dict) and base_response.get("success", False):
+                combined_params.update(base_response)
+                _LOGGER.debug("Base parameters (0-127) read successfully for device %s", serial_number)
+            else:
+                _LOGGER.warning("Failed to read base parameters (0-127) for device %s: %s", 
+                               serial_number, base_response)
+            
+            # Process extended register response (127-254)
+            if isinstance(extended_response, dict) and extended_response.get("success", False):
+                combined_params.update(extended_response)
+                _LOGGER.debug("Extended parameters (127-254) read successfully for device %s", serial_number)
+            else:
+                _LOGGER.warning("Failed to read extended parameters (127-254) for device %s: %s", 
+                               serial_number, extended_response)
+            
+            if combined_params:
+                # Log the specific working mode parameters we're tracking
+                working_mode_params = {k: v for k, v in combined_params.items() 
+                                     if k in ['FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN',
+                                             'FUNC_GRID_PEAK_SHAVING', 'FUNC_BATTERY_BACKUP_CTRL']}
+                _LOGGER.info("Working mode parameters for device %s (combined ranges): %s", serial_number, working_mode_params)
                 
                 # Log all parameters containing 'FUNC_' for comprehensive debugging
-                func_params = {k: v for k, v in response.items() if 'FUNC_' in k}
-                _LOGGER.debug("All FUNC_ parameters for device %s: %s", serial_number, func_params)
+                func_params = {k: v for k, v in combined_params.items() if 'FUNC_' in k}
+                _LOGGER.debug("All FUNC_ parameters for device %s: %s", serial_number, list(func_params.keys()))
                 
-                return response
+                return combined_params
             else:
-                _LOGGER.warning("Failed to read working mode parameters for device %s: %s", 
-                               serial_number, response)
+                _LOGGER.warning("No working mode parameters retrieved for device %s", serial_number)
                 return {}
                 
         except Exception as err:
@@ -1250,9 +1277,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
-                # Check if parameter exists and is enabled (value == 1)
-                param_value = working_mode_data.get(param_key, 0)
-                is_enabled = param_value == 1
+                # Check if parameter exists and is enabled (value == 1 or True)
+                param_value = working_mode_data.get(param_key, False)
+                # Handle both bool and int values (True or 1 = enabled)
+                if isinstance(param_value, bool):
+                    is_enabled = param_value
+                else:
+                    is_enabled = param_value == 1
                 _LOGGER.debug("Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s", 
                              function_param, serial_number, param_key, param_value, type(param_value), is_enabled)
                 
