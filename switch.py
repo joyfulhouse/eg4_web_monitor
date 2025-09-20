@@ -125,7 +125,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         # Device info for grouping
         self._attr_device_info = {
             "identifiers": {(DOMAIN, serial)},
-            "name": f"{self._model}_{serial}",
+            "name": f"{self._model} {serial}",
             "manufacturer": "EG4 Electronics",
             "model": self._model,
             "serial_number": serial,
@@ -271,7 +271,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         # Device info for grouping
         self._attr_device_info = {
             "identifiers": {(DOMAIN, serial)},
-            "name": f"{self._model}_{serial}",
+            "name": f"{self._model} {serial}",
             "manufacturer": "EG4 Electronics",
             "model": self._model,
             "serial_number": serial,
@@ -426,7 +426,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         # Device info for grouping
         self._attr_device_info = {
             "identifiers": {(DOMAIN, serial_number)},
-            "name": f"{self._model}_{serial_number}",
+            "name": f"{self._model} {serial_number}",
             "manufacturer": "EG4 Electronics",
             "model": self._model,
             "serial_number": serial_number,
