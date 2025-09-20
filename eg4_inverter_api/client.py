@@ -134,8 +134,9 @@ class EG4InverterAPI:
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
         authenticated: bool = True,
+        retry_count: int = 0,
     ) -> Dict[str, Any]:
-        """Make an HTTP request to the API."""
+        """Make an HTTP request to the API with authentication retry logic."""
         if authenticated:
             await self._ensure_authenticated()
 
@@ -187,6 +188,19 @@ class EG4InverterAPI:
 
                 return result
 
+        except EG4AuthError as e:
+            # If authentication failed and we haven't retried yet, try re-authenticating
+            if authenticated and retry_count == 0:
+                _LOGGER.warning("Authentication failed, attempting re-authentication: %s", e)
+                # Clear current session and force re-authentication
+                self._session_id = None
+                self._session_expires = None
+                # Retry the request once with fresh authentication
+                return await self._make_request(method, endpoint, data, authenticated, retry_count + 1)
+            else:
+                # Re-authentication failed or this was already a retry
+                _LOGGER.error("Re-authentication failed: %s", e)
+                raise
         except aiohttp.ClientError as e:
             raise EG4ConnectionError(f"Connection error: {e}") from e
 

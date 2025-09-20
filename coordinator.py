@@ -153,7 +153,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Process each device
         for serial, device_data in raw_data.get("devices", {}).items():
             if "error" in device_data:
-                _LOGGER.warning("Error in device %s: %s", serial, device_data["error"])
+                _LOGGER.error("Error in device %s: %s", serial, device_data["error"])
+                # Keep device in data but mark it as having an error
+                # This prevents sensors from becoming completely unavailable
+                processed["devices"][serial] = {
+                    "type": "unknown",
+                    "model": "Unknown",
+                    "error": device_data["error"],
+                    "sensors": {},
+                    "batteries": {}
+                }
                 continue
 
             device_type = device_data.get("type", "unknown")
