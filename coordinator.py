@@ -1127,12 +1127,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 enable=enable
             )
             
-            # Invalidate parameter cache to refresh state
-            cache_key = f"parameters_{serial_number}"
-            if hasattr(self, '_cache') and cache_key in self._cache:
-                del self._cache[cache_key]
+            # Refresh device parameters immediately to get updated working mode state
+            await self._refresh_device_parameters(serial_number)
                 
-            # Trigger immediate refresh
+            # Trigger coordinator refresh to update entities
             await self.async_refresh()
             
             success = response.get('success', False)
@@ -1154,13 +1152,26 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
         """Get current working mode state from parameters."""
         try:
-            parameters = self.data.get(f"parameters_{serial_number}", {}) if self.data else {}
+            # Get parameters data structure - parameters are stored under self.data["parameters"][serial_number]
+            if not self.data or "parameters" not in self.data:
+                _LOGGER.debug("No parameters data available for working mode check")
+                return False
+                
+            parameters = self.data["parameters"].get(serial_number, {})
+            if not parameters:
+                _LOGGER.debug("No parameters found for device %s", serial_number)
+                return False
+                
+            _LOGGER.debug("Found %d parameters for device %s", len(parameters), serial_number)
             
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
                 # Check if parameter exists and is enabled (value == 1)
-                return parameters.get(param_key, 0) == 1
+                param_value = parameters.get(param_key, 0)
+                _LOGGER.debug("Working mode %s for device %s: parameter %s = %s", 
+                             function_param, serial_number, param_key, param_value)
+                return param_value == 1
                 
             _LOGGER.warning("Unknown function parameter: %s", function_param)
             return False
