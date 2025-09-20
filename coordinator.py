@@ -222,13 +222,18 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self.hass.async_create_task(
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
-        
         # Working mode parameters are already available from the standard parameter refresh above
-        # No need for separate working mode parameter reading - they're included in the regular parameter cache
-        inverter_serials = [serial for serial, device_data in processed["devices"].items() 
-                           if device_data.get("type") == "inverter"]
+        # No need for separate working mode parameter reading - they're included in cache
+        inverter_serials = [
+            serial for serial, device_data in processed["devices"].items()
+            if device_data.get("type") == "inverter"
+        ]
         if inverter_serials:
-            _LOGGER.info("Working mode parameters (AC Charge, PV Charge Priority, Forced Discharge, Peak Shaving, Battery Backup) available from standard parameter cache for %d inverters", len(inverter_serials))
+            _LOGGER.info(
+                "Working mode parameters (AC Charge, PV Charge Priority, Forced Discharge, "
+                "Peak Shaving, Battery Backup) available from parameter cache for %d inverters",
+                len(inverter_serials)
+            )
 
         return processed
 
@@ -1124,63 +1129,64 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     async def set_working_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
         """Set working mode for inverter."""
         try:
-            _LOGGER.debug("Setting working mode %s to %s for device %s", 
+            _LOGGER.debug("Setting working mode %s to %s for device %s",
                          function_param, enable, serial_number)
-            
+
             # Use existing API method
             response = await self.api.control_function_parameter(
                 serial_number=serial_number,
                 function_param=function_param,
                 enable=enable
             )
-            
+
             # Refresh standard parameters immediately to get updated working mode state
             await self._refresh_device_parameters(serial_number)
-                
+
             # Trigger coordinator refresh to update entities
             await self.async_refresh()
-            
+
             success = response.get('success', False)
             if success:
-                _LOGGER.info("Successfully set working mode %s to %s for device %s", 
+                _LOGGER.info("Successfully set working mode %s to %s for device %s",
                            function_param, enable, serial_number)
             else:
                 _LOGGER.warning("Working mode control reported failure: %s", response)
-                
+
             return success
-            
+
         except Exception as err:
             _LOGGER.error(
                 "Failed to set working mode %s for %s: %s",
                 function_param, serial_number, err
             )
             return False
-    
-    
+
     def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
         """Get current working mode state from cached parameters."""
         try:
             # Get cached parameters from standard parameter cache (includes all 3 register ranges)
             if not self.data or "parameters" not in self.data:
-                _LOGGER.debug("No cached parameters available - data structure: %s", 
+                _LOGGER.debug("No cached parameters available - data structure: %s",
                              list(self.data.keys()) if self.data else "None")
                 return False
-                
+
             parameter_data = self.data["parameters"].get(serial_number, {})
             if not parameter_data:
                 available_devices = list(self.data["parameters"].keys())
-                _LOGGER.debug("No cached parameters for device %s - available: %s", 
+                _LOGGER.debug("No cached parameters for device %s - available: %s",
                              serial_number, available_devices)
                 return False
-            
+
             # Debug: Check if working mode parameters exist in cache
-            working_mode_params_in_cache = {k: v for k, v in parameter_data.items() if 'FUNC_' in k and 
-                                          k in ['FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN',
-                                               'FUNC_GRID_PEAK_SHAVING', 'FUNC_BATTERY_BACKUP_CTRL']}
+            working_mode_params_in_cache = {
+                k: v for k, v in parameter_data.items() if 'FUNC_' in k and
+                k in ['FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN',
+                      'FUNC_GRID_PEAK_SHAVING', 'FUNC_BATTERY_BACKUP_CTRL']
+            }
             if working_mode_params_in_cache:
-                _LOGGER.debug("Working mode parameters found in cache for %s: %s", 
+                _LOGGER.debug("Working mode parameters found in cache for %s: %s",
                              serial_number, working_mode_params_in_cache)
-            
+
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
@@ -1191,21 +1197,26 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     is_enabled = param_value
                 else:
                     is_enabled = param_value == 1
-                _LOGGER.debug("Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s", 
-                             function_param, serial_number, param_key, param_value, type(param_value), is_enabled)
-                
+                _LOGGER.debug(
+                    "Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s",
+                    function_param, serial_number, param_key, param_value,
+                    type(param_value), is_enabled
+                )
+
                 # Log available parameters if the expected one is missing
                 if param_key not in parameter_data:
                     available_params = [k for k in parameter_data.keys() if 'FUNC_' in k]
-                    _LOGGER.warning("Parameter %s not found for device %s. Available FUNC_ parameters: %s", 
-                                   param_key, serial_number, list(available_params)[:10])  # Limit logging
-                
+                    _LOGGER.warning(
+                        "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
+                        param_key, serial_number, list(available_params)[:10]
+                    )
+
                 return is_enabled
-                
+
             _LOGGER.warning("Unknown function parameter: %s", function_param)
             return False
-            
+
         except Exception as err:
-            _LOGGER.error("Error getting working mode state for %s: %s", 
+            _LOGGER.error("Error getting working mode state for %s: %s",
                          serial_number, err)
             return False

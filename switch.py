@@ -56,15 +56,13 @@ async def async_setup_entry(
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
                 _LOGGER.info(
                     "✅ Added quick charge switch for compatible device %s (%s)", serial, model
-                )
-                # Add battery backup switch
+                )# Add battery backup switch
                 entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
                 _LOGGER.info(
                     "✅ Added battery backup switch for compatible device %s (%s)", serial, model
                 )
-                
                 # Add working mode switches
-                for mode_key, mode_config in WORKING_MODES.items():
+                for mode_config in WORKING_MODES.values():
                     entities.append(EG4WorkingModeSwitch(
                         coordinator=coordinator,
                         device_info=device_info,
@@ -72,7 +70,7 @@ async def async_setup_entry(
                         mode_config=mode_config
                     ))
                     _LOGGER.info(
-                        "✅ Added working mode switch '%s' for compatible device %s (%s)", 
+                        "✅ Added working mode switch '%s' for compatible device %s (%s)",
                         mode_config['name'], serial, model
                     )
             else:
@@ -398,7 +396,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
 
 class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
     """Switch for controlling EG4 working modes."""
-    
+
     def __init__(self, coordinator, device_info, serial_number, mode_config):
         """Initialize the working mode switch."""
         super().__init__(coordinator)
@@ -406,14 +404,14 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         self._device_info = device_info
         self._serial_number = serial_number
         self._mode_config = mode_config
-        
+
         # Optimistic state for immediate UI feedback
         self._optimistic_state: Optional[bool] = None
-        
+
         # Get device model
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
         model_clean = self._model.lower().replace(" ", "").replace("-", "")
-        
+
         # Set entity attributes
         self._attr_name = f"{self._model} {serial_number} {self._mode_config['name']}"
         self._attr_unique_id = f"{serial_number}_{self._mode_config['param'].lower()}"
@@ -422,7 +420,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{param_clean}"
         self._attr_entity_category = self._mode_config['entity_category']
         self._attr_icon = self._mode_config.get('icon', 'mdi:toggle-switch')
-        
+
         # Device info for grouping
         self._attr_device_info = {
             "identifiers": {(DOMAIN, serial_number)},
@@ -431,24 +429,23 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             "model": self._model,
             "serial_number": serial_number,
         }
-    
     @property
     def is_on(self) -> bool:
         """Return if the switch is on."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
-            _LOGGER.debug("Working mode switch %s using optimistic state: %s", 
+            _LOGGER.debug("Working mode switch %s using optimistic state: %s",
                          self._mode_config['param'], self._optimistic_state)
             return self._optimistic_state
-            
+
         state = self._coordinator.get_working_mode_state(
-            self._serial_number, 
+            self._serial_number,
             self._mode_config['param']
         )
-        _LOGGER.debug("Working mode switch %s (%s) current state: %s", 
+        _LOGGER.debug("Working mode switch %s (%s) current state: %s",
                      self._mode_config['param'], self._serial_number, state)
         return state
-    
+
     @property
     def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
         """Return extra state attributes."""
@@ -456,18 +453,18 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             "description": self._mode_config['description'],
             "function_parameter": self._mode_config['param']
         }
-        
+
         # Add parameter register information
         param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config['param'])
         if param_key:
             attributes["parameter_register"] = param_key
-            
+
         # Add optimistic state indicator for debugging
         if self._optimistic_state is not None:
             attributes["optimistic_state"] = self._optimistic_state
-            
+
         return attributes
-    
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
@@ -477,61 +474,59 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             # Only available for inverter devices (not GridBOSS)
             return device_data.get("type") == "inverter"
         return False
-    
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs) -> None:  # pylint: disable=unused-argument
         """Turn the switch on."""
         try:
-            _LOGGER.debug("Enabling working mode %s for device %s", 
+            _LOGGER.debug("Enabling working mode %s for device %s",
                          self._mode_config['param'], self._serial_number)
-            
+
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = True
             self.async_write_ha_state()
-            
+
             await self._coordinator.set_working_mode(
                 self._serial_number,
-                self._mode_config['param'], 
+                self._mode_config['param'],
                 True
             )
-            _LOGGER.info("Successfully enabled working mode %s for device %s", 
+            _LOGGER.info("Successfully enabled working mode %s for device %s",
                         self._mode_config['param'], self._serial_number)
-            
+
             # Clear optimistic state and force entity update
             self._optimistic_state = None
             self.async_write_ha_state()
-            
+
         except Exception as e:
-            _LOGGER.error("Failed to enable working mode %s for device %s: %s", 
+            _LOGGER.error("Failed to enable working mode %s for device %s: %s",
                          self._mode_config['param'], self._serial_number, e)
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
             raise
-    
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs) -> None:  # pylint: disable=unused-argument
         """Turn the switch off."""
         try:
-            _LOGGER.debug("Disabling working mode %s for device %s", 
+            _LOGGER.debug("Disabling working mode %s for device %s",
                          self._mode_config['param'], self._serial_number)
-            
+
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = False
             self.async_write_ha_state()
-            
+
             await self._coordinator.set_working_mode(
                 self._serial_number,
                 self._mode_config['param'],
                 False
             )
-            _LOGGER.info("Successfully disabled working mode %s for device %s", 
+            _LOGGER.info("Successfully disabled working mode %s for device %s",
                         self._mode_config['param'], self._serial_number)
-            
+
             # Clear optimistic state and force entity update
             self._optimistic_state = None
             self.async_write_ha_state()
-            
+
         except Exception as e:
-            _LOGGER.error("Failed to disable working mode %s for device %s: %s", 
+            _LOGGER.error("Failed to disable working mode %s for device %s: %s",
                          self._mode_config['param'], self._serial_number, e)
             # Revert optimistic state on error
             self._optimistic_state = None
