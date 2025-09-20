@@ -435,12 +435,17 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         """Return if the switch is on."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
+            _LOGGER.debug("Working mode switch %s using optimistic state: %s", 
+                         self._mode_config['param'], self._optimistic_state)
             return self._optimistic_state
             
-        return self._coordinator.get_working_mode_state(
+        state = self._coordinator.get_working_mode_state(
             self._serial_number, 
             self._mode_config['param']
         )
+        _LOGGER.debug("Working mode switch %s (%s) current state: %s", 
+                     self._mode_config['param'], self._serial_number, state)
+        return state
     
     @property
     def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
@@ -489,8 +494,9 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             _LOGGER.info("Successfully enabled working mode %s for device %s", 
                         self._mode_config['param'], self._serial_number)
             
-            # Clear optimistic state
+            # Clear optimistic state and force entity update
             self._optimistic_state = None
+            self.async_write_ha_state()
             
         except Exception as e:
             _LOGGER.error("Failed to enable working mode %s for device %s: %s", 
@@ -518,8 +524,9 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             _LOGGER.info("Successfully disabled working mode %s for device %s", 
                         self._mode_config['param'], self._serial_number)
             
-            # Clear optimistic state
+            # Clear optimistic state and force entity update
             self._optimistic_state = None
+            self.async_write_ha_state()
             
         except Exception as e:
             _LOGGER.error("Failed to disable working mode %s for device %s: %s", 

@@ -223,15 +223,17 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
         
-        # Refresh working mode parameters for all inverters (lightweight operation)
+        # Refresh working mode parameters for all inverters during startup (blocking to ensure data is available)
         inverter_serials = [serial for serial, device_data in processed["devices"].items() 
                            if device_data.get("type") == "inverter"]
         if inverter_serials:
-            _LOGGER.debug("Refreshing working mode parameters for %d inverters", len(inverter_serials))
-            # Don't await this to avoid blocking the data update
-            self.hass.async_create_task(
-                self._refresh_working_mode_parameters_for_all(inverter_serials)
-            )
+            _LOGGER.info("Refreshing working mode parameters for %d inverters", len(inverter_serials))
+            # Make this blocking during initial setup to ensure working mode data is available
+            try:
+                await self._refresh_working_mode_parameters_for_all(inverter_serials)
+                _LOGGER.info("Working mode parameters refreshed for %d inverters", len(inverter_serials))
+            except Exception as e:
+                _LOGGER.error("Failed to refresh working mode parameters during setup: %s", e)
 
         return processed
 
@@ -1170,7 +1172,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             )
             
             if response and response.get("success", False):
-                _LOGGER.debug("Successfully read working mode parameters for device %s", serial_number)
+                # Log the actual parameter values for debugging
+                working_mode_params = {k: v for k, v in response.items() 
+                                     if k in ['FUNC_BATTERY_BACKUP_CTRL', 'FUNC_GRID_PEAK_SHAVING', 
+                                             'FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN']}
+                _LOGGER.info("Working mode parameters for device %s: %s", serial_number, working_mode_params)
                 return response
             else:
                 _LOGGER.warning("Failed to read working mode parameters for device %s: %s", 
@@ -1197,6 +1203,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     
                 self.data["working_mode_parameters"][serial_number] = working_mode_data
                 _LOGGER.debug("Cached working mode parameters for device %s", serial_number)
+                
+                # Notify all entities that data has been updated
+                self.async_update_listeners()
             
         except Exception as err:
             _LOGGER.error("Error refreshing working mode parameters for %s: %s", 
@@ -1221,12 +1230,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             # Get cached working mode parameters
             if not self.data or "working_mode_parameters" not in self.data:
-                _LOGGER.debug("No cached working mode parameters available")
+                _LOGGER.debug("No cached working mode parameters available - data structure: %s", 
+                             list(self.data.keys()) if self.data else "None")
                 return False
                 
             working_mode_data = self.data["working_mode_parameters"].get(serial_number, {})
             if not working_mode_data:
-                _LOGGER.debug("No cached working mode parameters for device %s", serial_number)
+                available_devices = list(self.data["working_mode_parameters"].keys())
+                _LOGGER.debug("No cached working mode parameters for device %s - available: %s", 
+                             serial_number, available_devices)
                 return False
             
             # Map function parameters to parameter register values
