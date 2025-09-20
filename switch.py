@@ -415,7 +415,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         model_clean = self._model.lower().replace(" ", "").replace("-", "")
         
         # Set entity attributes
-        self._attr_name = f"{self._mode_config['name']}"
+        self._attr_name = f"{self._model} {serial_number} {self._mode_config['name']}"
         self._attr_unique_id = f"{serial_number}_{self._mode_config['param'].lower()}"
         self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{self._mode_config['param'].lower().replace('func_', '').replace('_', '')}"
         self._attr_entity_category = self._mode_config['entity_category']
