@@ -224,10 +224,15 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             )
 
             # Process responses and look for HOLD_SYSTEM_CHARGE_SOC_LIMIT in any range
+            successful_responses = 0
+            total_responses = 0
+
             for _, response, start_register in process_parameter_responses(
                 responses, self.serial, _LOGGER
             ):
+                total_responses += 1
                 if response and response.get("success", False):
+                    successful_responses += 1
                     _LOGGER.debug(
                         "Parameter read response for %s (reg %d): success=True",
                         self.serial,
@@ -241,14 +246,28 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                     if soc_limit is not None:
                         return soc_limit
 
-            # If HOLD_SYSTEM_CHARGE_SOC_LIMIT not found in any register range
-            _LOGGER.error(
-                "HOLD_SYSTEM_CHARGE_SOC_LIMIT parameter not found in any register range for %s",
-                self.serial,
-            )
+            # Provide more specific error messaging based on response status
+            if successful_responses == 0:
+                _LOGGER.warning(
+                    "No successful parameter responses received for %s (%d/%d failed). "
+                    "API communication issues detected. HOLD_SYSTEM_CHARGE_SOC_LIMIT is typically "
+                    "available in register 127-254 range. Will retry on next update cycle.",
+                    self.serial, total_responses, total_responses
+                )
+            else:
+                _LOGGER.info(
+                    "HOLD_SYSTEM_CHARGE_SOC_LIMIT parameter not found for %s "
+                    "in %d successful parameter responses. "
+                    "This may be a device model compatibility issue.",
+                    self.serial, successful_responses
+                )
 
         except Exception as e:
-            _LOGGER.error("Error reading SOC limit for %s: %s", self.serial, e)
+            _LOGGER.warning(
+                "Failed to read SOC limit for %s due to: %s. "
+                "This is typically caused by temporary API issues. Will retry automatically.",
+                self.serial, e
+            )
 
         return None
 

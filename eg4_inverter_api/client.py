@@ -234,10 +234,12 @@ class EG4InverterAPI:
                 # Check for API error responses
                 if isinstance(result, dict) and result.get("success") is False:
                     error_msg = result.get("message", "Unknown API error")
+                    # Add more context for debugging
+                    detailed_error = f"{error_msg} (Response: {result})"
                     if "login" in error_msg.lower() or "auth" in error_msg.lower():
-                        raise EG4AuthError(error_msg)
+                        raise EG4AuthError(detailed_error)
                     self._handle_request_error()  # Track error for backoff
-                    raise EG4APIError(error_msg)
+                    raise EG4APIError(detailed_error)
 
                 # Request was successful
                 self._handle_request_success()
