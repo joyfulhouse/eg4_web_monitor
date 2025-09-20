@@ -1173,6 +1173,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                              serial_number, available_devices)
                 return False
             
+            # Debug: Check if working mode parameters exist in cache
+            working_mode_params_in_cache = {k: v for k, v in parameter_data.items() if 'FUNC_' in k and 
+                                          k in ['FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN',
+                                               'FUNC_GRID_PEAK_SHAVING', 'FUNC_BATTERY_BACKUP_CTRL']}
+            if working_mode_params_in_cache:
+                _LOGGER.debug("Working mode parameters found in cache for %s: %s", 
+                             serial_number, working_mode_params_in_cache)
+            
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
