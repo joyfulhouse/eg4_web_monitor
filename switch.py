@@ -417,7 +417,9 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         # Set entity attributes
         self._attr_name = f"{self._model} {serial_number} {self._mode_config['name']}"
         self._attr_unique_id = f"{serial_number}_{self._mode_config['param'].lower()}"
-        self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{self._mode_config['param'].lower().replace('func_', '').replace('_', '')}"
+        # Generate clean entity ID with proper underscores
+        param_clean = self._mode_config['param'].lower().replace('func_', '')
+        self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{param_clean}"
         self._attr_entity_category = self._mode_config['entity_category']
         self._attr_icon = self._mode_config.get('icon', 'mdi:toggle-switch')
         
