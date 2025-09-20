@@ -222,6 +222,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self.hass.async_create_task(
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
+        
+        # Refresh working mode parameters for all inverters (lightweight operation)
+        inverter_serials = [serial for serial, device_data in processed["devices"].items() 
+                           if device_data.get("type") == "inverter"]
+        if inverter_serials:
+            _LOGGER.debug("Refreshing working mode parameters for %d inverters", len(inverter_serials))
+            # Don't await this to avoid blocking the data update
+            self.hass.async_create_task(
+                self._refresh_working_mode_parameters_for_all(inverter_serials)
+            )
 
         return processed
 
@@ -1127,8 +1137,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 enable=enable
             )
             
-            # Refresh device parameters immediately to get updated working mode state
-            await self._refresh_device_parameters(serial_number)
+            # Refresh working mode parameters immediately to get updated state
+            await self.refresh_working_mode_parameters(serial_number)
                 
             # Trigger coordinator refresh to update entities
             await self.async_refresh()
@@ -1149,26 +1159,81 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             )
             return False
     
-    def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
-        """Get current working mode state from parameters."""
+    async def _read_working_mode_parameters(self, serial_number: str) -> Dict[str, Any]:
+        """Read working mode parameters from register 127."""
         try:
-            # Get parameters data structure - parameters are stored under self.data["parameters"][serial_number]
-            if not self.data or "parameters" not in self.data:
-                _LOGGER.debug("No parameters data available for working mode check")
+            # Read working mode parameters from register 127 (127 registers starting at 127)
+            response = await self.api.read_parameters(
+                inverter_sn=serial_number,
+                start_register=127,
+                point_number=127
+            )
+            
+            if response and response.get("success", False):
+                _LOGGER.debug("Successfully read working mode parameters for device %s", serial_number)
+                return response
+            else:
+                _LOGGER.warning("Failed to read working mode parameters for device %s: %s", 
+                               serial_number, response)
+                return {}
+                
+        except Exception as err:
+            _LOGGER.error("Error reading working mode parameters for %s: %s", 
+                         serial_number, err)
+            return {}
+    
+    async def refresh_working_mode_parameters(self, serial_number: str) -> None:
+        """Refresh working mode parameters and store in coordinator data."""
+        try:
+            # Read working mode parameters from register 127
+            working_mode_data = await self._read_working_mode_parameters(serial_number)
+            
+            if working_mode_data:
+                # Store working mode parameters in coordinator data
+                if not hasattr(self, 'data') or self.data is None:
+                    self.data = {}
+                if "working_mode_parameters" not in self.data:
+                    self.data["working_mode_parameters"] = {}
+                    
+                self.data["working_mode_parameters"][serial_number] = working_mode_data
+                _LOGGER.debug("Cached working mode parameters for device %s", serial_number)
+            
+        except Exception as err:
+            _LOGGER.error("Error refreshing working mode parameters for %s: %s", 
+                         serial_number, err)
+    
+    async def _refresh_working_mode_parameters_for_all(self, inverter_serials: List[str]) -> None:
+        """Refresh working mode parameters for multiple inverters."""
+        try:
+            tasks = []
+            for serial in inverter_serials:
+                tasks.append(self.refresh_working_mode_parameters(serial))
+            
+            # Execute all working mode parameter reads in parallel
+            await asyncio.gather(*tasks, return_exceptions=True)
+            _LOGGER.debug("Completed working mode parameter refresh for %d inverters", len(inverter_serials))
+            
+        except Exception as err:
+            _LOGGER.error("Error refreshing working mode parameters for multiple inverters: %s", err)
+    
+    def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
+        """Get current working mode state from cached parameters."""
+        try:
+            # Get cached working mode parameters
+            if not self.data or "working_mode_parameters" not in self.data:
+                _LOGGER.debug("No cached working mode parameters available")
                 return False
                 
-            parameters = self.data["parameters"].get(serial_number, {})
-            if not parameters:
-                _LOGGER.debug("No parameters found for device %s", serial_number)
+            working_mode_data = self.data["working_mode_parameters"].get(serial_number, {})
+            if not working_mode_data:
+                _LOGGER.debug("No cached working mode parameters for device %s", serial_number)
                 return False
-                
-            _LOGGER.debug("Found %d parameters for device %s", len(parameters), serial_number)
             
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
                 # Check if parameter exists and is enabled (value == 1)
-                param_value = parameters.get(param_key, 0)
+                param_value = working_mode_data.get(param_key, 0)
                 _LOGGER.debug("Working mode %s for device %s: parameter %s = %s", 
                              function_param, serial_number, param_key, param_value)
                 return param_value == 1
