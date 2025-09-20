@@ -227,7 +227,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         inverter_serials = [serial for serial, device_data in processed["devices"].items() 
                            if device_data.get("type") == "inverter"]
         if inverter_serials:
-            _LOGGER.info("Refreshing working mode parameters for %d inverters", len(inverter_serials))
+            _LOGGER.info("Refreshing working mode parameters from base registers (0-127) for %d inverters", len(inverter_serials))
             # Make this blocking during initial setup to ensure working mode data is available
             try:
                 await self._refresh_working_mode_parameters_for_all(inverter_serials)
@@ -1162,12 +1162,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return False
     
     async def _read_working_mode_parameters(self, serial_number: str) -> Dict[str, Any]:
-        """Read working mode parameters from register 127."""
+        """Read working mode parameters from base register range (0-127)."""
         try:
-            # Read working mode parameters from register 127 (127 registers starting at 127)
+            # Read working mode parameters from base registers (0-127)
+            # Based on user feedback that working mode parameters are in base parameters, not extended
             response = await self.api.read_parameters(
                 inverter_sn=serial_number,
-                start_register=127,
+                start_register=0,
                 point_number=127
             )
             
@@ -1176,7 +1177,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 working_mode_params = {k: v for k, v in response.items() 
                                      if k in ['FUNC_BATTERY_BACKUP_CTRL', 'FUNC_GRID_PEAK_SHAVING', 
                                              'FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN']}
-                _LOGGER.info("Working mode parameters for device %s: %s", serial_number, working_mode_params)
+                _LOGGER.info("Working mode parameters for device %s (register 0-127): %s", serial_number, working_mode_params)
+                
+                # Log all parameters containing 'FUNC_' for comprehensive debugging
+                func_params = {k: v for k, v in response.items() if 'FUNC_' in k}
+                _LOGGER.debug("All FUNC_ parameters for device %s: %s", serial_number, func_params)
+                
                 return response
             else:
                 _LOGGER.warning("Failed to read working mode parameters for device %s: %s", 
@@ -1246,9 +1252,17 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if param_key:
                 # Check if parameter exists and is enabled (value == 1)
                 param_value = working_mode_data.get(param_key, 0)
-                _LOGGER.debug("Working mode %s for device %s: parameter %s = %s", 
-                             function_param, serial_number, param_key, param_value)
-                return param_value == 1
+                is_enabled = param_value == 1
+                _LOGGER.debug("Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s", 
+                             function_param, serial_number, param_key, param_value, type(param_value), is_enabled)
+                
+                # Log available parameters if the expected one is missing
+                if param_key not in working_mode_data:
+                    available_params = [k for k in working_mode_data.keys() if 'FUNC_' in k]
+                    _LOGGER.warning("Parameter %s not found for device %s. Available FUNC_ parameters: %s", 
+                                   param_key, serial_number, available_params)
+                
+                return is_enabled
                 
             _LOGGER.warning("Unknown function parameter: %s", function_param)
             return False
