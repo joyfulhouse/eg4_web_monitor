@@ -228,7 +228,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         inverter_serials = [serial for serial, device_data in processed["devices"].items() 
                            if device_data.get("type") == "inverter"]
         if inverter_serials:
-            _LOGGER.info("Working mode parameters available from standard parameter cache for %d inverters", len(inverter_serials))
+            _LOGGER.info("Working mode parameters (AC Charge, PV Charge Priority, Forced Discharge, Peak Shaving, Battery Backup) available from standard parameter cache for %d inverters", len(inverter_serials))
 
         return processed
 

@@ -265,7 +265,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_entity_id = f"switch.{model_clean}_{serial}_battery_backup"
 
         # Set device attributes
-        self._attr_name = f"{self._model} {serial} Battery Backup"
+        self._attr_name = f"{self._model} {serial} EPS Battery Backup"
         self._attr_icon = "mdi:battery-charging"
 
         # Device info for grouping

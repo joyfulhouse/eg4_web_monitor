@@ -1589,36 +1589,36 @@ GRIDBOSS_ENERGY_SENSORS = {
 
 # Working Mode Configurations
 WORKING_MODES = {
-    'ac_charge': {
-        'name': 'AC Charge',
+    'ac_charge_mode': {
+        'name': 'AC Charge Mode',
         'param': 'FUNC_AC_CHARGE',
         'description': 'Allow battery charging from AC grid power',
         'icon': 'mdi:battery-charging-medium',
         'entity_category': EntityCategory.CONFIG
     },
-    'forced_charge': {
-        'name': 'Forced Charge',
+    'pv_charge_priority_mode': {
+        'name': 'PV Charge Priority Mode',
         'param': 'FUNC_FORCED_CHG_EN',
-        'description': 'Force battery charging during specified hours',
-        'icon': 'mdi:battery-charging',
+        'description': 'Prioritize PV charging during specified hours',
+        'icon': 'mdi:solar-power',
         'entity_category': EntityCategory.CONFIG
     },
-    'forced_discharge': {
-        'name': 'Forced Discharge',
+    'forced_discharge_mode': {
+        'name': 'Forced Discharge Mode',
         'param': 'FUNC_FORCED_DISCHG_EN',
         'description': 'Force battery discharge for grid export',
         'icon': 'mdi:battery-arrow-down',
         'entity_category': EntityCategory.CONFIG
     },
-    'peak_shaving': {
-        'name': 'Grid Peak Shaving',
+    'peak_shaving_mode': {
+        'name': 'Peak Shaving Mode',
         'param': 'FUNC_GRID_PEAK_SHAVING', 
         'description': 'Grid peak shaving to reduce demand charges',
         'icon': 'mdi:chart-bell-curve-cumulative',
         'entity_category': EntityCategory.CONFIG
     },
-    'backup_mode': {
-        'name': 'Battery Backup',
+    'battery_backup_mode': {
+        'name': 'Battery Backup Mode',
         'param': 'FUNC_BATTERY_BACKUP_CTRL',
         'description': 'Emergency Power Supply (EPS) backup functionality',
         'icon': 'mdi:home-battery',
