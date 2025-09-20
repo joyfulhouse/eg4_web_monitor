@@ -1114,10 +1114,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
         return time_since_refresh >= self._parameter_refresh_interval
 
-    async def set_operating_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
-        """Set operating mode for inverter."""
+    async def set_working_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
+        """Set working mode for inverter."""
         try:
-            _LOGGER.debug("Setting operating mode %s to %s for device %s", 
+            _LOGGER.debug("Setting working mode %s to %s for device %s", 
                          function_param, enable, serial_number)
             
             # Use existing API method
@@ -1137,22 +1137,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             
             success = response.get('success', False)
             if success:
-                _LOGGER.info("Successfully set operating mode %s to %s for device %s", 
+                _LOGGER.info("Successfully set working mode %s to %s for device %s", 
                            function_param, enable, serial_number)
             else:
-                _LOGGER.warning("Operating mode control reported failure: %s", response)
+                _LOGGER.warning("Working mode control reported failure: %s", response)
                 
             return success
             
         except Exception as err:
             _LOGGER.error(
-                "Failed to set operating mode %s for %s: %s",
+                "Failed to set working mode %s for %s: %s",
                 function_param, serial_number, err
             )
             return False
     
-    def get_operating_mode_state(self, serial_number: str, function_param: str) -> bool:
-        """Get current operating mode state from parameters."""
+    def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
+        """Get current working mode state from parameters."""
         try:
             parameters = self.data.get(f"parameters_{serial_number}", {}) if self.data else {}
             
@@ -1166,6 +1166,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return False
             
         except Exception as err:
-            _LOGGER.error("Error getting operating mode state for %s: %s", 
+            _LOGGER.error("Error getting working mode state for %s: %s", 
                          serial_number, err)
             return False

@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, OPERATING_MODES, FUNCTION_PARAM_MAPPING
+from .const import DOMAIN, WORKING_MODES, FUNCTION_PARAM_MAPPING
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,16 +63,16 @@ async def async_setup_entry(
                     "✅ Added battery backup switch for compatible device %s (%s)", serial, model
                 )
                 
-                # Add operating mode switches
-                for mode_key, mode_config in OPERATING_MODES.items():
-                    entities.append(EG4OperatingModeSwitch(
+                # Add working mode switches
+                for mode_key, mode_config in WORKING_MODES.items():
+                    entities.append(EG4WorkingModeSwitch(
                         coordinator=coordinator,
                         device_info=device_info,
                         serial_number=serial,
                         mode_config=mode_config
                     ))
                     _LOGGER.info(
-                        "✅ Added operating mode switch '%s' for compatible device %s (%s)", 
+                        "✅ Added working mode switch '%s' for compatible device %s (%s)", 
                         mode_config['name'], serial, model
                     )
             else:
@@ -396,11 +396,11 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
 
-class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch for controlling EG4 operating modes."""
+class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch for controlling EG4 working modes."""
     
     def __init__(self, coordinator, device_info, serial_number, mode_config):
-        """Initialize the operating mode switch."""
+        """Initialize the working mode switch."""
         super().__init__(coordinator)
         self._coordinator = coordinator
         self._device_info = device_info
@@ -437,7 +437,7 @@ class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
         if self._optimistic_state is not None:
             return self._optimistic_state
             
-        return self._coordinator.get_operating_mode_state(
+        return self._coordinator.get_working_mode_state(
             self._serial_number, 
             self._mode_config['param']
         )
@@ -464,7 +464,7 @@ class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        # Check if the device supports operating modes
+        # Check if the device supports working modes
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial_number, {})
             # Only available for inverter devices (not GridBOSS)
@@ -474,26 +474,26 @@ class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
         try:
-            _LOGGER.debug("Enabling operating mode %s for device %s", 
+            _LOGGER.debug("Enabling working mode %s for device %s", 
                          self._mode_config['param'], self._serial_number)
             
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = True
             self.async_write_ha_state()
             
-            await self._coordinator.set_operating_mode(
+            await self._coordinator.set_working_mode(
                 self._serial_number,
                 self._mode_config['param'], 
                 True
             )
-            _LOGGER.info("Successfully enabled operating mode %s for device %s", 
+            _LOGGER.info("Successfully enabled working mode %s for device %s", 
                         self._mode_config['param'], self._serial_number)
             
             # Clear optimistic state
             self._optimistic_state = None
             
         except Exception as e:
-            _LOGGER.error("Failed to enable operating mode %s for device %s: %s", 
+            _LOGGER.error("Failed to enable working mode %s for device %s: %s", 
                          self._mode_config['param'], self._serial_number, e)
             # Revert optimistic state on error
             self._optimistic_state = None
@@ -503,26 +503,26 @@ class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the switch off."""
         try:
-            _LOGGER.debug("Disabling operating mode %s for device %s", 
+            _LOGGER.debug("Disabling working mode %s for device %s", 
                          self._mode_config['param'], self._serial_number)
             
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = False
             self.async_write_ha_state()
             
-            await self._coordinator.set_operating_mode(
+            await self._coordinator.set_working_mode(
                 self._serial_number,
                 self._mode_config['param'],
                 False
             )
-            _LOGGER.info("Successfully disabled operating mode %s for device %s", 
+            _LOGGER.info("Successfully disabled working mode %s for device %s", 
                         self._mode_config['param'], self._serial_number)
             
             # Clear optimistic state
             self._optimistic_state = None
             
         except Exception as e:
-            _LOGGER.error("Failed to disable operating mode %s for device %s: %s", 
+            _LOGGER.error("Failed to disable working mode %s for device %s: %s", 
                          self._mode_config['param'], self._serial_number, e)
             # Revert optimistic state on error
             self._optimistic_state = None

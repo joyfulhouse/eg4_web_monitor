@@ -1587,8 +1587,8 @@ GRIDBOSS_ENERGY_SENSORS = {
     "ups_energy",
 }
 
-# Operating Mode Configurations
-OPERATING_MODES = {
+# Working Mode Configurations
+WORKING_MODES = {
     'backup_mode': {
         'name': 'Backup Mode',
         'param': 'FUNC_BATTERY_BACKUP_CTRL',
@@ -1629,9 +1629,9 @@ OPERATING_MODES = {
 # Function parameter to parameter register mapping
 # Maps function control parameters to their corresponding status parameters
 FUNCTION_PARAM_MAPPING = {
-    'FUNC_BATTERY_BACKUP_CTRL': 'FUNC_BATTERY_BACKUP_CTRL',  # Operating mode for backup control
-    'FUNC_GRID_PEAK_SHAVING': 'FUNC_GRID_PEAK_SHAVING',     # Operating mode for peak shaving
-    'FUNC_AC_CHARGE': 'FUNC_AC_CHARGE',                     # Operating mode for AC charging
-    'FUNC_FORCED_CHG_EN': 'FUNC_FORCED_CHG_EN',             # Operating mode for forced charge
-    'FUNC_FORCED_DISCHG_EN': 'FUNC_FORCED_DISCHG_EN'        # Operating mode for forced discharge
+    'FUNC_BATTERY_BACKUP_CTRL': 'FUNC_BATTERY_BACKUP_CTRL',  # Working mode for backup control
+    'FUNC_GRID_PEAK_SHAVING': 'FUNC_GRID_PEAK_SHAVING',     # Working mode for peak shaving
+    'FUNC_AC_CHARGE': 'FUNC_AC_CHARGE',                     # Working mode for AC charging
+    'FUNC_FORCED_CHG_EN': 'FUNC_FORCED_CHG_EN',             # Working mode for forced charge
+    'FUNC_FORCED_DISCHG_EN': 'FUNC_FORCED_DISCHG_EN'        # Working mode for forced discharge
 }
