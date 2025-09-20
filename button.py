@@ -12,7 +12,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import clean_battery_display_name
+from .utils import (
+    clean_battery_display_name,
+    generate_entity_id,
+    generate_unique_id,
+    create_entity_name
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -115,18 +120,17 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
             # Use the same suffix for unique_id to ensure new entity registration
             self._attr_unique_id = entity_id_suffix
         else:
-            # Normal device entity ID generation
-            model_clean = model.lower().replace(" ", "").replace("-", "")
-            self._attr_unique_id = f"{serial}_refresh_data"
-            self._attr_entity_id = f"button.{model_clean}_{serial}_refresh_data"
+            # Normal device entity ID generation using consolidated utilities
+            self._attr_unique_id = generate_unique_id(serial, "refresh_data")
+            self._attr_entity_id = generate_entity_id("button", model, serial, "refresh_data")
 
-        # Set device attributes
+        # Set device attributes using consolidated utilities
         if device_type == "parallel_group":
             # For parallel groups, don't include the "parallel_group" serial in the name
             self._attr_name = f"{model} Refresh Data"
         else:
             # For other devices, include serial number
-            self._attr_name = f"{model} {serial} Refresh Data"
+            self._attr_name = create_entity_name(model, serial, "Refresh Data")
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 

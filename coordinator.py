@@ -30,6 +30,7 @@ from .const import (
 )
 from .eg4_inverter_api import EG4InverterAPI
 from .utils import (
+    CircuitBreaker,
     extract_individual_battery_sensors,
     clean_battery_display_name,
     read_device_parameters_ranges,
@@ -68,6 +69,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._parameter_refresh_interval = timedelta(
             hours=1
         )  # Hourly parameter refresh
+
+        # Circuit breaker for API resilience
+        self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
 
         # Temporary device info storage for model extraction
         self._temp_device_info: Dict[str, Any] = {}

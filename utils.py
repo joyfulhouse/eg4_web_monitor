@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Optional
 
 from .const import (
     DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
     GRIDBOSS_ENERGY_SENSORS,
     VOLTAGE_SENSORS,
     CURRENT_SENSORS,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -426,7 +427,7 @@ async def read_device_parameters_ranges(api_client, inverter_sn: str):
 
 def process_parameter_responses(responses, device_serial: str, _logger):
     """Process parameter responses and handle exceptions.
-    
+
     Consolidates duplicate response processing logic.
     """
     register_starts = [0, 127, 240]  # Corresponding to the ranges above
@@ -441,3 +442,190 @@ def process_parameter_responses(responses, device_serial: str, _logger):
             )
             continue
         yield i, response, register_starts[i]
+
+
+# ========== CONSOLIDATED UTILITY FUNCTIONS ==========
+# These functions eliminate code duplication across multiple platform files
+
+
+def clean_model_name(model: str) -> str:
+    """Clean model name for consistent entity ID generation.
+
+    Args:
+        model: Raw model name from device
+
+    Returns:
+        Cleaned model name suitable for entity IDs
+    """
+    if not model:
+        return "unknown"
+    return model.lower().replace(" ", "").replace("-", "")
+
+
+def create_device_info(serial: str, model: str, device_type: str = "inverter") -> Dict[str, Any]:  # pylint: disable=unused-argument
+    """Create standardized device info dictionary for Home Assistant entities.
+
+    Args:
+        serial: Device serial number
+        model: Device model name
+        device_type: Type of device (inverter, gridboss, battery, etc.)
+
+    Returns:
+        Device info dictionary for Home Assistant
+    """
+    return {
+        "identifiers": {(DOMAIN, serial)},
+        "name": f"{model} {serial}",
+        "manufacturer": "EG4 Electronics",
+        "model": model,
+        "serial_number": serial,
+        "sw_version": "1.0.0",  # Default version, can be updated from API
+    }
+
+
+def generate_entity_id(platform: str, model: str, serial: str, entity_type: str,
+                      suffix: Optional[str] = None) -> str:
+    """Generate standardized entity IDs across all platforms.
+
+    Args:
+        platform: Platform name (sensor, switch, button, number)
+        model: Device model name
+        serial: Device serial number
+        entity_type: Type of entity (e.g., "refresh_data", "ac_charge")
+        suffix: Optional suffix for multi-part entities
+
+    Returns:
+        Standardized entity ID
+    """
+    clean_model = clean_model_name(model)
+    base_id = f"{platform}.{clean_model}_{serial}_{entity_type}"
+
+    if suffix:
+        base_id = f"{base_id}_{suffix}"
+
+    return base_id
+
+
+def generate_unique_id(serial: str, entity_type: str, suffix: Optional[str] = None) -> str:
+    """Generate standardized unique IDs for entity registry.
+
+    Args:
+        serial: Device serial number
+        entity_type: Type of entity
+        suffix: Optional suffix for multi-part entities
+
+    Returns:
+        Standardized unique ID
+    """
+    base_id = f"{serial}_{entity_type}"
+
+    if suffix:
+        base_id = f"{base_id}_{suffix}"
+
+    return base_id
+
+
+def create_entity_name(model: str, serial: str, entity_name: str) -> str:
+    """Create standardized entity display names.
+
+    Args:
+        model: Device model name
+        serial: Device serial number
+        entity_name: Human-readable entity name
+
+    Returns:
+        Standardized entity display name
+    """
+    return f"{model} {serial} {entity_name}"
+
+
+def safe_get_nested_value(data: Dict[str, Any], keys: list, default: Any = None) -> Any:
+    """Safely get nested dictionary values with fallback.
+
+    Args:
+        data: Dictionary to search
+        keys: List of keys for nested access
+        default: Default value if key path not found
+
+    Returns:
+        Value at key path or default
+    """
+    try:
+        current = data
+        for key in keys:
+            current = current[key]
+        return current
+    except (KeyError, TypeError, AttributeError):
+        return default
+
+
+def validate_device_data(device_data: Dict[str, Any], required_fields: list) -> bool:
+    """Validate device data contains required fields.
+
+    Args:
+        device_data: Device data dictionary
+        required_fields: List of required field names
+
+    Returns:
+        True if all required fields present, False otherwise
+    """
+    if not isinstance(device_data, dict):
+        return False
+
+    for field in required_fields:
+        if field not in device_data or device_data[field] is None:
+            _LOGGER.warning("Missing required device field: %s", field)
+            return False
+
+    return True
+
+
+class CircuitBreaker:
+    """Simple circuit breaker pattern for API calls."""
+
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+        """Initialize circuit breaker.
+
+        Args:
+            failure_threshold: Number of failures before opening circuit
+            timeout: Timeout in seconds before trying again
+        """
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = "closed"  # closed, open, half-open
+
+    async def call(self, func, *args, **kwargs):
+        """Execute function with circuit breaker protection.
+
+        Args:
+            func: Async function to execute
+            *args: Function arguments
+            **kwargs: Function keyword arguments
+
+        Returns:
+            Function result or raises exception
+        """
+        if self.state == "open":
+            if self.last_failure_time and (
+                asyncio.get_event_loop().time() - self.last_failure_time > self.timeout
+            ):
+                self.state = "half-open"
+            else:
+                raise RuntimeError("Circuit breaker is open")
+
+        try:
+            result = await func(*args, **kwargs)
+            if self.state == "half-open":
+                self.state = "closed"
+                self.failure_count = 0
+            return result
+        except Exception as e:
+            self.failure_count += 1
+            self.last_failure_time = asyncio.get_event_loop().time()
+
+            if self.failure_count >= self.failure_threshold:
+                self.state = "open"
+
+            raise e

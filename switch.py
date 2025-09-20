@@ -11,6 +11,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, WORKING_MODES, FUNCTION_PARAM_MAPPING
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import (
+    create_device_info,
+    generate_entity_id,
+    generate_unique_id,
+    create_entity_name
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,23 +117,16 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         device_info = coordinator.data.get("device_info", {}).get(serial, {})
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
 
-        # Create unique identifiers
-        model_clean = self._model.lower().replace(" ", "").replace("-", "")
-        self._attr_unique_id = f"{serial}_quick_charge"
-        self._attr_entity_id = f"switch.{model_clean}_{serial}_quick_charge"
+        # Create unique identifiers using consolidated utilities
+        self._attr_unique_id = generate_unique_id(serial, "quick_charge")
+        self._attr_entity_id = generate_entity_id("switch", self._model, serial, "quick_charge")
 
         # Set device attributes
-        self._attr_name = f"{self._model} {serial} Quick Charge"
+        self._attr_name = create_entity_name(self._model, serial, "Quick Charge")
         self._attr_icon = "mdi:battery-charging"
 
-        # Device info for grouping
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, serial)},
-            "name": f"{self._model} {serial}",
-            "manufacturer": "EG4 Electronics",
-            "model": self._model,
-            "serial_number": serial,
-        }
+        # Device info for grouping using consolidated utility
+        self._attr_device_info = create_device_info(serial, self._model)
 
     @property
     def is_on(self) -> Optional[bool]:
@@ -257,23 +256,16 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         device_info = coordinator.data.get("device_info", {}).get(serial, {})
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
 
-        # Create unique identifiers
-        model_clean = self._model.lower().replace(" ", "").replace("-", "")
-        self._attr_unique_id = f"{serial}_battery_backup"
-        self._attr_entity_id = f"switch.{model_clean}_{serial}_battery_backup"
+        # Create unique identifiers using consolidated utilities
+        self._attr_unique_id = generate_unique_id(serial, "battery_backup")
+        self._attr_entity_id = generate_entity_id("switch", self._model, serial, "battery_backup")
 
         # Set device attributes
-        self._attr_name = f"{self._model} {serial} EPS Battery Backup"
+        self._attr_name = create_entity_name(self._model, serial, "EPS Battery Backup")
         self._attr_icon = "mdi:battery-charging"
 
-        # Device info for grouping
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, serial)},
-            "name": f"{self._model} {serial}",
-            "manufacturer": "EG4 Electronics",
-            "model": self._model,
-            "serial_number": serial,
-        }
+        # Device info for grouping using consolidated utility
+        self._attr_device_info = create_device_info(serial, self._model)
 
     @property
     def is_on(self) -> Optional[bool]:
@@ -410,25 +402,17 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
 
         # Get device model
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
-        model_clean = self._model.lower().replace(" ", "").replace("-", "")
 
-        # Set entity attributes
-        self._attr_name = f"{self._model} {serial_number} {self._mode_config['name']}"
-        self._attr_unique_id = f"{serial_number}_{self._mode_config['param'].lower()}"
-        # Generate clean entity ID with proper underscores
+        # Set entity attributes using consolidated utilities
         param_clean = self._mode_config['param'].lower().replace('func_', '')
-        self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{param_clean}"
+        self._attr_name = create_entity_name(self._model, serial_number, self._mode_config['name'])
+        self._attr_unique_id = generate_unique_id(serial_number, self._mode_config['param'].lower())
+        self._attr_entity_id = generate_entity_id("switch", self._model, serial_number, param_clean)
         self._attr_entity_category = self._mode_config['entity_category']
         self._attr_icon = self._mode_config.get('icon', 'mdi:toggle-switch')
 
-        # Device info for grouping
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, serial_number)},
-            "name": f"{self._model} {serial_number}",
-            "manufacturer": "EG4 Electronics",
-            "model": self._model,
-            "serial_number": serial_number,
-        }
+        # Device info for grouping using consolidated utility
+        self._attr_device_info = create_device_info(serial_number, self._model)
     @property
     def is_on(self) -> bool:
         """Return if the switch is on."""
