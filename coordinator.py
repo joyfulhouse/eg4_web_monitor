@@ -26,6 +26,7 @@ from .const import (
     GRIDBOSS_ENERGY_SENSORS,
     VOLTAGE_SENSORS,
     CURRENT_SENSORS,
+    FUNCTION_PARAM_MAPPING,
 )
 from .eg4_inverter_api import EG4InverterAPI
 from .utils import (
@@ -1112,3 +1113,59 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
         return time_since_refresh >= self._parameter_refresh_interval
+
+    async def set_operating_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
+        """Set operating mode for inverter."""
+        try:
+            _LOGGER.debug("Setting operating mode %s to %s for device %s", 
+                         function_param, enable, serial_number)
+            
+            # Use existing API method
+            response = await self.api.control_function_parameter(
+                serial_number=serial_number,
+                function_param=function_param,
+                enable=enable
+            )
+            
+            # Invalidate parameter cache to refresh state
+            cache_key = f"parameters_{serial_number}"
+            if hasattr(self, '_cache') and cache_key in self._cache:
+                del self._cache[cache_key]
+                
+            # Trigger immediate refresh
+            await self.async_refresh()
+            
+            success = response.get('success', False)
+            if success:
+                _LOGGER.info("Successfully set operating mode %s to %s for device %s", 
+                           function_param, enable, serial_number)
+            else:
+                _LOGGER.warning("Operating mode control reported failure: %s", response)
+                
+            return success
+            
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to set operating mode %s for %s: %s",
+                function_param, serial_number, err
+            )
+            return False
+    
+    def get_operating_mode_state(self, serial_number: str, function_param: str) -> bool:
+        """Get current operating mode state from parameters."""
+        try:
+            parameters = self.data.get(f"parameters_{serial_number}", {}) if self.data else {}
+            
+            # Map function parameters to parameter register values
+            param_key = FUNCTION_PARAM_MAPPING.get(function_param)
+            if param_key:
+                # Check if parameter exists and is enabled (value == 1)
+                return parameters.get(param_key, 0) == 1
+                
+            _LOGGER.warning("Unknown function parameter: %s", function_param)
+            return False
+            
+        except Exception as err:
+            _LOGGER.error("Error getting operating mode state for %s: %s", 
+                         serial_number, err)
+            return False

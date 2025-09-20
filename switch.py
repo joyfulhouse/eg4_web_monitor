@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, OPERATING_MODES, FUNCTION_PARAM_MAPPING
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +62,19 @@ async def async_setup_entry(
                 _LOGGER.info(
                     "✅ Added battery backup switch for compatible device %s (%s)", serial, model
                 )
+                
+                # Add operating mode switches
+                for mode_key, mode_config in OPERATING_MODES.items():
+                    entities.append(EG4OperatingModeSwitch(
+                        coordinator=coordinator,
+                        device_info=device_info,
+                        serial_number=serial,
+                        mode_config=mode_config
+                    ))
+                    _LOGGER.info(
+                        "✅ Added operating mode switch '%s' for compatible device %s (%s)", 
+                        mode_config['name'], serial, model
+                    )
             else:
                 _LOGGER.warning(
                     "❌ Skipping switches for device %s (%s) - "
@@ -377,6 +390,140 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
 
         except Exception as e:
             _LOGGER.error("Failed to disable battery backup for device %s: %s", self._serial, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4OperatingModeSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch for controlling EG4 operating modes."""
+    
+    def __init__(self, coordinator, device_info, serial_number, mode_config):
+        """Initialize the operating mode switch."""
+        super().__init__(coordinator)
+        self._coordinator = coordinator
+        self._device_info = device_info
+        self._serial_number = serial_number
+        self._mode_config = mode_config
+        
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: Optional[bool] = None
+        
+        # Get device model
+        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+        model_clean = self._model.lower().replace(" ", "").replace("-", "")
+        
+        # Set entity attributes
+        self._attr_name = f"{self._mode_config['name']}"
+        self._attr_unique_id = f"{serial_number}_{self._mode_config['param'].lower()}"
+        self._attr_entity_id = f"switch.{model_clean}_{serial_number}_{self._mode_config['param'].lower().replace('func_', '').replace('_', '')}"
+        self._attr_entity_category = self._mode_config['entity_category']
+        self._attr_icon = self._mode_config.get('icon', 'mdi:toggle-switch')
+        
+        # Device info for grouping
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, serial_number)},
+            "name": f"{self._model}_{serial_number}",
+            "manufacturer": "EG4 Electronics",
+            "model": self._model,
+            "serial_number": serial_number,
+        }
+    
+    @property
+    def is_on(self) -> bool:
+        """Return if the switch is on."""
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+            
+        return self._coordinator.get_operating_mode_state(
+            self._serial_number, 
+            self._mode_config['param']
+        )
+    
+    @property
+    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+        """Return extra state attributes."""
+        attributes = {
+            "description": self._mode_config['description'],
+            "function_parameter": self._mode_config['param']
+        }
+        
+        # Add parameter register information
+        param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config['param'])
+        if param_key:
+            attributes["parameter_register"] = param_key
+            
+        # Add optimistic state indicator for debugging
+        if self._optimistic_state is not None:
+            attributes["optimistic_state"] = self._optimistic_state
+            
+        return attributes
+    
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Check if the device supports operating modes
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial_number, {})
+            # Only available for inverter devices (not GridBOSS)
+            return device_data.get("type") == "inverter"
+        return False
+    
+    async def async_turn_on(self, **kwargs) -> None:
+        """Turn the switch on."""
+        try:
+            _LOGGER.debug("Enabling operating mode %s for device %s", 
+                         self._mode_config['param'], self._serial_number)
+            
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = True
+            self.async_write_ha_state()
+            
+            await self._coordinator.set_operating_mode(
+                self._serial_number,
+                self._mode_config['param'], 
+                True
+            )
+            _LOGGER.info("Successfully enabled operating mode %s for device %s", 
+                        self._mode_config['param'], self._serial_number)
+            
+            # Clear optimistic state
+            self._optimistic_state = None
+            
+        except Exception as e:
+            _LOGGER.error("Failed to enable operating mode %s for device %s: %s", 
+                         self._mode_config['param'], self._serial_number, e)
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+    
+    async def async_turn_off(self, **kwargs) -> None:
+        """Turn the switch off."""
+        try:
+            _LOGGER.debug("Disabling operating mode %s for device %s", 
+                         self._mode_config['param'], self._serial_number)
+            
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = False
+            self.async_write_ha_state()
+            
+            await self._coordinator.set_operating_mode(
+                self._serial_number,
+                self._mode_config['param'],
+                False
+            )
+            _LOGGER.info("Successfully disabled operating mode %s for device %s", 
+                        self._mode_config['param'], self._serial_number)
+            
+            # Clear optimistic state
+            self._optimistic_state = None
+            
+        except Exception as e:
+            _LOGGER.error("Failed to disable operating mode %s for device %s: %s", 
+                         self._mode_config['param'], self._serial_number, e)
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()

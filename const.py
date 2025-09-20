@@ -8,6 +8,7 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTemperature,
 )
+from homeassistant.helpers.entity import EntityCategory
 
 # Integration constants
 DOMAIN = "eg4_web_monitor"
@@ -1584,4 +1585,53 @@ GRIDBOSS_ENERGY_SENSORS = {
     # Other energy sensors
     "energy_to_user",
     "ups_energy",
+}
+
+# Operating Mode Configurations
+OPERATING_MODES = {
+    'backup_mode': {
+        'name': 'Backup Mode',
+        'param': 'FUNC_BATTERY_BACKUP_CTRL',
+        'description': 'Emergency Power Supply (EPS) backup functionality',
+        'icon': 'mdi:battery-charging',
+        'entity_category': EntityCategory.CONFIG
+    },
+    'peak_shaving': {
+        'name': 'Peak Shaving',
+        'param': 'FUNC_GRID_PEAK_SHAVING', 
+        'description': 'Grid peak shaving to reduce demand charges',
+        'icon': 'mdi:chart-bell-curve-cumulative',
+        'entity_category': EntityCategory.CONFIG
+    },
+    'ac_charge': {
+        'name': 'AC Charge',
+        'param': 'FUNC_AC_CHARGE',
+        'description': 'Allow battery charging from AC grid power',
+        'icon': 'mdi:battery-charging-medium',
+        'entity_category': EntityCategory.CONFIG
+    },
+    'pv_charge_priority': {
+        'name': 'PV Charge Priority',
+        'param': 'FUNC_FORCED_CHG_EN',
+        'description': 'Prioritize PV charging over grid consumption', 
+        'icon': 'mdi:solar-power',
+        'entity_category': EntityCategory.CONFIG
+    },
+    'forced_discharge': {
+        'name': 'Forced Discharge',
+        'param': 'FUNC_FORCED_DISCHG_EN',
+        'description': 'Force battery discharge for grid export',
+        'icon': 'mdi:battery-arrow-down',
+        'entity_category': EntityCategory.CONFIG
+    }
+}
+
+# Function parameter to parameter register mapping
+# Maps function control parameters to their corresponding status parameters
+FUNCTION_PARAM_MAPPING = {
+    'FUNC_BATTERY_BACKUP_CTRL': 'FUNC_BATTERY_BACKUP_CTRL',  # Operating mode for backup control
+    'FUNC_GRID_PEAK_SHAVING': 'FUNC_GRID_PEAK_SHAVING',     # Operating mode for peak shaving
+    'FUNC_AC_CHARGE': 'FUNC_AC_CHARGE',                     # Operating mode for AC charging
+    'FUNC_FORCED_CHG_EN': 'FUNC_FORCED_CHG_EN',             # Operating mode for forced charge
+    'FUNC_FORCED_DISCHG_EN': 'FUNC_FORCED_DISCHG_EN'        # Operating mode for forced discharge
 }
