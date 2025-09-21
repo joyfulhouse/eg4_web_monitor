@@ -2,22 +2,6 @@
 
 A comprehensive Home Assistant custom component for monitoring EG4 Solar Inverters and GridBOSS devices through the EG4 Monitor web API.
 
-## 🚀 Latest Release - Version 1.4.0
-
-### ✅ **Production Optimization & Error Handling Excellence**
-- **Perfect Code Quality**: Achieved and maintained Pylint score 10.00/10
-- **Code Duplication Eliminated**: 70% reduction through consolidated utility functions
-- **API Resilience**: Circuit breaker pattern with exponential backoff protection
-- **Enhanced Error Handling**: Intelligent distinction between API failures vs integration issues
-- **Production Ready**: Comprehensive optimizations for enterprise deployment
-
-### 🔧 **Technical Breakthroughs**
-- **Incremental Backoff**: Advanced API rate limiting protection with exponential backoff and jitter
-- **Consolidated Utilities**: 9 standardized utility functions eliminate code duplication
-- **Smart Error Classification**: WARNING vs ERROR levels based on failure type and recovery potential
-- **Memory Optimization**: Reduced memory footprint through centralized entity management
-- **Circuit Breaker Protection**: Automatic API failure protection prevents cascading errors
-
 ## 🙏 Credits
 
 This integration was inspired by and built upon the excellent work by [@twistedroutes](https://github.com/twistedroutes) and their [eg4_inverter_ha](https://github.com/twistedroutes/eg4_inverter_ha) project. We extend our sincere gratitude for their pioneering efforts in EG4 device integration for Home Assistant.
