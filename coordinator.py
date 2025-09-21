@@ -70,6 +70,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             hours=1
         )  # Hourly parameter refresh
 
+        # Cache invalidation tracking
+        self._last_cache_invalidation: Optional[datetime] = None
+
         # Circuit breaker for API resilience
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
 
@@ -107,6 +110,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Fetch data from API endpoint."""
         try:
             _LOGGER.debug("Fetching data for plant %s", self.plant_id)
+
+            # Check if cache invalidation is needed before top of hour
+            if self._should_invalidate_cache():
+                _LOGGER.info(
+                    "Cache invalidation needed before top of hour, clearing all caches"
+                )
+                self._invalidate_all_caches()
 
             # Check if hourly parameter refresh is due
             if self._should_refresh_parameters():
@@ -1309,3 +1319,53 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.error("Error getting working mode state for %s: %s",
                          serial_number, err)
             return False
+
+    def _should_invalidate_cache(self) -> bool:
+        """Check if cache invalidation is needed before top of hour."""
+        now = dt_util.utcnow()
+
+        # If we haven't invalidated cache yet today, check if we're close to top of hour
+        if self._last_cache_invalidation is None:
+            # First run - invalidate if we're within 5 minutes of top of hour
+            minutes_to_hour = 60 - now.minute
+            return minutes_to_hour <= 5
+
+        # Check if we've crossed into a new hour since last invalidation
+        last_hour = self._last_cache_invalidation.hour
+        current_hour = now.hour
+
+        # If hour has changed, we need to invalidate
+        if current_hour != last_hour:
+            return True
+
+        # If we're in the same hour but within 5 minutes of the next hour
+        # and haven't invalidated in the last 10 minutes, invalidate
+        minutes_to_hour = 60 - now.minute
+        time_since_last = now - self._last_cache_invalidation
+
+        return minutes_to_hour <= 5 and time_since_last >= timedelta(minutes=10)
+
+    def _invalidate_all_caches(self) -> None:
+        """Invalidate all caches to ensure fresh data when date changes."""
+        try:
+            # Clear API response cache
+            if hasattr(self.api, 'clear_cache'):
+                self.api.clear_cache()
+                _LOGGER.debug("Cleared API response cache")
+
+            # Clear device discovery cache
+            if hasattr(self.api, '_device_cache'):
+                self.api._device_cache.clear()
+                self.api._device_cache_expires = None
+                _LOGGER.debug("Cleared device discovery cache")
+
+            # Update last invalidation time
+            self._last_cache_invalidation = dt_util.utcnow()
+
+            _LOGGER.info(
+                "Successfully invalidated all caches at %s to prevent date rollover issues",
+                self._last_cache_invalidation.strftime("%Y-%m-%d %H:%M:%S UTC")
+            )
+
+        except Exception as e:
+            _LOGGER.error("Error invalidating caches: %s", e)

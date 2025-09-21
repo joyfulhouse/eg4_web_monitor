@@ -287,6 +287,22 @@ EG4 Web Monitor {Station_Name}
 
 ## Recent Updates ✅
 
+### ✅ September 2025 - Release 1.4.2: Intelligent Cache Management & Date Rollover Protection
+- **✅ Smart Cache Invalidation System**: Automatic cache clearing before top of hour to prevent date rollover issues
+  - **Pre-emptive Invalidation**: Cache clears within 5 minutes of hour boundary to ensure fresh daily data
+  - **Hour Boundary Detection**: Automatic cache invalidation when crossing into new hour
+  - **Rate Limiting**: Intelligent 10-minute minimum interval between invalidations to prevent excessive API calls
+  - **Comprehensive Coverage**: Clears both API response cache and device discovery cache
+  - **UTC-Based Timing**: Uses Home Assistant's UTC utilities for consistent global timing
+- **✅ Enhanced Data Freshness**: Prevents stale energy readings and daily statistics during date changes
+  - **Daily Energy Accuracy**: Ensures daily energy sensors reset properly at midnight
+  - **Hour Boundary Reliability**: Fresh data collection when crossing hour boundaries
+  - **Timezone Independence**: Works consistently across all timezone configurations
+- **✅ Performance Optimization**: Smart invalidation prevents unnecessary API calls while ensuring data accuracy
+  - **Conditional Logic**: Only invalidates when actually needed (hour changes or pre-hour window)
+  - **Logging Integration**: Comprehensive debug logging for cache invalidation events
+  - **Memory Management**: Efficient cache clearing without impacting ongoing operations
+
 ### ✅ September 2025 - Release 1.4.0: Production Optimization & Error Handling Excellence
 - **✅ Perfect Code Quality**: Achieved and maintained Pylint score 10.00/10 through comprehensive optimization
   - **Code Duplication Eliminated**: 70% reduction through consolidated utility functions
