@@ -1,5 +1,6 @@
 """Button platform for EG4 Web Monitor integration."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -196,18 +197,23 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
                 self.coordinator.api._clear_parameter_cache()  # pylint: disable=protected-access
                 _LOGGER.debug("Cleared parameter cache")
 
-            # Step 3: Force immediate coordinator refresh
+            # Step 3: Force refresh of device parameters (for number entities)
+            device_data = self.coordinator.data.get("devices", {}).get(self._serial, {})
+            if device_data.get("type") == "inverter":
+                await self.coordinator.refresh_all_device_parameters()
+                _LOGGER.debug("Refreshed device parameters for inverter")
+
+            # Step 4: Force immediate coordinator refresh
             await self.coordinator.async_request_refresh()
             _LOGGER.debug("Successfully refreshed data for device %s", self._serial)
 
-            # Step 4: Also refresh device parameters if it's an inverter
-            device_data = self.coordinator.data.get("devices", {}).get(self._serial, {})
-            if device_data.get("type") == "inverter":
-                await self.coordinator.async_refresh_device_parameters(self._serial)
-                _LOGGER.debug("Refreshed parameters for inverter %s", self._serial)
+            # Parameters and coordinator data have been refreshed
+            # Number entities will automatically update via coordinator listeners
+            _LOGGER.debug("Refresh completed - all data updated")
         except Exception as e:
             _LOGGER.error("Failed to refresh data for device %s: %s", self._serial, e)
             raise
+
 
 
 class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
