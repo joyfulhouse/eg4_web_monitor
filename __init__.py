@@ -13,7 +13,13 @@ from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH, Platform.BUTTON]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.NUMBER,
+    Platform.SWITCH,
+    Platform.BUTTON,
+    Platform.SELECT
+]
 
 SERVICE_REFRESH_DATA = "refresh_data"
 

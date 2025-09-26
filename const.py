@@ -1659,5 +1659,6 @@ FUNCTION_PARAM_MAPPING = {
     'FUNC_GRID_PEAK_SHAVING': 'FUNC_GRID_PEAK_SHAVING',     # Working mode for peak shaving
     'FUNC_AC_CHARGE': 'FUNC_AC_CHARGE',                     # Working mode for AC charging
     'FUNC_FORCED_CHG_EN': 'FUNC_FORCED_CHG_EN',             # Working mode for forced charge
-    'FUNC_FORCED_DISCHG_EN': 'FUNC_FORCED_DISCHG_EN'        # Working mode for forced discharge
+    'FUNC_FORCED_DISCHG_EN': 'FUNC_FORCED_DISCHG_EN',       # Working mode for forced discharge
+    'FUNC_SET_TO_STANDBY': 'FUNC_SET_TO_STANDBY'             # Operating mode control
 }

@@ -699,7 +699,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not raw_key:
             return "BAT01"
 
-        # Handle keys like "4512670118_Battery_ID_01" -> "4512670118-01"
+        # Handle keys like "1234567890_Battery_ID_01" -> "1234567890-01"
         if "_Battery_ID_" in raw_key:
             parts = raw_key.split("_Battery_ID_")
             if len(parts) == 2:

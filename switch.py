@@ -62,11 +62,20 @@ async def async_setup_entry(
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
                 _LOGGER.info(
                     "✅ Added quick charge switch for compatible device %s (%s)", serial, model
-                )# Add battery backup switch
-                entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
-                _LOGGER.info(
-                    "✅ Added battery backup switch for compatible device %s (%s)", serial, model
                 )
+
+                # Add battery backup switch (EPS) - XP devices do not support this
+                if not any(xp_model in model_lower for xp_model in ["xp"]):
+                    entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
+                    _LOGGER.info(
+                        "✅ Added battery backup switch for compatible device %s (%s)", serial, model
+                    )
+                else:
+                    _LOGGER.info(
+                        "⚠️ Skipping battery backup switch for XP device %s (%s) - "
+                        "XP devices do not support EPS functionality",
+                        serial, model
+                    )
                 # Add working mode switches
                 for mode_config in WORKING_MODES.values():
                     entities.append(EG4WorkingModeSwitch(

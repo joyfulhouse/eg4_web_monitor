@@ -30,10 +30,10 @@
       platform: numeric_state
       entity_id:
         # NOTE: Update these entity IDs to match your specific battery configuration
-        - sensor.battery_44300e0585_01_cell_voltage_delta
-        - sensor.battery_44300e0585_02_cell_voltage_delta
-        - sensor.battery_4512670118_01_cell_voltage_delta
-        - sensor.battery_4512670118_02_cell_voltage_delta
+        - sensor.battery_1234567890_01_cell_voltage_delta
+        - sensor.battery_1234567890_02_cell_voltage_delta
+        - sensor.battery_0987654321_01_cell_voltage_delta
+        - sensor.battery_0987654321_02_cell_voltage_delta
         # Add more battery sensors as needed for your system
       above: 0.05  # Voltage delta threshold in volts (50mV)
       for:
@@ -42,7 +42,7 @@
     # Trigger 2: SOC limit has been at 101% for 48 hours (end balancing)
     - id: "end_balancing"
       platform: numeric_state
-      entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+      entity_id: number.flexboss21_1234567890_system_charge_soc_limit
       above: 100  # SOC limit above 100% (balancing mode)
       for:
         hours: 48  # After 48 hours of balancing, return to normal
@@ -56,7 +56,7 @@
               id: "start_balancing"
             # Only start if not already balancing (SOC limit not at 101%)
             - condition: numeric_state
-              entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+              entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               below: 101
           sequence: []  # Will execute start_balancing actions
         
@@ -66,7 +66,7 @@
               id: "end_balancing"
             # Only end if currently balancing (SOC limit is 101%)
             - condition: numeric_state
-              entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+              entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               above: 100
           sequence: []  # Will execute end_balancing actions
       
@@ -84,7 +84,7 @@
             # NOTE: Update this entity ID to match your specific inverter
             - service: number.set_value
               target:
-                entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+                entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               data:
                 value: 101
             
@@ -116,7 +116,7 @@
             # Return SOC limit to normal 80%
             - service: number.set_value
               target:
-                entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+                entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               data:
                 value: 80
             
@@ -147,13 +147,13 @@
 #    Replace the following entity IDs with your actual sensors:
 #    
 #    Battery Cell Voltage Delta Sensors:
-#    - sensor.battery_44300e0585_01_cell_voltage_delta
-#    - sensor.battery_44300e0585_02_cell_voltage_delta  
-#    - sensor.battery_4512670118_01_cell_voltage_delta
-#    - sensor.battery_4512670118_02_cell_voltage_delta
+#    - sensor.battery_1234567890_01_cell_voltage_delta
+#    - sensor.battery_1234567890_02_cell_voltage_delta
+#    - sensor.battery_0987654321_01_cell_voltage_delta
+#    - sensor.battery_0987654321_02_cell_voltage_delta
 #    
 #    SOC Limit Control (appears in TWO places):
-#    - number.flexboss21_44300e0585_system_charge_soc_limit
+#    - number.flexboss21_1234567890_system_charge_soc_limit
 #
 # 2. FIND YOUR ENTITY IDs:
 #    Go to Developer Tools → States and search for:

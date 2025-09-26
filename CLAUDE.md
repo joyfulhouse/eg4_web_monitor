@@ -53,7 +53,7 @@ This is a Home Assistant custom component that integrates EG4 devices with Home 
 - **Base URL**: `https://monitor.eg4electronics.com`
 - **Login Endpoint**: `/WManage/api/login` (POST)
 - **Multi-device Support**: Single account can manage multiple inverters
-- **Serial Number Format**: 10-digit numeric strings (e.g., "4512670118", "44300E0585")
+- **Serial Number Format**: 10-digit numeric strings (e.g., "1234567890", "0987654321")
 
 ### Station and Device Model Detection
 - **Station**: A Station, or Plant (identified by plantId) is representative of a Station and represented by stationName
@@ -287,6 +287,26 @@ EG4 Web Monitor {Station_Name}
 
 ## Recent Updates ✅
 
+### ✅ January 2025 - Release 1.4.5: Operating Mode Control & Enhanced Device Compatibility
+- **✅ Operating Mode Input Select**: Complete Normal/Standby mode control with real-time parameter synchronization
+  - **Input Select Entity**: New `select.{model}_{serial}_operating_mode` entity with Normal/Standby options
+  - **API Integration**: Function control endpoint `/WManage/web/maintain/remoteSet/functionControl` with `FUNC_SET_TO_STANDBY` parameter
+  - **Parameter Synchronization**: Real-time sync with device parameters where `true` = Normal, `false` = Standby
+  - **Device Compatibility**: Available for all supported inverter models (FlexBOSS, 18KPV, 12KPV, XP series)
+  - **Optimistic State Updates**: Immediate UI feedback with parameter validation on completion
+- **✅ Enhanced Device Compatibility**: Improved filtering for device-specific functionality
+  - **XP Device Filtering**: EPS Battery Backup switch excluded for XP devices (they don't support EPS functionality)
+  - **Smart Compatibility Detection**: Automatic feature filtering based on device model capabilities
+  - **Better Logging**: Clear indication when features are skipped due to device limitations
+- **✅ API Enhancements**: Extended function control capabilities
+  - **Standby Mode API**: New `set_standby_mode()`, `enable_normal_mode()`, `enable_standby_mode()` methods
+  - **Parameter Mapping**: Added `FUNC_SET_TO_STANDBY` to function parameter mapping for consistent handling
+  - **Enhanced Error Handling**: Robust error handling with state reversion on API failures
+- **✅ Select Platform Addition**: Complete Home Assistant select entity support
+  - **Platform Registration**: Added `select` platform to manifest.json and integration setup
+  - **Entity Categories**: Proper entity organization with device grouping
+  - **Icon Selection**: Appropriate Material Design icons (`mdi:power-settings`)
+
 ### ✅ September 2025 - Release 1.4.2: Intelligent Cache Management & Date Rollover Protection
 - **✅ Smart Cache Invalidation System**: Automatic cache clearing before top of hour to prevent date rollover issues
   - **Pre-emptive Invalidation**: Cache clears within 5 minutes of hour boundary to ensure fresh daily data
@@ -328,15 +348,15 @@ EG4 Web Monitor {Station_Name}
 ### ✅ September 2025 - Release 1.3.2: Diagnostic Refresh & Advanced Caching System
 - **✅ Diagnostic Refresh Buttons**: Comprehensive cache invalidation and data refresh system
   - **Device Refresh Buttons**: Added refresh buttons for all device types (Inverters, GridBOSS, Parallel Groups)
-    - Entity IDs: `button.{model}_{serial}_refresh_data` (e.g., `button.flexboss21_44300e0585_refresh_data`)
+    - Entity IDs: `button.{model}_{serial}_refresh_data` (e.g., `button.flexboss21_1234567890_refresh_data`)
     - **Cache Invalidation**: Device-specific cache clearing with immediate API refresh
     - **Parameter Refresh**: Automatic parameter refresh for inverter devices during refresh
     - **Entity Category**: Diagnostic buttons for organized device management
   - **Battery Refresh Buttons**: Individual battery refresh functionality with proper device assignment
-    - Entity IDs: `button.battery_{serial}_{battery_id}_refresh_data` (e.g., `button.battery_4512670118_01_refresh_data`)
+    - Entity IDs: `button.battery_{serial}_{battery_id}_refresh_data` (e.g., `button.battery_0987654321_01_refresh_data`)
     - **Targeted Refresh**: Direct battery API calls with cache invalidation
     - **Device Hierarchy**: Buttons properly assigned to existing battery devices (not creating new devices)
-    - **Streamlined Naming**: Clean button names like "Battery 4512670118-01 Refresh Data"
+    - **Streamlined Naming**: Clean button names like "Battery 0987654321-01 Refresh Data"
 - **✅ Advanced API Caching System**: Comprehensive performance optimization with intelligent cache management
   - **Differentiated TTL**: Dynamic cache expiration based on data volatility
     - Device Discovery: 15 minutes (static data, reduce repeated logins)
@@ -416,11 +436,11 @@ EG4 Web Monitor {Station_Name}
 
 ### ✅ September 2025 - Release 1.2.2: SOC Limit Entity Management  
 - **✅ Cell Voltage Delta Sensors**: Added calculated sensors showing voltage difference between highest and lowest battery cells
-  - Entity IDs: `sensor.battery_44300e0585_01_cell_voltage_delta` 
+  - Entity IDs: `sensor.battery_1234567890_01_cell_voltage_delta` 
   - Real-time cell imbalance monitoring for battery health assessment
 - **✅ SOC Limit Entity Naming**: Fixed entity naming to include device model for better organization
   - Before: `number.system_charge_soc_limit` (generic, caused conflicts)
-  - After: `number.flexboss21_44300e0585_system_charge_soc_limit` (device-specific)
+  - After: `number.flexboss21_1234567890_system_charge_soc_limit` (device-specific)
 - **✅ SOC Limit Availability**: Resolved entity availability issues and proper entity registry handling
 
 ## Project Status ✅

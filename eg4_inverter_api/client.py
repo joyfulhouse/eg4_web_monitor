@@ -16,7 +16,7 @@ from .exceptions import EG4APIError, EG4AuthError, EG4ConnectionError, EG4Device
 _LOGGER = logging.getLogger(__name__)
 
 
-class EG4InverterAPI:
+class EG4InverterAPI:  # pylint: disable=too-many-public-methods
     """EG4 Inverter API Client."""
 
     def __init__(  # pylint: disable=too-many-arguments
@@ -176,7 +176,7 @@ class EG4InverterAPI:
         ):
             await self.login()
 
-    async def _make_request(
+    async def _make_request(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         method: str,
         endpoint: str,
@@ -825,6 +825,49 @@ class EG4InverterAPI:
             True if battery backup is enabled, False otherwise
         """
         return parameters.get("FUNC_EPS_EN", False)
+
+    async def set_standby_mode(self, serial_number: str, enable: bool = True) -> Dict[str, Any]:
+        """Set standby mode for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+            enable: True to enable standby mode, False to set to normal mode
+
+        Returns:
+            Dict containing the standby mode control response
+        """
+        # According to the curl examples:
+        # Normal mode: enable=true (this sets the inverter to NORMAL operation)
+        # Standby mode: enable=false (this sets the inverter to STANDBY)
+        # The logic is reversed - when enable=True, we want normal mode (enable=true in API)
+        # When enable=False, we want standby mode (enable=false in API)
+        return await self.control_function_parameter(
+            serial_number,
+            "FUNC_SET_TO_STANDBY",
+            not enable  # Reverse the logic based on curl examples
+        )
+
+    async def enable_normal_mode(self, serial_number: str) -> Dict[str, Any]:
+        """Enable normal operation mode for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the normal mode enable response
+        """
+        return await self.set_standby_mode(serial_number, enable=True)
+
+    async def enable_standby_mode(self, serial_number: str) -> Dict[str, Any]:
+        """Enable standby mode for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the standby mode enable response
+        """
+        return await self.set_standby_mode(serial_number, enable=False)
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring and debugging.

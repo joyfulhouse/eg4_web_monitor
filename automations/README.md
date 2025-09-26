@@ -49,13 +49,13 @@ Update these entity IDs to match your system:
 ```yaml
 # Battery cell voltage delta sensors (Trigger 1)
 entity_id:
-  - sensor.battery_44300e0585_01_cell_voltage_delta
-  - sensor.battery_44300e0585_02_cell_voltage_delta
-  - sensor.battery_4512670118_01_cell_voltage_delta
-  - sensor.battery_4512670118_02_cell_voltage_delta
+  - sensor.battery_1234567890_01_cell_voltage_delta
+  - sensor.battery_1234567890_02_cell_voltage_delta
+  - sensor.battery_0987654321_01_cell_voltage_delta
+  - sensor.battery_0987654321_02_cell_voltage_delta
 
 # SOC limit control (appears in Trigger 2 AND both actions)
-entity_id: number.flexboss21_44300e0585_system_charge_soc_limit
+entity_id: number.flexboss21_1234567890_system_charge_soc_limit
 ```
 
 ### Step 3: Configure Notifications (Optional)
@@ -169,14 +169,14 @@ name: "Battery Balancing Automation"
 
 # SOC Limit monitoring
 type: entity  
-entity: number.flexboss21_44300e0585_system_charge_soc_limit
+entity: number.flexboss21_1234567890_system_charge_soc_limit
 name: "Current SOC Limit"
 
 # Battery delta monitoring
 type: entities
 entities:
-  - sensor.battery_44300e0585_01_cell_voltage_delta
-  - sensor.battery_44300e0585_02_cell_voltage_delta
+  - sensor.battery_1234567890_01_cell_voltage_delta
+  - sensor.battery_1234567890_02_cell_voltage_delta
 title: "Battery Cell Voltage Deltas"
 ```
 

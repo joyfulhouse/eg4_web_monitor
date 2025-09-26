@@ -149,6 +149,20 @@ The integration will automatically discover and configure:
 - **Optimistic Updates**: Immediate UI feedback with state validation
 - **Cross-Device Sync**: Parameter changes trigger updates across all inverters
 - **Robust Error Handling**: Graceful state reversion on API failures
+- **Device Compatibility**: Available for all supported models except XP devices (XP devices do not support EPS functionality)
+
+### Operating Mode Control
+- **Operating Mode Select**: Normal/Standby mode control with real-time parameter synchronization
+  - Entity ID: `select.{model}_{serial}_operating_mode`
+  - Icon: Power settings indicator
+  - Options: Normal, Standby
+
+**Features**:
+- **Mode Control**: Switch between Normal operation and Standby mode
+- **Parameter Sync**: Real-time status sync with `FUNC_SET_TO_STANDBY` parameter
+- **Immediate Feedback**: Optimistic state updates for instant UI response
+- **Device Compatibility**: Available for all supported inverter models (FlexBOSS, 18KPV, 12KPV, XP series)
+- **Error Recovery**: Automatic state reversion on API failures
 
 ### Diagnostic Refresh Controls
 
@@ -245,30 +259,34 @@ The integration will automatically discover and configure:
 ### Entity Naming Convention
 ```yaml
 # Inverter Sensors
-sensor.eg4_flexboss21_44300e0585_ac_power
-sensor.eg4_flexboss21_44300e0585_daily_energy_generation
-sensor.eg4_flexboss21_44300e0585_total_energy_generation
+sensor.eg4_flexboss21_1234567890_ac_power
+sensor.eg4_flexboss21_1234567890_daily_energy_generation
+sensor.eg4_flexboss21_1234567890_total_energy_generation
 
-# Battery Sensors  
-sensor.battery_44300e0585_01_state_of_charge
-sensor.battery_44300e0585_01_cell_voltage_delta
+# Battery Sensors
+sensor.battery_1234567890_01_state_of_charge
+sensor.battery_1234567890_01_cell_voltage_delta
 
 # Switch Controls
-switch.flexboss21_44300e0585_quick_charge
-switch.flexboss21_44300e0585_battery_backup
-switch.18kpv_4512670118_quick_charge
-switch.18kpv_4512670118_battery_backup
+switch.flexboss21_1234567890_quick_charge
+switch.flexboss21_1234567890_battery_backup
+switch.18kpv_0987654321_quick_charge
+switch.18kpv_0987654321_battery_backup
+
+# Operating Mode Control
+select.flexboss21_1234567890_operating_mode
+select.18kpv_0987654321_operating_mode
 
 # Refresh Buttons
-button.flexboss21_44300e0585_refresh_data
-button.18kpv_4512670118_refresh_data
-button.eg4gridboss_4524850115_refresh_data
-button.battery_44300e0585_01_refresh_data
-button.battery_4512670118_02_refresh_data
+button.flexboss21_1234567890_refresh_data
+button.18kpv_0987654321_refresh_data
+button.eg4gridboss_5678901234_refresh_data
+button.battery_1234567890_01_refresh_data
+button.battery_0987654321_02_refresh_data
 
 # GridBOSS Sensors
-sensor.eg4_gridboss_4524850115_grid_power_l1
-sensor.eg4_gridboss_4524850115_smart_port1_status
+sensor.eg4_gridboss_5678901234_grid_power_l1
+sensor.eg4_gridboss_5678901234_smart_port1_status
 ```
 
 ## Troubleshooting

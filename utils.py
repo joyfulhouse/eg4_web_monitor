@@ -219,7 +219,7 @@ def clean_battery_display_name(battery_key: str, serial: str) -> str:
     if not battery_key:
         return "01"
 
-    # Handle keys like "4512670118_Battery_ID_01" -> "4512670118-01"
+    # Handle keys like "1234567890_Battery_ID_01" -> "1234567890-01"
     if "_Battery_ID_" in battery_key:
         parts = battery_key.split("_Battery_ID_")
         if len(parts) == 2:
