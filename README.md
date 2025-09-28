@@ -305,11 +305,15 @@ Warning: No devices found in plant
 ```
 **Solution**: Check device online status in EG4 Monitor app
 
-#### Missing Sensors  
+#### Missing Sensors
 ```
 Info: Some sensors not created
 ```
 **Solution**: Normal for unused features (e.g., generator when not present)
+
+### Known GridBOSS Data Behavior
+
+**Note**: Some GridBOSS sensors may show unexpected values (such as generator current when no generator is connected, or smart load data appearing primarily on L1) but accurately reflect data from the EG4 Monitor platform itself.
 
 ### Debug Logging
 

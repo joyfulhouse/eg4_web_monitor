@@ -262,12 +262,14 @@ def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
 
     # Apply scaling based on API field type
     if api_field in [
-        "totalVoltage",
         "batMaxCellVoltage",
         "batMinCellVoltage",
     ] and isinstance(value, (int, float)):
         # Cell voltage fields are scaled by 1000x (millivolts), need to divide by 1000
         value = value / 1000.0
+    elif api_field in ["totalVoltage"] and isinstance(value, (int, float)):
+        # Total voltage is scaled by 100x, need to divide by 100
+        value = value / 100.0
     elif api_field in ["current"] and isinstance(value, (int, float)):
         # Current is scaled by 10x, need to divide by 10
         value = value / 10.0
