@@ -214,6 +214,31 @@ def should_filter_zero_sensor(sensor_type: str, value: Any) -> bool:
     return sensor_type in POWER_ENERGY_SENSORS
 
 
+def to_camel_case(text: str) -> str:
+    """Convert text to camelCase format.
+
+    Args:
+        text: Input text with spaces or underscores
+
+    Returns:
+        Text converted to camelCase format
+    """
+    if not text:
+        return text
+
+    # Convert spaces and underscores to title case
+    words = text.replace("_", " ").split()
+    if not words:
+        return text
+
+    # First word lowercase, subsequent words title case
+    result = words[0].lower()
+    for word in words[1:]:
+        result += word.capitalize()
+
+    return result
+
+
 def clean_battery_display_name(battery_key: str, serial: str) -> str:
     """Clean up battery key for display in entity names."""
     if not battery_key:

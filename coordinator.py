@@ -36,6 +36,7 @@ from .utils import (
     read_device_parameters_ranges,
     process_parameter_responses,
     apply_sensor_scaling,
+    to_camel_case,
 )
 from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
 
@@ -89,22 +90,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
 
-    def _to_camel_case(self, text: str) -> str:
-        """Convert text to camelCase format."""
-        if not text:
-            return text
-
-        # Convert spaces and underscores to title case
-        words = text.replace("_", " ").split()
-        if not words:
-            return text
-
-        # First word lowercase, subsequent words title case
-        result = words[0].lower()
-        for word in words[1:]:
-            result += word.capitalize()
-
-        return result
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from API endpoint."""
@@ -317,7 +302,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             list(bat_data.keys()),
                         )
                         raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
-                        battery_key = self._clean_battery_key(raw_battery_key, serial)
+                        battery_key = clean_battery_display_name(raw_battery_key, serial)
                         battery_sensors = extract_individual_battery_sensors(bat_data)
                         processed["batteries"][battery_key] = battery_sensors
 
@@ -617,7 +602,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
                     # Apply camel casing for status tex
                     if sensor_type == "status_text" and isinstance(value, str):
-                        value = self._to_camel_case(value)
+                        value = to_camel_case(value)
 
                     sensors[sensor_type] = value
 
@@ -694,34 +679,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         _ = battery  # Explicitly mark parameter as unused but preserved for interface
         return {}
 
-    def _clean_battery_key(self, raw_key: str, serial: str) -> str:
-        """Clean up battery key to make it more readable."""
-        if not raw_key:
-            return "BAT01"
-
-        # Handle keys like "1234567890_Battery_ID_01" -> "1234567890-01"
-        if "_Battery_ID_" in raw_key:
-            parts = raw_key.split("_Battery_ID_")
-            if len(parts) == 2:
-                device_serial = parts[0]
-                battery_num = parts[1]
-                return f"{device_serial}-{battery_num}"
-
-        # Handle keys like "Battery_ID_01" -> "01"
-        if raw_key.startswith("Battery_ID_"):
-            battery_num = raw_key.replace("Battery_ID_", "")
-            return f"{serial}-{battery_num}"
-
-        # Handle keys like "BAT001" -> "BAT001"
-        if raw_key.startswith("BAT"):
-            return raw_key
-
-        # If it already looks clean (like "01", "02"), use it with serial
-        if raw_key.isdigit() and len(raw_key) <= 2:
-            return f"{serial}-{raw_key.zfill(2)}"
-
-        # Fallback: use the raw key but try to make it cleaner
-        return raw_key.replace("_", "-")
 
     def _extract_gridboss_sensors(self, midbox_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract sensor data from GridBOSS midbox response."""
