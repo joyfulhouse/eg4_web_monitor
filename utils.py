@@ -173,7 +173,8 @@ def apply_sensor_scaling(
         return None
 
     # Define scaling mappings
-    kw_sensors = {"ac_power", "dc_power", "battery_power", "load_power", "pv_total_power"}
+    # Note: battery_power is NOT in kw_sensors because batPower from API is already in Watts
+    kw_sensors = {"ac_power", "dc_power", "load_power", "pv_total_power"}
 
     # Determine scaling factor based on device type and sensor type
     scaling_factor = None

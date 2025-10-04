@@ -1,0 +1,641 @@
+title: EG4 Solar System
+views:
+  - title: Power Flow
+    icon: mdi:solar-power-variant
+    badges: []
+    cards: []
+    type: sections
+    max_columns: 3
+    dense_section_placement: true
+    sections:
+      - type: grid
+        cards:
+          - type: custom:mushroom-title-card
+            title: ⚡ Real-Time Power
+            alignment: center
+          - type: custom:power-flow-card-plus
+            entities:
+              battery:
+                entity:
+                  consumption: sensor.18kpv_1234567890_discharging
+                  production: sensor.18kpv_1234567890_charging
+                state_of_charge: sensor.18kpv_1234567890_state_of_charge
+                name: Battery Bank
+                icon: mdi:battery-high
+                display_state: two_way
+                color_circle: true
+                color_icon: true
+              solar:
+                entity: sensor.parallel_group_a_yield
+                name: Solar Array
+                icon: mdi:solar-panel-large
+                color: '#ff9800'
+                color_icon: true
+                secondary_info: {}
+              grid:
+                entity:
+                  consumption: sensor.parallel_group_a_grid_import
+                  production: sensor.parallel_group_a_grid_export
+                name: Grid
+                icon: mdi:transmission-tower
+                display_state: two_way
+                color_circle: true
+                secondary_info: {}
+              home:
+                entity: sensor.parallel_group_a_consumption
+                secondary_info: {}
+                circle_animation: true
+                use_metadata: false
+                subtract_individual: false
+              individual: []
+            watt_threshold: 1000
+            kw_decimals: 2
+            w_decimals: 0
+            min_flow_rate: 0.75
+            max_flow_rate: 6
+            use_new_flow_rate_model: true
+            max_expected_power: 15000
+            min_expected_power: 100
+            clickable_entities: true
+          - type: horizontal-stack
+            cards:
+              - type: gauge
+                entity: sensor.grid_power
+                min: -15000
+                max: 15000
+                needle: true
+                name: Grid Power
+                segments:
+                  - from: -15000
+                    color: '#7fd4b3'
+                  - from: 5000
+                    color: '#ffb380'
+                  - from: 10000
+                    color: '#ff8080'
+              - type: gauge
+                entity: sensor.load_power
+                min: 0
+                max: 10000
+                needle: true
+                name: Load Power
+                segments:
+                  - from: 0
+                    color: '#7fd4b3'
+                  - from: 3000
+                    color: '#ffb380'
+                  - from: 6000
+                    color: '#ff8080'
+          - type: horizontal-stack
+            cards:
+              - type: tile
+                entity: sensor.18kpv_1234567890_status
+                name: Inverter Status
+                icon: mdi:state-machine
+                vertical: true
+              - type: tile
+                entity: sensor.18kpv_1234567890_state_of_charge
+                name: Battery SOC
+                icon: mdi:battery-80
+                vertical: true
+              - type: tile
+                entity: sensor.grid_power
+                icon: mdi:transmission-tower
+                vertical: true
+          - type: custom:plotly-graph
+            hours_to_show: 8
+            refresh_interval: 60
+            layout:
+              showlegend: true
+              height: 400
+              margin:
+                t: 20
+                b: 40
+                l: 60
+                r: 60
+              xaxis:
+                showgrid: true
+                gridcolor: rgba(128,128,128,0.2)
+                gridwidth: 1
+              yaxis:
+                title: Power (W)
+                showgrid: true
+                gridcolor: rgba(128,128,128,0.2)
+                gridwidth: 1
+              yaxis2:
+                title: SOC (%)
+                overlaying: 'y'
+                side: right
+                range:
+                  - 0
+                  - 100
+                showgrid: false
+              hovermode: x unified
+            entities:
+              - entity: sensor.total_solar_production
+                name: Solar PV
+                filters:
+                  - sliding_window_moving_average: null
+                    window_size: 15
+                    centered: true
+                line:
+                  color: '#FFA726'
+                  width: 2
+                  shape: spline
+              - entity: sensor.load_power
+                name: Consumption
+                filters:
+                  - sliding_window_moving_average: null
+                    window_size: 15
+                    centered: true
+                line:
+                  color: '#EF5350'
+                  width: 2
+                  shape: spline
+              - entity: sensor.grid_power
+                name: Grid
+                filters:
+                  - sliding_window_moving_average: null
+                    window_size: 15
+                    centered: true
+                line:
+                  color: '#42A5F5'
+                  width: 2
+                  shape: spline
+              - entity: sensor.18kpv_1234567890_battery_power
+                name: Battery
+                filters:
+                  - sliding_window_moving_average: null
+                    window_size: 15
+                    centered: true
+                line:
+                  color: '#66BB6A'
+                  width: 2
+                  shape: spline
+              - entity: sensor.18kpv_1234567890_state_of_charge
+                name: SOC
+                yaxis: y2
+                filters:
+                  - sliding_window_moving_average: null
+                    window_size: 15
+                    centered: true
+                line:
+                  color: '#AB47BC'
+                  width: 2
+                  shape: spline
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🔆 Solar Array Details
+                alignment: center
+              - type: entities
+                entities:
+                  - entity: sensor.18kpv_1234567890_pv1_power
+                    name: String 1 Power
+                    icon: mdi:solar-panel
+                  - entity: sensor.18kpv_1234567890_pv1_voltage
+                    name: String 1 Voltage
+                    icon: mdi:flash
+                  - type: divider
+                  - entity: sensor.18kpv_1234567890_pv2_power
+                    name: String 2 Power
+                    icon: mdi:solar-panel
+                  - entity: sensor.18kpv_1234567890_pv2_voltage
+                    name: String 2 Voltage
+                    icon: mdi:flash
+          - type: weather-forecast
+            entity: weather.6245_n_willard_2
+            show_current: true
+            show_forecast: true
+            forecast_type: hourly
+          - type: horizontal-stack
+            cards:
+              - type: gauge
+                entity: sensor.solaredge_se10000_ac_power
+                name: SE10000
+                icon: mdi:solar-power
+                min: 0
+                max: 10000
+                needle: true
+              - type: gauge
+                entity: sensor.solaredge_se5000_ac_power
+                name: SE5000
+                icon: mdi:solar-power
+                min: 0
+                max: 3500
+                needle: true
+              - type: gauge
+                entity: sensor.solaredge_shed_ac_power
+                name: Shed
+                icon: mdi:solar-power
+                min: 0
+                max: 5000
+                needle: true
+              - type: gauge
+                entity: sensor.18kpv_1234567890_pv_total_power
+                name: FlexBOSS21
+                icon: mdi:solar-power
+                min: 0
+                max: 8000
+                needle: true
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 📊 Today's Energy
+                alignment: center
+              - type: glance
+                entities:
+                  - entity: sensor.parallel_group_a_yield
+                    name: Solar
+                    icon: mdi:solar-power
+                  - entity: sensor.parallel_group_a_consumption
+                    name: Home
+                    icon: mdi:home-lightning-bolt
+                  - entity: sensor.parallel_group_a_charging
+                    name: Charged
+                    icon: mdi:battery-arrow-up
+                  - entity: sensor.parallel_group_a_discharging
+                    name: Discharged
+                    icon: mdi:battery-arrow-down
+                  - entity: sensor.parallel_group_a_grid_import
+                    name: Import
+                    icon: mdi:transmission-tower-import
+                  - entity: sensor.parallel_group_a_grid_export
+                    name: Export
+                    icon: mdi:transmission-tower-export
+                columns: 3
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 📈 Lifetime Statistics
+                alignment: center
+              - type: glance
+                entities:
+                  - entity: sensor.parallel_group_a_yield_lifetime
+                    name: Solar
+                    icon: mdi:solar-power
+                  - entity: sensor.parallel_group_a_consumption_lifetime
+                    name: Consumed
+                    icon: mdi:home-lightning-bolt
+                  - entity: sensor.parallel_group_a_charging_lifetime
+                    name: Charged
+                    icon: mdi:battery-plus
+                  - entity: sensor.parallel_group_a_discharging_lifetime
+                    name: Discharged
+                    icon: mdi:battery-minus
+                  - entity: sensor.parallel_group_a_grid_import_lifetime
+                    name: Imported
+                    icon: mdi:transmission-tower-import
+                  - entity: sensor.parallel_group_a_grid_export_lifetime
+                    name: Exported
+                    icon: mdi:transmission-tower-export
+                columns: 3
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🌡️ System Temperatures
+                alignment: center
+              - type: glance
+                entities:
+                  - entity: sensor.18kpv_1234567890_internal_temperature
+                    name: Internal
+                  - entity: sensor.18kpv_1234567890_radiator_1_temperature
+                    name: Radiator 1
+                  - entity: sensor.18kpv_1234567890_radiator_2_temperature
+                    name: Radiator 2
+                columns: 3
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🔋 Charge Settings
+                alignment: center
+              - type: entities
+                entities:
+                  - entity: number.18kpv_1234567890_system_charge_soc_limit
+                    name: Target SOC Limit
+                  - entity: number.18kpv_1234567890_ac_charge_power
+                    name: AC Charge Power (kW)
+                  - entity: number.18kpv_1234567890_pv_charge_power
+                    name: PV Charge Power (kW)
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: ⚙️ Operating Modes
+                alignment: center
+              - type: entities
+                entities:
+                  - entity: select.18kpv_1234567890_operating_mode
+                    name: Operating Mode
+                  - entity: switch.18kpv_1234567890_ac_charge_mode
+                    name: AC Charge
+                  - entity: switch.18kpv_1234567890_pv_charge_priority_mode
+                    name: PV Charge Priority
+                  - entity: switch.18kpv_1234567890_forced_discharge_mode
+                    name: Forced Discharge
+                  - entity: switch.18kpv_1234567890_battery_backup
+                    name: EPS Battery Backup
+                  - entity: switch.18kpv_1234567890_quick_charge
+                    name: Quick Charge
+                  - entity: switch.18kpv_1234567890_peak_shaving_mode
+                    name: Peak Shaving
+                  - entity: switch.18kpv_1234567890_battery_backup_mode
+                    name: Battery Backup Mode
+  - title: Battery Health
+    icon: mdi:battery-heart-variant
+    badges: []
+    cards:
+      - type: horizontal-stack
+        cards:
+          - type: button
+            entity: button.battery_1234567890_01_refresh_data
+            name: Refresh Battery 1
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.battery_1234567890_01_refresh_data
+          - type: button
+            entity: button.battery_1234567890_02_refresh_data
+            name: Refresh Battery 2
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.battery_1234567890_02_refresh_data
+          - type: button
+            entity: button.battery_1234567890_03_refresh_data
+            name: Refresh Battery 3
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.battery_1234567890_03_refresh_data
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        cards:
+          - type: custom:mushroom-title-card
+            title: 🔋 Battery Bank Overview
+            subtitle: 3x EG4 LL-S Batteries • 840 Ah (43.2 kWh @ 51.2V)
+            alignment: center
+          - type: glance
+            entities:
+              - entity: sensor.18kpv_1234567890_state_of_charge
+                name: Overall SOC
+              - entity: sensor.18kpv_1234567890_battery_voltage
+                name: Pack Voltage
+              - entity: sensor.battery_1234567890_01_state_of_health
+                name: Battery 1 SOH
+              - entity: sensor.battery_1234567890_02_state_of_health
+                name: Battery 2 SOH
+              - entity: sensor.battery_1234567890_03_state_of_health
+                name: Battery 3 SOH
+            columns: 5
+        column_span: 1
+      - type: grid
+        cards:
+          - type: markdown
+            content: |
+              ## ℹ️ Battery Health Information
+
+              **Cell Voltage Delta:** Should typically be < 0.010V when balanced
+              **State of Health:** 100% = Battery performing at full capacity
+              **Cycle Count:** Number of full charge/discharge cycles
+              **Temperature Range:** Optimal operation: 15-25°C (59-77°F)
+
+              ⚠️ **Monitor for:**
+              - Large voltage deltas (> 0.020V) indicating imbalance
+              - Temperature differences > 5°C between cells
+              - SOC differences > 5% between batteries
+              - Declining State of Health < 90%
+            grid_options:
+              columns: full
+        column_span: 2
+      - type: grid
+        cards:
+          - type: custom:mushroom-title-card
+            title: 📊 Battery Comparison
+            alignment: center
+            grid_options:
+              columns: full
+          - type: entities
+            title: State of Charge
+            entities:
+              - entity: sensor.battery_1234567890_01_state_of_charge
+                name: Battery 1 SOC
+                icon: mdi:battery
+              - entity: sensor.battery_1234567890_02_state_of_charge
+                name: Battery 2 SOC
+                icon: mdi:battery
+              - entity: sensor.battery_1234567890_03_state_of_charge
+                name: Battery 3 SOC
+                icon: mdi:battery
+          - type: entities
+            title: Cycle Count
+            entities:
+              - entity: sensor.battery_1234567890_01_cycle_count
+                name: Battery 1 Cycles
+                icon: mdi:counter
+              - entity: sensor.battery_1234567890_02_cycle_count
+                name: Battery 2 Cycles
+                icon: mdi:counter
+              - entity: sensor.battery_1234567890_03_cycle_count
+                name: Battery 3 Cycles
+                icon: mdi:counter
+          - type: entities
+            title: Cell Voltage Delta
+            entities:
+              - entity: sensor.battery_1234567890_01_cell_voltage_delta
+                name: Battery 1 Delta
+                icon: mdi:delta
+              - entity: sensor.battery_1234567890_02_cell_voltage_delta
+                name: Battery 2 Delta
+                icon: mdi:delta
+              - entity: sensor.battery_1234567890_03_cell_voltage_delta
+                name: Battery 3 Delta
+                icon: mdi:delta
+        column_span: 4
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🔋 Battery 1
+                subtitle: 1234567890-01
+                alignment: center
+              - type: horizontal-stack
+                cards:
+                  - type: tile
+                    entity: sensor.battery_1234567890_01_state_of_charge
+                    name: SOC
+                    icon: mdi:battery-80
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_01_state_of_health
+                    name: SOH
+                    icon: mdi:battery-heart
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_01_cycle_count
+                    name: Cycles
+                    icon: mdi:counter
+                    vertical: true
+              - type: entities
+                entities:
+                  - entity: sensor.battery_1234567890_01_voltage
+                    name: Voltage
+                    icon: mdi:flash
+                  - entity: sensor.battery_1234567890_01_current
+                    name: Current
+                    icon: mdi:current-dc
+                  - entity: sensor.battery_1234567890_01_remaining_capacity
+                    name: Remaining Capacity
+                    icon: mdi:battery-medium
+                  - entity: sensor.battery_1234567890_01_full_capacity
+                    name: Full Capacity
+                    icon: mdi:battery
+                  - entity: sensor.battery_1234567890_01_firmware_version
+                    name: Firmware Version
+                    icon: mdi:chip
+              - type: glance
+                title: Cell Voltages
+                entities:
+                  - entity: sensor.battery_1234567890_01_cell_voltage_max
+                    name: Max Cell
+                  - entity: sensor.battery_1234567890_01_cell_voltage_min
+                    name: Min Cell
+                  - entity: sensor.battery_1234567890_01_cell_voltage_delta
+                    name: Delta
+                columns: 3
+              - type: glance
+                title: Cell Temperatures
+                entities:
+                  - entity: sensor.battery_1234567890_01_max_cell_temperature
+                    name: Max Temp
+                  - entity: sensor.battery_1234567890_01_min_cell_temperature
+                    name: Min Temp
+                columns: 2
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🔋 Battery 2
+                subtitle: 1234567890-02
+                alignment: center
+              - type: horizontal-stack
+                cards:
+                  - type: tile
+                    entity: sensor.battery_1234567890_02_state_of_charge
+                    name: SOC
+                    icon: mdi:battery-80
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_02_state_of_health
+                    name: SOH
+                    icon: mdi:battery-heart
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_02_cycle_count
+                    name: Cycles
+                    icon: mdi:counter
+                    vertical: true
+              - type: entities
+                entities:
+                  - entity: sensor.battery_1234567890_02_voltage
+                    name: Voltage
+                    icon: mdi:flash
+                  - entity: sensor.battery_1234567890_02_current
+                    name: Current
+                    icon: mdi:current-dc
+                  - entity: sensor.battery_1234567890_02_remaining_capacity
+                    name: Remaining Capacity
+                    icon: mdi:battery-medium
+                  - entity: sensor.battery_1234567890_02_full_capacity
+                    name: Full Capacity
+                    icon: mdi:battery
+                  - entity: sensor.battery_1234567890_02_firmware_version
+                    name: Firmware Version
+                    icon: mdi:chip
+              - type: glance
+                title: Cell Voltages
+                entities:
+                  - entity: sensor.battery_1234567890_02_cell_voltage_max
+                    name: Max Cell
+                  - entity: sensor.battery_1234567890_02_cell_voltage_min
+                    name: Min Cell
+                  - entity: sensor.battery_1234567890_02_cell_voltage_delta
+                    name: Delta
+                columns: 3
+              - type: glance
+                title: Cell Temperatures
+                entities:
+                  - entity: sensor.battery_1234567890_02_max_cell_temperature
+                    name: Max Temp
+                  - entity: sensor.battery_1234567890_02_min_cell_temperature
+                    name: Min Temp
+                columns: 2
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-title-card
+                title: 🔋 Battery 3
+                subtitle: 1234567890-03
+                alignment: center
+              - type: horizontal-stack
+                cards:
+                  - type: tile
+                    entity: sensor.battery_1234567890_03_state_of_charge
+                    name: SOC
+                    icon: mdi:battery-80
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_03_state_of_health
+                    name: SOH
+                    icon: mdi:battery-heart
+                    vertical: true
+                  - type: tile
+                    entity: sensor.battery_1234567890_03_cycle_count
+                    name: Cycles
+                    icon: mdi:counter
+                    vertical: true
+              - type: entities
+                entities:
+                  - entity: sensor.battery_1234567890_03_voltage
+                    name: Voltage
+                    icon: mdi:flash
+                  - entity: sensor.battery_1234567890_03_current
+                    name: Current
+                    icon: mdi:current-dc
+                  - entity: sensor.battery_1234567890_03_remaining_capacity
+                    name: Remaining Capacity
+                    icon: mdi:battery-medium
+                  - entity: sensor.battery_1234567890_03_full_capacity
+                    name: Full Capacity
+                    icon: mdi:battery
+                  - entity: sensor.battery_1234567890_03_firmware_version
+                    name: Firmware Version
+                    icon: mdi:chip
+              - type: glance
+                title: Cell Voltages
+                entities:
+                  - entity: sensor.battery_1234567890_03_cell_voltage_max
+                    name: Max Cell
+                  - entity: sensor.battery_1234567890_03_cell_voltage_min
+                    name: Min Cell
+                  - entity: sensor.battery_1234567890_03_cell_voltage_delta
+                    name: Delta
+                columns: 3
+              - type: glance
+                title: Cell Temperatures
+                entities:
+                  - entity: sensor.battery_1234567890_03_max_cell_temperature
+                    name: Max Temp
+                  - entity: sensor.battery_1234567890_03_min_cell_temperature
+                    name: Min Temp
+                columns: 2
+        column_span: 3

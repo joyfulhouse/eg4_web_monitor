@@ -658,6 +658,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "stateOfCharge": "state_of_charge",
             "stateOfHealth": "state_of_health",
             "temperature": "temperature",
+            # Battery power flow sensors from getBatteryInfo
+            "pCharge": "battery_charge_power",
+            "pDisCharge": "battery_discharge_power",
+            "batPower": "battery_power",
+            "batStatus": "battery_status",
         }
 
         for api_field, sensor_type in field_mapping.items():
@@ -690,7 +695,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Use field mapping from const.py to avoid duplication
         field_mapping = {
             # Core Power sensors (not in const.py)
-            "hybridPower": "load_power",
+            "hybridPower": "hybrid_power",
             "smartLoadPower": "smart_load_power",
             **GRIDBOSS_FIELD_MAPPING,  # Import all the standardized mappings
         }
@@ -809,6 +814,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             ups_l1 = _safe_numeric(sensors["ups_power_l1"])
             ups_l2 = _safe_numeric(sensors["ups_power_l2"])
             sensors["ups_power"] = ups_l1 + ups_l2
+
+        # Calculate total load power from L1/L2
+        if "load_power_l1" in sensors and "load_power_l2" in sensors:
+            load_l1 = _safe_numeric(sensors["load_power_l1"])
+            load_l2 = _safe_numeric(sensors["load_power_l2"])
+            sensors["load_power"] = load_l1 + load_l2
 
         # Calculate total generator power from L1/L2
         if "generator_power_l1" in sensors and "generator_power_l2" in sensors:

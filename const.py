@@ -64,6 +64,31 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
+    "hybrid_power": {
+        "name": "Hybrid Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-power-variant-outline",
+    },
+    "battery_charge_power": {
+        "name": "Battery Charge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_discharge_power": {
+        "name": "Battery Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_status": {
+        "name": "Battery Status",
+        "icon": "mdi:battery-heart",
+    },
     # Voltage sensors
     "ac_voltage": {
         "name": "AC Voltage",
@@ -1280,8 +1305,10 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "ppv1": "pv1_power",
     "ppv2": "pv2_power",
     "ppv3": "pv3_power",
-    "pCharge": "battery_power_charging",
-    "pDisCharge": "battery_power_discharging",
+    "pCharge": "battery_charge_power",
+    "pDisCharge": "battery_discharge_power",
+    "batPower": "battery_power",
+    "batStatus": "battery_status",
     # Voltage sensors
     "acVoltage": "ac_voltage",
     "dcVoltage": "dc_voltage",

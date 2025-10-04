@@ -1,0 +1,170 @@
+alias: "Grid: Export Clipping"
+description: "Gradually increase battery charging to prevent grid export clipping, minimizing battery wear"
+id: "1759172895908"
+mode: restart
+max_exceeded: silent
+
+trigger:
+  # Trigger when export exceeds 14kW
+  - platform: numeric_state
+    entity_id: sensor.grid_power
+    below: -14000
+    for:
+      minutes: 5
+    id: high_export
+  
+  # Trigger when export falls below 12kW (to reduce charge rate)
+  - platform: numeric_state
+    entity_id: sensor.grid_power
+    above: -12000
+    for:
+      minutes: 5
+    id: low_export
+
+condition:
+  - condition: sun
+    after: sunrise
+  - condition: time
+    before: "16:00:00"
+  - condition: numeric_state
+    entity_id: number.18kpv_1234567890_system_charge_soc_limit
+    below: 101
+
+action:
+  - choose:
+      # High export: Increase charging
+      - conditions:
+          - condition: trigger
+            id: high_export
+        sequence:
+          - variables:
+              current_soc: "{{ states('sensor.18kpv_1234567890_state_of_charge') | int }}"
+              current_soc_limit: "{{ states('number.18kpv_1234567890_system_charge_soc_limit') | int }}"
+              current_charge_power: "{{ states('number.18kpv_1234567890_pv_charge_power') | int }}"
+              # Calculate actual battery capacity from all three batteries
+              battery_01_full: "{{ states('sensor.battery_1234567890_01_full_capacity') | float }}"
+              battery_02_full: "{{ states('sensor.battery_1234567890_02_full_capacity') | float }}"
+              battery_03_full: "{{ states('sensor.battery_1234567890_03_full_capacity') | float }}"
+              battery_01_remaining: "{{ states('sensor.battery_1234567890_01_remaining_capacity') | float }}"
+              battery_02_remaining: "{{ states('sensor.battery_1234567890_02_remaining_capacity') | float }}"
+              battery_03_remaining: "{{ states('sensor.battery_1234567890_03_remaining_capacity') | float }}"
+              # EG4 PowerPro uses nominal voltage (51.2V) for capacity ratings
+              battery_nominal_voltage: 51.2
+              battery_voltage: "{{ states('sensor.18kpv_1234567890_battery_voltage') | float }}"
+              # Total capacity in kWh (Ah * V / 1000) - using nominal voltage per EG4 specs
+              total_full_capacity_kwh: "{{ ((battery_01_full + battery_02_full + battery_03_full) * battery_nominal_voltage / 1000) | round(2) }}"
+              total_remaining_capacity_kwh: "{{ ((battery_01_remaining + battery_02_remaining + battery_03_remaining) * battery_voltage / 1000) | round(2) }}"
+              # Calculate time-based charge rate if currently at 12kW (reset condition)
+              current_time: "{{ now() }}"
+              target_time: "{{ today_at('16:00') }}"
+              hours_remaining: "{{ ((target_time.timestamp() - current_time.timestamp()) / 3600) | float }}"
+              kwh_needed: "{{ (total_full_capacity_kwh - total_remaining_capacity_kwh) | float }}"
+              calculated_charge_rate: "{{ (kwh_needed / hours_remaining) | round(0, 'ceil') | int if hours_remaining > 0 else 12 }}"
+              # If at 12kW, use calculated rate (capped 1-12kW), otherwise increment by 1kW
+              initial_charge_power: "{{ [[calculated_charge_rate, 1] | max, 12] | min if current_charge_power == 12 else [current_charge_power + 1, 12] | min }}"
+              new_soc_limit: "{{ [current_soc_limit + 5, 100] | min }}"
+              new_charge_power: "{{ initial_charge_power }}"
+          
+          # Only charge if we haven't maxed out both SOC limit and charge power
+          - condition: template
+            value_template: "{{ current_soc_limit < 100 or current_charge_power < 12 }}"
+          
+          # Increase SOC limit by 5%
+          - service: number.set_value
+            target:
+              entity_id: number.18kpv_1234567890_system_charge_soc_limit
+            data:
+              value: "{{ new_soc_limit }}"
+          
+          # Set charge power to 1kW if starting, otherwise increment by 1kW
+          - service: number.set_value
+            target:
+              entity_id: number.18kpv_1234567890_pv_charge_power
+            data:
+              value: "{{ new_charge_power }}"
+          
+          # Log the action
+          - service: system_log.write
+            data:
+              message: >
+                Grid Export Clipping: Increased SOC limit to {{ new_soc_limit }}% and charge power to {{ new_charge_power }}kW due to {{ (states('sensor.grid_power') | float / 1000) | round(1) }}kW export.
+                {% if current_charge_power == 12 %}Time-based calculation: {{ kwh_needed | round(1) }}kWh needed ({{ total_full_capacity_kwh | round(1) }}kWh total - {{ total_remaining_capacity_kwh | round(1) }}kWh remaining) in {{ hours_remaining | round(1) }}h = {{ calculated_charge_rate }}kW rate{% endif %}
+              level: info
+          
+          # Alert if system is maxed out and still exporting
+          - if:
+              - condition: template
+                value_template: "{{ new_charge_power == 12 and new_soc_limit == 100 }}"
+            then:
+              - service: notify.notify
+                data:
+                  title: "⚠️ Battery Charging Maxed Out"
+                  message: >
+                    Export still at {{ (states('sensor.grid_power') | float / -1000) | round(1) }}kW but battery absorption is maxed:
+                    • SOC Limit: 100%
+                    • PV Charge Power: 12kW
+                    
+                    Cannot absorb more solar. Monitor for utility limit violations!
+              - service: system_log.write
+                data:
+                  message: "WARNING: Battery charging maxed (100% SOC limit, 12kW charge) but still exporting {{ (states('sensor.grid_power') | float / 1000) | round(1) }}kW"
+                  level: warning
+            else:
+              - service: notify.notify
+                data:
+                  title: "⚡ Grid Export Clipping Adjustment"
+                  message: >
+                    High export detected ({{ (states('sensor.grid_power') | float / -1000) | round(1) }}kW to grid).
+                    
+                    {% if current_charge_power == 12 %}
+                    🧮 Time-based charge calculation:
+                    • Battery Capacity: {{ total_full_capacity_kwh | round(1) }}kWh ({{ battery_01_full | int }}+{{ battery_02_full | int }}+{{ battery_03_full | int }}Ah)
+                    • Remaining: {{ total_remaining_capacity_kwh | round(1) }}kWh
+                    • Needed to full: {{ kwh_needed | round(1) }}kWh
+                    • Time to 4 PM: {{ hours_remaining | round(1) }}h
+                    • Calculated rate: {{ calculated_charge_rate }}kW
+                    
+                    {% endif %}
+                    Increased battery charging:
+                    • SOC Limit: {{ states('number.18kpv_1234567890_system_charge_soc_limit') }}% → {{ new_soc_limit }}%
+                    • PV Charge Power: {{ current_charge_power }}kW → {{ new_charge_power }}kW
+                    
+                    Current Battery: {{ current_soc }}%
+
+      # Low export: Decrease charging
+      - conditions:
+          - condition: trigger
+            id: low_export
+        sequence:
+          - variables:
+              current_charge_power: "{{ states('number.18kpv_1234567890_pv_charge_power') | int }}"
+              new_charge_power: "{{ [current_charge_power - 1, 1] | max }}"
+          
+          # Only reduce if we're currently charging above 1kW
+          - condition: template
+            value_template: "{{ current_charge_power > 1 }}"
+          
+          # Reduce charge power by 1kW
+          - service: number.set_value
+            target:
+              entity_id: number.18kpv_1234567890_pv_charge_power
+            data:
+              value: "{{ new_charge_power }}"
+          
+          # Turn off pool pump if it was turned on for export management
+          - service: switch.turn_off
+            target:
+              entity_id: switch.pool
+          
+          # Send notification
+          - service: notify.notify
+            data:
+              title: "⚡ Grid Export Clipping Adjustment"
+              message: >
+                Low export detected ({{ (states('sensor.grid_power') | float / -1000) | round(1) }}kW to grid).
+                
+                Reduced battery charging:
+                • PV Charge Power: {{ current_charge_power }}kW → {{ new_charge_power }}kW
+                
+                ✅ Pool pump turned OFF.
+                Export returned to normal levels.

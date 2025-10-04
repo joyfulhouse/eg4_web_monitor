@@ -174,7 +174,7 @@ EG4 Web Monitor {Station_Name}
     │   ├── Grid Management Sensors
     │   ├── Load Monitoring
     │   └── Interconnection Status
-    ├── Inverter Device 1 (e.g., FlexBOSS21_44300E0585)
+    ├── Inverter Device 1 (e.g., FlexBOSS21_0987654321)
     │   ├── Inverter Status Sensors (from non-batteryArray data)
     │   │   ├── AC Power, Voltage, Frequency
     │   │   ├── Grid Status, System Mode
@@ -661,7 +661,7 @@ if sensor_type in power_energy_sensors and sensor_type not in essential_sensors:
    - Check devices created:
      ```
      ✅ GridBOSS Device (if present)
-     ✅ Inverter Device(s) (e.g., FlexBOSS21_44300E0585)
+     ✅ Inverter Device(s) (e.g., FlexBOSS21_0987654321)
      ✅ Individual Battery Devices (if batteries present)
      ```
 
