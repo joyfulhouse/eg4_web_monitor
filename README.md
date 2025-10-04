@@ -10,6 +10,8 @@ This integration was inspired by and built upon the excellent work by [@twistedr
 [![GitHub Activity][commits-shield]][commits]
 [![License][license-shield]](LICENSE)
 [![HACS][hacsbadge]][hacs]
+[![Project Maintenance][maintenance-shield]][user_profile]
+[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
 
 [![Dashboard Screenshot](images/dashboard.png)](dashboards/eg4_solar_monitor.yaml)
 
