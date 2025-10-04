@@ -5,7 +5,7 @@ views:
     badges: []
     cards: []
     type: sections
-    max_columns: 3
+    max_columns: 4
     dense_section_placement: true
     sections:
       - type: grid
@@ -26,7 +26,7 @@ views:
                 color_circle: true
                 color_icon: true
               solar:
-                entity: sensor.parallel_group_a_yield
+                entity: sensor.total_solar_production
                 name: Solar Array
                 icon: mdi:solar-panel-large
                 color: '#ff9800'
@@ -73,6 +73,19 @@ views:
                   - from: 10000
                     color: '#ff8080'
               - type: gauge
+                entity: sensor.total_solar_production
+                min: 0
+                max: 15000
+                needle: true
+                name: Solar Power
+                segments:
+                  - from: 0
+                    color: '#ffb380'
+                  - from: 5000
+                    color: '#ffd480'
+                  - from: 10000
+                    color: '#7fd4b3'
+              - type: gauge
                 entity: sensor.load_power
                 min: 0
                 max: 10000
@@ -92,18 +105,40 @@ views:
                 name: Inverter Status
                 icon: mdi:state-machine
                 vertical: true
+                features_position: bottom
               - type: tile
                 entity: sensor.18kpv_1234567890_state_of_charge
                 name: Battery SOC
                 icon: mdi:battery-80
                 vertical: true
-              - type: tile
-                entity: sensor.grid_power
-                icon: mdi:transmission-tower
-                vertical: true
+              - type: custom:mushroom-template-card
+                primary: Battery Power
+                secondary: '{{ states(''sensor.18kpv_1234567890_battery_power'') }} W'
+                icon: >-
+                  {% if is_state('sensor.18kpv_1234567890_battery_status',
+                  'Charging') %}
+                    mdi:battery-charging
+                  {% elif is_state('sensor.18kpv_1234567890_battery_status',
+                  'Discharging') %}
+                    mdi:battery-arrow-down
+                  {% else %}
+                    mdi:battery
+                  {% endif %}
+                icon_color: >-
+                  {% if is_state('sensor.18kpv_1234567890_battery_status',
+                  'Charging') %}
+                    green
+                  {% elif is_state('sensor.18kpv_1234567890_battery_status',
+                  'Discharging') %}
+                    red
+                  {% else %}
+                    grey
+                  {% endif %}
+                layout: vertical
           - type: custom:plotly-graph
             hours_to_show: 8
             refresh_interval: 60
+            autorange_after_scroll: true
             layout:
               showlegend: true
               height: 400
@@ -116,72 +151,98 @@ views:
                 showgrid: true
                 gridcolor: rgba(128,128,128,0.2)
                 gridwidth: 1
+                autorange: true
               yaxis:
                 title: Power (W)
                 showgrid: true
                 gridcolor: rgba(128,128,128,0.2)
                 gridwidth: 1
+                autorange: true
+                fixedrange: false
+                rangemode: tozero
+                zeroline: true
+                zerolinecolor: rgba(128,128,128,0.4)
+                zerolinewidth: 2
               yaxis2:
                 title: SOC (%)
                 overlaying: 'y'
                 side: right
+                showgrid: false
                 range:
                   - 0
                   - 100
-                showgrid: false
+                fixedrange: true
               hovermode: x unified
             entities:
               - entity: sensor.total_solar_production
                 name: Solar PV
+                fill_gaps: true
+                fill_gaps_with: last
+                fill: tozeroy
+                fillcolor: rgba(255,167,38,0.2)
                 filters:
-                  - sliding_window_moving_average: null
-                    window_size: 15
-                    centered: true
+                  - sliding_window_moving_average:
+                      window_size: 15
+                      centered: true
                 line:
                   color: '#FFA726'
                   width: 2
-                  shape: spline
+                  shape: linear
               - entity: sensor.load_power
                 name: Consumption
+                fill_gaps: true
+                fill_gaps_with: last
+                fill: tozeroy
+                fillcolor: rgba(239,83,80,0.2)
                 filters:
-                  - sliding_window_moving_average: null
-                    window_size: 15
-                    centered: true
+                  - sliding_window_moving_average:
+                      window_size: 15
+                      centered: true
                 line:
                   color: '#EF5350'
                   width: 2
-                  shape: spline
+                  shape: linear
               - entity: sensor.grid_power
                 name: Grid
+                fill_gaps: true
+                fill_gaps_with: last
+                fill: tozeroy
+                fillcolor: rgba(66,165,245,0.2)
                 filters:
-                  - sliding_window_moving_average: null
-                    window_size: 15
-                    centered: true
+                  - sliding_window_moving_average:
+                      window_size: 15
+                      centered: true
                 line:
                   color: '#42A5F5'
                   width: 2
-                  shape: spline
+                  shape: linear
               - entity: sensor.18kpv_1234567890_battery_power
                 name: Battery
+                fill_gaps: true
+                fill_gaps_with: last
+                fill: tozeroy
+                fillcolor: rgba(102,187,106,0.2)
                 filters:
-                  - sliding_window_moving_average: null
-                    window_size: 15
-                    centered: true
+                  - sliding_window_moving_average:
+                      window_size: 15
+                      centered: true
                 line:
                   color: '#66BB6A'
                   width: 2
-                  shape: spline
+                  shape: linear
               - entity: sensor.18kpv_1234567890_state_of_charge
                 name: SOC
                 yaxis: y2
+                fill_gaps: true
+                fill_gaps_with: last
                 filters:
-                  - sliding_window_moving_average: null
-                    window_size: 15
-                    centered: true
+                  - sliding_window_moving_average:
+                      window_size: 15
+                      centered: true
                 line:
                   color: '#AB47BC'
                   width: 2
-                  shape: spline
+                  shape: linear
       - type: grid
         cards:
           - type: vertical-stack
@@ -218,6 +279,14 @@ views:
                 min: 0
                 max: 10000
                 needle: true
+                unit: W
+                segments:
+                  - from: 0
+                    color: '#B0B0B0'
+                  - from: 1000
+                    color: '#E8D66B'
+                  - from: 5000
+                    color: '#7FCD91'
               - type: gauge
                 entity: sensor.solaredge_se5000_ac_power
                 name: SE5000
@@ -225,6 +294,14 @@ views:
                 min: 0
                 max: 3500
                 needle: true
+                unit: W
+                segments:
+                  - from: 0
+                    color: '#B0B0B0'
+                  - from: 350
+                    color: '#E8D66B'
+                  - from: 1750
+                    color: '#7FCD91'
               - type: gauge
                 entity: sensor.solaredge_shed_ac_power
                 name: Shed
@@ -232,6 +309,14 @@ views:
                 min: 0
                 max: 5000
                 needle: true
+                unit: W
+                segments:
+                  - from: 0
+                    color: '#B0B0B0'
+                  - from: 500
+                    color: '#E8D66B'
+                  - from: 2500
+                    color: '#7FCD91'
               - type: gauge
                 entity: sensor.18kpv_1234567890_pv_total_power
                 name: FlexBOSS21
@@ -239,6 +324,83 @@ views:
                 min: 0
                 max: 8000
                 needle: true
+                unit: W
+                segments:
+                  - from: 0
+                    color: '#B0B0B0'
+                  - from: 800
+                    color: '#E8D66B'
+                  - from: 4000
+                    color: '#7FCD91'
+          - type: custom:plotly-graph
+            hours_to_show: 8
+            refresh_interval: 60
+            layout:
+              xaxis:
+                range:
+                  - >-
+                    $fn ({ hass }) => { const now = new Date(); const y =
+                    now.getFullYear(); const m = now.getMonth(); const d =
+                    now.getDate(); const offset = now.getTimezoneOffset() *
+                    60000; const start = new Date(y, m, d, 5, 0, 0); return new
+                    Date(start.getTime() - offset).toISOString(); }
+                  - >-
+                    $fn ({ hass }) => { const now = new Date(); const y =
+                    now.getFullYear(); const m = now.getMonth(); const d =
+                    now.getDate(); const offset = now.getTimezoneOffset() *
+                    60000; const end = new Date(y, m, d, 20, 0, 0); return new
+                    Date(end.getTime() - offset).toISOString(); }
+            entities:
+              - entity: sensor.solaredge_se10000_ac_power
+                name: SE10000
+                stackgroup: 1
+                fillcolor: rgba(253,216,53,0.7)
+                line:
+                  width: 0
+                filters:
+                  - resample: 1m
+                  - filter: y > 0
+                  - sliding_window_moving_average:
+                      window_size: 10
+                      centered: true
+              - entity: sensor.solaredge_se5000_ac_power
+                name: SE5000
+                stackgroup: 1
+                fillcolor: rgba(0,188,212,0.7)
+                line:
+                  width: 0
+                filters:
+                  - resample: 1m
+                  - filter: y > 0
+                  - sliding_window_moving_average:
+                      window_size: 10
+                      centered: true
+              - entity: sensor.solaredge_shed_ac_power
+                name: Shed
+                stackgroup: 1
+                fillcolor: rgba(156,39,176,0.7)
+                line:
+                  width: 0
+                filters:
+                  - resample: 1m
+                  - filter: y > 0
+                  - sliding_window_moving_average:
+                      window_size: 10
+                      centered: true
+              - entity: sensor.18kpv_1234567890_pv_total_power
+                name: FlexBOSS21
+                stackgroup: 1
+                fillcolor: rgba(255,111,0,0.7)
+                line:
+                  width: 0
+                filters:
+                  - resample: 1m
+                  - filter: y > 0
+                  - sliding_window_moving_average:
+                      window_size: 10
+                      centered: true
+      - type: grid
+        cards:
           - type: vertical-stack
             cards:
               - type: custom:mushroom-title-card
@@ -246,9 +408,6 @@ views:
                 alignment: center
               - type: glance
                 entities:
-                  - entity: sensor.parallel_group_a_yield
-                    name: Solar
-                    icon: mdi:solar-power
                   - entity: sensor.parallel_group_a_consumption
                     name: Home
                     icon: mdi:home-lightning-bolt
@@ -258,6 +417,9 @@ views:
                   - entity: sensor.parallel_group_a_discharging
                     name: Discharged
                     icon: mdi:battery-arrow-down
+                  - entity: sensor.parallel_group_a_yield
+                    name: Solar
+                    icon: mdi:solar-power
                   - entity: sensor.parallel_group_a_grid_import
                     name: Import
                     icon: mdi:transmission-tower-import
@@ -291,8 +453,6 @@ views:
                     name: Exported
                     icon: mdi:transmission-tower-export
                 columns: 3
-      - type: grid
-        cards:
           - type: vertical-stack
             cards:
               - type: custom:mushroom-title-card
@@ -307,42 +467,96 @@ views:
                   - entity: sensor.18kpv_1234567890_radiator_2_temperature
                     name: Radiator 2
                 columns: 3
+      - type: grid
+        cards:
           - type: vertical-stack
             cards:
               - type: custom:mushroom-title-card
                 title: 🔋 Charge Settings
                 alignment: center
-              - type: entities
-                entities:
-                  - entity: number.18kpv_1234567890_system_charge_soc_limit
-                    name: Target SOC Limit
-                  - entity: number.18kpv_1234567890_ac_charge_power
-                    name: AC Charge Power (kW)
-                  - entity: number.18kpv_1234567890_pv_charge_power
-                    name: PV Charge Power (kW)
+              - type: custom:mushroom-number-card
+                entity: number.18kpv_1234567890_system_charge_soc_limit
+                icon: mdi:battery-charging-100
+                name: Target SOC Limit
+                display_mode: buttons
+                fill_container: false
+              - type: custom:mushroom-number-card
+                entity: number.18kpv_1234567890_ac_charge_power
+                icon: mdi:transmission-tower
+                name: AC Charge Power
+                display_mode: buttons
+                fill_container: false
+              - type: custom:mushroom-number-card
+                entity: number.18kpv_1234567890_pv_charge_power
+                icon: mdi:solar-power
+                name: PV Charge Power
+                display_mode: buttons
+                fill_container: false
           - type: vertical-stack
             cards:
               - type: custom:mushroom-title-card
                 title: ⚙️ Operating Modes
                 alignment: center
-              - type: entities
-                entities:
-                  - entity: select.18kpv_1234567890_operating_mode
-                    name: Operating Mode
-                  - entity: switch.18kpv_1234567890_ac_charge_mode
+              - type: custom:mushroom-select-card
+                entity: select.18kpv_1234567890_operating_mode
+                icon: mdi:cog
+                name: Operating Mode
+                fill_container: false
+              - type: horizontal-stack
+                cards:
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_ac_charge_mode
                     name: AC Charge
-                  - entity: switch.18kpv_1234567890_pv_charge_priority_mode
-                    name: PV Charge Priority
-                  - entity: switch.18kpv_1234567890_forced_discharge_mode
-                    name: Forced Discharge
-                  - entity: switch.18kpv_1234567890_battery_backup
-                    name: EPS Battery Backup
-                  - entity: switch.18kpv_1234567890_quick_charge
+                    icon: mdi:transmission-tower-import
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_pv_charge_priority_mode
+                    name: PV Priority
+                    icon: mdi:solar-power-variant
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+              - type: horizontal-stack
+                cards:
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_forced_discharge_mode
+                    name: Force Discharge
+                    icon: mdi:battery-arrow-down
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_battery_backup
+                    name: EPS Backup
+                    icon: mdi:battery-lock
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+              - type: horizontal-stack
+                cards:
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_quick_charge
                     name: Quick Charge
-                  - entity: switch.18kpv_1234567890_peak_shaving_mode
+                    icon: mdi:battery-charging-high
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+                  - type: custom:mushroom-entity-card
+                    entity: switch.18kpv_1234567890_peak_shaving_mode
                     name: Peak Shaving
-                  - entity: switch.18kpv_1234567890_battery_backup_mode
-                    name: Battery Backup Mode
+                    icon: mdi:chart-bell-curve-cumulative
+                    tap_action:
+                      action: toggle
+                    fill_container: true
+              - type: custom:mushroom-entity-card
+                entity: switch.18kpv_1234567890_battery_backup_mode
+                name: Battery Backup Mode
+                icon: mdi:home-battery
+                tap_action:
+                  action: toggle
+                fill_container: false
   - title: Battery Health
     icon: mdi:battery-heart-variant
     badges: []
@@ -377,13 +591,13 @@ views:
               target:
                 entity_id: button.battery_1234567890_03_refresh_data
     type: sections
-    max_columns: 4
+    max_columns: 3
     sections:
       - type: grid
         cards:
           - type: custom:mushroom-title-card
             title: 🔋 Battery Bank Overview
-            subtitle: 3x EG4 LL-S Batteries • 840 Ah (43.2 kWh @ 51.2V)
+            subtitle: 3x EG4 PowerPro Batteries • 840 Ah (43.2 kWh @ 51.2V)
             alignment: center
           - type: glance
             entities:
