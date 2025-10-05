@@ -17,12 +17,12 @@ views:
             entities:
               battery:
                 entity:
-                  consumption: sensor.18kpv_1234567890_discharging
-                  production: sensor.18kpv_1234567890_charging
+                  consumption: sensor.18kpv_1234567890_battery_discharge_power
+                  production: sensor.18kpv_1234567890_battery_charge_power
                 state_of_charge: sensor.18kpv_1234567890_state_of_charge
                 name: Battery Bank
                 icon: mdi:battery-high
-                display_state: two_way
+                display_state: one_way_no_zero
                 color_circle: true
                 color_icon: true
               solar:
@@ -33,21 +33,52 @@ views:
                 color_icon: true
                 secondary_info: {}
               grid:
-                entity:
-                  consumption: sensor.parallel_group_a_grid_import
-                  production: sensor.parallel_group_a_grid_export
+                entity: sensor.grid_power
                 name: Grid
                 icon: mdi:transmission-tower
-                display_state: two_way
+                display_state: one_way_no_zero
                 color_circle: true
                 secondary_info: {}
+                color_value: true
               home:
-                entity: sensor.parallel_group_a_consumption
+                entity: sensor.load_power
                 secondary_info: {}
                 circle_animation: true
                 use_metadata: false
                 subtract_individual: false
-              individual: []
+                color_value: true
+                override_state: true
+              individual:
+                - entity: sensor.charger_power
+                  secondary_info: {}
+                  display_zero: true
+                  display_zero_state: true
+                  icon: mdi:ev-plug-tesla
+                  use_metadata: false
+                  unit_of_measurement: kW
+                  name: Model Y
+                  color:
+                    - 119
+                    - 147
+                    - 158
+                - entity: sensor.vs_power
+                  secondary_info: {}
+                  display_zero: true
+                  use_metadata: false
+                  name: Pool
+                  color_icon: true
+                  color:
+                    - 145
+                    - 187
+                    - 255
+                  icon: mdi:pool
+              fossil_fuel_percentage:
+                secondary_info: {}
+                entity: sensor.electricity_maps_grid_fossil_fuel_percentage
+                display_zero_state: false
+                display_zero: false
+                state_type: percentage
+                use_metadata: false
             watt_threshold: 1000
             kw_decimals: 2
             w_decimals: 0
@@ -57,6 +88,15 @@ views:
             max_expected_power: 15000
             min_expected_power: 100
             clickable_entities: true
+            display_zero_lines:
+              mode: transparency
+              transparency: 90
+              grey_color:
+                - 189
+                - 189
+                - 189
+            disable_dots: false
+            sort_individual_devices: false
           - type: horizontal-stack
             cards:
               - type: gauge
@@ -265,11 +305,12 @@ views:
                   - entity: sensor.18kpv_1234567890_pv2_voltage
                     name: String 2 Voltage
                     icon: mdi:flash
-          - type: weather-forecast
-            entity: weather.6245_n_willard_2
-            show_current: true
+          - show_current: true
             show_forecast: true
+            type: weather-forecast
+            entity: weather.6245_n_willard_2
             forecast_type: hourly
+            forecast_slots: 8
           - type: horizontal-stack
             cards:
               - type: gauge
