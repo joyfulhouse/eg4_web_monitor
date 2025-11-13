@@ -19,6 +19,9 @@ from .utils import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Silver tier requirement: Specify parallel update count
+MAX_PARALLEL_UPDATES = 2
+
 # Operating mode options
 OPERATING_MODE_OPTIONS = ["Normal", "Standby"]
 OPERATING_MODE_MAPPING = {

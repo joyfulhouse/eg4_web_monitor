@@ -18,6 +18,9 @@ from .utils import read_device_parameters_ranges, process_parameter_responses
 
 _LOGGER = logging.getLogger(__name__)
 
+# Silver tier requirement: Specify parallel update count
+MAX_PARALLEL_UPDATES = 3
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

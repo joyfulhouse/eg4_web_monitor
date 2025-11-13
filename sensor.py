@@ -19,6 +19,10 @@ from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Silver tier requirement: Specify parallel update count
+# Limit concurrent sensor updates to prevent overwhelming the coordinator
+MAX_PARALLEL_UPDATES = 5
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

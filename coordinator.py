@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -83,6 +84,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Individual energy processing queue
         self._pending_individual_energy_serials: List[str] = []
 
+        # Track availability state for Silver tier logging requirement
+        self._last_available_state: bool = True
+
         super().__init__(
             hass,
             _LOGGER,
@@ -119,21 +123,59 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)
+
+            # Silver tier requirement: Log when service becomes available again
+            if not self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service reconnected successfully for plant %s",
+                    self.plant_id
+                )
+                self._last_available_state = True
+
             return processed_data
 
         except EG4AuthError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to authentication error for plant %s: %s",
+                    self.plant_id, e
+                )
+                self._last_available_state = False
             _LOGGER.error("Authentication error: %s", e)
-            raise UpdateFailed(f"Authentication failed: {e}") from e
+            # Silver tier requirement: Trigger reauthentication flow on auth failure
+            raise ConfigEntryAuthFailed(f"Authentication failed: {e}") from e
 
         except EG4ConnectionError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to connection error for plant %s: %s",
+                    self.plant_id, e
+                )
+                self._last_available_state = False
             _LOGGER.error("Connection error: %s", e)
             raise UpdateFailed(f"Connection failed: {e}") from e
 
         except EG4APIError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to API error for plant %s: %s",
+                    self.plant_id, e
+                )
+                self._last_available_state = False
             _LOGGER.error("API error: %s", e)
             raise UpdateFailed(f"API error: {e}") from e
 
         except Exception as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to unexpected error for plant %s: %s",
+                    self.plant_id, e
+                )
+                self._last_available_state = False
             _LOGGER.exception("Unexpected error updating data: %s", e)
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
