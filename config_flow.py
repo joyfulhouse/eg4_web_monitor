@@ -196,6 +196,87 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data=data,
         )
 
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
+        """Handle reauthentication flow.
+
+        Silver tier requirement: Reauthentication available through UI.
+        """
+        # Store the existing entry data for later use
+        self._base_url = entry_data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+        self._verify_ssl = entry_data.get(CONF_VERIFY_SSL, True)
+        self._username = entry_data.get(CONF_USERNAME)
+
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Handle reauthentication confirmation.
+
+        Silver tier requirement: Reauthentication available through UI.
+        """
+        errors: Dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                # Update password
+                password = user_input[CONF_PASSWORD]
+
+                # Test new credentials
+                api = EG4InverterAPI(
+                    username=self._username,
+                    password=password,
+                    base_url=self._base_url,
+                    verify_ssl=self._verify_ssl,
+                )
+
+                try:
+                    await api.login()
+                    _LOGGER.debug("Reauthentication successful")
+                finally:
+                    await api.close()
+
+                # Get the existing config entry
+                existing_entry = await self.async_set_unique_id(self._username)
+                if existing_entry:
+                    # Update the entry with new password
+                    self.hass.config_entries.async_update_entry(
+                        existing_entry,
+                        data={
+                            **existing_entry.data,
+                            CONF_PASSWORD: password,
+                        },
+                    )
+                    await self.hass.config_entries.async_reload(existing_entry.entry_id)
+                    return self.async_abort(reason="reauth_successful")
+
+            except EG4AuthError:
+                errors["base"] = "invalid_auth"
+            except EG4ConnectionError:
+                errors["base"] = "cannot_connect"
+            except EG4APIError as e:
+                _LOGGER.error("API error during reauthentication: %s", e)
+                errors["base"] = "unknown"
+            except Exception as e:
+                _LOGGER.exception("Unexpected error during reauthentication: %s", e)
+                errors["base"] = "unknown"
+
+        # Show reauthentication form
+        reauth_schema = vol.Schema(
+            {
+                vol.Required(CONF_PASSWORD): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=reauth_schema,
+            errors=errors,
+            description_placeholders={
+                "username": self._username,
+            },
+        )
+
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""

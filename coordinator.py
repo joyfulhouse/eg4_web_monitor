@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -83,13 +84,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Individual energy processing queue
         self._pending_individual_energy_serials: List[str] = []
 
+        # Track availability state for Silver tier logging requirement
+        self._last_available_state: bool = True
+
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
-
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from API endpoint."""
@@ -119,21 +122,63 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)
+
+            # Silver tier requirement: Log when service becomes available again
+            if not self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service reconnected successfully for plant %s",
+                    self.plant_id,
+                )
+                self._last_available_state = True
+
             return processed_data
 
         except EG4AuthError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to authentication error for plant %s: %s",
+                    self.plant_id,
+                    e,
+                )
+                self._last_available_state = False
             _LOGGER.error("Authentication error: %s", e)
-            raise UpdateFailed(f"Authentication failed: {e}") from e
+            # Silver tier requirement: Trigger reauthentication flow on auth failure
+            raise ConfigEntryAuthFailed(f"Authentication failed: {e}") from e
 
         except EG4ConnectionError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to connection error for plant %s: %s",
+                    self.plant_id,
+                    e,
+                )
+                self._last_available_state = False
             _LOGGER.error("Connection error: %s", e)
             raise UpdateFailed(f"Connection failed: {e}") from e
 
         except EG4APIError as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to API error for plant %s: %s",
+                    self.plant_id,
+                    e,
+                )
+                self._last_available_state = False
             _LOGGER.error("API error: %s", e)
             raise UpdateFailed(f"API error: {e}") from e
 
         except Exception as e:
+            # Silver tier requirement: Log when service becomes unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Web Monitor service unavailable due to unexpected error for plant %s: %s",
+                    self.plant_id,
+                    e,
+                )
+                self._last_available_state = False
             _LOGGER.exception("Unexpected error updating data: %s", e)
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
@@ -164,7 +209,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "model": "Unknown",
                     "error": device_data["error"],
                     "sensors": {},
-                    "batteries": {}
+                    "batteries": {},
                 }
                 continue
 
@@ -188,7 +233,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         parallel_groups_info = raw_data.get("parallel_groups_info", [])
         _LOGGER.debug(
             "Parallel group data - success: %s, groups: %s",
-            parallel_energy.get("success") if parallel_energy else None, parallel_groups_info
+            parallel_energy.get("success") if parallel_energy else None,
+            parallel_groups_info,
         )
         # Only create parallel group if the API indicates parallel groups exis
         if parallel_energy and parallel_energy.get("success"):
@@ -214,8 +260,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         inverters_needing_params = []
         for serial, device_data in processed["devices"].items():
-            if (device_data.get("type") == "inverter" and
-                serial not in processed["parameters"]):
+            if (
+                device_data.get("type") == "inverter"
+                and serial not in processed["parameters"]
+            ):
                 inverters_needing_params.append(serial)
 
         # If there are inverters without parameters, refresh them
@@ -223,7 +271,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.info(
                 "Refreshing parameters for %d new inverters: %s",
                 len(inverters_needing_params),
-                inverters_needing_params
+                inverters_needing_params,
             )
             # Don't await this to avoid blocking the data update
             self.hass.async_create_task(
@@ -232,14 +280,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Working mode parameters are already available from the standard parameter refresh above
         # No need for separate working mode parameter reading - they're included in cache
         inverter_serials = [
-            serial for serial, device_data in processed["devices"].items()
+            serial
+            for serial, device_data in processed["devices"].items()
             if device_data.get("type") == "inverter"
         ]
         if inverter_serials:
             _LOGGER.info(
                 "Working mode parameters (AC Charge, PV Charge Priority, Forced Discharge, "
                 "Peak Shaving, Battery Backup) available from parameter cache for %d inverters",
-                len(inverter_serials)
+                len(inverter_serials),
             )
 
         return processed
@@ -302,7 +351,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             list(bat_data.keys()),
                         )
                         raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
-                        battery_key = clean_battery_display_name(raw_battery_key, serial)
+                        battery_key = clean_battery_display_name(
+                            raw_battery_key, serial
+                        )
                         battery_sensors = extract_individual_battery_sensors(bat_data)
                         processed["batteries"][battery_key] = battery_sensors
 
@@ -312,7 +363,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             processed["quick_charge_status"] = quick_charge_status
             _LOGGER.debug("Retrieved quick charge status for device %s", serial)
         except Exception as e:
-            _LOGGER.debug("Failed to get quick charge status for device %s: %s", serial, e)
+            _LOGGER.debug(
+                "Failed to get quick charge status for device %s: %s", serial, e
+            )
             # Don't fail the entire update if quick charge status fails
             processed["quick_charge_status"] = {"status": False, "error": str(e)}
 
@@ -329,14 +382,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Enhanced debugging to understand the actual API response
                 _LOGGER.info(
                     "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)",
-                    serial, func_eps_en, type(func_eps_en).__name__
+                    serial,
+                    func_eps_en,
+                    type(func_eps_en).__name__,
                 )
                 # Convert to boolean with explicit handling of different value types
                 if func_eps_en is None:
                     enabled = False
                 elif isinstance(func_eps_en, str):
                     # Handle string values like "1", "0", "true", "false"
-                    enabled = func_eps_en.lower() not in ("0", "false", "off", "disabled", "")
+                    enabled = func_eps_en.lower() not in (
+                        "0",
+                        "false",
+                        "off",
+                        "disabled",
+                        "",
+                    )
                 elif isinstance(func_eps_en, (int, float)):
                     # Handle numeric values where 0 = disabled, non-zero = enabled
                     enabled = bool(func_eps_en != 0)
@@ -345,11 +406,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     enabled = bool(func_eps_en)
                 processed["battery_backup_status"] = {
                     "FUNC_EPS_EN": func_eps_en,
-                    "enabled": enabled
+                    "enabled": enabled,
                 }
                 _LOGGER.info(
                     "Battery backup status for %s: raw=%r, enabled=%s",
-                    serial, func_eps_en, enabled
+                    serial,
+                    func_eps_en,
+                    enabled,
                 )
                 # Update the coordinator's parameter cache with this fresh data
                 if "parameters" not in processed:
@@ -360,13 +423,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             else:
                 processed["battery_backup_status"] = {
                     "enabled": False,
-                    "error": "FUNC_EPS_EN parameter not found in base parameters"
+                    "error": "FUNC_EPS_EN parameter not found in base parameters",
                 }
                 _LOGGER.warning(
-                    "FUNC_EPS_EN parameter not found in base parameters for device %s", serial
+                    "FUNC_EPS_EN parameter not found in base parameters for device %s",
+                    serial,
                 )
         except Exception as e:
-            _LOGGER.debug("Failed to get battery backup status for device %s: %s", serial, e)
+            _LOGGER.debug(
+                "Failed to get battery backup status for device %s: %s", serial, e
+            )
             # Don't fail the entire update if battery backup status fails
             processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
 
@@ -380,7 +446,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         _LOGGER.debug(
             "Processing individual energy data for %d inverters with rate limiting",
-            len(serials)
+            len(serials),
         )
 
         # Process in batches of 3 with 1 second delay between batches to avoid API overload
@@ -388,7 +454,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         delay_between_batches = 1.0
 
         for i in range(0, len(serials), batch_size):
-            batch = serials[i:i + batch_size]
+            batch = serials[i : i + batch_size]
             _LOGGER.debug("Processing batch %d: %s", i // batch_size + 1, batch)
 
             # Process batch concurrently but limit batch size
@@ -407,23 +473,35 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         )
                         continue
 
-                    if result and result.get("success") and serial in processed["devices"]:
-                        _LOGGER.debug("Individual energy API response for %s: %s",
-                                    serial, list(result.keys()))
+                    if (
+                        result
+                        and result.get("success")
+                        and serial in processed["devices"]
+                    ):
+                        _LOGGER.debug(
+                            "Individual energy API response for %s: %s",
+                            serial,
+                            list(result.keys()),
+                        )
                         energy_sensors = self._extract_energy_sensors(result)
-                        _LOGGER.debug("Extracted %d energy sensors: %s",
-                                    len(energy_sensors), list(energy_sensors.keys()))
+                        _LOGGER.debug(
+                            "Extracted %d energy sensors: %s",
+                            len(energy_sensors),
+                            list(energy_sensors.keys()),
+                        )
                         processed["devices"][serial]["sensors"].update(energy_sensors)
                         _LOGGER.debug(
                             "Added %d individual energy sensors for %s",
-                            len(energy_sensors), serial
+                            len(energy_sensors),
+                            serial,
                         )
                     else:
                         _LOGGER.warning(
                             "Invalid individual energy response for %s: success=%s, "
                             "serial_in_devices=%s",
-                            serial, result.get("success") if result else "None",
-                            serial in processed["devices"]
+                            serial,
+                            result.get("success") if result else "None",
+                            serial in processed["devices"],
                         )
 
             except Exception as e:
@@ -498,7 +576,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Process parallel group energy data."""
         _LOGGER.debug(
             "Processing parallel group data - energy: %s, groups: %s",
-            bool(parallel_energy), parallel_groups_info)
+            bool(parallel_energy),
+            parallel_groups_info,
+        )
 
         # Extract the group name from parallel groups info
         group_name = "Parallel Group"  # Default fallback
@@ -506,16 +586,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Extract group letter from first group
             first_group = parallel_groups_info[0]
             group_letter = first_group.get("parallelGroup", "")
-            _LOGGER.debug(
-                "Parallel group naming - group_letter: %s", group_letter
-            )
+            _LOGGER.debug("Parallel group naming - group_letter: %s", group_letter)
 
             if group_letter:
                 # Always include the letter if available, regardless of group coun
                 group_name = f"Parallel Group {group_letter}"
                 _LOGGER.debug("Set parallel group name to: %s", group_name)
             else:
-                _LOGGER.debug("No group letter found, using default name: %s", group_name)
+                _LOGGER.debug(
+                    "No group letter found, using default name: %s", group_name
+                )
 
         processed = {
             "serial": "parallel_group",
@@ -683,7 +763,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # This method is reserved for future binary sensor implementations
         _ = battery  # Explicitly mark parameter as unused but preserved for interface
         return {}
-
 
     def _extract_gridboss_sensors(self, midbox_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract sensor data from GridBOSS midbox response."""
@@ -1044,7 +1123,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return sensors
 
     def _extract_parallel_group_binary_sensors(
-        self, parallel_energy: Dict[str, Any]  # pylint: disable=unused-argument
+        self,
+        parallel_energy: Dict[str, Any],  # pylint: disable=unused-argument
     ) -> Dict[str, Any]:
         """Extract binary sensor data from parallel group energy response."""
         return {}
@@ -1130,8 +1210,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Process responses to update device parameter cache
             parameter_data = {}
-            for _, response, _ in process_parameter_responses(responses, serial, _LOGGER):
-
+            for _, response, _ in process_parameter_responses(
+                responses, serial, _LOGGER
+            ):
                 if response and response.get("success", False):
                     # Merge parameter data from this range
                     for key, value in response.items():
@@ -1140,7 +1221,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Store parameter data in coordinator data structure
             # Note: self.data is managed by the coordinator base class
-            if hasattr(self, 'data') and self.data is not None:
+            if hasattr(self, "data") and self.data is not None:
                 if "parameters" not in self.data:
                     self.data["parameters"] = {}
                 self.data["parameters"][serial] = parameter_data
@@ -1162,9 +1243,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 try:
                     await self._refresh_device_parameters(serial)
                     # Update the processed data with new parameter data
-                    if (self.data and "parameters" in self.data and
-                        serial in self.data["parameters"]):
-                        processed_data["parameters"][serial] = self.data["parameters"][serial]
+                    if (
+                        self.data
+                        and "parameters" in self.data
+                        and serial in self.data["parameters"]
+                    ):
+                        processed_data["parameters"][serial] = self.data["parameters"][
+                            serial
+                        ]
                 except Exception as e:
                     _LOGGER.error(
                         "Failed to refresh missing parameters for %s: %s", serial, e
@@ -1192,17 +1278,23 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
         return time_since_refresh >= self._parameter_refresh_interval
 
-    async def set_working_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
+    async def set_working_mode(
+        self, serial_number: str, function_param: str, enable: bool
+    ) -> bool:
         """Set working mode for inverter."""
         try:
-            _LOGGER.debug("Setting working mode %s to %s for device %s",
-                         function_param, enable, serial_number)
+            _LOGGER.debug(
+                "Setting working mode %s to %s for device %s",
+                function_param,
+                enable,
+                serial_number,
+            )
 
             # Use existing API method
             response = await self.api.control_function_parameter(
                 serial_number=serial_number,
                 function_param=function_param,
-                enable=enable
+                enable=enable,
             )
 
             # Refresh standard parameters immediately to get updated working mode state
@@ -1211,10 +1303,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Trigger coordinator refresh to update entities
             await self.async_refresh()
 
-            success = response.get('success', False)
+            success = response.get("success", False)
             if success:
-                _LOGGER.info("Successfully set working mode %s to %s for device %s",
-                           function_param, enable, serial_number)
+                _LOGGER.info(
+                    "Successfully set working mode %s to %s for device %s",
+                    function_param,
+                    enable,
+                    serial_number,
+                )
             else:
                 _LOGGER.warning("Working mode control reported failure: %s", response)
 
@@ -1223,7 +1319,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except Exception as err:
             _LOGGER.error(
                 "Failed to set working mode %s for %s: %s",
-                function_param, serial_number, err
+                function_param,
+                serial_number,
+                err,
             )
             return False
 
@@ -1232,26 +1330,42 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             # Get cached parameters from standard parameter cache (includes all 3 register ranges)
             if not self.data or "parameters" not in self.data:
-                _LOGGER.debug("No cached parameters available - data structure: %s",
-                             list(self.data.keys()) if self.data else "None")
+                _LOGGER.debug(
+                    "No cached parameters available - data structure: %s",
+                    list(self.data.keys()) if self.data else "None",
+                )
                 return False
 
             parameter_data = self.data["parameters"].get(serial_number, {})
             if not parameter_data:
                 available_devices = list(self.data["parameters"].keys())
-                _LOGGER.debug("No cached parameters for device %s - available: %s",
-                             serial_number, available_devices)
+                _LOGGER.debug(
+                    "No cached parameters for device %s - available: %s",
+                    serial_number,
+                    available_devices,
+                )
                 return False
 
             # Debug: Check if working mode parameters exist in cache
             working_mode_params_in_cache = {
-                k: v for k, v in parameter_data.items() if 'FUNC_' in k and
-                k in ['FUNC_AC_CHARGE', 'FUNC_FORCED_CHG_EN', 'FUNC_FORCED_DISCHG_EN',
-                      'FUNC_GRID_PEAK_SHAVING', 'FUNC_BATTERY_BACKUP_CTRL']
+                k: v
+                for k, v in parameter_data.items()
+                if "FUNC_" in k
+                and k
+                in [
+                    "FUNC_AC_CHARGE",
+                    "FUNC_FORCED_CHG_EN",
+                    "FUNC_FORCED_DISCHG_EN",
+                    "FUNC_GRID_PEAK_SHAVING",
+                    "FUNC_BATTERY_BACKUP_CTRL",
+                ]
             }
             if working_mode_params_in_cache:
-                _LOGGER.debug("Working mode parameters found in cache for %s: %s",
-                             serial_number, working_mode_params_in_cache)
+                _LOGGER.debug(
+                    "Working mode parameters found in cache for %s: %s",
+                    serial_number,
+                    working_mode_params_in_cache,
+                )
 
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
@@ -1265,16 +1379,24 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     is_enabled = param_value == 1
                 _LOGGER.debug(
                     "Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s",
-                    function_param, serial_number, param_key, param_value,
-                    type(param_value), is_enabled
+                    function_param,
+                    serial_number,
+                    param_key,
+                    param_value,
+                    type(param_value),
+                    is_enabled,
                 )
 
                 # Log available parameters if the expected one is missing
                 if param_key not in parameter_data:
-                    available_params = [k for k in parameter_data.keys() if 'FUNC_' in k]
+                    available_params = [
+                        k for k in parameter_data.keys() if "FUNC_" in k
+                    ]
                     _LOGGER.warning(
                         "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
-                        param_key, serial_number, list(available_params)[:10]
+                        param_key,
+                        serial_number,
+                        list(available_params)[:10],
                     )
 
                 return is_enabled
@@ -1283,8 +1405,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return False
 
         except Exception as err:
-            _LOGGER.error("Error getting working mode state for %s: %s",
-                         serial_number, err)
+            _LOGGER.error(
+                "Error getting working mode state for %s: %s", serial_number, err
+            )
             return False
 
     def _should_invalidate_cache(self) -> bool:
@@ -1316,12 +1439,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Invalidate all caches to ensure fresh data when date changes."""
         try:
             # Clear API response cache
-            if hasattr(self.api, 'clear_cache'):
+            if hasattr(self.api, "clear_cache"):
                 self.api.clear_cache()
                 _LOGGER.debug("Cleared API response cache")
 
             # Clear device discovery cache
-            if hasattr(self.api, '_device_cache'):
+            if hasattr(self.api, "_device_cache"):
                 self.api._device_cache.clear()
                 self.api._device_cache_expires = None
                 _LOGGER.debug("Cleared device discovery cache")
@@ -1331,7 +1454,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             _LOGGER.info(
                 "Successfully invalidated all caches at %s to prevent date rollover issues",
-                self._last_cache_invalidation.strftime("%Y-%m-%d %H:%M:%S UTC")
+                self._last_cache_invalidation.strftime("%Y-%m-%d %H:%M:%S UTC"),
             )
 
         except Exception as e:

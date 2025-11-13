@@ -131,7 +131,8 @@ jobs:
 
       - name: Check for typed ConfigEntry
         run: |
-          if ! grep -q "type.*ConfigEntry\[" __init__.py; then
+          # Check for either Python 3.12+ 'type' keyword or Python 3.11 'TypeAlias'
+          if ! grep -qE "(type.*ConfigEntry\[|TypeAlias.*=.*ConfigEntry\[)" __init__.py; then
             echo "❌ Typed ConfigEntry not found in __init__.py"
             exit 1
           fi
