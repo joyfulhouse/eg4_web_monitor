@@ -71,6 +71,34 @@ Restart Home Assistant after installation.
 ### Buttons
 - **Refresh Data**: Force refresh for devices and batteries
 
+## Service Actions
+
+### eg4_web_monitor.refresh_data
+
+Force an immediate refresh of device data from the EG4 API, bypassing the normal polling interval.
+
+**Parameters:**
+- **entry_id** (optional, string): The configuration entry ID to refresh. If not provided, all EG4 Web Monitor integrations will be refreshed.
+
+**Example usage:**
+
+Refresh a specific integration:
+```yaml
+service: eg4_web_monitor.refresh_data
+data:
+  entry_id: "abc123def456"
+```
+
+Refresh all EG4 Web Monitor integrations:
+```yaml
+service: eg4_web_monitor.refresh_data
+```
+
+**Use cases:**
+- Force immediate data update after changing inverter settings
+- Refresh after physical device changes
+- Automation triggers requiring fresh data
+
 ## Entity Examples
 
 ```yaml

@@ -8,12 +8,12 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import EG4ConfigEntry
 from .const import DOMAIN, SENSOR_TYPES
 from .coordinator import EG4DataUpdateCoordinator
 
@@ -22,11 +22,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EG4ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor sensor entities."""
-    coordinator: EG4DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     entities: List[SensorEntity] = []
 
