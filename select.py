@@ -4,11 +4,11 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import EG4ConfigEntry
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
@@ -29,11 +29,11 @@ OPERATING_MODE_MAPPING = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EG4ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor select entities."""
-    coordinator: EG4DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     entities: List[SelectEntity] = []
 

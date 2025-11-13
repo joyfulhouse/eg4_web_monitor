@@ -3,15 +3,19 @@
 import logging
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Type alias for typed ConfigEntry
+type EG4ConfigEntry = ConfigEntry[EG4DataUpdateCoordinator]
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -30,7 +34,71 @@ REFRESH_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the EG4 Web Monitor component."""
+
+    async def handle_refresh_data(call: ServiceCall) -> None:
+        """Handle refresh data service call with validation."""
+        entry_id = call.data.get("entry_id")
+        coordinators_to_refresh = []
+
+        if entry_id:
+            # Validate entry exists
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if not entry:
+                raise ServiceValidationError(
+                    f"Config entry {entry_id} not found",
+                    translation_domain=DOMAIN,
+                    translation_key="entry_not_found",
+                )
+
+            # Validate entry is loaded
+            if entry.state != ConfigEntryState.LOADED:
+                raise ServiceValidationError(
+                    f"Config entry {entry_id} is not loaded",
+                    translation_domain=DOMAIN,
+                    translation_key="entry_not_loaded",
+                )
+
+            # Get coordinator from runtime_data
+            coordinator = entry.runtime_data
+            coordinators_to_refresh.append(coordinator)
+        else:
+            # Refresh all loaded coordinators
+            for config_entry in hass.config_entries.async_entries(DOMAIN):
+                if config_entry.state == ConfigEntryState.LOADED:
+                    coordinators_to_refresh.append(config_entry.runtime_data)
+
+        if not coordinators_to_refresh:
+            raise ServiceValidationError(
+                "No EG4 coordinators found to refresh",
+                translation_domain=DOMAIN,
+                translation_key="no_coordinators",
+            )
+
+        # Refresh all coordinators
+        for coordinator in coordinators_to_refresh:
+            _LOGGER.info(
+                "Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id
+            )
+            await coordinator.async_request_refresh()
+
+        _LOGGER.info(
+            "Refresh completed for %d coordinator(s)", len(coordinators_to_refresh)
+        )
+
+    # Register service in async_setup to remain available for validation
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REFRESH_DATA,
+        handle_refresh_data,
+        schema=REFRESH_DATA_SCHEMA,
+    )
+
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up EG4 Web Monitor from a config entry."""
     _LOGGER.debug("Setting up EG4 Web Monitor entry: %s", entry.entry_id)
 
@@ -40,26 +108,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Perform initial data fetch
     await coordinator.async_config_entry_first_refresh()
 
-    # Store coordinator in hass data
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    # Store coordinator in runtime_data
+    entry.runtime_data = coordinator
 
     # Forward entry setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register refresh service (only once)
-    if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_REFRESH_DATA,
-            _handle_refresh_data,
-            schema=REFRESH_DATA_SCHEMA,
-        )
-
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Unload a config entry."""
     _LOGGER.debug("Unloading EG4 Web Monitor entry: %s", entry.entry_id)
 
@@ -67,45 +125,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        # Clean up coordinator
-        coordinator = hass.data[DOMAIN][entry.entry_id]
-        await coordinator.api.close()
-
-        # Remove from hass data
-        hass.data[DOMAIN].pop(entry.entry_id)
+        # Clean up coordinator API connection
+        await entry.runtime_data.api.close()
 
     return unload_ok
-
-
-async def _handle_refresh_data(call: ServiceCall) -> None:
-    """Handle refresh data service call."""
-    hass = call.hass
-    entry_id = call.data.get("entry_id")
-
-    coordinators_to_refresh = []
-
-    if entry_id:
-        # Refresh specific coordinator
-        if entry_id in hass.data.get(DOMAIN, {}):
-            coordinators_to_refresh.append(hass.data[DOMAIN][entry_id])
-        else:
-            _LOGGER.error("Config entry %s not found", entry_id)
-            return
-    else:
-        # Refresh all coordinators
-        coordinators_to_refresh = list(hass.data.get(DOMAIN, {}).values())
-
-    if not coordinators_to_refresh:
-        _LOGGER.warning("No EG4 coordinators found to refresh")
-        return
-
-    # Refresh all coordinators
-    for coordinator in coordinators_to_refresh:
-        _LOGGER.info(
-            "Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id
-        )
-        await coordinator.async_request_refresh()
-
-    _LOGGER.info(
-        "Refresh completed for %d coordinator(s)", len(coordinators_to_refresh)
-    )

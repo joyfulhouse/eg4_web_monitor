@@ -5,13 +5,13 @@ import logging
 from typing import Optional
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.exceptions import HomeAssistantError
 
+from . import EG4ConfigEntry
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import read_device_parameters_ranges, process_parameter_responses
@@ -21,11 +21,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: EG4ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor number entities from a config entry."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     entities = []
 
