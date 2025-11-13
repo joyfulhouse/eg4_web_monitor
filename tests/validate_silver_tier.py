@@ -161,7 +161,8 @@ class SilverTierValidator:
             file_path = self.base_path / platform_file
             if file_path.exists():
                 content = file_path.read_text()
-                if "def available" in content or "@property" in content and "available" in content:
+                # Check for availability property with proper operator precedence
+                if ("def available" in content) or ("@property" in content and "available" in content):
                     availability_found = True
                     break
 

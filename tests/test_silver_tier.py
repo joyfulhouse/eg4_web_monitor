@@ -151,13 +151,54 @@ class TestEntityAvailability:
 
     def test_switch_available_property_for_inverter(self):
         """Test switch entity marks itself unavailable for non-inverter devices."""
-        # This would require importing and testing actual entity classes
-        # For now, validate the pattern exists in code
-        pass
+        from custom_components.eg4_web_monitor.switch import EG4QuickChargeSwitch
+
+        # Create mock coordinator with GridBOSS device (should be unavailable)
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "devices": {
+                "1234567890": {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                }
+            }
+        }
+
+        # Create switch entity for GridBOSS device
+        switch = EG4QuickChargeSwitch(
+            coordinator=mock_coordinator,
+            serial="1234567890",
+            model="GridBOSS",
+        )
+
+        # Switch should be unavailable for GridBOSS devices
+        assert switch.available is False
+
+        # Update to inverter device (should be available)
+        mock_coordinator.data["devices"]["1234567890"]["type"] = "inverter"
+        assert switch.available is True
 
     def test_entity_unavailable_when_coordinator_fails(self):
         """Test entities become unavailable when coordinator update fails."""
-        pass
+        from custom_components.eg4_web_monitor.switch import EG4QuickChargeSwitch
+
+        # Create mock coordinator with no data (coordinator failed)
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = None
+
+        # Create switch entity
+        switch = EG4QuickChargeSwitch(
+            coordinator=mock_coordinator,
+            serial="1234567890",
+            model="FlexBOSS21",
+        )
+
+        # Switch should be unavailable when coordinator has no data
+        assert switch.available is False
+
+        # Update coordinator with empty devices dict
+        mock_coordinator.data = {"devices": {}}
+        assert switch.available is False
 
 
 # Silver Tier Requirement: Logging required when service becomes unavailable and reconnects
