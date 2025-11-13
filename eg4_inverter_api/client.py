@@ -858,6 +858,28 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """
         return await self.set_standby_mode(serial_number, enable=True)
 
+    async def enable_grid_peak_shaving(self, serial_number: str) -> Dict[str, Any]:
+        """Enable grid peak shaving mode for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the peak shaving enable response
+        """
+        return await self.control_function_parameter(serial_number, "FUNC_GRID_PEAK_SHAVING", True)
+
+    async def disable_grid_peak_shaving(self, serial_number: str) -> Dict[str, Any]:
+        """Disable grid peak shaving mode for specified inverter.
+
+        Args:
+            serial_number: The inverter serial number
+
+        Returns:
+            Dict containing the peak shaving disable response
+        """
+        return await self.control_function_parameter(serial_number, "FUNC_GRID_PEAK_SHAVING", False)
+
     async def enable_standby_mode(self, serial_number: str) -> Dict[str, Any]:
         """Enable standby mode for specified inverter.
 
