@@ -179,7 +179,6 @@ def apply_sensor_scaling(
     # Determine scaling factor based on device type and sensor type
     scaling_factor = None
 
-
     if device_type == "gridboss":
         if sensor_type in GRIDBOSS_DIVIDE_BY_10_SENSORS:
             scaling_factor = 10.0
@@ -490,7 +489,9 @@ def clean_model_name(model: str) -> str:
     return model.lower().replace(" ", "").replace("-", "")
 
 
-def create_device_info(serial: str, model: str, device_type: str = "inverter") -> Dict[str, Any]:  # pylint: disable=unused-argument
+def create_device_info(
+    serial: str, model: str, device_type: str = "inverter"
+) -> Dict[str, Any]:  # pylint: disable=unused-argument
     """Create standardized device info dictionary for Home Assistant entities.
 
     Args:
@@ -511,8 +512,13 @@ def create_device_info(serial: str, model: str, device_type: str = "inverter") -
     }
 
 
-def generate_entity_id(platform: str, model: str, serial: str, entity_type: str,
-                      suffix: Optional[str] = None) -> str:
+def generate_entity_id(
+    platform: str,
+    model: str,
+    serial: str,
+    entity_type: str,
+    suffix: Optional[str] = None,
+) -> str:
     """Generate standardized entity IDs across all platforms.
 
     Args:
@@ -534,7 +540,9 @@ def generate_entity_id(platform: str, model: str, serial: str, entity_type: str,
     return base_id
 
 
-def generate_unique_id(serial: str, entity_type: str, suffix: Optional[str] = None) -> str:
+def generate_unique_id(
+    serial: str, entity_type: str, suffix: Optional[str] = None
+) -> str:
     """Generate standardized unique IDs for entity registry.
 
     Args:
