@@ -244,9 +244,8 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{parent_serial}_{battery_key}")},
             "name": f"Battery {battery_key}",  # Will be cleaned by coordinator
-            "manufacturer": "EG4 Electronics", 
+            "manufacturer": "EG4 Electronics",
             "model": f"{parent_model} Battery",
-            "serial_number": f"{parent_serial}_{battery_key}",
             "via_device": (DOMAIN, parent_serial),
         }
 

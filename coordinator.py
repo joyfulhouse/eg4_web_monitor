@@ -999,16 +999,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Use cleaned battery name for display
         clean_battery_name = clean_battery_display_name(battery_key, serial)
 
-        # Extract just the battery number for serial_number (e.g., "01" from "4512670118-01")
-        # This prevents duplication in the device serial number display
-        battery_number = clean_battery_name.split("-")[-1] if "-" in clean_battery_name else clean_battery_name
-
         return {
             "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
             "name": f"Battery {clean_battery_name}",
             "manufacturer": "EG4 Electronics",
             "model": "Battery Module",
-            "serial_number": battery_number,
             "sw_version": battery_firmware,
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }
