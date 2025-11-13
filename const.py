@@ -1681,6 +1681,7 @@ WORKING_MODES = {
 
 # SOC Limit Parameters
 # These parameters control battery state of charge thresholds for charging and discharging
+# Note: No entity_category set - these appear in Controls section like System Charge SOC Limit
 SOC_LIMIT_PARAMS = {
     'ac_charge_soc_limit': {
         'name': 'AC Charge SOC Limit',
@@ -1691,7 +1692,6 @@ SOC_LIMIT_PARAMS = {
         'max': 100,
         'step': 1,
         'unit': '%',
-        'entity_category': EntityCategory.CONFIG
     },
     'on_grid_soc_cutoff': {
         'name': 'On-Grid SOC Cut-Off',
@@ -1702,7 +1702,6 @@ SOC_LIMIT_PARAMS = {
         'max': 100,
         'step': 1,
         'unit': '%',
-        'entity_category': EntityCategory.CONFIG
     },
     'off_grid_soc_cutoff': {
         'name': 'Off-Grid SOC Cut-Off',
@@ -1713,7 +1712,6 @@ SOC_LIMIT_PARAMS = {
         'max': 100,
         'step': 1,
         'unit': '%',
-        'entity_category': EntityCategory.CONFIG
     },
 }
 

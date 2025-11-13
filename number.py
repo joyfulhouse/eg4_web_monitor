@@ -1205,7 +1205,6 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 0
-        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = coordinator.get_device_info(serial)
@@ -1452,7 +1451,6 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-alert"
         self._attr_native_precision = 0
-        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = coordinator.get_device_info(serial)
@@ -1699,7 +1697,6 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-outline"
         self._attr_native_precision = 0
-        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = coordinator.get_device_info(serial)
