@@ -16,7 +16,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SENSOR_TYPES
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -176,16 +175,16 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         device_data = self.coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
 
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = self._sensor_config.get("name", sensor_key)
+
+        # Keep entity_id for backwards compatibility
         if device_type == "gridboss":
-            self._attr_name = self._sensor_config.get("name", sensor_key)
             self._attr_entity_id = f"sensor.eg4_gridboss_{serial}_{sensor_key}"
         elif device_type == "parallel_group":
-            self._attr_name = f"{model} {self._sensor_config.get('name', sensor_key)}"
             self._attr_entity_id = f"sensor.eg4_parallel_group_{sensor_key}"
         else:
-            self._attr_name = (
-                f"{model} {serial} {self._sensor_config.get('name', sensor_key)}"
-            )
             model_clean = model.lower().replace(" ", "_")
             self._attr_entity_id = f"sensor.eg4_{model_clean}_{serial}_{sensor_key}"
 
@@ -267,13 +266,14 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         device_data = self.coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
 
-        # Clean up battery display name to remove redundant serial numbers
-        clean_battery_name = clean_battery_display_name(battery_key, serial)
+        # Clean up battery ID for entity ID generation
         clean_battery_id = battery_key.replace("_", "").lower()
 
-        self._attr_name = (
-            f"Battery {clean_battery_name} {self._sensor_config.get('name', sensor_key)}"
-        )
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = self._sensor_config.get("name", sensor_key)
+
+        # Keep entity_id for backwards compatibility
         model_clean = model.lower().replace(" ", "_")
         self._attr_entity_id = (
             f"sensor.eg4_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
@@ -355,12 +355,13 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
         self._serial = serial
         self._battery_key = battery_key
 
-        # Clean up battery display name to remove redundant serial numbers
-        clean_battery_name = clean_battery_display_name(battery_key, serial)
+        # Clean up battery ID for entity ID generation
         clean_battery_id = battery_key.replace("_", "").replace("-", "").lower()
 
         # Entity configuration
-        self._attr_name = f"Battery {clean_battery_name} Cell Voltage Delta"
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Cell Voltage Delta"
         self._attr_unique_id = f"{serial}_{battery_key}_cell_voltage_delta"
         serial_clean = serial.lower()
         self._attr_entity_id = (

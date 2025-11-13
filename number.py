@@ -86,8 +86,9 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         # Clean model name for entity ID - following same pattern as sensors
         clean_model = model.lower().replace(" ", "_").replace("-", "_")
 
-        # Set entity attributes - unique_id is key for proper entity registration
-        self._attr_name = f"{clean_model} {serial.lower()} System Charge SOC Limit"
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "System Charge SOC Limit"
         self._attr_unique_id = f"{clean_model}_{serial.lower()}_system_charge_soc_limit"
 
         _LOGGER.debug(
@@ -400,8 +401,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         # Entity configuration
         clean_model = model.lower().replace(" ", "_").replace("-", "_")
 
-        # Set entity attributes
-        self._attr_name = f"{clean_model} {serial.lower()} AC Charge Power"
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "AC Charge Power"
         self._attr_unique_id = f"{clean_model}_{serial.lower()}_ac_charge_power"
 
         _LOGGER.debug(
@@ -669,8 +671,9 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         # Entity configuration
         clean_model = model.lower().replace(" ", "_").replace("-", "_")
 
-        # Set entity attributes
-        self._attr_name = f"{clean_model} {serial.lower()} PV Charge Power"
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "PV Charge Power"
         self._attr_unique_id = f"{clean_model}_{serial.lower()}_pv_charge_power"
 
         _LOGGER.debug(
@@ -913,8 +916,9 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         # Entity configuration
         clean_model = model.lower().replace(" ", "_").replace("-", "_")
 
-        # Set entity attributes
-        self._attr_name = f"{clean_model} {serial.lower()} Grid Peak Shaving Power"
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Grid Peak Shaving Power"
         self._attr_unique_id = f"{clean_model}_{serial.lower()}_grid_peak_shaving_power"
 
         _LOGGER.debug(
