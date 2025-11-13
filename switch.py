@@ -9,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import EG4ConfigEntry
-from .const import DOMAIN, WORKING_MODES, FUNCTION_PARAM_MAPPING
+from .const import WORKING_MODES, FUNCTION_PARAM_MAPPING
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,
@@ -52,7 +52,9 @@ async def async_setup_entry(
             _LOGGER.info(
                 "Evaluating switch compatibility for device %s: "
                 "model='%s' (original), model_lower='%s'",
-                serial, model, model_lower
+                serial,
+                model,
+                model_lower,
             )
 
             # Check if device model is known to support switch functions
@@ -63,44 +65,61 @@ async def async_setup_entry(
                 # Add quick charge switch
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
                 _LOGGER.info(
-                    "✅ Added quick charge switch for compatible device %s (%s)", serial, model
+                    "✅ Added quick charge switch for compatible device %s (%s)",
+                    serial,
+                    model,
                 )
 
                 # Add battery backup switch (EPS) - XP devices do not support this
                 if not any(xp_model in model_lower for xp_model in ["xp"]):
-                    entities.append(EG4BatteryBackupSwitch(coordinator, serial, device_data))
+                    entities.append(
+                        EG4BatteryBackupSwitch(coordinator, serial, device_data)
+                    )
                     _LOGGER.info(
-                        "✅ Added battery backup switch for compatible device %s (%s)", serial, model
+                        "✅ Added battery backup switch for compatible device %s (%s)",
+                        serial,
+                        model,
                     )
                 else:
                     _LOGGER.info(
                         "⚠️ Skipping battery backup switch for XP device %s (%s) - "
                         "XP devices do not support EPS functionality",
-                        serial, model
+                        serial,
+                        model,
                     )
                 # Add working mode switches
                 for mode_config in WORKING_MODES.values():
-                    entities.append(EG4WorkingModeSwitch(
-                        coordinator=coordinator,
-                        device_info=device_info,
-                        serial_number=serial,
-                        mode_config=mode_config
-                    ))
+                    entities.append(
+                        EG4WorkingModeSwitch(
+                            coordinator=coordinator,
+                            device_info=device_info,
+                            serial_number=serial,
+                            mode_config=mode_config,
+                        )
+                    )
                     _LOGGER.info(
                         "✅ Added working mode switch '%s' for compatible device %s (%s)",
-                        mode_config['name'], serial, model
+                        mode_config["name"],
+                        serial,
+                        model,
                     )
             else:
                 _LOGGER.warning(
                     "❌ Skipping switches for device %s (%s) - "
                     "model not in supported list %s",
-                    serial, model, supported_models
+                    serial,
+                    model,
+                    supported_models,
                 )
         else:
-            _LOGGER.debug("Skipping device %s - not an inverter (type: %s)", serial, device_type)
+            _LOGGER.debug(
+                "Skipping device %s - not an inverter (type: %s)", serial, device_type
+            )
 
     if entities:
-        _LOGGER.info("Adding %d switch entities (quick charge and battery backup)", len(entities))
+        _LOGGER.info(
+            "Adding %d switch entities (quick charge and battery backup)", len(entities)
+        )
         async_add_entities(entities)
     else:
         _LOGGER.info("No switch entities to add")
@@ -130,7 +149,9 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "quick_charge")
-        self._attr_entity_id = generate_entity_id("switch", self._model, serial, "quick_charge")
+        self._attr_entity_id = generate_entity_id(
+            "switch", self._model, serial, "quick_charge"
+        )
 
         # Set device attributes
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -155,7 +176,9 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
             if quick_charge_status and isinstance(quick_charge_status, dict):
                 # Parse the hasUnclosedQuickChargeTask field from getStatusInfo response
-                has_unclosed_task = quick_charge_status.get("hasUnclosedQuickChargeTask")
+                has_unclosed_task = quick_charge_status.get(
+                    "hasUnclosedQuickChargeTask"
+                )
                 if has_unclosed_task is not None:
                     return bool(has_unclosed_task)
 
@@ -209,14 +232,18 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
             # Call the API
             await self.coordinator.api.start_quick_charge(self._serial)
-            _LOGGER.info("Successfully started quick charge for device %s", self._serial)
+            _LOGGER.info(
+                "Successfully started quick charge for device %s", self._serial
+            )
 
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
             await self.coordinator.async_request_refresh()
 
         except Exception as e:
-            _LOGGER.error("Failed to start quick charge for device %s: %s", self._serial, e)
+            _LOGGER.error(
+                "Failed to start quick charge for device %s: %s", self._serial, e
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
@@ -233,14 +260,18 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
 
             # Call the API
             await self.coordinator.api.stop_quick_charge(self._serial)
-            _LOGGER.info("Successfully stopped quick charge for device %s", self._serial)
+            _LOGGER.info(
+                "Successfully stopped quick charge for device %s", self._serial
+            )
 
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
             await self.coordinator.async_request_refresh()
 
         except Exception as e:
-            _LOGGER.error("Failed to stop quick charge for device %s: %s", self._serial, e)
+            _LOGGER.error(
+                "Failed to stop quick charge for device %s: %s", self._serial, e
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
@@ -271,7 +302,9 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "battery_backup")
-        self._attr_entity_id = generate_entity_id("switch", self._model, serial, "battery_backup")
+        self._attr_entity_id = generate_entity_id(
+            "switch", self._model, serial, "battery_backup"
+        )
 
         # Set device attributes
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -329,7 +362,11 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
                     attributes["status_error"] = error
 
         # Fallback: Add parameter details if available
-        if not attributes and self.coordinator.data and "parameters" in self.coordinator.data:
+        if (
+            not attributes
+            and self.coordinator.data
+            and "parameters" in self.coordinator.data
+        ):
             device_params = self.coordinator.data["parameters"].get(self._serial, {})
             func_eps_en = device_params.get("FUNC_EPS_EN")
 
@@ -363,14 +400,18 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
 
             # Call the API
             await self.coordinator.api.enable_battery_backup(self._serial)
-            _LOGGER.info("Successfully enabled battery backup for device %s", self._serial)
+            _LOGGER.info(
+                "Successfully enabled battery backup for device %s", self._serial
+            )
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None
             await self.coordinator.async_refresh_device_parameters(self._serial)
 
         except Exception as e:
-            _LOGGER.error("Failed to enable battery backup for device %s: %s", self._serial, e)
+            _LOGGER.error(
+                "Failed to enable battery backup for device %s: %s", self._serial, e
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
@@ -387,14 +428,18 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
 
             # Call the API
             await self.coordinator.api.disable_battery_backup(self._serial)
-            _LOGGER.info("Successfully disabled battery backup for device %s", self._serial)
+            _LOGGER.info(
+                "Successfully disabled battery backup for device %s", self._serial
+            )
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None
             await self.coordinator.async_refresh_device_parameters(self._serial)
 
         except Exception as e:
-            _LOGGER.error("Failed to disable battery backup for device %s: %s", self._serial, e)
+            _LOGGER.error(
+                "Failed to disable battery backup for device %s: %s", self._serial, e
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
@@ -419,44 +464,55 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
 
         # Set entity attributes using consolidated utilities
-        param_clean = self._mode_config['param'].lower().replace('func_', '')
+        param_clean = self._mode_config["param"].lower().replace("func_", "")
         # Modern entity naming - let Home Assistant combine device name + entity name
         self._attr_has_entity_name = True
-        self._attr_name = self._mode_config['name']
-        self._attr_unique_id = generate_unique_id(serial_number, self._mode_config['param'].lower())
-        self._attr_entity_id = generate_entity_id("switch", self._model, serial_number, param_clean)
-        self._attr_entity_category = self._mode_config['entity_category']
-        self._attr_icon = self._mode_config.get('icon', 'mdi:toggle-switch')
+        self._attr_name = self._mode_config["name"]
+        self._attr_unique_id = generate_unique_id(
+            serial_number, self._mode_config["param"].lower()
+        )
+        self._attr_entity_id = generate_entity_id(
+            "switch", self._model, serial_number, param_clean
+        )
+        self._attr_entity_category = self._mode_config["entity_category"]
+        self._attr_icon = self._mode_config.get("icon", "mdi:toggle-switch")
 
         # Device info for grouping using consolidated utility
         self._attr_device_info = create_device_info(serial_number, self._model)
+
     @property
     def is_on(self) -> bool:
         """Return if the switch is on."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
-            _LOGGER.debug("Working mode switch %s using optimistic state: %s",
-                         self._mode_config['param'], self._optimistic_state)
+            _LOGGER.debug(
+                "Working mode switch %s using optimistic state: %s",
+                self._mode_config["param"],
+                self._optimistic_state,
+            )
             return self._optimistic_state
 
         state = self._coordinator.get_working_mode_state(
-            self._serial_number,
-            self._mode_config['param']
+            self._serial_number, self._mode_config["param"]
         )
-        _LOGGER.debug("Working mode switch %s (%s) current state: %s",
-                     self._mode_config['param'], self._serial_number, state)
+        _LOGGER.debug(
+            "Working mode switch %s (%s) current state: %s",
+            self._mode_config["param"],
+            self._serial_number,
+            state,
+        )
         return state
 
     @property
     def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
         """Return extra state attributes."""
         attributes = {
-            "description": self._mode_config['description'],
-            "function_parameter": self._mode_config['param']
+            "description": self._mode_config["description"],
+            "function_parameter": self._mode_config["param"],
         }
 
         # Add parameter register information
-        param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config['param'])
+        param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config["param"])
         if param_key:
             attributes["parameter_register"] = param_key
 
@@ -475,60 +531,78 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             # Only available for inverter devices (not GridBOSS)
             return device_data.get("type") == "inverter"
         return False
+
     async def async_turn_on(self, **kwargs) -> None:  # pylint: disable=unused-argument
         """Turn the switch on."""
         try:
-            _LOGGER.debug("Enabling working mode %s for device %s",
-                         self._mode_config['param'], self._serial_number)
+            _LOGGER.debug(
+                "Enabling working mode %s for device %s",
+                self._mode_config["param"],
+                self._serial_number,
+            )
 
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = True
             self.async_write_ha_state()
 
             await self._coordinator.set_working_mode(
-                self._serial_number,
-                self._mode_config['param'],
-                True
+                self._serial_number, self._mode_config["param"], True
             )
-            _LOGGER.info("Successfully enabled working mode %s for device %s",
-                        self._mode_config['param'], self._serial_number)
+            _LOGGER.info(
+                "Successfully enabled working mode %s for device %s",
+                self._mode_config["param"],
+                self._serial_number,
+            )
 
             # Clear optimistic state and force entity update
             self._optimistic_state = None
             self.async_write_ha_state()
 
         except Exception as e:
-            _LOGGER.error("Failed to enable working mode %s for device %s: %s",
-                         self._mode_config['param'], self._serial_number, e)
+            _LOGGER.error(
+                "Failed to enable working mode %s for device %s: %s",
+                self._mode_config["param"],
+                self._serial_number,
+                e,
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()
             raise
+
     async def async_turn_off(self, **kwargs) -> None:  # pylint: disable=unused-argument
         """Turn the switch off."""
         try:
-            _LOGGER.debug("Disabling working mode %s for device %s",
-                         self._mode_config['param'], self._serial_number)
+            _LOGGER.debug(
+                "Disabling working mode %s for device %s",
+                self._mode_config["param"],
+                self._serial_number,
+            )
 
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = False
             self.async_write_ha_state()
 
             await self._coordinator.set_working_mode(
-                self._serial_number,
-                self._mode_config['param'],
-                False
+                self._serial_number, self._mode_config["param"], False
             )
-            _LOGGER.info("Successfully disabled working mode %s for device %s",
-                        self._mode_config['param'], self._serial_number)
+            _LOGGER.info(
+                "Successfully disabled working mode %s for device %s",
+                self._mode_config["param"],
+                self._serial_number,
+            )
 
             # Clear optimistic state and force entity update
             self._optimistic_state = None
             self.async_write_ha_state()
 
         except Exception as e:
-            _LOGGER.error("Failed to disable working mode %s for device %s: %s",
-                         self._mode_config['param'], self._serial_number, e)
+            _LOGGER.error(
+                "Failed to disable working mode %s for device %s: %s",
+                self._mode_config["param"],
+                self._serial_number,
+                e,
+            )
             # Revert optimistic state on error
             self._optimistic_state = None
             self.async_write_ha_state()

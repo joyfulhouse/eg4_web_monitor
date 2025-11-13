@@ -12,7 +12,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.exceptions import HomeAssistantError
 
 from . import EG4ConfigEntry
-from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import read_device_parameters_ranges, process_parameter_responses
 
@@ -44,7 +43,9 @@ async def async_setup_entry(
             _LOGGER.info(
                 "Evaluating number entity compatibility for device %s: "
                 "model='%s' (original), model_lower='%s'",
-                serial, model, model_lower
+                serial,
+                model,
+                model_lower,
             )
 
             # Check if device model is known to support number entities
@@ -61,13 +62,17 @@ async def async_setup_entry(
                 entities.append(OnGridSOCCutoffNumber(coordinator, serial))
                 entities.append(OffGridSOCCutoffNumber(coordinator, serial))
                 _LOGGER.info(
-                    "✅ Added number entities for compatible device %s (%s)", serial, model
+                    "✅ Added number entities for compatible device %s (%s)",
+                    serial,
+                    model,
                 )
             else:
                 _LOGGER.warning(
                     "❌ Skipping number entities for device %s (%s) - "
                     "model not in supported list %s",
-                    serial, model, supported_models
+                    serial,
+                    model,
+                    supported_models,
                 )
 
     if entities:
@@ -152,7 +157,9 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "HOLD_SYSTEM_CHARGE_SOC_LIMIT" in parameter_data:
                     raw_value = parameter_data["HOLD_SYSTEM_CHARGE_SOC_LIMIT"]
                     if raw_value is not None:
@@ -312,21 +319,25 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                     "No successful parameter responses received for %s (%d/%d failed). "
                     "API communication issues detected. HOLD_SYSTEM_CHARGE_SOC_LIMIT is typically "
                     "available in register 127-254 range. Will retry on next update cycle.",
-                    self.serial, total_responses, total_responses
+                    self.serial,
+                    total_responses,
+                    total_responses,
                 )
             else:
                 _LOGGER.info(
                     "HOLD_SYSTEM_CHARGE_SOC_LIMIT parameter not found for %s "
                     "in %d successful parameter responses. "
                     "This may be a device model compatibility issue.",
-                    self.serial, successful_responses
+                    self.serial,
+                    successful_responses,
                 )
 
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read SOC limit for %s due to: %s. "
                 "This is typically caused by temporary API issues. Will retry automatically.",
-                self.serial, e
+                self.serial,
+                e,
             )
 
         return None
@@ -386,7 +397,8 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             else:
                 # Leave current_value as None to show as unavailable
                 _LOGGER.debug(
-                    "Could not read SOC limit for %s, will show as unavailable", self.serial
+                    "Could not read SOC limit for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
             _LOGGER.error("Failed to initialize SOC limit for %s: %s", self.serial, e)
@@ -415,7 +427,11 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating AC Charge Power entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for AC Charge Power (0-15 kW)
@@ -470,7 +486,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
 
             # Validate that the input is actually an integer
             if abs(value - int_value) > 0.01:
-                raise ValueError(f"AC charge power must be an integer value, got {value}")
+                raise ValueError(
+                    f"AC charge power must be an integer value, got {value}"
+                )
 
             _LOGGER.info(
                 "Setting AC Charge Power for %s to %d kW", self.serial, int_value
@@ -483,7 +501,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(int_value),
             )
 
-            _LOGGER.debug("AC Charge Power write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "AC Charge Power write response for %s: %s", self.serial, response
+            )
 
             # Check if the write was successful
             if response.get("success", False):
@@ -501,16 +521,15 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set AC Charge Power for %s to %d kW",
-                    self.serial, int_value,
+                    self.serial,
+                    int_value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
                 raise HomeAssistantError(f"Failed to set AC charge power: {error_msg}")
 
         except Exception as e:
-            _LOGGER.error(
-                "Failed to set AC Charge Power for %s: %s", self.serial, e
-            )
+            _LOGGER.error("Failed to set AC Charge Power for %s: %s", self.serial, e)
             raise HomeAssistantError(f"Failed to set AC charge power: {e}") from e
 
     async def _refresh_all_parameters_and_entities(self) -> None:
@@ -556,7 +575,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "AC charge power for %s updated from %s kW to %s kW",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
@@ -587,7 +608,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read AC charge power for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -607,18 +630,24 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
                 if 0 <= int_value <= 15:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_AC_CHARGE_POWER_CMD for %s (reg %d): %d kW",
-                        self.serial, start_register, int_value,
+                        self.serial,
+                        start_register,
+                        int_value,
                     )
                     return int_value
 
                 _LOGGER.warning(
                     "HOLD_AC_CHARGE_POWER_CMD for %s (reg %d) out of range: %d kW",
-                    self.serial, start_register, int_value,
+                    self.serial,
+                    start_register,
+                    int_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse HOLD_AC_CHARGE_POWER_CMD for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -627,7 +656,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "HOLD_AC_CHARGE_POWER_CMD" in parameter_data:
                     raw_value = parameter_data["HOLD_AC_CHARGE_POWER_CMD"]
                     if raw_value is not None:
@@ -656,10 +687,13 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
             else:
                 # Leave current_value as None to show as unavailable
                 _LOGGER.debug(
-                    "Could not read AC charge power for %s, will show as unavailable", self.serial
+                    "Could not read AC charge power for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize AC charge power for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize AC charge power for %s: %s", self.serial, e
+            )
             # Leave current_value as None to show as unavailable
 
 
@@ -685,7 +719,11 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating PV Charge Power entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for PV Charge Power (0-15 kW)
@@ -730,7 +768,9 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
 
             # Validate that the input is actually an integer
             if abs(value - int_value) > 0.01:
-                raise ValueError(f"PV charge power must be an integer value, got {value}")
+                raise ValueError(
+                    f"PV charge power must be an integer value, got {value}"
+                )
 
             _LOGGER.info(
                 "Setting PV Charge Power for %s to %d kW", self.serial, int_value
@@ -743,7 +783,9 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(int_value),
             )
 
-            _LOGGER.debug("PV Charge Power write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "PV Charge Power write response for %s: %s", self.serial, response
+            )
 
             # Check if the write was successful
             if response.get("success", False):
@@ -761,16 +803,15 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set PV Charge Power for %s to %d kW",
-                    self.serial, int_value,
+                    self.serial,
+                    int_value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
                 raise HomeAssistantError(f"Failed to set PV charge power: {error_msg}")
 
         except Exception as e:
-            _LOGGER.error(
-                "Failed to set PV Charge Power for %s: %s", self.serial, e
-            )
+            _LOGGER.error("Failed to set PV Charge Power for %s: %s", self.serial, e)
             raise HomeAssistantError(f"Failed to set PV charge power: {e}") from e
 
     async def _refresh_all_parameters_and_entities(self) -> None:
@@ -816,7 +857,9 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "PV charge power for %s updated from %s kW to %s kW",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
@@ -847,7 +890,9 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read PV charge power for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -867,18 +912,24 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
                 if 0 <= int_value <= 15:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_FORCED_CHG_POWER_CMD for %s (reg %d): %d kW",
-                        self.serial, start_register, int_value,
+                        self.serial,
+                        start_register,
+                        int_value,
                     )
                     return int_value
 
                 _LOGGER.warning(
                     "HOLD_FORCED_CHG_POWER_CMD for %s (reg %d) out of range: %d kW",
-                    self.serial, start_register, int_value,
+                    self.serial,
+                    start_register,
+                    int_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse HOLD_FORCED_CHG_POWER_CMD for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -901,10 +952,13 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
             else:
                 # Leave current_value as None to show as unavailable
                 _LOGGER.debug(
-                    "Could not read PV charge power for %s, will show as unavailable", self.serial
+                    "Could not read PV charge power for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize PV charge power for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize PV charge power for %s: %s", self.serial, e
+            )
             # Leave current_value as None to show as unavailable
 
 
@@ -930,7 +984,11 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating Grid Peak Shaving Power entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for Grid Peak Shaving Power (0.0-25.5 kW)
@@ -996,7 +1054,11 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(value),
             )
 
-            _LOGGER.debug("Grid Peak Shaving Power write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "Grid Peak Shaving Power write response for %s: %s",
+                self.serial,
+                response,
+            )
 
             # Check if the write was successful
             if response.get("success", False):
@@ -1014,17 +1076,22 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set Grid Peak Shaving Power for %s to %.1f kW",
-                    self.serial, value,
+                    self.serial,
+                    value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set grid peak shaving power: {error_msg}")
+                raise HomeAssistantError(
+                    f"Failed to set grid peak shaving power: {error_msg}"
+                )
 
         except Exception as e:
             _LOGGER.error(
                 "Failed to set Grid Peak Shaving Power for %s: %s", self.serial, e
             )
-            raise HomeAssistantError(f"Failed to set grid peak shaving power: {e}") from e
+            raise HomeAssistantError(
+                f"Failed to set grid peak shaving power: {e}"
+            ) from e
 
     async def _refresh_all_parameters_and_entities(self) -> None:
         """Refresh parameters for all inverters and update all peak shaving power entities."""
@@ -1069,11 +1136,15 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "Grid peak shaving power for %s updated from %s kW to %s kW",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
-            _LOGGER.error("Failed to update grid peak shaving power for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to update grid peak shaving power for %s: %s", self.serial, e
+            )
 
         await self.coordinator.async_request_refresh()
 
@@ -1100,7 +1171,9 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read grid peak shaving power for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -1119,18 +1192,24 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
                 if 0.0 <= raw_value <= 25.5:  # Validate range
                     _LOGGER.info(
                         "Found _12K_HOLD_GRID_PEAK_SHAVING_POWER for %s (reg %d): %.1f kW",
-                        self.serial, start_register, raw_value,
+                        self.serial,
+                        start_register,
+                        raw_value,
                     )
                     return raw_value
 
                 _LOGGER.warning(
                     "_12K_HOLD_GRID_PEAK_SHAVING_POWER for %s (reg %d) out of range: %.1f kW",
-                    self.serial, start_register, raw_value,
+                    self.serial,
+                    start_register,
+                    raw_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse _12K_HOLD_GRID_PEAK_SHAVING_POWER for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -1139,7 +1218,9 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "_12K_HOLD_GRID_PEAK_SHAVING_POWER" in parameter_data:
                     raw_value = parameter_data["_12K_HOLD_GRID_PEAK_SHAVING_POWER"]
                     if raw_value is not None:
@@ -1163,15 +1244,22 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
                 self._current_value = current_value
                 self.async_write_ha_state()
                 _LOGGER.info(
-                    "Loaded grid peak shaving power for %s: %.1f kW", self.serial, current_value
+                    "Loaded grid peak shaving power for %s: %.1f kW",
+                    self.serial,
+                    current_value,
                 )
             else:
                 # Leave current_value as None to show as unavailable
                 _LOGGER.debug(
-                    "Could not read grid peak shaving power for %s, will show as unavailable", self.serial
+                    "Could not read grid peak shaving power for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize grid peak shaving power for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize grid peak shaving power for %s: %s",
+                self.serial,
+                e,
+            )
             # Leave current_value as None to show as unavailable
 
 
@@ -1197,7 +1285,11 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating AC Charge SOC Limit entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for AC Charge SOC Limit (0-100%)
@@ -1239,7 +1331,9 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "HOLD_AC_CHARGE_SOC_LIMIT" in parameter_data:
                     raw_value = parameter_data["HOLD_AC_CHARGE_SOC_LIMIT"]
                     if raw_value is not None:
@@ -1260,7 +1354,9 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 )
 
             if abs(value - int_value) > 0.01:
-                raise ValueError(f"AC charge SOC limit must be an integer value, got {value}")
+                raise ValueError(
+                    f"AC charge SOC limit must be an integer value, got {value}"
+                )
 
             _LOGGER.info(
                 "Setting AC Charge SOC Limit for %s to %d%%", self.serial, int_value
@@ -1272,7 +1368,9 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(int_value),
             )
 
-            _LOGGER.debug("AC Charge SOC Limit write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "AC Charge SOC Limit write response for %s: %s", self.serial, response
+            )
 
             if response.get("success", False):
                 self._current_value = value
@@ -1287,11 +1385,14 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set AC Charge SOC Limit for %s to %d%%",
-                    self.serial, int_value,
+                    self.serial,
+                    int_value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set AC charge SOC limit: {error_msg}")
+                raise HomeAssistantError(
+                    f"Failed to set AC charge SOC limit: {error_msg}"
+                )
 
         except Exception as e:
             _LOGGER.error(
@@ -1309,7 +1410,14 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 soc_entities = [
                     entity
                     for entity in platform.entities.values()
-                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                    if isinstance(
+                        entity,
+                        (
+                            ACChargeSOCLimitNumber,
+                            OnGridSOCCutoffNumber,
+                            OffGridSOCCutoffNumber,
+                        ),
+                    )
                 ]
 
                 _LOGGER.info(
@@ -1335,11 +1443,15 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "AC charge SOC limit for %s updated from %s%% to %s%%",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
-            _LOGGER.error("Failed to update AC charge SOC limit for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to update AC charge SOC limit for %s: %s", self.serial, e
+            )
 
         await self.coordinator.async_request_refresh()
 
@@ -1363,7 +1475,9 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read AC charge SOC limit for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -1383,18 +1497,24 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 if 0 <= int_value <= 100:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d): %d%%",
-                        self.serial, start_register, int_value,
+                        self.serial,
+                        start_register,
+                        int_value,
                     )
                     return int_value
 
                 _LOGGER.warning(
                     "HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d) out of range: %d%%",
-                    self.serial, start_register, int_value,
+                    self.serial,
+                    start_register,
+                    int_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -1411,14 +1531,19 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 self._current_value = current_value
                 self.async_write_ha_state()
                 _LOGGER.info(
-                    "Loaded AC charge SOC limit for %s: %s%%", self.serial, current_value
+                    "Loaded AC charge SOC limit for %s: %s%%",
+                    self.serial,
+                    current_value,
                 )
             else:
                 _LOGGER.debug(
-                    "Could not read AC charge SOC limit for %s, will show as unavailable", self.serial
+                    "Could not read AC charge SOC limit for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize AC charge SOC limit for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize AC charge SOC limit for %s: %s", self.serial, e
+            )
 
 
 class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
@@ -1443,7 +1568,11 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating On-Grid SOC Cut-Off entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for On-Grid SOC Cut-Off (0-100%)
@@ -1485,7 +1614,9 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "HOLD_DISCHG_CUT_OFF_SOC_EOD" in parameter_data:
                     raw_value = parameter_data["HOLD_DISCHG_CUT_OFF_SOC_EOD"]
                     if raw_value is not None:
@@ -1506,7 +1637,9 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 )
 
             if abs(value - int_value) > 0.01:
-                raise ValueError(f"On-grid SOC cutoff must be an integer value, got {value}")
+                raise ValueError(
+                    f"On-grid SOC cutoff must be an integer value, got {value}"
+                )
 
             _LOGGER.info(
                 "Setting On-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
@@ -1518,7 +1651,9 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(int_value),
             )
 
-            _LOGGER.debug("On-Grid SOC Cut-Off write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "On-Grid SOC Cut-Off write response for %s: %s", self.serial, response
+            )
 
             if response.get("success", False):
                 self._current_value = value
@@ -1533,11 +1668,14 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set On-Grid SOC Cut-Off for %s to %d%%",
-                    self.serial, int_value,
+                    self.serial,
+                    int_value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set on-grid SOC cutoff: {error_msg}")
+                raise HomeAssistantError(
+                    f"Failed to set on-grid SOC cutoff: {error_msg}"
+                )
 
         except Exception as e:
             _LOGGER.error(
@@ -1555,7 +1693,14 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 soc_entities = [
                     entity
                     for entity in platform.entities.values()
-                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                    if isinstance(
+                        entity,
+                        (
+                            ACChargeSOCLimitNumber,
+                            OnGridSOCCutoffNumber,
+                            OffGridSOCCutoffNumber,
+                        ),
+                    )
                 ]
 
                 _LOGGER.info(
@@ -1581,11 +1726,15 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "On-grid SOC cutoff for %s updated from %s%% to %s%%",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
-            _LOGGER.error("Failed to update on-grid SOC cutoff for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to update on-grid SOC cutoff for %s: %s", self.serial, e
+            )
 
         await self.coordinator.async_request_refresh()
 
@@ -1609,7 +1758,9 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read on-grid SOC cutoff for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -1629,18 +1780,24 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 if 0 <= int_value <= 100:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d): %d%%",
-                        self.serial, start_register, int_value,
+                        self.serial,
+                        start_register,
+                        int_value,
                     )
                     return int_value
 
                 _LOGGER.warning(
                     "HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d) out of range: %d%%",
-                    self.serial, start_register, int_value,
+                    self.serial,
+                    start_register,
+                    int_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -1661,10 +1818,13 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 )
             else:
                 _LOGGER.debug(
-                    "Could not read on-grid SOC cutoff for %s, will show as unavailable", self.serial
+                    "Could not read on-grid SOC cutoff for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize on-grid SOC cutoff for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize on-grid SOC cutoff for %s: %s", self.serial, e
+            )
 
 
 class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
@@ -1689,7 +1849,11 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
 
         _LOGGER.debug(
             "Creating Off-Grid SOC Cut-Off entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
-            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
         )
 
         # Number configuration for Off-Grid SOC Cut-Off (0-100%)
@@ -1731,7 +1895,9 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         """Get the current value from coordinator's parameter data."""
         try:
             if "parameters" in self.coordinator.data:
-                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
                 if "HOLD_SOC_LOW_LIMIT_EPS_DISCHG" in parameter_data:
                     raw_value = parameter_data["HOLD_SOC_LOW_LIMIT_EPS_DISCHG"]
                     if raw_value is not None:
@@ -1752,7 +1918,9 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 )
 
             if abs(value - int_value) > 0.01:
-                raise ValueError(f"Off-grid SOC cutoff must be an integer value, got {value}")
+                raise ValueError(
+                    f"Off-grid SOC cutoff must be an integer value, got {value}"
+                )
 
             _LOGGER.info(
                 "Setting Off-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
@@ -1764,7 +1932,9 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 value_text=str(int_value),
             )
 
-            _LOGGER.debug("Off-Grid SOC Cut-Off write response for %s: %s", self.serial, response)
+            _LOGGER.debug(
+                "Off-Grid SOC Cut-Off write response for %s: %s", self.serial, response
+            )
 
             if response.get("success", False):
                 self._current_value = value
@@ -1779,11 +1949,14 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
 
                 _LOGGER.info(
                     "Successfully set Off-Grid SOC Cut-Off for %s to %d%%",
-                    self.serial, int_value,
+                    self.serial,
+                    int_value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set off-grid SOC cutoff: {error_msg}")
+                raise HomeAssistantError(
+                    f"Failed to set off-grid SOC cutoff: {error_msg}"
+                )
 
         except Exception as e:
             _LOGGER.error(
@@ -1801,7 +1974,14 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 soc_entities = [
                     entity
                     for entity in platform.entities.values()
-                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                    if isinstance(
+                        entity,
+                        (
+                            ACChargeSOCLimitNumber,
+                            OnGridSOCCutoffNumber,
+                            OffGridSOCCutoffNumber,
+                        ),
+                    )
                 ]
 
                 _LOGGER.info(
@@ -1827,11 +2007,15 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
             if current_value is not None and current_value != self._current_value:
                 _LOGGER.debug(
                     "Off-grid SOC cutoff for %s updated from %s%% to %s%%",
-                    self.serial, self._current_value, current_value,
+                    self.serial,
+                    self._current_value,
+                    current_value,
                 )
                 self._current_value = current_value
         except Exception as e:
-            _LOGGER.error("Failed to update off-grid SOC cutoff for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to update off-grid SOC cutoff for %s: %s", self.serial, e
+            )
 
         await self.coordinator.async_request_refresh()
 
@@ -1855,7 +2039,9 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.warning(
                 "Failed to read off-grid SOC cutoff for %s due to: %s. "
-                "Will retry automatically.", self.serial, e
+                "Will retry automatically.",
+                self.serial,
+                e,
             )
 
         return None
@@ -1875,18 +2061,24 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 if 0 <= int_value <= 100:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d): %d%%",
-                        self.serial, start_register, int_value,
+                        self.serial,
+                        start_register,
+                        int_value,
                     )
                     return int_value
 
                 _LOGGER.warning(
                     "HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d) out of range: %d%%",
-                    self.serial, start_register, int_value,
+                    self.serial,
+                    start_register,
+                    int_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "Failed to parse HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d): %s",
-                    self.serial, start_register, e,
+                    self.serial,
+                    start_register,
+                    e,
                 )
 
         return None
@@ -1903,11 +2095,16 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 self._current_value = current_value
                 self.async_write_ha_state()
                 _LOGGER.info(
-                    "Loaded off-grid SOC cutoff for %s: %s%%", self.serial, current_value
+                    "Loaded off-grid SOC cutoff for %s: %s%%",
+                    self.serial,
+                    current_value,
                 )
             else:
                 _LOGGER.debug(
-                    "Could not read off-grid SOC cutoff for %s, will show as unavailable", self.serial
+                    "Could not read off-grid SOC cutoff for %s, will show as unavailable",
+                    self.serial,
                 )
         except Exception as e:
-            _LOGGER.error("Failed to initialize off-grid SOC cutoff for %s: %s", self.serial, e)
+            _LOGGER.error(
+                "Failed to initialize off-grid SOC cutoff for %s: %s", self.serial, e
+            )

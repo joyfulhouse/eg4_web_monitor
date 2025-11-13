@@ -29,19 +29,25 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor button entities."""
-    _LOGGER.info("Setting up EG4 Web Monitor button entities for entry %s", entry.entry_id)
+    _LOGGER.info(
+        "Setting up EG4 Web Monitor button entities for entry %s", entry.entry_id
+    )
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     entities: List[ButtonEntity] = []
 
     if not coordinator.data or "devices" not in coordinator.data:
         _LOGGER.warning(
-            "No device data available for button setup - coordinator.data: %s", coordinator.data
+            "No device data available for button setup - coordinator.data: %s",
+            coordinator.data,
         )
         return
 
-    _LOGGER.info("Found %d devices for button setup: %s",
-                 len(coordinator.data["devices"]), list(coordinator.data["devices"].keys()))
+    _LOGGER.info(
+        "Found %d devices for button setup: %s",
+        len(coordinator.data["devices"]),
+        list(coordinator.data["devices"].keys()),
+    )
 
     # Create refresh diagnostic buttons for all devices
     for serial, device_data in coordinator.data["devices"].items():
@@ -71,15 +77,19 @@ async def async_setup_entry(
 
             for battery_key, _ in device_data["batteries"].items():
                 # Create refresh button for each individual battery
-                entities.append(EG4BatteryRefreshButton(
-                    coordinator=coordinator,
-                    parent_serial=serial,
-                    battery_key=battery_key,
-                    parent_model=parent_model,
-                    battery_id=battery_key,  # Use battery_key as the display ID
-                ))
+                entities.append(
+                    EG4BatteryRefreshButton(
+                        coordinator=coordinator,
+                        parent_serial=serial,
+                        battery_key=battery_key,
+                        parent_model=parent_model,
+                        battery_id=battery_key,  # Use battery_key as the display ID
+                    )
+                )
                 _LOGGER.info(
-                    "✅ Added refresh button for battery %s (parent: %s)", battery_key, serial
+                    "✅ Added refresh button for battery %s (parent: %s)",
+                    battery_key,
+                    serial,
                 )
 
     if entities:
@@ -123,7 +133,9 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         else:
             # Normal device entity ID generation using consolidated utilities
             self._attr_unique_id = generate_unique_id(serial, "refresh_data")
-            self._attr_entity_id = generate_entity_id("button", model, serial, "refresh_data")
+            self._attr_entity_id = generate_entity_id(
+                "button", model, serial, "refresh_data"
+            )
 
         # Set device attributes using consolidated utilities
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -161,7 +173,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         attributes = {}
 
         # Add cache statistics if available
-        if hasattr(self.coordinator.api, 'get_cache_stats'):
+        if hasattr(self.coordinator.api, "get_cache_stats"):
             cache_stats = self.coordinator.api.get_cache_stats()
             if cache_stats:
                 attributes["cache_entries"] = cache_stats.get("total_entries", 0)
@@ -181,16 +193,16 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         try:
             _LOGGER.debug(
                 "Refresh button pressed for device %s - clearing cache and refreshing data",
-                self._serial
+                self._serial,
             )
 
             # Step 1: Clear all cache for this device
-            if hasattr(self.coordinator.api, '_invalidate_cache_for_device'):
+            if hasattr(self.coordinator.api, "_invalidate_cache_for_device"):
                 self.coordinator.api._invalidate_cache_for_device(self._serial)  # pylint: disable=protected-access
                 _LOGGER.debug("Cleared device-specific cache for %s", self._serial)
 
             # Step 2: Clear parameter cache to ensure fresh parameter reads
-            if hasattr(self.coordinator.api, '_clear_parameter_cache'):
+            if hasattr(self.coordinator.api, "_clear_parameter_cache"):
                 self.coordinator.api._clear_parameter_cache()  # pylint: disable=protected-access
                 _LOGGER.debug("Cleared parameter cache")
 
@@ -210,7 +222,6 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         except Exception as e:
             _LOGGER.error("Failed to refresh data for device %s: %s", self._serial, e)
             raise
-
 
 
 class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
@@ -234,7 +245,9 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
 
         # Create unique identifiers - match battery device pattern
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
-        self._attr_entity_id = f"button.battery_{parent_serial}_{battery_key}_refresh_data"
+        self._attr_entity_id = (
+            f"button.battery_{parent_serial}_{battery_key}_refresh_data"
+        )
 
         # Set device attributes
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -265,7 +278,9 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         """Return if entity is available."""
         # Button is available if parent device exists and has this specific battery
         if self.coordinator.data and "devices" in self.coordinator.data:
-            parent_device = self.coordinator.data["devices"].get(self._parent_serial, {})
+            parent_device = self.coordinator.data["devices"].get(
+                self._parent_serial, {}
+            )
             if parent_device and "batteries" in parent_device:
                 return self._battery_key in parent_device["batteries"]
         return False
@@ -280,7 +295,7 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         attributes["battery_id"] = self._battery_id
 
         # Add cache statistics if available
-        if hasattr(self.coordinator.api, 'get_cache_stats'):
+        if hasattr(self.coordinator.api, "get_cache_stats"):
             cache_stats = self.coordinator.api.get_cache_stats()
             if cache_stats:
                 attributes["cache_entries"] = cache_stats.get("total_entries", 0)
@@ -293,16 +308,19 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
             _LOGGER.info(
                 "Battery refresh button pressed for battery %s (parent: %s) - "
                 "clearing cache and refreshing data",
-                self._battery_key, self._parent_serial
+                self._battery_key,
+                self._parent_serial,
             )
 
             # Step 1: Clear cache for parent device (which includes battery data)
-            if hasattr(self.coordinator.api, '_invalidate_cache_for_device'):
+            if hasattr(self.coordinator.api, "_invalidate_cache_for_device"):
                 self.coordinator.api._invalidate_cache_for_device(self._parent_serial)  # pylint: disable=protected-access
-                _LOGGER.debug("Cleared device-specific cache for parent %s", self._parent_serial)
+                _LOGGER.debug(
+                    "Cleared device-specific cache for parent %s", self._parent_serial
+                )
 
             # Step 2: Clear battery-related cache entries
-            if hasattr(self.coordinator.api, 'clear_cache'):
+            if hasattr(self.coordinator.api, "clear_cache"):
                 # Clear entire cache to ensure fresh battery data
                 self.coordinator.api.clear_cache()
                 _LOGGER.debug("Cleared all cache for fresh battery data")
@@ -317,7 +335,11 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
 
             # Step 4: Force immediate coordinator refresh to update all entities
             await self.coordinator.async_request_refresh()
-            _LOGGER.debug("Successfully refreshed data for battery %s", self._battery_key)
+            _LOGGER.debug(
+                "Successfully refreshed data for battery %s", self._battery_key
+            )
         except Exception as e:
-            _LOGGER.error("Failed to refresh data for battery %s: %s", self._battery_key, e)
+            _LOGGER.error(
+                "Failed to refresh data for battery %s: %s", self._battery_key, e
+            )
             raise

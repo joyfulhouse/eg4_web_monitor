@@ -1,6 +1,7 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import logging
+from typing import TypeAlias
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -14,15 +15,15 @@ from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Type alias for typed ConfigEntry
-type EG4ConfigEntry = ConfigEntry[EG4DataUpdateCoordinator]
+# Type alias for typed ConfigEntry (Python 3.11 compatible)
+EG4ConfigEntry: TypeAlias = ConfigEntry[EG4DataUpdateCoordinator]
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.NUMBER,
     Platform.SWITCH,
     Platform.BUTTON,
-    Platform.SELECT
+    Platform.SELECT,
 ]
 
 SERVICE_REFRESH_DATA = "refresh_data"
