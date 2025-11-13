@@ -21,7 +21,7 @@ def hass(event_loop):
 def mock_setup_entry():
     """Mock setting up a config entry."""
     with patch(
-        "custom_components.eg4_web_monitor.async_setup_entry",
+        "async_setup_entry",
         return_value=True,
     ) as mock_setup:
         yield mock_setup

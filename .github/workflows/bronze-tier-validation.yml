@@ -21,24 +21,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install py_compile_check
-
       - name: Validate Python syntax
         run: |
-          python -m py_compile __init__.py
-          python -m py_compile config_flow.py
-          python -m py_compile coordinator.py
-          python -m py_compile sensor.py
-          python -m py_compile number.py
-          python -m py_compile switch.py
-          python -m py_compile button.py
-          python -m py_compile select.py
-          python -m py_compile utils.py
-          python -m py_compile const.py
-          echo "✅ All Python files have valid syntax"
+          python -m compileall -q __init__.py config_flow.py coordinator.py sensor.py number.py switch.py button.py select.py utils.py const.py
+          if [ $? -eq 0 ]; then
+            echo "✅ All Python files have valid syntax"
+          else
+            echo "❌ Python syntax errors found"
+            exit 1
+          fi
 
   # Job 2: Config Flow Test Coverage (Bronze requirement)
   config-flow-tests:
@@ -61,17 +52,8 @@ jobs:
 
       - name: Run config flow tests
         run: |
-          cd tests
-          python -m pytest test_config_flow.py -v --cov=../config_flow --cov-report=term-missing --cov-report=xml
+          python -m pytest tests/test_config_flow.py -v
           echo "✅ Config flow tests passed"
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./tests/coverage.xml
-          flags: config-flow
-          name: config-flow-coverage
-        continue-on-error: true
 
   # Job 3: Validate manifest.json
   manifest-validation:
