@@ -15,7 +15,6 @@ from .utils import (
     create_device_info,
     generate_entity_id,
     generate_unique_id,
-    create_entity_name
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -131,7 +130,9 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_entity_id = generate_entity_id("switch", self._model, serial, "quick_charge")
 
         # Set device attributes
-        self._attr_name = create_entity_name(self._model, serial, "Quick Charge")
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Quick Charge"
         self._attr_icon = "mdi:battery-charging"
 
         # Device info for grouping using consolidated utility
@@ -270,7 +271,9 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_entity_id = generate_entity_id("switch", self._model, serial, "battery_backup")
 
         # Set device attributes
-        self._attr_name = create_entity_name(self._model, serial, "EPS Battery Backup")
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "EPS Battery Backup"
         self._attr_icon = "mdi:battery-charging"
 
         # Device info for grouping using consolidated utility
@@ -414,7 +417,9 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
 
         # Set entity attributes using consolidated utilities
         param_clean = self._mode_config['param'].lower().replace('func_', '')
-        self._attr_name = create_entity_name(self._model, serial_number, self._mode_config['name'])
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = self._mode_config['name']
         self._attr_unique_id = generate_unique_id(serial_number, self._mode_config['param'].lower())
         self._attr_entity_id = generate_entity_id("switch", self._model, serial_number, param_clean)
         self._attr_entity_category = self._mode_config['entity_category']

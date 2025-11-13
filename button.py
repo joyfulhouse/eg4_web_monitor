@@ -13,10 +13,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
-    clean_battery_display_name,
     generate_entity_id,
     generate_unique_id,
-    create_entity_name
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,12 +123,9 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
             self._attr_entity_id = generate_entity_id("button", model, serial, "refresh_data")
 
         # Set device attributes using consolidated utilities
-        if device_type == "parallel_group":
-            # For parallel groups, don't include the "parallel_group" serial in the name
-            self._attr_name = f"{model} Refresh Data"
-        else:
-            # For other devices, include serial number
-            self._attr_name = create_entity_name(model, serial, "Refresh Data")
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -238,9 +233,10 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
         self._attr_entity_id = f"button.battery_{parent_serial}_{battery_key}_refresh_data"
 
-        # Set device attributes - use clean battery name format
-        clean_battery_name = clean_battery_display_name(battery_key, parent_serial)
-        self._attr_name = f"Battery {clean_battery_name} Refresh Data"
+        # Set device attributes
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -248,9 +244,8 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{parent_serial}_{battery_key}")},
             "name": f"Battery {battery_key}",  # Will be cleaned by coordinator
-            "manufacturer": "EG4 Electronics", 
+            "manufacturer": "EG4 Electronics",
             "model": f"{parent_model} Battery",
-            "serial_number": f"{parent_serial}_{battery_key}",
             "via_device": (DOMAIN, parent_serial),
         }
 

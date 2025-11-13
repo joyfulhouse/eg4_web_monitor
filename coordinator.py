@@ -1004,7 +1004,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "name": f"Battery {clean_battery_name}",
             "manufacturer": "EG4 Electronics",
             "model": "Battery Module",
-            "serial_number": clean_battery_name,
             "sw_version": battery_firmware,
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }

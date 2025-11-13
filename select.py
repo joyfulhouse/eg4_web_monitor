@@ -15,7 +15,6 @@ from .utils import (
     create_device_info,
     generate_entity_id,
     generate_unique_id,
-    create_entity_name
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,7 +112,9 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         self._attr_entity_id = generate_entity_id("select", self._model, serial, "operating_mode")
 
         # Set device attributes
-        self._attr_name = create_entity_name(self._model, serial, "Operating Mode")
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Operating Mode"
         self._attr_icon = "mdi:power-settings"
         self._attr_options = OPERATING_MODE_OPTIONS
 
