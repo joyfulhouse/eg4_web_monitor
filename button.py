@@ -1,6 +1,5 @@
 """Button platform for EG4 Web Monitor integration."""
 
-import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 

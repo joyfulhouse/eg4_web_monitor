@@ -1664,8 +1664,8 @@ WORKING_MODES = {
         'entity_category': EntityCategory.CONFIG
     },
     'peak_shaving_mode': {
-        'name': 'Peak Shaving Mode',
-        'param': 'FUNC_GRID_PEAK_SHAVING', 
+        'name': 'Grid Peak Shaving Mode',
+        'param': 'FUNC_GRID_PEAK_SHAVING',
         'description': 'Grid peak shaving to reduce demand charges',
         'icon': 'mdi:chart-bell-curve-cumulative',
         'entity_category': EntityCategory.CONFIG
