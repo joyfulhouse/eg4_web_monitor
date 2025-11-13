@@ -53,6 +53,10 @@ async def async_setup_entry(
                 entities.append(ACChargePowerNumber(coordinator, serial))
                 entities.append(PVChargePowerNumber(coordinator, serial))
                 entities.append(GridPeakShavingPowerNumber(coordinator, serial))
+                # Add new SOC cutoff limit entities
+                entities.append(ACChargeSOCLimitNumber(coordinator, serial))
+                entities.append(OnGridSOCCutoffNumber(coordinator, serial))
+                entities.append(OffGridSOCCutoffNumber(coordinator, serial))
                 _LOGGER.info(
                     "✅ Added number entities for compatible device %s (%s)", serial, model
                 )
@@ -1166,3 +1170,741 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.error("Failed to initialize grid peak shaving power for %s: %s", self.serial, e)
             # Leave current_value as None to show as unavailable
+
+
+class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for AC Charge SOC Limit control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self.serial = serial
+
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Entity configuration
+        clean_model = model.lower().replace(" ", "_").replace("-", "_")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "AC Charge SOC Limit"
+        self._attr_unique_id = f"{clean_model}_{serial.lower()}_ac_charge_soc_limit"
+
+        _LOGGER.debug(
+            "Creating AC Charge SOC Limit entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
+            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+        )
+
+        # Number configuration for AC Charge SOC Limit (0-100%)
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = 100
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-charging-medium"
+        self._attr_native_precision = 0
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+        # Current value
+        self._current_value = None
+
+        _LOGGER.debug("Created AC Charge SOC Limit number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current AC charge SOC limit value as integer."""
+        coordinator_value = self._get_value_from_coordinator()
+        if coordinator_value is not None:
+            self._current_value = coordinator_value
+            return int(round(coordinator_value))
+
+        if hasattr(self, "_current_value") and self._current_value is not None:
+            return int(round(self._current_value))
+
+        return None
+
+    def _get_value_from_coordinator(self) -> Optional[float]:
+        """Get the current value from coordinator's parameter data."""
+        try:
+            if "parameters" in self.coordinator.data:
+                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                if "HOLD_AC_CHARGE_SOC_LIMIT" in parameter_data:
+                    raw_value = parameter_data["HOLD_AC_CHARGE_SOC_LIMIT"]
+                    if raw_value is not None:
+                        value = float(raw_value)
+                        if 0 <= value <= 100:  # Validate range
+                            return value
+        except (ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the AC charge SOC limit value."""
+        try:
+            int_value = int(round(value))
+            if int_value < 0 or int_value > 100:
+                raise ValueError(
+                    f"AC charge SOC limit must be between 0-100%, got {int_value}"
+                )
+
+            if abs(value - int_value) > 0.01:
+                raise ValueError(f"AC charge SOC limit must be an integer value, got {value}")
+
+            _LOGGER.info(
+                "Setting AC Charge SOC Limit for %s to %d%%", self.serial, int_value
+            )
+
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_AC_CHARGE_SOC_LIMIT",
+                value_text=str(int_value),
+            )
+
+            _LOGGER.debug("AC Charge SOC Limit write response for %s: %s", self.serial, response)
+
+            if response.get("success", False):
+                self._current_value = value
+                self.async_write_ha_state()
+
+                _LOGGER.info(
+                    "AC Charge SOC Limit changed for %s, refreshing parameters for all inverters",
+                    self.serial,
+                )
+
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+                _LOGGER.info(
+                    "Successfully set AC Charge SOC Limit for %s to %d%%",
+                    self.serial, int_value,
+                )
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(f"Failed to set AC charge SOC limit: {error_msg}")
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set AC Charge SOC Limit for %s: %s", self.serial, e
+            )
+            raise HomeAssistantError(f"Failed to set AC charge SOC limit: {e}") from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all SOC limit entities."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+
+            platform = self.platform
+            if platform is not None:
+                soc_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                ]
+
+                _LOGGER.info(
+                    "Updating %d SOC limit entities after parameter refresh",
+                    len(soc_entities),
+                )
+
+                update_tasks = []
+                for entity in soc_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        try:
+            current_value = await self._read_current_ac_charge_soc_limit()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug(
+                    "AC charge SOC limit for %s updated from %s%% to %s%%",
+                    self.serial, self._current_value, current_value,
+                )
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error("Failed to update AC charge SOC limit for %s: %s", self.serial, e)
+
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_ac_charge_soc_limit(self) -> Optional[float]:
+        """Read the current AC charge SOC limit from the device."""
+        try:
+            responses = await read_device_parameters_ranges(
+                self.coordinator.api, self.serial
+            )
+
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
+                if response and response.get("success", False):
+                    ac_charge_soc_limit = self._extract_ac_charge_soc_limit(
+                        response, start_register
+                    )
+                    if ac_charge_soc_limit is not None:
+                        return ac_charge_soc_limit
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to read AC charge SOC limit for %s due to: %s. "
+                "Will retry automatically.", self.serial, e
+            )
+
+        return None
+
+    def _extract_ac_charge_soc_limit(
+        self, response: dict, start_register: int
+    ) -> Optional[int]:
+        """Extract HOLD_AC_CHARGE_SOC_LIMIT from parameter response."""
+        if (
+            "HOLD_AC_CHARGE_SOC_LIMIT" in response
+            and response["HOLD_AC_CHARGE_SOC_LIMIT"] is not None
+        ):
+            try:
+                raw_value = float(response["HOLD_AC_CHARGE_SOC_LIMIT"])
+                int_value = int(round(raw_value))
+
+                if 0 <= int_value <= 100:  # Validate range
+                    _LOGGER.info(
+                        "Found HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d): %d%%",
+                        self.serial, start_register, int_value,
+                    )
+                    return int_value
+
+                _LOGGER.warning(
+                    "HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d) out of range: %d%%",
+                    self.serial, start_register, int_value,
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Failed to parse HOLD_AC_CHARGE_SOC_LIMIT for %s (reg %d): %s",
+                    self.serial, start_register, e,
+                )
+
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+        try:
+            current_value = await self._read_current_ac_charge_soc_limit()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Loaded AC charge SOC limit for %s: %s%%", self.serial, current_value
+                )
+            else:
+                _LOGGER.debug(
+                    "Could not read AC charge SOC limit for %s, will show as unavailable", self.serial
+                )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize AC charge SOC limit for %s: %s", self.serial, e)
+
+
+class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for On-Grid SOC Cut-Off control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self.serial = serial
+
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Entity configuration
+        clean_model = model.lower().replace(" ", "_").replace("-", "_")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "On-Grid SOC Cut-Off"
+        self._attr_unique_id = f"{clean_model}_{serial.lower()}_on_grid_soc_cutoff"
+
+        _LOGGER.debug(
+            "Creating On-Grid SOC Cut-Off entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
+            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+        )
+
+        # Number configuration for On-Grid SOC Cut-Off (0-100%)
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = 100
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-alert"
+        self._attr_native_precision = 0
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+        # Current value
+        self._current_value = None
+
+        _LOGGER.debug("Created On-Grid SOC Cut-Off number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current on-grid SOC cutoff value as integer."""
+        coordinator_value = self._get_value_from_coordinator()
+        if coordinator_value is not None:
+            self._current_value = coordinator_value
+            return int(round(coordinator_value))
+
+        if hasattr(self, "_current_value") and self._current_value is not None:
+            return int(round(self._current_value))
+
+        return None
+
+    def _get_value_from_coordinator(self) -> Optional[float]:
+        """Get the current value from coordinator's parameter data."""
+        try:
+            if "parameters" in self.coordinator.data:
+                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                if "HOLD_DISCHG_CUT_OFF_SOC_EOD" in parameter_data:
+                    raw_value = parameter_data["HOLD_DISCHG_CUT_OFF_SOC_EOD"]
+                    if raw_value is not None:
+                        value = float(raw_value)
+                        if 0 <= value <= 100:  # Validate range
+                            return value
+        except (ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the on-grid SOC cutoff value."""
+        try:
+            int_value = int(round(value))
+            if int_value < 0 or int_value > 100:
+                raise ValueError(
+                    f"On-grid SOC cutoff must be between 0-100%, got {int_value}"
+                )
+
+            if abs(value - int_value) > 0.01:
+                raise ValueError(f"On-grid SOC cutoff must be an integer value, got {value}")
+
+            _LOGGER.info(
+                "Setting On-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+            )
+
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_DISCHG_CUT_OFF_SOC_EOD",
+                value_text=str(int_value),
+            )
+
+            _LOGGER.debug("On-Grid SOC Cut-Off write response for %s: %s", self.serial, response)
+
+            if response.get("success", False):
+                self._current_value = value
+                self.async_write_ha_state()
+
+                _LOGGER.info(
+                    "On-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
+                    self.serial,
+                )
+
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+                _LOGGER.info(
+                    "Successfully set On-Grid SOC Cut-Off for %s to %d%%",
+                    self.serial, int_value,
+                )
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(f"Failed to set on-grid SOC cutoff: {error_msg}")
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set On-Grid SOC Cut-Off for %s: %s", self.serial, e
+            )
+            raise HomeAssistantError(f"Failed to set on-grid SOC cutoff: {e}") from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all SOC limit entities."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+
+            platform = self.platform
+            if platform is not None:
+                soc_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                ]
+
+                _LOGGER.info(
+                    "Updating %d SOC limit entities after parameter refresh",
+                    len(soc_entities),
+                )
+
+                update_tasks = []
+                for entity in soc_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        try:
+            current_value = await self._read_current_on_grid_soc_cutoff()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug(
+                    "On-grid SOC cutoff for %s updated from %s%% to %s%%",
+                    self.serial, self._current_value, current_value,
+                )
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error("Failed to update on-grid SOC cutoff for %s: %s", self.serial, e)
+
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_on_grid_soc_cutoff(self) -> Optional[float]:
+        """Read the current on-grid SOC cutoff from the device."""
+        try:
+            responses = await read_device_parameters_ranges(
+                self.coordinator.api, self.serial
+            )
+
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
+                if response and response.get("success", False):
+                    on_grid_soc_cutoff = self._extract_on_grid_soc_cutoff(
+                        response, start_register
+                    )
+                    if on_grid_soc_cutoff is not None:
+                        return on_grid_soc_cutoff
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to read on-grid SOC cutoff for %s due to: %s. "
+                "Will retry automatically.", self.serial, e
+            )
+
+        return None
+
+    def _extract_on_grid_soc_cutoff(
+        self, response: dict, start_register: int
+    ) -> Optional[int]:
+        """Extract HOLD_DISCHG_CUT_OFF_SOC_EOD from parameter response."""
+        if (
+            "HOLD_DISCHG_CUT_OFF_SOC_EOD" in response
+            and response["HOLD_DISCHG_CUT_OFF_SOC_EOD"] is not None
+        ):
+            try:
+                raw_value = float(response["HOLD_DISCHG_CUT_OFF_SOC_EOD"])
+                int_value = int(round(raw_value))
+
+                if 0 <= int_value <= 100:  # Validate range
+                    _LOGGER.info(
+                        "Found HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d): %d%%",
+                        self.serial, start_register, int_value,
+                    )
+                    return int_value
+
+                _LOGGER.warning(
+                    "HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d) out of range: %d%%",
+                    self.serial, start_register, int_value,
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Failed to parse HOLD_DISCHG_CUT_OFF_SOC_EOD for %s (reg %d): %s",
+                    self.serial, start_register, e,
+                )
+
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+        try:
+            current_value = await self._read_current_on_grid_soc_cutoff()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Loaded on-grid SOC cutoff for %s: %s%%", self.serial, current_value
+                )
+            else:
+                _LOGGER.debug(
+                    "Could not read on-grid SOC cutoff for %s, will show as unavailable", self.serial
+                )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize on-grid SOC cutoff for %s: %s", self.serial, e)
+
+
+class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for Off-Grid SOC Cut-Off control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self.serial = serial
+
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Entity configuration
+        clean_model = model.lower().replace(" ", "_").replace("-", "_")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Off-Grid SOC Cut-Off"
+        self._attr_unique_id = f"{clean_model}_{serial.lower()}_off_grid_soc_cutoff"
+
+        _LOGGER.debug(
+            "Creating Off-Grid SOC Cut-Off entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
+            model, clean_model, serial, self._attr_name, self._attr_unique_id,
+        )
+
+        # Number configuration for Off-Grid SOC Cut-Off (0-100%)
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = 100
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-outline"
+        self._attr_native_precision = 0
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+        # Current value
+        self._current_value = None
+
+        _LOGGER.debug("Created Off-Grid SOC Cut-Off number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current off-grid SOC cutoff value as integer."""
+        coordinator_value = self._get_value_from_coordinator()
+        if coordinator_value is not None:
+            self._current_value = coordinator_value
+            return int(round(coordinator_value))
+
+        if hasattr(self, "_current_value") and self._current_value is not None:
+            return int(round(self._current_value))
+
+        return None
+
+    def _get_value_from_coordinator(self) -> Optional[float]:
+        """Get the current value from coordinator's parameter data."""
+        try:
+            if "parameters" in self.coordinator.data:
+                parameter_data = self.coordinator.data["parameters"].get(self.serial, {})
+                if "HOLD_SOC_LOW_LIMIT_EPS_DISCHG" in parameter_data:
+                    raw_value = parameter_data["HOLD_SOC_LOW_LIMIT_EPS_DISCHG"]
+                    if raw_value is not None:
+                        value = float(raw_value)
+                        if 0 <= value <= 100:  # Validate range
+                            return value
+        except (ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the off-grid SOC cutoff value."""
+        try:
+            int_value = int(round(value))
+            if int_value < 0 or int_value > 100:
+                raise ValueError(
+                    f"Off-grid SOC cutoff must be between 0-100%, got {int_value}"
+                )
+
+            if abs(value - int_value) > 0.01:
+                raise ValueError(f"Off-grid SOC cutoff must be an integer value, got {value}")
+
+            _LOGGER.info(
+                "Setting Off-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+            )
+
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_SOC_LOW_LIMIT_EPS_DISCHG",
+                value_text=str(int_value),
+            )
+
+            _LOGGER.debug("Off-Grid SOC Cut-Off write response for %s: %s", self.serial, response)
+
+            if response.get("success", False):
+                self._current_value = value
+                self.async_write_ha_state()
+
+                _LOGGER.info(
+                    "Off-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
+                    self.serial,
+                )
+
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+                _LOGGER.info(
+                    "Successfully set Off-Grid SOC Cut-Off for %s to %d%%",
+                    self.serial, int_value,
+                )
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(f"Failed to set off-grid SOC cutoff: {error_msg}")
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set Off-Grid SOC Cut-Off for %s: %s", self.serial, e
+            )
+            raise HomeAssistantError(f"Failed to set off-grid SOC cutoff: {e}") from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all SOC limit entities."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+
+            platform = self.platform
+            if platform is not None:
+                soc_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(entity, (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber))
+                ]
+
+                _LOGGER.info(
+                    "Updating %d SOC limit entities after parameter refresh",
+                    len(soc_entities),
+                )
+
+                update_tasks = []
+                for entity in soc_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        try:
+            current_value = await self._read_current_off_grid_soc_cutoff()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug(
+                    "Off-grid SOC cutoff for %s updated from %s%% to %s%%",
+                    self.serial, self._current_value, current_value,
+                )
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error("Failed to update off-grid SOC cutoff for %s: %s", self.serial, e)
+
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_off_grid_soc_cutoff(self) -> Optional[float]:
+        """Read the current off-grid SOC cutoff from the device."""
+        try:
+            responses = await read_device_parameters_ranges(
+                self.coordinator.api, self.serial
+            )
+
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
+                if response and response.get("success", False):
+                    off_grid_soc_cutoff = self._extract_off_grid_soc_cutoff(
+                        response, start_register
+                    )
+                    if off_grid_soc_cutoff is not None:
+                        return off_grid_soc_cutoff
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to read off-grid SOC cutoff for %s due to: %s. "
+                "Will retry automatically.", self.serial, e
+            )
+
+        return None
+
+    def _extract_off_grid_soc_cutoff(
+        self, response: dict, start_register: int
+    ) -> Optional[int]:
+        """Extract HOLD_SOC_LOW_LIMIT_EPS_DISCHG from parameter response."""
+        if (
+            "HOLD_SOC_LOW_LIMIT_EPS_DISCHG" in response
+            and response["HOLD_SOC_LOW_LIMIT_EPS_DISCHG"] is not None
+        ):
+            try:
+                raw_value = float(response["HOLD_SOC_LOW_LIMIT_EPS_DISCHG"])
+                int_value = int(round(raw_value))
+
+                if 0 <= int_value <= 100:  # Validate range
+                    _LOGGER.info(
+                        "Found HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d): %d%%",
+                        self.serial, start_register, int_value,
+                    )
+                    return int_value
+
+                _LOGGER.warning(
+                    "HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d) out of range: %d%%",
+                    self.serial, start_register, int_value,
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Failed to parse HOLD_SOC_LOW_LIMIT_EPS_DISCHG for %s (reg %d): %s",
+                    self.serial, start_register, e,
+                )
+
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+        try:
+            current_value = await self._read_current_off_grid_soc_cutoff()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Loaded off-grid SOC cutoff for %s: %s%%", self.serial, current_value
+                )
+            else:
+                _LOGGER.debug(
+                    "Could not read off-grid SOC cutoff for %s, will show as unavailable", self.serial
+                )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize off-grid SOC cutoff for %s: %s", self.serial, e)
