@@ -18,7 +18,6 @@ Silver Tier Requirements:
 10. Test coverage above 95% for all modules
 """
 
-import ast
 import json
 import sys
 from pathlib import Path
@@ -154,7 +153,13 @@ class SilverTierValidator:
         print("5️⃣  Checking entity availability implementation...")
 
         # Check at least one platform file for availability property
-        platform_files = ["sensor.py", "switch.py", "number.py", "button.py", "select.py"]
+        platform_files = [
+            "sensor.py",
+            "switch.py",
+            "number.py",
+            "button.py",
+            "select.py",
+        ]
         availability_found = False
 
         for platform_file in platform_files:
@@ -162,7 +167,9 @@ class SilverTierValidator:
             if file_path.exists():
                 content = file_path.read_text()
                 # Check for availability property with proper operator precedence
-                if ("def available" in content) or ("@property" in content and "available" in content):
+                if ("def available" in content) or (
+                    "@property" in content and "available" in content
+                ):
                     availability_found = True
                     break
 
@@ -229,7 +236,13 @@ class SilverTierValidator:
         self.checks_total += 1
         print("8️⃣  Checking parallel update count specification...")
 
-        platform_files = ["sensor.py", "number.py", "switch.py", "button.py", "select.py"]
+        platform_files = [
+            "sensor.py",
+            "number.py",
+            "switch.py",
+            "button.py",
+            "select.py",
+        ]
         missing_platforms = []
 
         for platform_file in platform_files:

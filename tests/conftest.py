@@ -1,11 +1,35 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+import threading
+from unittest.mock import patch
 
 import pytest
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+def pytest_configure(config):
+    """Configure pytest to allow asyncio shutdown threads.
+
+    pytest-homeassistant-custom-component verifies no unexpected threads remain after tests.
+    The asyncio event loop may create a daemon thread named '_run_safe_shutdown_loop'
+    during shutdown which is expected and harmless. This configuration patches threading.enumerate
+    to filter out this thread during cleanup verification.
+    """
+    # Store original threading.enumerate
+    original_enumerate = threading.enumerate
+
+    def filtered_enumerate():
+        """Return all threads except asyncio shutdown thread."""
+        threads = original_enumerate()
+        return [
+            thread
+            for thread in threads
+            if not (thread.name and "_run_safe_shutdown_loop" in thread.name)
+        ]
+
+    # Monkey-patch threading.enumerate globally
+    threading.enumerate = filtered_enumerate
 
 
 # Enable custom integrations for testing

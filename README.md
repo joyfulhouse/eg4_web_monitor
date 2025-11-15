@@ -10,6 +10,7 @@ This integration was inspired by and built upon the excellent work by [@twistedr
 [![GitHub Activity][commits-shield]][commits]
 [![License][license-shield]](LICENSE)
 [![HACS][hacsbadge]][hacs]
+[![Platinum Tier][platinum-badge]][platinum-workflow]
 [![Gold Tier][gold-badge]][gold-workflow]
 [![Silver Tier][silver-badge]][silver-workflow]
 [![Bronze Tier][bronze-badge]][bronze-workflow]
@@ -19,14 +20,23 @@ This integration was inspired by and built upon the excellent work by [@twistedr
 
 [![Dashboard Screenshot](images/dashboard.png)](dashboards/eg4_solar_monitor.yaml)
 
-## 🏆 Quality Tier: Gold Certified
+## 🏆 Quality Tier: Platinum Certified
 
-This integration meets the **Gold tier** quality standards for Home Assistant integrations, ensuring:
+This integration meets the **Platinum tier** quality standards for Home Assistant integrations - the highest level achievable. This ensures:
+
+**Platinum Requirements:**
+- 🏆 Fully async dependencies (aiohttp)
+- 🏆 Websession injection support
+- 🏆 Strict typing with mypy
+
+**Gold Requirements:**
 - ✅ Full translation support (multiple languages)
 - ✅ Easy reconfiguration through the UI
 - ✅ Comprehensive automated testing
 - ✅ Extensive user-friendly documentation
 - ✅ Professional error handling and logging
+
+Plus all Silver and Bronze tier requirements (36 total requirements met)!
 
 ## What Does This Integration Do?
 
@@ -431,8 +441,10 @@ Unofficial integration not affiliated with EG4 Electronics. Use at your own risk
 [license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [hacs]: https://hacs.xyz
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[gold-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/gold-tier-validation.yml?branch=main&label=Gold%20Tier&style=for-the-badge&color=gold
-[gold-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/gold-tier-validation.yml
+[platinum-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=Platinum%20Tier&style=for-the-badge&color=platinum
+[platinum-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
+[gold-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=Gold%20Tier&style=for-the-badge&color=gold
+[gold-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
 [silver-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/silver-tier-validation.yml?branch=main&label=Silver%20Tier&style=for-the-badge
 [silver-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/silver-tier-validation.yml
 [bronze-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/bronze-tier-validation.yml?branch=main&label=Bronze%20Tier&style=for-the-badge

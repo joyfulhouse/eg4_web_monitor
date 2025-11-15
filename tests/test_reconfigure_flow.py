@@ -2,7 +2,7 @@
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -110,11 +110,10 @@ async def test_reconfigure_same_account(hass, mock_api, mock_config_entry):
     assert result["step_id"] == "reconfigure"
 
     # Submit with same username, new password
-    with patch.object(
-        hass.config_entries, "async_update_entry"
-    ) as mock_update, patch.object(
-        hass.config_entries, "async_reload"
-    ) as mock_reload:
+    with (
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+        patch.object(hass.config_entries, "async_reload") as mock_reload,
+    ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -186,11 +185,10 @@ async def test_reconfigure_plant_selection(hass, mock_api, mock_config_entry):
     )
 
     # Now select a plant
-    with patch.object(
-        hass.config_entries, "async_update_entry"
-    ) as mock_update, patch.object(
-        hass.config_entries, "async_reload"
-    ) as mock_reload:
+    with (
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+        patch.object(hass.config_entries, "async_reload") as mock_reload,
+    ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -223,11 +221,10 @@ async def test_reconfigure_single_plant_account(hass, mock_api, mock_config_entr
     )
 
     # Submit with different username
-    with patch.object(
-        hass.config_entries, "async_update_entry"
-    ) as mock_update, patch.object(
-        hass.config_entries, "async_reload"
-    ) as mock_reload:
+    with (
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+        patch.object(hass.config_entries, "async_reload") as mock_reload,
+    ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -401,7 +398,9 @@ async def test_reconfigure_to_already_configured_account(hass, mock_api):
     assert result["reason"] == "already_configured"
 
 
-async def test_reconfigure_current_plant_no_longer_exists(hass, mock_api, mock_config_entry):
+async def test_reconfigure_current_plant_no_longer_exists(
+    hass, mock_api, mock_config_entry
+):
     """Test reconfiguring when current plant no longer exists in the account."""
     mock_config_entry.add_to_hass(hass)
 

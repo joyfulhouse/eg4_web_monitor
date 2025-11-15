@@ -1,7 +1,7 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import logging
-from typing import TypeAlias
+from typing import Any, Dict, TypeAlias
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -35,7 +35,7 @@ REFRESH_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: Dict[str, Any]) -> bool:
     """Set up the EG4 Web Monitor component."""
 
     async def handle_refresh_data(call: ServiceCall) -> None:
@@ -129,4 +129,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         # Clean up coordinator API connection
         await entry.runtime_data.api.close()
 
-    return unload_ok
+    return bool(unload_ok)

@@ -1,5 +1,7 @@
 """Constants for the EG4 Web Monitor integration."""
 
+from typing import TYPE_CHECKING
+
 from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
@@ -8,7 +10,15 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTemperature,
 )
-from homeassistant.helpers.entity import EntityCategory
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.entity import EntityCategory
+else:
+    try:
+        from homeassistant.helpers.entity import EntityCategory
+    except ImportError:
+        # Fallback for type checking
+        EntityCategory = None  # type: ignore[assignment, misc]
 
 # Integration constants
 DOMAIN = "eg4_web_monitor"

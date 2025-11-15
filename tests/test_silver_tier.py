@@ -22,6 +22,21 @@ from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_hourly_refresh():
+    """Mock _should_refresh_parameters to prevent background task creation.
+
+    Tests that create coordinators and call _async_update_data() trigger
+    _hourly_parameter_refresh() which creates unawaited background tasks.
+    This mock prevents the background task from being created during tests.
+    """
+    with patch(
+        "custom_components.eg4_web_monitor.coordinator.EG4DataUpdateCoordinator._should_refresh_parameters",
+        return_value=False,
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_config_entry():
     """Create a mock config entry."""
@@ -137,9 +152,7 @@ class TestConfigEntryUnload:
         mock_config_entry.runtime_data = mock_coordinator
 
         # Mock platform unloading
-        mock_hass.config_entries.async_unload_platforms = AsyncMock(
-            return_value=True
-        )
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
 
         result = await async_unload_entry(mock_hass, mock_config_entry)
 
@@ -158,9 +171,7 @@ class TestConfigEntryUnload:
         mock_config_entry.runtime_data = mock_coordinator
 
         # Mock platform unloading failure
-        mock_hass.config_entries.async_unload_platforms = AsyncMock(
-            return_value=False
-        )
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
 
         result = await async_unload_entry(mock_hass, mock_config_entry)
 
@@ -418,6 +429,11 @@ class TestReauthentication:
 
             # Mock config entry update
             mock_entry = MagicMock()
+            mock_entry.data = {
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "old_password",
+            }
+            mock_entry.entry_id = "test_entry_id"
             flow.async_set_unique_id = AsyncMock(return_value=mock_entry)
             hass.config_entries.async_update_entry = MagicMock()
             hass.config_entries.async_reload = AsyncMock()

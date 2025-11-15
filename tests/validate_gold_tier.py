@@ -279,7 +279,6 @@ def check_bronze_silver_compliance():
     """Check that Bronze and Silver tier validations still pass."""
     print("🥉🥈 Checking Bronze and Silver tier compliance...")
 
-    bronze_script = Path("tests/validate_bronze_tier.py")
     silver_script = Path("tests/validate_silver_tier.py")
 
     if silver_script.exists():

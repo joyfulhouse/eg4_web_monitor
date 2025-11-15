@@ -1,12 +1,17 @@
 """Switch platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+if TYPE_CHECKING:
+    from homeassistant.components.switch import SwitchEntity
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+else:
+    from homeassistant.components.switch import SwitchEntity  # type: ignore[assignment]
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
 from .const import WORKING_MODES, FUNCTION_PARAM_MAPPING
@@ -125,7 +130,7 @@ async def async_setup_entry(
         _LOGGER.info("No switch entities to add")
 
 
-class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
+class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     """Switch to control quick charge functionality."""
 
     def __init__(
@@ -136,6 +141,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
     ) -> None:
         """Initialize the quick charge switch."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._device_data = device_data
@@ -220,7 +226,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             # Only available for inverter devices (not GridBOSS)
-            return device_data.get("type") == "inverter"
+            return bool(device_data.get("type") == "inverter")
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
@@ -280,7 +286,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
 
-class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
+class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     """Switch to control battery backup (EPS) functionality."""
 
     def __init__(
@@ -291,6 +297,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
     ) -> None:
         """Initialize the battery backup switch."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._device_data = device_data
@@ -340,7 +347,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         # Fallback: Check parameter data from coordinator
         if self.coordinator.data and "parameters" in self.coordinator.data:
             device_params = self.coordinator.data["parameters"].get(self._serial, {})
-            return device_params.get("FUNC_EPS_EN", False)
+            return bool(device_params.get("FUNC_EPS_EN", False))
 
         # Default to False if we don't have any information
         return False
@@ -390,7 +397,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             # Only available for inverter devices (not GridBOSS)
-            return device_data.get("type") == "inverter"
+            return bool(device_data.get("type") == "inverter")
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
@@ -450,12 +457,19 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
 
-class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
+class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     """Switch for controlling EG4 working modes."""
 
-    def __init__(self, coordinator, device_info, serial_number, mode_config):
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        device_info: Dict[str, Any],
+        serial_number: str,
+        mode_config: Dict[str, Any],
+    ) -> None:
         """Initialize the working mode switch."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self._coordinator = coordinator
         self._device_info = device_info
         self._serial_number = serial_number
@@ -533,10 +547,10 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial_number, {})
             # Only available for inverter devices (not GridBOSS)
-            return device_data.get("type") == "inverter"
+            return bool(device_data.get("type") == "inverter")
         return False
 
-    async def async_turn_on(self, **kwargs) -> None:  # pylint: disable=unused-argument
+    async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
         """Turn the switch on."""
         try:
             _LOGGER.debug(
@@ -574,7 +588,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             self.async_write_ha_state()
             raise
 
-    async def async_turn_off(self, **kwargs) -> None:  # pylint: disable=unused-argument
+    async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
         """Turn the switch off."""
         try:
             _LOGGER.debug(

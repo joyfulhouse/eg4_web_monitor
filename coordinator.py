@@ -3,14 +3,25 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers import aiohttp_client
 from homeassistant.util import dt as dt_util
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.update_coordinator import (
+        DataUpdateCoordinator,
+        UpdateFailed,
+    )
+else:
+    from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
+        DataUpdateCoordinator,
+        UpdateFailed,
+    )
 
 from .const import (
     CONF_BASE_URL,
@@ -44,15 +55,20 @@ from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4Connectio
 _LOGGER = logging.getLogger(__name__)
 
 
-class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Class to manage fetching EG4 Web Monitor data from the API."""
+class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: ignore[misc]
+    """Class to manage fetching EG4 Web Monitor data from the API.
+
+    Note: type: ignore[misc] - Home Assistant's DataUpdateCoordinator lacks proper type stubs.
+    Mypy cannot verify the base class type at runtime.
+    """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
         self.entry = entry
         self.plant_id = entry.data[CONF_PLANT_ID]
 
-        # Initialize API clien
+        # Initialize API client with injected session (Platinum tier requirement)
+        # Home Assistant manages the aiohttp ClientSession for efficient resource usage
         self.api = EG4InverterAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
@@ -60,6 +76,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 CONF_BASE_URL, "https://monitor.eg4electronics.com"
             ),
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
+            session=aiohttp_client.async_get_clientsession(hass),
         )
 
         # Device tracking
@@ -114,7 +131,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Don't await this to avoid blocking the main data update
                 # Create task and store reference to avoid RuntimeWarning
                 task = self.hass.async_create_task(self._hourly_parameter_refresh())
-                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                task.add_done_callback(
+                    lambda t: t.exception() if not t.cancelled() else None
+                )
 
             # Get comprehensive data for all devices in the plan
             data = await self.api.get_all_device_data(self.plant_id)
@@ -303,7 +322,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         energy = device_data.get("energy", {})
         battery = device_data.get("battery", {})
 
-        processed = {
+        processed: Dict[str, Any] = {
             "serial": serial,
             "type": "inverter",
             "model": self._extract_model_from_overview(serial),
@@ -475,17 +494,19 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         )
                         continue
 
+                    # Note: asyncio.gather with return_exceptions=True returns Union[T, BaseException]
+                    # We've already filtered out exceptions above, safe to cast
                     if (
                         result
-                        and result.get("success")
+                        and result.get("success")  # type: ignore[union-attr]
                         and serial in processed["devices"]
                     ):
                         _LOGGER.debug(
                             "Individual energy API response for %s: %s",
                             serial,
-                            list(result.keys()),
+                            list(result.keys()),  # type: ignore[union-attr]
                         )
-                        energy_sensors = self._extract_energy_sensors(result)
+                        energy_sensors = self._extract_energy_sensors(result)  # type: ignore[arg-type]
                         _LOGGER.debug(
                             "Extracted %d energy sensors: %s",
                             len(energy_sensors),
@@ -502,7 +523,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             "Invalid individual energy response for %s: success=%s, "
                             "serial_in_devices=%s",
                             serial,
-                            result.get("success") if result else "None",
+                            result.get("success") if result else "None",  # type: ignore[union-attr]
                             serial in processed["devices"],
                         )
 
@@ -572,8 +593,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def _process_parallel_group_data(
         self,
-        parallel_energy: Dict[str, Any] = None,
-        parallel_groups_info: List[Dict[str, Any]] = None,
+        parallel_energy: Optional[Dict[str, Any]] = None,
+        parallel_groups_info: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Process parallel group energy data."""
         _LOGGER.debug(
@@ -599,7 +620,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "No group letter found, using default name: %s", group_name
                 )
 
-        processed = {
+        processed: Dict[str, Any] = {
             "serial": "parallel_group",
             "type": "parallel_group",
             "model": group_name,
@@ -626,7 +647,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if serial in device_info:
                 model = device_info[serial].get("deviceTypeText4APP")
                 if model:
-                    return model
+                    return str(model)
 
             # Note: parallel_groups and inverter_overview discovery endpoints
             # have been disabled as they were problematic and not essential
@@ -636,7 +657,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             device_data = self._temp_device_info.get(serial, {})
             model = device_data.get("deviceTypeText4APP")
             if model:
-                return model
+                return str(model)
 
         return "Unknown"
 
@@ -1049,7 +1070,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         # Find the actual parallel group device serial in our devices
                         for serial, device_data in self.data["devices"].items():
                             if device_data.get("type") == "parallel_group":
-                                return serial  # Return the actual parallel group device serial
+                                return str(
+                                    serial
+                                )  # Return the actual parallel group device serial
                         # If no parallel group device found, don't set via_device
                         return None
 
@@ -1058,7 +1081,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         for serial, device_data in self.data["devices"].items():
             if device_data.get("type") == "parallel_group":
                 # Found a parallel group - return its serial as the paren
-                return serial
+                return str(serial)
 
         return None
 
@@ -1278,7 +1301,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return True
 
         time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
-        return time_since_refresh >= self._parameter_refresh_interval
+        return bool(time_since_refresh >= self._parameter_refresh_interval)
 
     async def set_working_mode(
         self, serial_number: str, function_param: str, enable: bool
@@ -1316,7 +1339,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             else:
                 _LOGGER.warning("Working mode control reported failure: %s", response)
 
-            return success
+            return bool(success)
 
         except Exception as err:
             _LOGGER.error(
@@ -1394,7 +1417,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     available_params = [
                         k for k in parameter_data.keys() if "FUNC_" in k
                     ]
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
                         param_key,
                         serial_number,
@@ -1420,7 +1443,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if self._last_cache_invalidation is None:
             # First run - invalidate if we're within 5 minutes of top of hour
             minutes_to_hour = 60 - now.minute
-            return minutes_to_hour <= 5
+            return bool(minutes_to_hour <= 5)
 
         # Check if we've crossed into a new hour since last invalidation
         last_hour = self._last_cache_invalidation.hour
@@ -1435,7 +1458,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         minutes_to_hour = 60 - now.minute
         time_since_last = now - self._last_cache_invalidation
 
-        return minutes_to_hour <= 5 and time_since_last >= timedelta(minutes=10)
+        return bool(minutes_to_hour <= 5 and time_since_last >= timedelta(minutes=10))
 
     def _invalidate_all_caches(self) -> None:
         """Invalidate all caches to ensure fresh data when date changes."""
