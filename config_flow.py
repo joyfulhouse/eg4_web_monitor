@@ -295,9 +295,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: Dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry = self.hass.config_entries.async_get_entry(
-            self.context.get("entry_id")
-        )
+        entry = self.hass.config_entries.async_get_entry(self.context.get("entry_id"))
 
         if user_input is not None:
             try:
@@ -345,9 +343,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Show reconfiguration form with current values
         reconfigure_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_USERNAME, default=entry.data.get(CONF_USERNAME)
-                ): str,
+                vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME)): str,
                 vol.Required(CONF_PASSWORD): str,
                 vol.Optional(
                     CONF_BASE_URL,
@@ -378,9 +374,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: Dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry = self.hass.config_entries.async_get_entry(
-            self.context.get("entry_id")
-        )
+        entry = self.hass.config_entries.async_get_entry(self.context.get("entry_id"))
 
         if user_input is not None:
             try:

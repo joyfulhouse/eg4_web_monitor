@@ -7,7 +7,6 @@ Tests Platinum tier requirements:
 - Error handling and availability logging
 """
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -21,11 +20,9 @@ from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
     CONF_VERIFY_SSL,
-    DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-    EG4APIError,
     EG4AuthError,
     EG4ConnectionError,
 )
@@ -54,7 +51,9 @@ def mock_hass():
     # Mock aiohttp session injection (Platinum tier requirement)
     mock_session = MagicMock()
     mock_session.closed = False
-    hass.helpers.aiohttp_client.async_get_clientsession = Mock(return_value=mock_session)
+    hass.helpers.aiohttp_client.async_get_clientsession = Mock(
+        return_value=mock_session
+    )
 
     # Mock async_create_task
     hass.async_create_task = Mock(side_effect=lambda coro: Mock())
@@ -67,20 +66,27 @@ class TestCoordinatorInitialization:
 
     def test_init_with_session_injection(self, mock_hass, mock_config_entry):
         """Test that coordinator injects Home Assistant's session (Platinum tier)."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
-            coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
+            _coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
             # Verify API was initialized with injected session
             mock_api_class.assert_called_once()
             call_kwargs = mock_api_class.call_args[1]
 
             assert "session" in call_kwargs
-            assert call_kwargs["session"] is mock_hass.helpers.aiohttp_client.async_get_clientsession()
+            assert (
+                call_kwargs["session"]
+                is mock_hass.helpers.aiohttp_client.async_get_clientsession()
+            )
 
     def test_init_with_correct_credentials(self, mock_hass, mock_config_entry):
         """Test that coordinator initializes with correct credentials."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
-            coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
+            _coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
             # Verify credentials were passed correctly
             call_kwargs = mock_api_class.call_args[1]
@@ -96,39 +102,53 @@ class TestDataUpdate:
     @pytest.mark.asyncio
     async def test_successful_data_update(self, mock_hass, mock_config_entry):
         """Test successful data update."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             # Mock API responses
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(return_value={
-                "devices": {
-                    "1234567890": {
-                        "type": "inverter",
-                        "runtime": {"power": 5000},
-                        "energy": {"today": 25.5},
-                        "battery": {"stateOfCharge": 85},
-                    }
-                },
-                "device_info": {},
-                "parallel_groups_info": [],
-            })
+            mock_api.get_all_device_data = AsyncMock(
+                return_value={
+                    "devices": {
+                        "1234567890": {
+                            "type": "inverter",
+                            "runtime": {"power": 5000},
+                            "energy": {"today": 25.5},
+                            "battery": {"stateOfCharge": 85},
+                        }
+                    },
+                    "device_info": {},
+                    "parallel_groups_info": [],
+                }
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
             # Perform update
-            with patch.object(coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})):
-                result = await coordinator._async_update_data()
+            with patch.object(
+                coordinator,
+                "_process_device_data",
+                new=AsyncMock(return_value={"devices": {}}),
+            ):
+                _result = await coordinator._async_update_data()
 
             # Verify API was called
             mock_api.get_all_device_data.assert_called_once_with("12345")
 
     @pytest.mark.asyncio
-    async def test_auth_error_raises_config_entry_auth_failed(self, mock_hass, mock_config_entry):
+    async def test_auth_error_raises_config_entry_auth_failed(
+        self, mock_hass, mock_config_entry
+    ):
         """Test that authentication errors trigger reauthentication flow."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             # Mock API to raise auth error
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+            mock_api.get_all_device_data = AsyncMock(
+                side_effect=EG4AuthError("Invalid credentials")
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
@@ -138,12 +158,18 @@ class TestDataUpdate:
                 await coordinator._async_update_data()
 
     @pytest.mark.asyncio
-    async def test_connection_error_raises_update_failed(self, mock_hass, mock_config_entry):
+    async def test_connection_error_raises_update_failed(
+        self, mock_hass, mock_config_entry
+    ):
         """Test that connection errors raise UpdateFailed."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             # Mock API to raise connection error
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(side_effect=EG4ConnectionError("Network error"))
+            mock_api.get_all_device_data = AsyncMock(
+                side_effect=EG4ConnectionError("Network error")
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
@@ -157,11 +183,17 @@ class TestAvailabilityLogging:
     """Test availability state logging (Silver tier requirement)."""
 
     @pytest.mark.asyncio
-    async def test_logs_when_service_becomes_unavailable(self, mock_hass, mock_config_entry, caplog):
+    async def test_logs_when_service_becomes_unavailable(
+        self, mock_hass, mock_config_entry, caplog
+    ):
         """Test that unavailability is logged."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(side_effect=EG4ConnectionError("Network error"))
+            mock_api.get_all_device_data = AsyncMock(
+                side_effect=EG4ConnectionError("Network error")
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
@@ -171,50 +203,76 @@ class TestAvailabilityLogging:
                 await coordinator._async_update_data()
 
             # Verify unavailability was logged
-            assert any("unavailable" in record.message.lower() for record in caplog.records)
+            assert any(
+                "unavailable" in record.message.lower() for record in caplog.records
+            )
 
     @pytest.mark.asyncio
-    async def test_logs_when_service_becomes_available_again(self, mock_hass, mock_config_entry, caplog):
+    async def test_logs_when_service_becomes_available_again(
+        self, mock_hass, mock_config_entry, caplog
+    ):
         """Test that recovery is logged."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(return_value={
-                "devices": {},
-                "device_info": {},
-                "parallel_groups_info": [],
-            })
+            mock_api.get_all_device_data = AsyncMock(
+                return_value={
+                    "devices": {},
+                    "device_info": {},
+                    "parallel_groups_info": [],
+                }
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
             coordinator._last_available_state = False
 
-            with patch.object(coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})):
+            with patch.object(
+                coordinator,
+                "_process_device_data",
+                new=AsyncMock(return_value={"devices": {}}),
+            ):
                 await coordinator._async_update_data()
 
             # Verify reconnection was logged
-            assert any("reconnected" in record.message.lower() for record in caplog.records)
+            assert any(
+                "reconnected" in record.message.lower() for record in caplog.records
+            )
 
 
 class TestParameterRefresh:
     """Test parameter refresh functionality."""
 
     @pytest.mark.asyncio
-    async def test_hourly_parameter_refresh_triggered(self, mock_hass, mock_config_entry):
+    async def test_hourly_parameter_refresh_triggered(
+        self, mock_hass, mock_config_entry
+    ):
         """Test that hourly parameter refresh is triggered when due."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
-            mock_api.get_all_device_data = AsyncMock(return_value={
-                "devices": {},
-                "device_info": {},
-                "parallel_groups_info": [],
-            })
+            mock_api.get_all_device_data = AsyncMock(
+                return_value={
+                    "devices": {},
+                    "device_info": {},
+                    "parallel_groups_info": [],
+                }
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
             coordinator._last_parameter_refresh = None  # Force refresh
 
-            with patch.object(coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})):
-                with patch.object(coordinator, "_should_refresh_parameters", return_value=True):
+            with patch.object(
+                coordinator,
+                "_process_device_data",
+                new=AsyncMock(return_value={"devices": {}}),
+            ):
+                with patch.object(
+                    coordinator, "_should_refresh_parameters", return_value=True
+                ):
                     await coordinator._async_update_data()
 
             # Verify task creation was attempted
@@ -223,12 +281,16 @@ class TestParameterRefresh:
     @pytest.mark.asyncio
     async def test_refresh_all_device_parameters(self, mock_hass, mock_config_entry):
         """Test refreshing parameters for all devices."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
-            mock_api.read_parameters = AsyncMock(return_value={
-                "success": True,
-                "FUNC_AC_CHARGE": True,
-            })
+            mock_api.read_parameters = AsyncMock(
+                return_value={
+                    "success": True,
+                    "FUNC_AC_CHARGE": True,
+                }
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
@@ -239,7 +301,9 @@ class TestParameterRefresh:
                 }
             }
 
-            with patch.object(coordinator, "_refresh_device_parameters", new=AsyncMock()) as mock_refresh:
+            with patch.object(
+                coordinator, "_refresh_device_parameters", new=AsyncMock()
+            ) as mock_refresh:
                 await coordinator.refresh_all_device_parameters()
 
                 # Verify parameters were refreshed for each inverter
@@ -250,22 +314,34 @@ class TestCacheInvalidation:
     """Test cache invalidation functionality."""
 
     @pytest.mark.asyncio
-    async def test_cache_invalidated_before_hour_boundary(self, mock_hass, mock_config_entry):
+    async def test_cache_invalidated_before_hour_boundary(
+        self, mock_hass, mock_config_entry
+    ):
         """Test that cache is invalidated before hour boundaries."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
             mock_api.clear_cache = Mock()
-            mock_api.get_all_device_data = AsyncMock(return_value={
-                "devices": {},
-                "device_info": {},
-                "parallel_groups_info": [],
-            })
+            mock_api.get_all_device_data = AsyncMock(
+                return_value={
+                    "devices": {},
+                    "device_info": {},
+                    "parallel_groups_info": [],
+                }
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
-            with patch.object(coordinator, "_should_invalidate_cache", return_value=True):
-                with patch.object(coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})):
+            with patch.object(
+                coordinator, "_should_invalidate_cache", return_value=True
+            ):
+                with patch.object(
+                    coordinator,
+                    "_process_device_data",
+                    new=AsyncMock(return_value={"devices": {}}),
+                ):
                     await coordinator._async_update_data()
 
             # Verify cache was cleared
@@ -278,16 +354,24 @@ class TestWorkingModeControl:
     @pytest.mark.asyncio
     async def test_set_working_mode_success(self, mock_hass, mock_config_entry):
         """Test successful working mode change."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI") as mock_api_class:
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+        ) as mock_api_class:
             mock_api = Mock()
-            mock_api.control_function_parameter = AsyncMock(return_value={"success": True})
+            mock_api.control_function_parameter = AsyncMock(
+                return_value={"success": True}
+            )
             mock_api_class.return_value = mock_api
 
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
-            with patch.object(coordinator, "_refresh_device_parameters", new=AsyncMock()):
+            with patch.object(
+                coordinator, "_refresh_device_parameters", new=AsyncMock()
+            ):
                 with patch.object(coordinator, "async_refresh", new=AsyncMock()):
-                    result = await coordinator.set_working_mode("1234567890", "FUNC_AC_CHARGE", True)
+                    result = await coordinator.set_working_mode(
+                        "1234567890", "FUNC_AC_CHARGE", True
+                    )
 
             assert result is True
             mock_api.control_function_parameter.assert_called_once_with(
@@ -310,7 +394,13 @@ class TestWorkingModeControl:
             }
 
             # Test enabled state
-            assert coordinator.get_working_mode_state("1234567890", "FUNC_AC_CHARGE") is True
+            assert (
+                coordinator.get_working_mode_state("1234567890", "FUNC_AC_CHARGE")
+                is True
+            )
 
             # Test disabled state
-            assert coordinator.get_working_mode_state("1234567890", "FUNC_FORCED_CHG_EN") is False
+            assert (
+                coordinator.get_working_mode_state("1234567890", "FUNC_FORCED_CHG_EN")
+                is False
+            )

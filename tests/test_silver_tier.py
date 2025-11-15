@@ -137,9 +137,7 @@ class TestConfigEntryUnload:
         mock_config_entry.runtime_data = mock_coordinator
 
         # Mock platform unloading
-        mock_hass.config_entries.async_unload_platforms = AsyncMock(
-            return_value=True
-        )
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
 
         result = await async_unload_entry(mock_hass, mock_config_entry)
 
@@ -158,9 +156,7 @@ class TestConfigEntryUnload:
         mock_config_entry.runtime_data = mock_coordinator
 
         # Mock platform unloading failure
-        mock_hass.config_entries.async_unload_platforms = AsyncMock(
-            return_value=False
-        )
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
 
         result = await async_unload_entry(mock_hass, mock_config_entry)
 

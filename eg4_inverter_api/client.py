@@ -27,7 +27,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         base_url: str = "https://monitor.eg4electronics.com",
         verify_ssl: bool = True,
         timeout: int = 30,
-        session: Optional[aiohttp.ClientSession] = None
+        session: Optional[aiohttp.ClientSession] = None,
     ):
         """Initialize the EG4 Inverter API client.
 
@@ -57,30 +57,38 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         # Device discovery cache to avoid repeated login calls
         self._device_cache: Dict[str, Dict[str, Any]] = {}
         self._device_cache_expires: Optional[datetime] = None
-        self._device_cache_ttl = timedelta(minutes=15)  # Cache device info for 15 minutes
+        self._device_cache_ttl = timedelta(
+            minutes=15
+        )  # Cache device info for 15 minutes
 
         # Response cache for API endpoints with TTL
         self._response_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_ttl_config = {
             # Static data - cache longer
-            "battery_info": timedelta(minutes=5),      # Battery info changes slowly
-
+            "battery_info": timedelta(minutes=5),  # Battery info changes slowly
             # Control parameters - cache medium term for responsiveness vs performance
-            "parameter_read": timedelta(minutes=2),    # Parameters change with user controls
-            "quick_charge_status": timedelta(minutes=1), # Status changes during operations
-
+            "parameter_read": timedelta(
+                minutes=2
+            ),  # Parameters change with user controls
+            "quick_charge_status": timedelta(
+                minutes=1
+            ),  # Status changes during operations
             # Dynamic data - cache shorter
-            "inverter_runtime": timedelta(seconds=20), # Runtime data changes frequently
-            "inverter_energy": timedelta(seconds=20),   # Energy data changes moderately
-            "midbox_runtime": timedelta(seconds=20),   # GridBOSS runtime changes frequently
+            "inverter_runtime": timedelta(
+                seconds=20
+            ),  # Runtime data changes frequently
+            "inverter_energy": timedelta(seconds=20),  # Energy data changes moderately
+            "midbox_runtime": timedelta(
+                seconds=20
+            ),  # GridBOSS runtime changes frequently
         }
 
         # Backoff configuration for rate limiting
         self._backoff_config = {
-            "base_delay": 1.0,     # Base delay in seconds
-            "max_delay": 60.0,     # Maximum delay in seconds
+            "base_delay": 1.0,  # Base delay in seconds
+            "max_delay": 60.0,  # Maximum delay in seconds
             "exponential_factor": 2.0,  # Exponential backoff factor
-            "jitter": 0.1          # Random jitter to prevent thundering herd
+            "jitter": 0.1,  # Random jitter to prevent thundering herd
         }
         self._current_backoff_delay = 0.0
         self._last_request_time: Optional[datetime] = None
@@ -136,7 +144,8 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """Reset backoff on successful request."""
         if self._consecutive_errors > 0:
             _LOGGER.debug(
-                "Request successful, resetting backoff after %d errors", self._consecutive_errors
+                "Request successful, resetting backoff after %d errors",
+                self._consecutive_errors,
             )
         self._consecutive_errors = 0
         self._current_backoff_delay = 0.0
@@ -150,13 +159,13 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
         # Calculate exponential backoff with cap
         self._current_backoff_delay = min(
-            base_delay * (factor ** (self._consecutive_errors - 1)),
-            max_delay
+            base_delay * (factor ** (self._consecutive_errors - 1)), max_delay
         )
 
         _LOGGER.warning(
             "API request error #%d, next backoff delay: %.2f seconds",
-            self._consecutive_errors, self._current_backoff_delay
+            self._consecutive_errors,
+            self._current_backoff_delay,
         )
 
     def _get_cache_key(self, endpoint_key: str, **params) -> str:
@@ -182,15 +191,14 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """Cache a response with timestamp."""
         self._response_cache[cache_key] = {
             "timestamp": datetime.now(),
-            "response": response
+            "response": response,
         }
 
         # Cleanup old cache entries (keep last 100 entries)
         if len(self._response_cache) > 100:
             # Remove oldest entries
             sorted_entries = sorted(
-                self._response_cache.items(),
-                key=lambda x: x[1]["timestamp"]
+                self._response_cache.items(), key=lambda x: x[1]["timestamp"]
             )
             for old_key, _ in sorted_entries[:-80]:  # Keep 80 most recent
                 del self._response_cache[old_key]
@@ -276,7 +284,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         except EG4AuthError as e:
             # If authentication failed and we haven't retried yet, try re-authenticating
             if authenticated and retry_count == 0:
-                _LOGGER.warning("Authentication failed, attempting re-authentication: %s", e)
+                _LOGGER.warning(
+                    "Authentication failed, attempting re-authentication: %s", e
+                )
                 # Clear current session and force re-authentication
                 self._session_id = None
                 self._session_expires = None
@@ -366,7 +376,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         self,
         endpoint_key: str,
         serial_number: str,
-        extra_data: Optional[Dict[str, Any]] = None
+        extra_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Make a request with serialNum parameter.
 
@@ -394,7 +404,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         if extra_data:
             data.update(extra_data)
 
-        response = await self._make_request("POST", self._ENDPOINTS[endpoint_key], data=data)
+        response = await self._make_request(
+            "POST", self._ENDPOINTS[endpoint_key], data=data
+        )
 
         # Cache the response if this endpoint is cacheable
         if endpoint_key in self._cache_ttl_config:
@@ -402,7 +414,6 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             _LOGGER.debug("Cached response for %s:%s", endpoint_key, serial_number)
 
         return response
-
 
     async def get_inverter_runtime(self, serial_number: str) -> Dict[str, Any]:
         """Get inverter runtime data."""
@@ -412,9 +423,13 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """Get inverter energy information."""
         return await self._request_with_serial("inverter_energy", serial_number)
 
-    async def get_inverter_energy_info_parallel(self, serial_number: str) -> Dict[str, Any]:
+    async def get_inverter_energy_info_parallel(
+        self, serial_number: str
+    ) -> Dict[str, Any]:
         """Get parallel inverter energy information."""
-        return await self._request_with_serial("inverter_energy_parallel", serial_number)
+        return await self._request_with_serial(
+            "inverter_energy_parallel", serial_number
+        )
 
     async def get_battery_info(self, serial_number: str) -> Dict[str, Any]:
         """Get battery information for an inverter."""
@@ -439,9 +454,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         cache_key = f"plant_{plant_id}"
         now = datetime.now()
 
-        if (cache_key in self._device_cache and
-            self._device_cache_expires and
-            now < self._device_cache_expires):
+        if (
+            cache_key in self._device_cache
+            and self._device_cache_expires
+            and now < self._device_cache_expires
+        ):
             _LOGGER.debug("Using cached device discovery data for plant %s", plant_id)
             cached_data = self._device_cache[cache_key]
             serial_numbers = cached_data["serial_numbers"]
@@ -481,14 +498,18 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 "serial_numbers": serial_numbers,
                 "gridboss_serials": gridboss_serials,
                 "device_info": device_info,
-                "parallel_groups": parallel_groups
+                "parallel_groups": parallel_groups,
             }
             self._device_cache_expires = now + self._device_cache_ttl
-            _LOGGER.debug("Cached device discovery data for %d devices", len(serial_numbers))
+            _LOGGER.debug(
+                "Cached device discovery data for %d devices", len(serial_numbers)
+            )
 
         _LOGGER.info(
             "Found %d devices for plant %s: %s",
-            len(serial_numbers), plant_id, list(serial_numbers)
+            len(serial_numbers),
+            plant_id,
+            list(serial_numbers),
         )
         _LOGGER.info("GridBOSS devices: %s", list(gridboss_serials))
 
@@ -584,8 +605,10 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """Invalidate cached responses for a specific device."""
         keys_to_remove = []
         for cache_key in self._response_cache:
-            if (f"serialNum={serial_number}" in cache_key or
-                f"inverterSn={serial_number}" in cache_key):
+            if (
+                f"serialNum={serial_number}" in cache_key
+                or f"inverterSn={serial_number}" in cache_key
+            ):
                 keys_to_remove.append(cache_key)
 
         for key in keys_to_remove:
@@ -593,15 +616,18 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
         if keys_to_remove:
             _LOGGER.debug(
-                "Invalidated %d cached entries for device %s", len(keys_to_remove), serial_number
+                "Invalidated %d cached entries for device %s",
+                len(keys_to_remove),
+                serial_number,
             )
 
     def _clear_parameter_cache(self) -> None:
         """Clear all parameter-related cache entries."""
         keys_to_remove = []
         for cache_key in self._response_cache:
-            if (cache_key.startswith("parameter_read:") or
-                cache_key.startswith("quick_charge_status:")):
+            if cache_key.startswith("parameter_read:") or cache_key.startswith(
+                "quick_charge_status:"
+            ):
                 keys_to_remove.append(cache_key)
 
         for key in keys_to_remove:
@@ -611,11 +637,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             _LOGGER.debug("Cleared %d parameter cache entries", len(keys_to_remove))
 
     async def _request_with_inverter_sn(
-        self,
-        endpoint_key: Optional[str],
-        inverter_sn: str,
-        operation: str,
-        **kwargs
+        self, endpoint_key: Optional[str], inverter_sn: str, operation: str, **kwargs
     ) -> Dict[str, Any]:
         """Make a request with inverterSn parameter and standardized error handling.
 
@@ -662,15 +684,24 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 _LOGGER.debug("Cached response for %s:%s", endpoint_key, inverter_sn)
 
             # Invalidate cache for write operations that might change device state
-            if endpoint_key in ["parameter_write", "function_control"] or custom_endpoint:
+            if (
+                endpoint_key in ["parameter_write", "function_control"]
+                or custom_endpoint
+            ):
                 self._invalidate_cache_for_device(inverter_sn)
-                _LOGGER.debug("Invalidated cache for device %s after %s", inverter_sn, operation)
+                _LOGGER.debug(
+                    "Invalidated cache for device %s after %s", inverter_sn, operation
+                )
 
-            _LOGGER.debug("Successfully completed %s for inverter %s", operation, inverter_sn)
+            _LOGGER.debug(
+                "Successfully completed %s for inverter %s", operation, inverter_sn
+            )
             return response
         except Exception as e:
             _LOGGER.error("Failed %s for inverter %s: %s", operation, inverter_sn, e)
-            raise EG4APIError(f"{operation.capitalize()} failed for {inverter_sn}: {e}") from e
+            raise EG4APIError(
+                f"{operation.capitalize()} failed for {inverter_sn}: {e}"
+            ) from e
 
     async def read_parameters(
         self, inverter_sn: str, start_register: int = 0, point_number: int = 127
@@ -690,7 +721,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             inverter_sn,
             f"parameter read (reg {start_register}, count {point_number})",
             startRegister=start_register,
-            pointNumber=point_number
+            pointNumber=point_number,
         )
 
     async def write_parameter(  # pylint: disable=too-many-arguments
@@ -700,7 +731,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         value_text: str,
         *,
         client_type: str = "WEB",
-        remote_set_type: str = "NORMAL"
+        remote_set_type: str = "NORMAL",
     ) -> Dict[str, Any]:
         """Write a parameter to an inverter using the remote write endpoint.
 
@@ -721,15 +752,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             holdParam=hold_param,
             valueText=value_text,
             clientType=client_type,
-            remoteSetType=remote_set_type
+            remoteSetType=remote_set_type,
         )
 
     async def control_quick_charge(
-        self,
-        serial_number: str,
-        start: bool,
-        *,
-        client_type: str = "WEB"
+        self, serial_number: str, start: bool, *, client_type: str = "WEB"
     ) -> Dict[str, Any]:
         """Control quick charge for specified inverter.
 
@@ -749,7 +776,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             serial_number,
             f"quick charge {action}",
             clientType=client_type,
-            _custom_endpoint=endpoint
+            _custom_endpoint=endpoint,
         )
 
     async def start_quick_charge(self, serial_number: str) -> Dict[str, Any]:
@@ -784,9 +811,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             Dict containing the quick charge status
         """
         return await self._request_with_inverter_sn(
-            "quick_charge_status",
-            serial_number,
-            "quick charge status check"
+            "quick_charge_status", serial_number, "quick charge status check"
         )
 
     async def control_function_parameter(  # pylint: disable=too-many-arguments
@@ -796,7 +821,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         enable: bool,
         *,
         client_type: str = "WEB",
-        remote_set_type: str = "NORMAL"
+        remote_set_type: str = "NORMAL",
     ) -> Dict[str, Any]:
         """Control a function parameter for specified inverter.
 
@@ -818,7 +843,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             functionParam=function_param,
             enable="true" if enable else "false",
             clientType=client_type,
-            remoteSetType=remote_set_type
+            remoteSetType=remote_set_type,
         )
 
     async def enable_battery_backup(self, serial_number: str) -> Dict[str, Any]:
@@ -841,7 +866,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         Returns:
             Dict containing the battery backup disable response
         """
-        return await self.control_function_parameter(serial_number, "FUNC_EPS_EN", False)
+        return await self.control_function_parameter(
+            serial_number, "FUNC_EPS_EN", False
+        )
 
     def get_battery_backup_status(self, parameters: Dict[str, Any]) -> bool:
         """Extract battery backup status from parameter data.
@@ -854,7 +881,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         """
         return parameters.get("FUNC_EPS_EN", False)
 
-    async def set_standby_mode(self, serial_number: str, enable: bool = True) -> Dict[str, Any]:
+    async def set_standby_mode(
+        self, serial_number: str, enable: bool = True
+    ) -> Dict[str, Any]:
         """Set standby mode for specified inverter.
 
         Args:
@@ -872,7 +901,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         return await self.control_function_parameter(
             serial_number,
             "FUNC_SET_TO_STANDBY",
-            not enable  # Reverse the logic based on curl examples
+            not enable,  # Reverse the logic based on curl examples
         )
 
     async def enable_normal_mode(self, serial_number: str) -> Dict[str, Any]:
@@ -895,7 +924,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         Returns:
             Dict containing the peak shaving enable response
         """
-        return await self.control_function_parameter(serial_number, "FUNC_GRID_PEAK_SHAVING", True)
+        return await self.control_function_parameter(
+            serial_number, "FUNC_GRID_PEAK_SHAVING", True
+        )
 
     async def disable_grid_peak_shaving(self, serial_number: str) -> Dict[str, Any]:
         """Disable grid peak shaving mode for specified inverter.
@@ -906,7 +937,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         Returns:
             Dict containing the peak shaving disable response
         """
-        return await self.control_function_parameter(serial_number, "FUNC_GRID_PEAK_SHAVING", False)
+        return await self.control_function_parameter(
+            serial_number, "FUNC_GRID_PEAK_SHAVING", False
+        )
 
     async def enable_standby_mode(self, serial_number: str) -> Dict[str, Any]:
         """Enable standby mode for specified inverter.
@@ -945,16 +978,22 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             "device_cache": {
                 "entries": len(self._device_cache),
                 "valid": device_cache_valid,
-                "expires": (self._device_cache_expires.isoformat() 
-                           if self._device_cache_expires else None)
+                "expires": (
+                    self._device_cache_expires.isoformat()
+                    if self._device_cache_expires
+                    else None
+                ),
             },
             "response_cache": {
                 "total_entries": len(self._response_cache),
                 "valid_entries": valid_entries,
                 "expired_entries": expired_entries,
-                "cache_hit_potential": (f"{valid_entries}/{len(self._response_cache)}" 
-                                       if self._response_cache else "0/0")
-            }
+                "cache_hit_potential": (
+                    f"{valid_entries}/{len(self._response_cache)}"
+                    if self._response_cache
+                    else "0/0"
+                ),
+            },
         }
 
     def clear_cache(self) -> None:

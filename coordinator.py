@@ -116,7 +116,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Don't await this to avoid blocking the main data update
                 # Create task and store reference to avoid RuntimeWarning
                 task = self.hass.async_create_task(self._hourly_parameter_refresh())
-                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                task.add_done_callback(
+                    lambda t: t.exception() if not t.cancelled() else None
+                )
 
             # Get comprehensive data for all devices in the plan
             data = await self.api.get_all_device_data(self.plant_id)

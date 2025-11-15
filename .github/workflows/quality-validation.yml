@@ -200,12 +200,22 @@ jobs:
           pip install ruff
 
       - name: Run ruff linter
-        run: ruff check . --output-format=github
-        continue-on-error: true
+        run: |
+          ruff check . --output-format=github
+          if [ $? -ne 0 ]; then
+            echo "❌ Ruff linter found issues"
+            exit 1
+          fi
+          echo "✅ Ruff linter passed"
 
       - name: Run ruff formatter check
-        run: ruff format --check .
-        continue-on-error: true
+        run: |
+          ruff format --check .
+          if [ $? -ne 0 ]; then
+            echo "❌ Ruff formatter check failed - code needs formatting"
+            exit 1
+          fi
+          echo "✅ Ruff formatter check passed"
 
   bronze-security-scan:
     name: Bronze - Security Scan
@@ -219,7 +229,6 @@ jobs:
         with:
           targets: .
           options: "-r -ll -i -x ./test_env,./venv,./tests"
-        continue-on-error: true
 
   bronze-summary:
     name: 🥉 Bronze Tier Summary
@@ -790,14 +799,14 @@ jobs:
           echo "✅ py.typed marker exists (API package)"
 
       - name: Run mypy type checking
-        continue-on-error: true
         run: |
           echo "Running mypy type checking..."
-          mypy --config-file mypy.ini . || {
-            echo "⚠️ Type errors found - this is expected during initial Platinum implementation"
-            echo "Type checking will become strict in future releases"
-            exit 0
-          }
+          mypy --config-file mypy.ini .
+          if [ $? -ne 0 ]; then
+            echo "❌ Type errors found - must be fixed for Platinum tier"
+            exit 1
+          fi
+          echo "✅ Mypy type checking passed"
 
   platinum-comprehensive-tests:
     name: Platinum - Comprehensive Test Suite

@@ -11,7 +11,6 @@ Platinum Tier Requirements:
 3. strict-typing: Strict typing with mypy ✅
 """
 
-import os
 import re
 import subprocess
 import sys
@@ -40,7 +39,7 @@ def check_async_dependency() -> bool:
     print_requirement(
         1,
         "Async Dependency",
-        "Verify that the integration uses async HTTP libraries (aiohttp)"
+        "Verify that the integration uses async HTTP libraries (aiohttp)",
     )
 
     # Check manifest.json for aiohttp requirement
@@ -51,6 +50,7 @@ def check_async_dependency() -> bool:
 
     with open(manifest_path, "r", encoding="utf-8") as f:
         import json
+
         manifest = json.load(f)
         requirements = manifest.get("requirements", [])
 
@@ -72,7 +72,7 @@ def check_websession_injection() -> bool:
     print_requirement(
         2,
         "Websession Injection",
-        "Verify that the API client supports passing in an aiohttp ClientSession"
+        "Verify that the API client supports passing in an aiohttp ClientSession",
     )
 
     # Check API client for session parameter in __init__
@@ -133,9 +133,7 @@ def check_strict_typing() -> bool:
     Platinum requirement: strict-typing
     """
     print_requirement(
-        3,
-        "Strict Typing",
-        "Verify that strict typing is configured with mypy"
+        3, "Strict Typing", "Verify that strict typing is configured with mypy"
     )
 
     # Check for mypy.ini
@@ -179,16 +177,16 @@ def check_strict_typing() -> bool:
             capture_output=True,
             text=True,
             cwd=integration_dir,
-            check=False
+            check=False,
         )
 
         if result.returncode == 0:
             print("  ✅ mypy type checking passed with no errors")
             return True
         else:
-            print(f"  ⚠️  mypy found type errors (this is expected during development):")
+            print("  ⚠️  mypy found type errors (this is expected during development):")
             # Show first 10 lines of errors
-            error_lines = result.stdout.split('\n')[:10]
+            error_lines = result.stdout.split("\n")[:10]
             for line in error_lines:
                 if line.strip():
                     print(f"      {line}")
@@ -207,7 +205,9 @@ def main() -> int:
     """Run all Platinum tier validations."""
     print_header("Home Assistant Integration Quality Scale: Platinum Tier Validation")
     print("Integration: EG4 Web Monitor")
-    print("Documentation: https://developers.home-assistant.io/docs/core/integration-quality-scale/#-platinum")
+    print(
+        "Documentation: https://developers.home-assistant.io/docs/core/integration-quality-scale/#-platinum"
+    )
 
     results = []
 
@@ -229,8 +229,12 @@ def main() -> int:
     if all_passed:
         print("🎉 All Platinum tier requirements validated successfully!")
         print()
-        print("Note: This integration also meets all Bronze, Silver, and Gold tier requirements.")
-        print("      Run validate_bronze_tier.py, validate_silver_tier.py, and validate_gold_tier.py")
+        print(
+            "Note: This integration also meets all Bronze, Silver, and Gold tier requirements."
+        )
+        print(
+            "      Run validate_bronze_tier.py, validate_silver_tier.py, and validate_gold_tier.py"
+        )
         print("      to verify lower tier compliance.")
         return 0
     else:

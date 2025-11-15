@@ -1,6 +1,6 @@
 """Test config flow for EG4 Web Monitor integration."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -9,7 +9,6 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.eg4_web_monitor.config_flow import EG4WebMonitorConfigFlow
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
@@ -108,7 +107,9 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         }
 
 
-async def test_user_flow_success_single_plant(hass: HomeAssistant, mock_api_single_plant):
+async def test_user_flow_success_single_plant(
+    hass: HomeAssistant, mock_api_single_plant
+):
     """Test successful user flow with single plant (auto-select)."""
     # Mock async_setup_entry to prevent actual integration setup
     with patch(
@@ -173,9 +174,7 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
         "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
         api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(
-            side_effect=EG4ConnectionError("Cannot connect")
-        )
+        api_instance.login = AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
         api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(

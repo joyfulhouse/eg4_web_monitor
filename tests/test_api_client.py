@@ -8,14 +8,12 @@ Tests Platinum tier requirements:
 """
 
 import asyncio
-from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import aiohttp
 import pytest
 
 from custom_components.eg4_web_monitor.eg4_inverter_api import (
-    EG4APIError,
     EG4AuthError,
     EG4ConnectionError,
     EG4InverterAPI,
@@ -111,7 +109,7 @@ class TestWebsessionInjection:
             mock_session_class.return_value = mock_session
 
             # Get session (triggers creation)
-            session = await client._get_session()
+            _session = await client._get_session()
             assert client._owns_session is True
 
             # Close the client
@@ -193,10 +191,9 @@ class TestAuthentication:
         mock_response.status = 401
         mock_response.ok = False
         mock_response.content_type = "application/json"
-        mock_response.json = AsyncMock(return_value={
-            "success": False,
-            "message": "Invalid credentials"
-        })
+        mock_response.json = AsyncMock(
+            return_value={"success": False, "message": "Invalid credentials"}
+        )
 
         mock_session.request = AsyncMock(return_value=mock_response)
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -230,10 +227,9 @@ class TestCachingBehavior:
             mock_response.status = 200
             mock_response.ok = True
             mock_response.content_type = "application/json"
-            mock_response.json = AsyncMock(return_value={
-                "success": True,
-                "data": "test_data"
-            })
+            mock_response.json = AsyncMock(
+                return_value={"success": True, "data": "test_data"}
+            )
             return mock_response
 
         mock_session.request = mock_request
@@ -276,7 +272,9 @@ class TestErrorHandling:
         mock_session.closed = False
 
         # Mock connection error
-        mock_session.request = AsyncMock(side_effect=aiohttp.ClientError("Connection failed"))
+        mock_session.request = AsyncMock(
+            side_effect=aiohttp.ClientError("Connection failed")
+        )
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
@@ -308,18 +306,15 @@ class TestErrorHandling:
                 mock_response.status = 200
                 mock_response.ok = True
                 mock_response.content_type = "application/json"
-                mock_response.json = AsyncMock(return_value={
-                    "success": False,
-                    "message": "Session expired"
-                })
+                mock_response.json = AsyncMock(
+                    return_value={"success": False, "message": "Session expired"}
+                )
             else:
                 # Second call - success after re-auth
                 mock_response.status = 200
                 mock_response.ok = True
                 mock_response.content_type = "application/json"
-                mock_response.json = AsyncMock(return_value={
-                    "success": True
-                })
+                mock_response.json = AsyncMock(return_value={"success": True})
 
             return mock_response
 
