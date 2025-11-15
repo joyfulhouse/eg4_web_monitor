@@ -277,6 +277,181 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_reconfigure(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Handle reconfiguration flow.
+
+        Gold tier requirement: Reconfiguration available through UI.
+        """
+        errors: Dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry = self.hass.config_entries.async_get_entry(
+            self.context.get("entry_id")
+        )
+
+        if user_input is not None:
+            try:
+                # Store new credentials
+                self._username = user_input[CONF_USERNAME]
+                self._password = user_input[CONF_PASSWORD]
+                self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+                self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+
+                # Test new credentials and get plants
+                await self._test_credentials()
+
+                # Check if we're changing accounts (username changed)
+                if self._username != entry.data.get(CONF_USERNAME):
+                    # Changing accounts - need to select plant again
+                    if len(self._plants) == 1:
+                        plant = self._plants[0]
+                        return await self._update_entry(
+                            entry=entry,
+                            plant_id=plant["plantId"],
+                            plant_name=plant["name"],
+                        )
+                    else:
+                        # Multiple plants - show selection step
+                        return await self.async_step_reconfigure_plant()
+                else:
+                    # Same account - keep existing plant
+                    return await self._update_entry(
+                        entry=entry,
+                        plant_id=entry.data.get(CONF_PLANT_ID),
+                        plant_name=entry.data.get(CONF_PLANT_NAME),
+                    )
+
+            except EG4AuthError:
+                errors["base"] = "invalid_auth"
+            except EG4ConnectionError:
+                errors["base"] = "cannot_connect"
+            except EG4APIError as e:
+                _LOGGER.error("API error during reconfiguration: %s", e)
+                errors["base"] = "unknown"
+            except Exception as e:
+                _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
+                errors["base"] = "unknown"
+
+        # Show reconfiguration form with current values
+        reconfigure_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_USERNAME, default=entry.data.get(CONF_USERNAME)
+                ): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Optional(
+                    CONF_BASE_URL,
+                    default=entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL),
+                ): str,
+                vol.Optional(
+                    CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=reconfigure_schema,
+            errors=errors,
+            description_placeholders={
+                "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+            },
+        )
+
+    async def async_step_reconfigure_plant(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Handle plant selection during reconfiguration.
+
+        Gold tier requirement: Reconfiguration available through UI.
+        """
+        errors: Dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry = self.hass.config_entries.async_get_entry(
+            self.context.get("entry_id")
+        )
+
+        if user_input is not None:
+            try:
+                plant_id = user_input[CONF_PLANT_ID]
+
+                # Find the selected plant
+                selected_plant = None
+                for plant in self._plants:
+                    if plant["plantId"] == plant_id:
+                        selected_plant = plant
+                        break
+
+                if not selected_plant:
+                    errors["base"] = "invalid_plant"
+                else:
+                    return await self._update_entry(
+                        entry=entry,
+                        plant_id=selected_plant["plantId"],
+                        plant_name=selected_plant["name"],
+                    )
+
+            except Exception as e:
+                _LOGGER.exception("Error during plant selection: %s", e)
+                errors["base"] = "unknown"
+
+        # Build plant selection schema
+        plant_options = {
+            plant["plantId"]: plant["name"] for plant in self._plants or []
+        }
+
+        plant_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_PLANT_ID, default=entry.data.get(CONF_PLANT_ID)
+                ): vol.In(plant_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_plant",
+            data_schema=plant_schema,
+            errors=errors,
+            description_placeholders={
+                "plant_count": str(len(plant_options)),
+                "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+            },
+        )
+
+    async def _update_entry(
+        self, entry: config_entries.ConfigEntry, plant_id: str, plant_name: str
+    ) -> FlowResult:
+        """Update the config entry with new data."""
+        # Update unique ID if username changed
+        unique_id = f"{self._username}_{plant_id}"
+        await self.async_set_unique_id(unique_id)
+
+        # Update entry title
+        title = f"EG4 Web Monitor - {plant_name}"
+
+        # Update entry data
+        data = {
+            CONF_USERNAME: self._username,
+            CONF_PASSWORD: self._password,
+            CONF_BASE_URL: self._base_url,
+            CONF_VERIFY_SSL: self._verify_ssl,
+            CONF_PLANT_ID: plant_id,
+            CONF_PLANT_NAME: plant_name,
+        }
+
+        self.hass.config_entries.async_update_entry(
+            entry,
+            title=title,
+            data=data,
+        )
+
+        await self.hass.config_entries.async_reload(entry.entry_id)
+
+        return self.async_abort(reason="reconfigure_successful")
+
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""

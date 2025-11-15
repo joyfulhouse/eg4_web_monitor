@@ -1,0 +1,192 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG4 Web Monitor Setup",
+        "description": "Connect to your EG4 Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate"
+        },
+        "data_description": {
+          "username": "Your EG4 Web Monitor account username",
+          "password": "Your EG4 Web Monitor account password",
+          "base_url": "The base URL for the EG4 Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections"
+        }
+      },
+      "plant": {
+        "title": "Select Station",
+        "description": "Choose which solar station/plant to monitor. You can add additional stations by creating separate integration instances.",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Select the solar installation you want to monitor"
+        }
+      },
+      "reauth": {
+        "title": "Reauthenticate EG4 Web Monitor",
+        "description": "Your session has expired or credentials are invalid. Please re-enter your credentials to continue monitoring your devices.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Confirm Reauthentication",
+        "description": "Please confirm your updated credentials to restore access to your EG4 devices."
+      },
+      "reconfigure": {
+        "title": "Reconfigure EG4 Web Monitor",
+        "description": "Update your EG4 Web Monitor configuration settings. You can change connection parameters or switch to a different station.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate"
+        },
+        "data_description": {
+          "username": "Your EG4 Web Monitor account username",
+          "password": "Your EG4 Web Monitor account password",
+          "base_url": "The base URL for the EG4 Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections"
+        }
+      },
+      "reconfigure_plant": {
+        "title": "Change Station",
+        "description": "Select a different solar station/plant to monitor with this integration instance.",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Select the solar installation you want to monitor"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to EG4 Web Monitor. Please check your network connection and try again.",
+      "invalid_auth": "Invalid username or password. Please check your credentials and try again.",
+      "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
+      "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your EG4 Web Monitor account.",
+      "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
+      "timeout": "Connection to EG4 Web Monitor timed out. Please check your internet connection and try again."
+    },
+    "abort": {
+      "already_configured": "This EG4 Web Monitor station is already configured. Each station requires a separate integration instance.",
+      "reauth_successful": "Reauthentication successful! Your EG4 Web Monitor integration is now reconnected.",
+      "reconfigure_successful": "Reconfiguration successful! Your EG4 Web Monitor settings have been updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG4 Web Monitor Options",
+        "description": "Configure advanced options for your EG4 Web Monitor integration.",
+        "data": {
+          "scan_interval": "Update Interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the EG4 API for updates (minimum 30 seconds)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "operating_mode": {
+      "options": {
+        "normal": "Normal",
+        "standby": "Standby"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ac_power": {"name": "AC Power"},
+      "ac_voltage": {"name": "AC Voltage"},
+      "ac_current": {"name": "AC Current"},
+      "frequency": {"name": "Frequency"},
+      "dc_power": {"name": "DC Power"},
+      "dc_voltage": {"name": "DC Voltage"},
+      "dc_current": {"name": "DC Current"},
+      "battery_power": {"name": "Battery Power"},
+      "battery_voltage": {"name": "Battery Voltage"},
+      "battery_current": {"name": "Battery Current"},
+      "state_of_charge": {"name": "State of Charge"},
+      "state_of_health": {"name": "State of Health"},
+      "total_energy": {"name": "Total Energy"},
+      "daily_energy": {"name": "Daily Energy"},
+      "monthly_energy": {"name": "Monthly Energy"},
+      "yearly_energy": {"name": "Yearly Energy"},
+      "internal_temperature": {"name": "Internal Temperature"},
+      "radiator1_temperature": {"name": "Radiator 1 Temperature"},
+      "radiator2_temperature": {"name": "Radiator 2 Temperature"},
+      "status_code": {"name": "Status Code"},
+      "status_text": {"name": "Status"},
+      "grid_power": {"name": "Grid Power"},
+      "load_power": {"name": "Load Power"},
+      "pv_total_power": {"name": "PV Total Power"},
+      "pv1_power": {"name": "PV1 Power"},
+      "pv2_power": {"name": "PV2 Power"},
+      "pv3_power": {"name": "PV3 Power"},
+      "cell_voltage_max": {"name": "Maximum Cell Voltage"},
+      "cell_voltage_min": {"name": "Minimum Cell Voltage"},
+      "cell_voltage_delta": {"name": "Cell Voltage Delta"},
+      "cycle_count": {"name": "Cycle Count"},
+      "firmware_version": {"name": "Firmware Version"}
+    },
+    "switch": {
+      "quick_charge": {
+        "name": "Quick Charge"
+      },
+      "battery_backup_eps": {
+        "name": "Battery Backup (EPS)"
+      }
+    },
+    "number": {
+      "system_charge_soc_limit": {
+        "name": "System Charge SOC Limit"
+      },
+      "ac_charge_power": {
+        "name": "AC Charge Power"
+      },
+      "pv_charge_power": {
+        "name": "PV Charge Power"
+      },
+      "ac_charge_soc_limit": {
+        "name": "AC Charge SOC Limit"
+      },
+      "soc_cutoff": {
+        "name": "SOC Cut-Off"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Refresh Data"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating Mode",
+        "state": {
+          "normal": "Normal",
+          "standby": "Standby"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh_data": {
+      "name": "Refresh Data",
+      "description": "Force an immediate refresh of device data from the EG4 API, bypassing the normal polling interval.",
+      "fields": {
+        "entry_id": {
+          "name": "Configuration Entry ID",
+          "description": "The configuration entry ID to refresh. If not provided, all EG4 Web Monitor integrations will be refreshed."
+        }
+      }
+    }
+  }
+}
