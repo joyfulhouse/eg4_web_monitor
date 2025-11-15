@@ -81,18 +81,21 @@ class TestServiceExceptionHandling:
     ):
         """Test refresh service raises ServiceValidationError for unloaded entry."""
         from homeassistant.exceptions import ServiceValidationError
+        from custom_components.eg4_web_monitor import async_setup
+
+        # Set up the integration
+        await async_setup(hass, {})
 
         mock_config_entry.state = ConfigEntryState.NOT_LOADED
+        mock_config_entry.add_to_hass(hass)
 
-        hass.config_entries.async_get_entry = MagicMock(
-            return_value=mock_config_entry
-        )
-
+        # Try to refresh unloaded entry
         with pytest.raises(ServiceValidationError) as exc_info:
-            from custom_components.eg4_web_monitor import handle_refresh_data
-
-            await handle_refresh_data(
-                MagicMock(data={"entry_id": "test_entry_id"})
+            await hass.services.async_call(
+                DOMAIN,
+                "refresh_data",
+                {"entry_id": mock_config_entry.entry_id},
+                blocking=True,
             )
 
         assert "not loaded" in str(exc_info.value).lower()
