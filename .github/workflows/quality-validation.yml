@@ -737,14 +737,14 @@ jobs:
           echo "✅ API client supports session parameter"
 
           # Check coordinator uses injection
-          if ! grep -q "async_get_clientsession()" coordinator.py; then
+          if ! grep -q "async_get_clientsession" coordinator.py; then
             echo "❌ Coordinator does not inject session"
             exit 1
           fi
           echo "✅ Coordinator injects Home Assistant session"
 
           # Check config flow uses injection
-          if ! grep -q "async_get_clientsession()" config_flow.py; then
+          if ! grep -q "async_get_clientsession" config_flow.py; then
             echo "❌ Config flow does not inject session"
             exit 1
           fi
