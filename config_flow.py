@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import AbortFlow, FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
@@ -122,6 +122,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         plant_name=selected_plant["name"],
                     )
 
+            except AbortFlow:
+                # Let AbortFlow exceptions pass through (e.g., already_configured)
+                raise
             except Exception as e:
                 _LOGGER.exception("Error during plant selection: %s", e)
                 errors["base"] = "unknown"
