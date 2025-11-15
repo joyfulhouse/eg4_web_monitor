@@ -32,7 +32,7 @@ def mock_api():
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plant_list = AsyncMock(
+        api_instance.get_plants = AsyncMock(
             return_value=[
                 {"plantId": "123", "name": "Test Plant 1"},
                 {"plantId": "456", "name": "Test Plant 2"},
@@ -50,7 +50,7 @@ def mock_api_single_plant():
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plant_list = AsyncMock(
+        api_instance.get_plants = AsyncMock(
             return_value=[
                 {"plantId": "123", "name": "Test Plant"},
             ]
@@ -269,7 +269,7 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
     ) as mock_api_success:
         api_instance = mock_api_success.return_value
         api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plant_list = AsyncMock(
+        api_instance.get_plants = AsyncMock(
             return_value=[{"plantId": "123", "name": "Test Plant"}]
         )
         api_instance.close = AsyncMock()
