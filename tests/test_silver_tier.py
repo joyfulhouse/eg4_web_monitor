@@ -219,8 +219,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4AuthError("Auth failed")
         )
 
-        with pytest.raises(ConfigEntryAuthFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(ConfigEntryAuthFailed):
+                await coordinator._async_update_data()
 
         # Verify logging
         mock_logger.warning.assert_called()
@@ -242,10 +244,12 @@ class TestUnavailabilityLogging:
             return_value={"devices": {}, "device_info": {}}
         )
 
-        with patch.object(
-            coordinator, "_process_device_data", return_value={"devices": {}}
-        ):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with patch.object(
+                coordinator, "_process_device_data", return_value={"devices": {}}
+            ):
+                await coordinator._async_update_data()
 
         # Verify reconnection logging
         mock_logger.warning.assert_called()
@@ -265,8 +269,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4ConnectionError("Connection failed")
         )
 
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(UpdateFailed):
+                await coordinator._async_update_data()
 
         mock_logger.warning.assert_called()
         warning_call = mock_logger.warning.call_args[0][0]
@@ -284,8 +290,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4APIError("API error")
         )
 
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(UpdateFailed):
+                await coordinator._async_update_data()
 
         mock_logger.warning.assert_called()
         warning_call = mock_logger.warning.call_args[0][0]
@@ -440,9 +448,11 @@ class TestReauthentication:
             side_effect=EG4AuthError("Authentication failed")
         )
 
+        # Mock async_create_task to prevent background task warnings
         # Should raise ConfigEntryAuthFailed which triggers reauth
-        with pytest.raises(ConfigEntryAuthFailed):
-            await coordinator._async_update_data()
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(ConfigEntryAuthFailed):
+                await coordinator._async_update_data()
 
 
 # Silver Tier Requirement: Test coverage above 95% for all modules
