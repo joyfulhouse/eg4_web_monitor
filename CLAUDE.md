@@ -838,3 +838,6 @@ The integration is considered fully validated when:
 8. **✅ Error Handling**: Graceful handling of network/API issues
 9. **✅ Performance**: Efficient API usage with parallel requests
 10. **✅ Logging**: Comprehensive debug information available
+- HomeAssistant Quality Scale documentation: https://www.home-assistant.io/docs/quality_scale/
+
+Always insure that we adhere to all quality rules up to the Platinum level inclusive of rules in Bronze, Silver, and Gold. Make sure that we have test coverage for the features we create and include them in the CI pipeline.
