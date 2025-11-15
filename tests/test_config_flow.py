@@ -1,20 +1,15 @@
 """Test config flow for EG4 Web Monitor integration."""
 
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
-from config_flow import EG4WebMonitorConfigFlow
-from const import (
+from custom_components.eg4_web_monitor.config_flow import EG4WebMonitorConfigFlow
+from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
@@ -22,7 +17,7 @@ from const import (
     DEFAULT_BASE_URL,
     DOMAIN,
 )
-from eg4_inverter_api.exceptions import (
+from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
     EG4APIError,
     EG4AuthError,
     EG4ConnectionError,
