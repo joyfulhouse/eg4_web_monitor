@@ -10,10 +10,12 @@ from homeassistant.helpers import aiohttp_client
 if TYPE_CHECKING:
     from homeassistant import config_entries
     from homeassistant.config_entries import ConfigFlowResult
-    from homeassistant.exceptions import HomeAssistantError, AbortFlow
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.data_entry_flow import AbortFlow
 else:
     from homeassistant import config_entries  # type: ignore[assignment]
-    from homeassistant.exceptions import HomeAssistantError, AbortFlow  # type: ignore[assignment]
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.data_entry_flow import AbortFlow
 
     # At runtime, ConfigFlowResult might not exist, use FlowResult
     try:
