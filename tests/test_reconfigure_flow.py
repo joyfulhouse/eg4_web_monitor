@@ -19,6 +19,21 @@ from custom_components.eg4_web_monitor.const import (
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_setup_entry():
+    """Mock async_setup_entry to prevent actual integration setup during reconfiguration.
+
+    Reconfigure tests trigger async_reload() which causes integration setup and creates
+    aiohttp ClientSession instances. These spawn background threads that cause cleanup
+    errors during test teardown. Mocking prevents thread creation while still allowing
+    tests to validate reconfiguration logic.
+    """
+    with patch(
+        "custom_components.eg4_web_monitor.async_setup_entry", return_value=True
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_api():
     """Mock EG4InverterAPI."""
