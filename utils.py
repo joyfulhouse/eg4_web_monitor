@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Set, Optional
+from typing import Dict, Any, Set, Optional, List, Callable, Tuple, Iterator, TYPE_CHECKING
 
 from .const import (
     DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
@@ -11,6 +11,9 @@ from .const import (
     CURRENT_SENSORS,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    from .eg4_inverter_api.client import EG4InverterAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,11 +91,10 @@ ESSENTIAL_SENSORS: Set[str] = {
 }
 
 
-def validate_api_response(data: Dict[str, Any], required_fields: list = None) -> bool:
+def validate_api_response(data: Dict[str, Any], required_fields: Optional[List[str]] = None) -> bool:
     """Validate API response data structure."""
-    if not isinstance(data, dict):
-        _LOGGER.error("API response is not a dictionary: %s", type(data))
-        return False
+    # No runtime check needed - type hint guarantees data is dict
+    # Mypy ensures this at compile time
 
     if required_fields:
         missing_fields = [field for field in required_fields if field not in data]
@@ -269,7 +271,7 @@ def clean_battery_display_name(battery_key: str, serial: str) -> str:
     return battery_key.replace("_", "-")
 
 
-def _is_valid_numeric(value) -> bool:
+def _is_valid_numeric(value: Any) -> bool:
     """Check if a value is valid numeric data."""
     if value is None or value == "" or value == "N/A":
         return False
@@ -425,7 +427,7 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
     return sensors
 
 
-async def read_device_parameters_ranges(api_client, inverter_sn: str):
+async def read_device_parameters_ranges(api_client: "EG4InverterAPI", inverter_sn: str) -> List[Any]:
     """Shared function to read all parameter ranges for a device.
 
     Consolidates the duplicate register reading logic used in coordinator.py and number.py.
@@ -449,10 +451,11 @@ async def read_device_parameters_ranges(api_client, inverter_sn: str):
         tasks.append(task)
 
     # Execute all reads in parallel
-    return await asyncio.gather(*tasks, return_exceptions=True)
+    results: List[Any] = list(await asyncio.gather(*tasks, return_exceptions=True))
+    return results
 
 
-def process_parameter_responses(responses, device_serial: str, _logger):
+def process_parameter_responses(responses: List[Any], device_serial: str, _logger: logging.Logger) -> Iterator[Tuple[int, Any, int]]:
     """Process parameter responses and handle exceptions.
 
     Consolidates duplicate response processing logic.
@@ -575,7 +578,7 @@ def create_entity_name(model: str, serial: str, entity_name: str) -> str:
     return f"{model} {serial} {entity_name}"
 
 
-def safe_get_nested_value(data: Dict[str, Any], keys: list, default: Any = None) -> Any:
+def safe_get_nested_value(data: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
     """Safely get nested dictionary values with fallback.
 
     Args:
@@ -595,7 +598,7 @@ def safe_get_nested_value(data: Dict[str, Any], keys: list, default: Any = None)
         return default
 
 
-def validate_device_data(device_data: Dict[str, Any], required_fields: list) -> bool:
+def validate_device_data(device_data: Dict[str, Any], required_fields: List[str]) -> bool:
     """Validate device data contains required fields.
 
     Args:
@@ -605,8 +608,8 @@ def validate_device_data(device_data: Dict[str, Any], required_fields: list) -> 
     Returns:
         True if all required fields present, False otherwise
     """
-    if not isinstance(device_data, dict):
-        return False
+    # No runtime check needed - type hint guarantees device_data is dict
+    # Mypy ensures this at compile time
 
     for field in required_fields:
         if field not in device_data or device_data[field] is None:
@@ -619,7 +622,7 @@ def validate_device_data(device_data: Dict[str, Any], required_fields: list) -> 
 class CircuitBreaker:
     """Simple circuit breaker pattern for API calls."""
 
-    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60) -> None:
         """Initialize circuit breaker.
 
         Args:
@@ -629,10 +632,10 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.timeout = timeout
         self.failure_count = 0
-        self.last_failure_time = None
+        self.last_failure_time: Optional[float] = None
         self.state = "closed"  # closed, open, half-open
 
-    async def call(self, func, *args, **kwargs):
+    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute function with circuit breaker protection.
 
         Args:

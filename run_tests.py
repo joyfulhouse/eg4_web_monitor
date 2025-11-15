@@ -5,9 +5,10 @@ import sys
 import subprocess
 from pathlib import Path
 import argparse
+from typing import Optional
 
 
-def install_test_requirements():
+def install_test_requirements() -> None:
     """Install test requirements."""
     requirements_file = Path(__file__).parent / "tests" / "requirements.txt"
     if requirements_file.exists():
@@ -21,7 +22,7 @@ def install_test_requirements():
         print("⚠️  Test requirements file not found")
 
 
-def run_tests(coverage=False, verbose=False, test_filter=None):
+def run_tests(coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None) -> int:
     """Run the test suite."""
     tests_dir = Path(__file__).parent / "tests"
 
@@ -76,7 +77,7 @@ def run_tests(coverage=False, verbose=False, test_filter=None):
         return 1
 
 
-def run_linting():
+def run_linting() -> int:
     """Run code linting."""
     print("🔍 Running code linting...")
 
@@ -115,7 +116,7 @@ def run_linting():
         return 0
 
 
-def main():
+def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Test runner for EG4 Inverter integration"

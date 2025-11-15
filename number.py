@@ -2,15 +2,19 @@
 
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.exceptions import HomeAssistantError
 
+if TYPE_CHECKING:
+    from homeassistant.components.number import NumberEntity, NumberMode
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+else:
+    from homeassistant.components.number import NumberEntity, NumberMode
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import EG4ConfigEntry
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import read_device_parameters_ranges, process_parameter_responses
@@ -82,12 +86,13 @@ async def async_setup_entry(
         _LOGGER.info("No number entities created")
 
 
-class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
+class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
     """Number entity for System Charge SOC Limit control."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -127,14 +132,14 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value - will be loaded from device
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created System Charge SOC Limit number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -343,7 +348,7 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_system_charge_soc_limit(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_SYSTEM_CHARGE_SOC_LIMIT from parameter response as integer."""
         if (
@@ -405,12 +410,18 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             # Leave current_value as None to show as unavailable
 
 
-class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
-    """Number entity for AC Charge Power control."""
+class ACChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+    """Number entity for AC Charge Power control.
+
+    Note: Several assignments have type: ignore[assignment] due to mypy
+    control flow false positives when assigning float to Optional[float].
+    Mypy incorrectly narrows the type to None in some branches.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -448,14 +459,14 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created AC Charge Power number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -616,7 +627,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_ac_charge_power(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_AC_CHARGE_POWER_CMD from parameter response."""
         if (
@@ -697,12 +708,18 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
             # Leave current_value as None to show as unavailable
 
 
-class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
-    """Number entity for PV Charge Power control."""
+class PVChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+    """Number entity for PV Charge Power control.
+
+    Note: Several assignments have type: ignore[assignment] due to mypy
+    control flow false positives when assigning float to Optional[float].
+    Mypy incorrectly narrows the type to None in some branches.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -740,14 +757,14 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created PV Charge Power number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -898,7 +915,7 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_pv_charge_power(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_FORCED_CHG_POWER_CMD from parameter response."""
         if (
@@ -962,12 +979,18 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
             # Leave current_value as None to show as unavailable
 
 
-class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
-    """Number entity for Grid Peak Shaving Power control."""
+class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+    """Number entity for Grid Peak Shaving Power control.
+
+    Note: Several assignments have type: ignore[assignment] due to mypy
+    control flow false positives when assigning float to Optional[float].
+    Mypy incorrectly narrows the type to None in some branches.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -1006,14 +1029,14 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created Grid Peak Shaving Power number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[float]:
@@ -1179,7 +1202,7 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_grid_peak_shaving_power(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[float]:
         """Extract _12K_HOLD_GRID_PEAK_SHAVING_POWER from parameter response."""
         if (
@@ -1263,12 +1286,18 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
             # Leave current_value as None to show as unavailable
 
 
-class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
-    """Number entity for AC Charge SOC Limit control."""
+class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+    """Number entity for AC Charge SOC Limit control.
+
+    Note: Several assignments have type: ignore[assignment] due to mypy
+    control flow false positives when assigning float to Optional[float].
+    Mypy incorrectly narrows the type to None in some branches.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -1305,14 +1334,14 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created AC Charge SOC Limit number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -1483,7 +1512,7 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_ac_charge_soc_limit(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_AC_CHARGE_SOC_LIMIT from parameter response."""
         if (
@@ -1546,12 +1575,18 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
             )
 
 
-class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
-    """Number entity for On-Grid SOC Cut-Off control."""
+class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+    """Number entity for On-Grid SOC Cut-Off control.
+
+    Note: Several assignments have type: ignore[assignment] due to mypy
+    control flow false positives when assigning float to Optional[float].
+    Mypy incorrectly narrows the type to None in some branches.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -1588,14 +1623,14 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created On-Grid SOC Cut-Off number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -1766,7 +1801,7 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_on_grid_soc_cutoff(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_DISCHG_CUT_OFF_SOC_EOD from parameter response."""
         if (
@@ -1827,12 +1862,13 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
             )
 
 
-class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
+class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
     """Number entity for Off-Grid SOC Cut-Off control."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
 
         # Get device info
@@ -1869,14 +1905,14 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_device_info = coordinator.get_device_info(serial)
 
         # Current value
-        self._current_value = None
+        self._current_value: Optional[float] = None
 
         _LOGGER.debug("Created Off-Grid SOC Cut-Off number entity for %s", serial)
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.last_update_success
+        return bool(self.coordinator.last_update_success)
 
     @property
     def native_value(self) -> Optional[int]:
@@ -2047,7 +2083,7 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         return None
 
     def _extract_off_grid_soc_cutoff(
-        self, response: dict, start_register: int
+        self, response: Dict[str, Any], start_register: int
     ) -> Optional[int]:
         """Extract HOLD_SOC_LOW_LIMIT_EPS_DISCHG from parameter response."""
         if (

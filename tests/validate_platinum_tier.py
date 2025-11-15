@@ -118,7 +118,7 @@ def check_websession_injection() -> bool:
             cf_content = cf_file.read()
 
             # Check for session injection in config flow
-            if "async_get_clientsession()" in cf_content:
+            if "async_get_clientsession" in cf_content:
                 print("  ✅ Config flow injects Home Assistant's aiohttp session")
             else:
                 print("  ❌ Config flow does not inject session")

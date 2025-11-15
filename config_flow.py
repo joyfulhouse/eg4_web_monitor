@@ -1,13 +1,24 @@
 """Config flow for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import voluptuous as vol
-from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.data_entry_flow import AbortFlow, FlowResult
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import aiohttp_client
+
+if TYPE_CHECKING:
+    from homeassistant import config_entries
+    from homeassistant.config_entries import ConfigFlowResult
+    from homeassistant.exceptions import HomeAssistantError, AbortFlow
+else:
+    from homeassistant import config_entries  # type: ignore[assignment]
+    from homeassistant.exceptions import HomeAssistantError, AbortFlow  # type: ignore[assignment]
+    # At runtime, ConfigFlowResult might not exist, use FlowResult
+    try:
+        from homeassistant.config_entries import ConfigFlowResult  # type: ignore[attr-defined]
+    except ImportError:
+        from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult  # type: ignore[misc]
 
 from .const import (
     CONF_BASE_URL,
@@ -32,7 +43,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
     """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
@@ -44,11 +55,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password: Optional[str] = None
         self._base_url: Optional[str] = None
         self._verify_ssl: Optional[bool] = None
-        self._plants: Optional[list] = None
+        self._plants: Optional[List[Dict[str, Any]]] = None
 
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step - user credentials."""
         errors: Dict[str, str] = {}
 
@@ -68,7 +79,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
 
                 # If only one plant, auto-select and finish
-                if len(self._plants) == 1:
+                if self._plants and len(self._plants) == 1:
                     plant = self._plants[0]
                     return await self._create_entry(
                         plant_id=plant["plantId"], plant_name=plant["name"]
@@ -99,7 +110,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_plant(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle plant selection step."""
         errors: Dict[str, str] = {}
 
@@ -109,10 +120,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Find the selected plant
                 selected_plant = None
-                for plant in self._plants:
-                    if plant["plantId"] == plant_id:
-                        selected_plant = plant
-                        break
+                if self._plants:
+                    for plant in self._plants:
+                        if plant["plantId"] == plant_id:
+                            selected_plant = plant
+                            break
 
                 if not selected_plant:
                     errors["base"] = "invalid_plant"
@@ -152,7 +164,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _test_credentials(self) -> None:
         """Test if we can authenticate with the given credentials."""
         # Inject Home Assistant's aiohttp session (Platinum tier requirement)
-        session = self.hass.helpers.aiohttp_client.async_get_clientsession()
+        session = aiohttp_client.async_get_clientsession(self.hass)
+        assert self._username is not None
+        assert self._password is not None
+        assert self._base_url is not None
+        assert self._verify_ssl is not None
         self._api = EG4InverterAPI(
             username=self._username,
             password=self._password,
@@ -177,9 +193,14 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._api:
                 await self._api.close()
 
-    async def _create_entry(self, plant_id: str, plant_name: str) -> FlowResult:
+    async def _create_entry(self, plant_id: str, plant_name: str) -> ConfigFlowResult:
         """Create the config entry."""
         # Create unique entry ID based on username and plant
+        assert self._username is not None
+        assert self._password is not None
+        assert self._base_url is not None
+        assert self._verify_ssl is not None
+
         unique_id = f"{self._username}_{plant_id}"
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
@@ -202,7 +223,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data=data,
         )
 
-    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauthentication flow.
 
         Silver tier requirement: Reauthentication available through UI.
@@ -216,7 +237,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reauth_confirm(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle reauthentication confirmation.
 
         Silver tier requirement: Reauthentication available through UI.
@@ -229,7 +250,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 password = user_input[CONF_PASSWORD]
 
                 # Test new credentials with injected session (Platinum tier requirement)
-                session = self.hass.helpers.aiohttp_client.async_get_clientsession()
+                session = aiohttp_client.async_get_clientsession(self.hass)
+                assert self._username is not None
+                assert self._base_url is not None
+                assert self._verify_ssl is not None
                 api = EG4InverterAPI(
                     username=self._username,
                     password=password,
@@ -287,7 +311,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle reconfiguration flow.
 
         Gold tier requirement: Reconfiguration available through UI.
@@ -295,7 +319,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: Dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry = self.hass.config_entries.async_get_entry(self.context.get("entry_id"))
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
 
         if user_input is not None:
             try:
@@ -311,6 +338,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Check if we're changing accounts (username changed)
                 if self._username != entry.data.get(CONF_USERNAME):
                     # Changing accounts - need to select plant again
+                    assert self._plants is not None, "Plants must be loaded"
                     if len(self._plants) == 1:
                         plant = self._plants[0]
                         return await self._update_entry(
@@ -366,7 +394,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_plant(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle plant selection during reconfiguration.
 
         Gold tier requirement: Reconfiguration available through UI.
@@ -374,7 +402,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: Dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry = self.hass.config_entries.async_get_entry(self.context.get("entry_id"))
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
 
         if user_input is not None:
             try:
@@ -382,6 +413,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Find the selected plant
                 selected_plant = None
+                assert self._plants is not None, "Plants must be loaded"
                 for plant in self._plants:
                     if plant["plantId"] == plant_id:
                         selected_plant = plant
@@ -424,10 +456,15 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _update_entry(
-        self, entry: config_entries.ConfigEntry, plant_id: str, plant_name: str
-    ) -> FlowResult:
+        self, entry: config_entries.ConfigEntry[Any], plant_id: str, plant_name: str
+    ) -> ConfigFlowResult:
         """Update the config entry with new data."""
         # Update unique ID if username changed
+        assert self._username is not None
+        assert self._password is not None
+        assert self._base_url is not None
+        assert self._verify_ssl is not None
+
         unique_id = f"{self._username}_{plant_id}"
 
         # Defensive check: If the new unique ID matches an existing entry
@@ -465,9 +502,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_abort(reason="reconfigure_successful")
 
 
-class CannotConnect(HomeAssistantError):
+class CannotConnect(HomeAssistantError):  # type: ignore[misc]
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuth(HomeAssistantError):
+class InvalidAuth(HomeAssistantError):  # type: ignore[misc]
     """Error to indicate there is invalid auth."""

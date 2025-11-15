@@ -1,17 +1,26 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+if TYPE_CHECKING:
+    from homeassistant.components.sensor import (
+        SensorDeviceClass,
+        SensorEntity,
+        SensorStateClass,
+    )
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+else:
+    from homeassistant.components.sensor import (  # type: ignore[assignment]
+        SensorDeviceClass,
+        SensorEntity,
+        SensorStateClass,
+    )
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
 from .const import DOMAIN, SENSOR_TYPES
@@ -152,7 +161,7 @@ def _create_parallel_group_sensors(
     return entities
 
 
-class EG4InverterSensor(CoordinatorEntity, SensorEntity):
+class EG4InverterSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     """Representation of an EG4 Web Monitor sensor."""
 
     def __init__(
@@ -164,6 +173,7 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._sensor_key = sensor_key
@@ -216,7 +226,8 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> Dict[str, Any]:
         """Return device information."""
-        return self.coordinator.get_device_info(self._serial)
+        device_info = self.coordinator.get_device_info(self._serial)
+        return dict(device_info) if device_info else {}
 
     @property
     def native_value(self) -> Any:
@@ -243,7 +254,7 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         )
 
 
-class EG4BatterySensor(CoordinatorEntity, SensorEntity):
+class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     """Representation of an EG4 Battery sensor."""
 
     def __init__(
@@ -255,6 +266,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         """Initialize the battery sensor."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._battery_key = battery_key
@@ -312,7 +324,8 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> Dict[str, Any]:
         """Return device information."""
-        return self.coordinator.get_battery_device_info(self._serial, self._battery_key)
+        device_info = self.coordinator.get_battery_device_info(self._serial, self._battery_key)
+        return dict(device_info) if device_info else {}
 
     @property
     def native_value(self) -> Any:
@@ -344,7 +357,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         return battery_exists
 
 
-class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
+class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     """Representation of an EG4 Battery Cell Voltage Delta sensor."""
 
     def __init__(
@@ -355,6 +368,7 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         """Initialize the battery cell voltage delta sensor."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._battery_key = battery_key
@@ -402,7 +416,7 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
         # Calculate absolute difference (delta)
         voltage_delta = abs(cell_voltage_max - cell_voltage_min)
 
-        return voltage_delta
+        return float(voltage_delta)
 
     @property
     def available(self) -> bool:

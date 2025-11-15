@@ -5,7 +5,7 @@ import json
 import logging
 import random
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from urllib.parse import urljoin, urlencode
 
 import aiohttp
@@ -94,12 +94,17 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         self._last_request_time: Optional[datetime] = None
         self._consecutive_errors = 0
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "EG4InverterAPI":
         """Async context manager entry."""
         await self.login()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):  # pylint: disable=unused-argument
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
         """Async context manager exit."""
         await self.close()
 
@@ -168,7 +173,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             self._current_backoff_delay,
         )
 
-    def _get_cache_key(self, endpoint_key: str, **params) -> str:
+    def _get_cache_key(self, endpoint_key: str, **params: Any) -> str:
         """Generate a cache key for an endpoint and parameters."""
         # Sort parameters for consistent cache keys
         param_str = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -181,11 +186,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
         cache_entry = self._response_cache[cache_key]
         cache_time = cache_entry.get("timestamp")
-        if not cache_time:
+        if not cache_time or not isinstance(cache_time, datetime):
             return False
 
         ttl = self._cache_ttl_config.get(endpoint_key, timedelta(seconds=30))
-        return datetime.now() < cache_time + ttl
+        return bool(datetime.now() < cache_time + ttl)
 
     def _cache_response(self, cache_key: str, response: Dict[str, Any]) -> None:
         """Cache a response with timestamp."""
@@ -203,7 +208,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             for old_key, _ in sorted_entries[:-80]:  # Keep 80 most recent
                 del self._response_cache[old_key]
 
-    async def _ensure_authenticated(self):
+    async def _ensure_authenticated(self) -> None:
         """Ensure we have a valid authenticated session."""
         if (
             self._session_id is None
@@ -279,7 +284,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
                 # Request was successful
                 self._handle_request_success()
-                return result
+                return cast(Dict[str, Any], result)
 
         except EG4AuthError as e:
             # If authentication failed and we haven't retried yet, try re-authenticating
@@ -397,7 +402,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
             if self._is_cache_valid(cache_key, endpoint_key):
                 _LOGGER.debug("Cache hit for %s:%s", endpoint_key, serial_number)
-                return self._response_cache[cache_key]["response"]
+                return cast(Dict[str, Any], self._response_cache[cache_key]["response"])
 
         # Make the actual request
         data = {"serialNum": serial_number}
@@ -637,7 +642,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             _LOGGER.debug("Cleared %d parameter cache entries", len(keys_to_remove))
 
     async def _request_with_inverter_sn(
-        self, endpoint_key: Optional[str], inverter_sn: str, operation: str, **kwargs
+        self, endpoint_key: Optional[str], inverter_sn: str, operation: str, **kwargs: Any
     ) -> Dict[str, Any]:
         """Make a request with inverterSn parameter and standardized error handling.
 
@@ -670,7 +675,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
             if self._is_cache_valid(cache_key, endpoint_key):
                 _LOGGER.debug("Cache hit for %s:%s", endpoint_key, inverter_sn)
-                return self._response_cache[cache_key]["response"]
+                return cast(Dict[str, Any], self._response_cache[cache_key]["response"])
 
         data = {"inverterSn": inverter_sn, **kwargs}
         _LOGGER.debug("%s for inverter %s", operation.capitalize(), inverter_sn)
@@ -879,7 +884,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         Returns:
             True if battery backup is enabled, False otherwise
         """
-        return parameters.get("FUNC_EPS_EN", False)
+        return bool(parameters.get("FUNC_EPS_EN", False))
 
     async def set_standby_mode(
         self, serial_number: str, enable: bool = True

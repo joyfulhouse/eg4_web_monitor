@@ -1,12 +1,17 @@
 """Select platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+if TYPE_CHECKING:
+    from homeassistant.components.select import SelectEntity
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+else:
+    from homeassistant.components.select import SelectEntity  # type: ignore[assignment]
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
 from .coordinator import EG4DataUpdateCoordinator
@@ -97,7 +102,7 @@ async def async_setup_entry(
         _LOGGER.info("No select entities to add")
 
 
-class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
+class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[misc]
     """Select to control operating mode (Normal/Standby)."""
 
     def __init__(
@@ -108,6 +113,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
     ) -> None:
         """Initialize the operating mode select."""
         super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
         self._device_data = device_data
@@ -184,7 +190,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             # Only available for inverter devices (not GridBOSS)
-            return device_data.get("type") == "inverter"
+            return bool(device_data.get("type") == "inverter")
         return False
 
     async def async_select_option(self, option: str) -> None:
