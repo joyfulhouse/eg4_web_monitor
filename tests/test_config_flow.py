@@ -92,7 +92,7 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
 
     # Should create entry
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Web Monitor Test Plant 1"
+    assert result["title"] == "EG4 Web Monitor - Test Plant 1"
     assert result["data"] == {
         CONF_USERNAME: "test@example.com",
         CONF_PASSWORD: "testpassword",
@@ -125,7 +125,7 @@ async def test_user_flow_success_single_plant(hass: HomeAssistant, mock_api_sing
 
     # Should create entry immediately (skip plant selection)
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Web Monitor Test Plant"
+    assert result["title"] == "EG4 Web Monitor - Test Plant"
     assert result["data"][CONF_PLANT_ID] == "123"
     assert result["data"][CONF_PLANT_NAME] == "Test Plant"
 
@@ -286,7 +286,7 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
 
         # Should create entry after recovery
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["title"] == "EG4 Web Monitor Test Plant"
+        assert result["title"] == "EG4 Web Monitor - Test Plant"
 
 
 async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
@@ -362,7 +362,7 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
 
     # Should create entry with selected plant
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Web Monitor Test Plant 2"
+    assert result["title"] == "EG4 Web Monitor - Test Plant 2"
     assert result["data"][CONF_PLANT_ID] == "456"
     assert result["data"][CONF_PLANT_NAME] == "Test Plant 2"
 
