@@ -1,20 +1,18 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant
-from homeassistant.setup import async_setup_component
+
+pytest_plugins = "pytest_homeassistant_custom_component"
 
 
-@pytest.fixture
-def hass(event_loop):
-    """Return a Home Assistant instance for testing."""
-    hass = HomeAssistant()
-    hass.config.skip_pip = True
-    event_loop.run_until_complete(async_setup_component(hass, "homeassistant", {}))
-    yield hass
-    event_loop.run_until_complete(hass.async_stop(force=True))
+# Enable custom integrations for testing
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations):
+    """Enable loading custom integrations in all tests."""
+    yield
 
 
 @pytest.fixture

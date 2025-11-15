@@ -121,6 +121,15 @@ Need to change your credentials or switch to a different station? No problem!
 
 The reconfiguration process won't lose any of your existing automations or dashboards!
 
+> **⚠️ Important Note About Changing Stations:**
+>
+> If you switch to a different station/plant during reconfiguration, your entity IDs will change to reflect the new station's devices. This means:
+> - Automations referencing the old entity IDs will need to be updated
+> - Dashboard cards using old entity IDs will need to be reconfigured
+> - History data from the old station will remain but won't be connected to the new entities
+>
+> If you're only changing credentials (username/password) for the same station, your entity IDs will remain unchanged and all automations will continue working.
+
 ## Available Controls
 
 ### Switches

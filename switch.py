@@ -144,7 +144,9 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         self._optimistic_state: Optional[bool] = None
 
         # Get device info from coordinator data
-        device_info = coordinator.data.get("device_info", {}).get(serial, {})
+        device_info = {}
+        if coordinator.data:
+            device_info = coordinator.data.get("device_info", {}).get(serial, {})
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
 
         # Create unique identifiers using consolidated utilities
@@ -297,7 +299,9 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self._optimistic_state: Optional[bool] = None
 
         # Get device info from coordinator data
-        device_info = coordinator.data.get("device_info", {}).get(serial, {})
+        device_info = {}
+        if coordinator.data:
+            device_info = coordinator.data.get("device_info", {}).get(serial, {})
         self._model = device_info.get("deviceTypeText4APP", "Unknown")
 
         # Create unique identifiers using consolidated utilities

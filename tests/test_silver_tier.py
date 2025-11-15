@@ -25,8 +25,12 @@ from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
 @pytest.fixture
 def mock_config_entry():
     """Create a mock config entry."""
-    return MagicMock(
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    return MockConfigEntry(
+        version=1,
         domain=DOMAIN,
+        title="EG4 Web Monitor - Test Plant",
         data={
             CONF_USERNAME: "test_user",
             CONF_PASSWORD: "test_pass",
@@ -36,7 +40,7 @@ def mock_config_entry():
             CONF_PLANT_NAME: "Test Plant",
         },
         entry_id="test_entry_id",
-        state=ConfigEntryState.LOADED,
+        source="user",
     )
 
 
@@ -77,22 +81,42 @@ class TestServiceExceptionHandling:
         assert "not found" in str(exc_info.value).lower()
 
     async def test_refresh_service_raises_validation_error_for_unloaded_entry(
-        self, hass, mock_config_entry
+        self, hass
     ):
         """Test refresh service raises ServiceValidationError for unloaded entry."""
         from homeassistant.exceptions import ServiceValidationError
+        from custom_components.eg4_web_monitor import async_setup
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-        mock_config_entry.state = ConfigEntryState.NOT_LOADED
+        # Set up the integration
+        await async_setup(hass, {})
 
-        hass.config_entries.async_get_entry = MagicMock(
-            return_value=mock_config_entry
+        # Create entry with NOT_LOADED state
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Web Monitor - Test Plant",
+            data={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "test_pass",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test Plant",
+            },
+            entry_id="test_entry_id",
+            source="user",
+            state=ConfigEntryState.NOT_LOADED,  # Set state in constructor
         )
+        entry.add_to_hass(hass)
 
+        # Try to refresh unloaded entry
         with pytest.raises(ServiceValidationError) as exc_info:
-            from custom_components.eg4_web_monitor import handle_refresh_data
-
-            await handle_refresh_data(
-                MagicMock(data={"entry_id": "test_entry_id"})
+            await hass.services.async_call(
+                DOMAIN,
+                "refresh_data",
+                {"entry_id": entry.entry_id},
+                blocking=True,
             )
 
         assert "not loaded" in str(exc_info.value).lower()
@@ -168,7 +192,7 @@ class TestEntityAvailability:
         switch = EG4QuickChargeSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
-            model="GridBOSS",
+            device_data={"model": "GridBOSS", "type": "gridboss"},
         )
 
         # Switch should be unavailable for GridBOSS devices
@@ -190,7 +214,7 @@ class TestEntityAvailability:
         switch = EG4QuickChargeSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
-            model="FlexBOSS21",
+            device_data={"model": "FlexBOSS21", "type": "inverter"},
         )
 
         # Switch should be unavailable when coordinator has no data
@@ -219,8 +243,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4AuthError("Auth failed")
         )
 
-        with pytest.raises(ConfigEntryAuthFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(ConfigEntryAuthFailed):
+                await coordinator._async_update_data()
 
         # Verify logging
         mock_logger.warning.assert_called()
@@ -242,10 +268,12 @@ class TestUnavailabilityLogging:
             return_value={"devices": {}, "device_info": {}}
         )
 
-        with patch.object(
-            coordinator, "_process_device_data", return_value={"devices": {}}
-        ):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with patch.object(
+                coordinator, "_process_device_data", return_value={"devices": {}}
+            ):
+                await coordinator._async_update_data()
 
         # Verify reconnection logging
         mock_logger.warning.assert_called()
@@ -265,8 +293,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4ConnectionError("Connection failed")
         )
 
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(UpdateFailed):
+                await coordinator._async_update_data()
 
         mock_logger.warning.assert_called()
         warning_call = mock_logger.warning.call_args[0][0]
@@ -284,8 +314,10 @@ class TestUnavailabilityLogging:
             side_effect=EG4APIError("API error")
         )
 
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        # Mock async_create_task to prevent background task warnings
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(UpdateFailed):
+                await coordinator._async_update_data()
 
         mock_logger.warning.assert_called()
         warning_call = mock_logger.warning.call_args[0][0]
@@ -440,9 +472,11 @@ class TestReauthentication:
             side_effect=EG4AuthError("Authentication failed")
         )
 
+        # Mock async_create_task to prevent background task warnings
         # Should raise ConfigEntryAuthFailed which triggers reauth
-        with pytest.raises(ConfigEntryAuthFailed):
-            await coordinator._async_update_data()
+        with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
+            with pytest.raises(ConfigEntryAuthFailed):
+                await coordinator._async_update_data()
 
 
 # Silver Tier Requirement: Test coverage above 95% for all modules

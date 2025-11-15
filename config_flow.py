@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.data_entry_flow import AbortFlow, FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
@@ -122,6 +122,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         plant_name=selected_plant["name"],
                     )
 
+            except AbortFlow:
+                # Let AbortFlow exceptions pass through (e.g., already_configured)
+                raise
             except Exception as e:
                 _LOGGER.exception("Error during plant selection: %s", e)
                 errors["base"] = "unknown"
@@ -427,7 +430,17 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Update the config entry with new data."""
         # Update unique ID if username changed
         unique_id = f"{self._username}_{plant_id}"
-        await self.async_set_unique_id(unique_id)
+
+        # Defensive check: If the new unique ID matches an existing entry
+        # (other than the one being reconfigured), abort to prevent conflicts
+        existing_entry = await self.async_set_unique_id(unique_id)
+        if existing_entry and existing_entry.entry_id != entry.entry_id:
+            _LOGGER.warning(
+                "Cannot reconfigure to account %s with plant %s - already configured",
+                self._username,
+                plant_name,
+            )
+            return self.async_abort(reason="already_configured")
 
         # Update entry title
         title = f"EG4 Web Monitor - {plant_name}"
