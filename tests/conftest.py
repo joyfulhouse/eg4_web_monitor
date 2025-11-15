@@ -4,15 +4,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import get_test_home_assistant
-
-
-@pytest.fixture
-def hass(event_loop):
-    """Return a Home Assistant instance for testing."""
-    hass_instance = get_test_home_assistant()
-    yield hass_instance
-    event_loop.run_until_complete(hass_instance.async_stop(force=True))
 
 
 @pytest.fixture
