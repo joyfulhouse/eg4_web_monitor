@@ -2,7 +2,17 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Set, Optional, List, Callable, Tuple, Iterator, TYPE_CHECKING
+from typing import (
+    Dict,
+    Any,
+    Set,
+    Optional,
+    List,
+    Callable,
+    Tuple,
+    Iterator,
+    TYPE_CHECKING,
+)
 
 from .const import (
     DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
@@ -91,7 +101,9 @@ ESSENTIAL_SENSORS: Set[str] = {
 }
 
 
-def validate_api_response(data: Dict[str, Any], required_fields: Optional[List[str]] = None) -> bool:
+def validate_api_response(
+    data: Dict[str, Any], required_fields: Optional[List[str]] = None
+) -> bool:
     """Validate API response data structure."""
     # No runtime check needed - type hint guarantees data is dict
     # Mypy ensures this at compile time
@@ -427,7 +439,9 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
     return sensors
 
 
-async def read_device_parameters_ranges(api_client: "EG4InverterAPI", inverter_sn: str) -> List[Any]:
+async def read_device_parameters_ranges(
+    api_client: "EG4InverterAPI", inverter_sn: str
+) -> List[Any]:
     """Shared function to read all parameter ranges for a device.
 
     Consolidates the duplicate register reading logic used in coordinator.py and number.py.
@@ -455,7 +469,9 @@ async def read_device_parameters_ranges(api_client: "EG4InverterAPI", inverter_s
     return results
 
 
-def process_parameter_responses(responses: List[Any], device_serial: str, _logger: logging.Logger) -> Iterator[Tuple[int, Any, int]]:
+def process_parameter_responses(
+    responses: List[Any], device_serial: str, _logger: logging.Logger
+) -> Iterator[Tuple[int, Any, int]]:
     """Process parameter responses and handle exceptions.
 
     Consolidates duplicate response processing logic.
@@ -578,7 +594,9 @@ def create_entity_name(model: str, serial: str, entity_name: str) -> str:
     return f"{model} {serial} {entity_name}"
 
 
-def safe_get_nested_value(data: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
+def safe_get_nested_value(
+    data: Dict[str, Any], keys: List[str], default: Any = None
+) -> Any:
     """Safely get nested dictionary values with fallback.
 
     Args:
@@ -598,7 +616,9 @@ def safe_get_nested_value(data: Dict[str, Any], keys: List[str], default: Any = 
         return default
 
 
-def validate_device_data(device_data: Dict[str, Any], required_fields: List[str]) -> bool:
+def validate_device_data(
+    device_data: Dict[str, Any], required_fields: List[str]
+) -> bool:
     """Validate device data contains required fields.
 
     Args:

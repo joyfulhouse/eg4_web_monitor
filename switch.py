@@ -460,7 +460,13 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[m
 class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
     """Switch for controlling EG4 working modes."""
 
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, device_info: Dict[str, Any], serial_number: str, mode_config: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        device_info: Dict[str, Any],
+        serial_number: str,
+        mode_config: Dict[str, Any],
+    ) -> None:
         """Initialize the working mode switch."""
         super().__init__(coordinator)
         self.coordinator: EG4DataUpdateCoordinator = coordinator

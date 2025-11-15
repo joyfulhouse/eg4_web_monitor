@@ -12,7 +12,10 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+    from homeassistant.helpers.update_coordinator import (
+        DataUpdateCoordinator,
+        UpdateFailed,
+    )
 else:
     from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
         DataUpdateCoordinator,
@@ -1066,7 +1069,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                         # Find the actual parallel group device serial in our devices
                         for serial, device_data in self.data["devices"].items():
                             if device_data.get("type") == "parallel_group":
-                                return str(serial)  # Return the actual parallel group device serial
+                                return str(
+                                    serial
+                                )  # Return the actual parallel group device serial
                         # If no parallel group device found, don't set via_device
                         return None
 

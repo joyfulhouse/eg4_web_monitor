@@ -22,7 +22,9 @@ def install_test_requirements() -> None:
         print("⚠️  Test requirements file not found")
 
 
-def run_tests(coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None) -> int:
+def run_tests(
+    coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None
+) -> int:
     """Run the test suite."""
     tests_dir = Path(__file__).parent / "tests"
 

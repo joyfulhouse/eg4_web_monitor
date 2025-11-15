@@ -324,7 +324,9 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     @property
     def device_info(self) -> Dict[str, Any]:
         """Return device information."""
-        device_info = self.coordinator.get_battery_device_info(self._serial, self._battery_key)
+        device_info = self.coordinator.get_battery_device_info(
+            self._serial, self._battery_key
+        )
         return dict(device_info) if device_info else {}
 
     @property

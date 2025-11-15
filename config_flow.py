@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 else:
     from homeassistant import config_entries  # type: ignore[assignment]
     from homeassistant.exceptions import HomeAssistantError, AbortFlow  # type: ignore[assignment]
+
     # At runtime, ConfigFlowResult might not exist, use FlowResult
     try:
         from homeassistant.config_entries import ConfigFlowResult  # type: ignore[attr-defined]

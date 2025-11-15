@@ -642,7 +642,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             _LOGGER.debug("Cleared %d parameter cache entries", len(keys_to_remove))
 
     async def _request_with_inverter_sn(
-        self, endpoint_key: Optional[str], inverter_sn: str, operation: str, **kwargs: Any
+        self,
+        endpoint_key: Optional[str],
+        inverter_sn: str,
+        operation: str,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """Make a request with inverterSn parameter and standardized error handling.
 
