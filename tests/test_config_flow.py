@@ -26,15 +26,22 @@ from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
 
 @pytest.fixture(autouse=True)
 def mock_setup_entry():
-    """Mock async_setup_entry to prevent actual integration setup during config flow.
+    """Mock async_setup_entry and platform setups to prevent integration setup.
 
     Config flow tests trigger entry creation which calls async_setup_entry and creates
     aiohttp ClientSession instances. These spawn background threads that cause cleanup
     errors during test teardown. Mocking prevents thread creation while still allowing
     tests to validate configuration logic.
     """
-    with patch(
-        "custom_components.eg4_web_monitor.async_setup_entry", return_value=True
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.async_setup_entry",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "homeassistant.config_entries.ConfigEntries.async_setup",
+            new=AsyncMock(return_value=True),
+        ),
     ):
         yield
 
