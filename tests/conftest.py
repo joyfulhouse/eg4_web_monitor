@@ -8,11 +8,11 @@ from pytest_homeassistant_custom_component.common import get_test_home_assistant
 
 
 @pytest.fixture
-async def hass(tmp_path, event_loop):
+def hass(event_loop):
     """Return a Home Assistant instance for testing."""
-    hass = get_test_home_assistant()
-    yield hass
-    await hass.async_stop(force=True)
+    hass_instance = get_test_home_assistant()
+    yield hass_instance
+    event_loop.run_until_complete(hass_instance.async_stop(force=True))
 
 
 @pytest.fixture

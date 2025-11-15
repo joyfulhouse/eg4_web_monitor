@@ -168,7 +168,7 @@ class TestEntityAvailability:
         switch = EG4QuickChargeSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
-            model="GridBOSS",
+            device_data={"model": "GridBOSS", "type": "gridboss"},
         )
 
         # Switch should be unavailable for GridBOSS devices
@@ -190,7 +190,7 @@ class TestEntityAvailability:
         switch = EG4QuickChargeSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
-            model="FlexBOSS21",
+            device_data={"model": "FlexBOSS21", "type": "inverter"},
         )
 
         # Switch should be unavailable when coordinator has no data
