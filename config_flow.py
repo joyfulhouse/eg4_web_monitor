@@ -77,10 +77,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
                 # Test authentication and get plants
                 await self._test_credentials()
 
-                # Check if we already have an entry for this user
-                await self.async_set_unique_id(self._username)
-                self._abort_if_unique_id_configured()
-
                 # If only one plant, auto-select and finish
                 if self._plants and len(self._plants) == 1:
                     plant = self._plants[0]
@@ -431,6 +427,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
                         plant_name=selected_plant["name"],
                     )
 
+            except AbortFlow:
+                # Let AbortFlow exceptions pass through (e.g., already_configured)
+                raise
             except Exception as e:
                 _LOGGER.exception("Error during plant selection: %s", e)
                 errors["base"] = "unknown"

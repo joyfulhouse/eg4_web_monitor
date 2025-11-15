@@ -54,7 +54,7 @@ def mock_setup_entry():
 def mock_api():
     """Create a mock EG4InverterAPI."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(return_value=True)
@@ -72,7 +72,7 @@ def mock_api():
 def mock_api_single_plant():
     """Create a mock EG4InverterAPI with single plant."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(return_value=True)
@@ -164,10 +164,11 @@ async def test_user_flow_success_single_plant(
 async def test_user_flow_invalid_auth(hass: HomeAssistant):
     """Test flow with invalid authentication."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        api_instance.get_plants = AsyncMock(return_value=[])
         api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
@@ -192,10 +193,11 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
 async def test_user_flow_cannot_connect(hass: HomeAssistant):
     """Test flow with connection error."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
         api_instance = mock_api.return_value
         api_instance.login = AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
+        api_instance.get_plants = AsyncMock(return_value=[])
         api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
@@ -220,9 +222,12 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
 async def test_user_flow_api_error(hass: HomeAssistant):
     """Test flow with API error."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
-        mock_api.return_value.login = AsyncMock(side_effect=EG4APIError("API Error"))
+        api_instance = mock_api.return_value
+        api_instance.login = AsyncMock(side_effect=EG4APIError("API Error"))
+        api_instance.get_plants = AsyncMock(return_value=[])
+        api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -246,9 +251,12 @@ async def test_user_flow_api_error(hass: HomeAssistant):
 async def test_user_flow_unknown_exception(hass: HomeAssistant):
     """Test flow with unexpected exception."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
-        mock_api.return_value.login = AsyncMock(side_effect=Exception("Unexpected"))
+        api_instance = mock_api.return_value
+        api_instance.login = AsyncMock(side_effect=Exception("Unexpected"))
+        api_instance.get_plants = AsyncMock(return_value=[])
+        api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -273,10 +281,11 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
     """Test user can recover from errors and complete flow."""
     # First attempt - invalid auth
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api_error:
         api_instance = mock_api_error.return_value
         api_instance.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        api_instance.get_plants = AsyncMock(return_value=[])
         api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
@@ -298,7 +307,7 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
 
     # Second attempt - success
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api_success:
         api_instance = mock_api_success.return_value
         api_instance.login = AsyncMock(return_value=True)

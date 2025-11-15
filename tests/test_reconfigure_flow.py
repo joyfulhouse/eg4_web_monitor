@@ -38,7 +38,7 @@ def mock_setup_entry():
 def mock_api():
     """Mock EG4InverterAPI."""
     with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api_class:
         mock_instance = AsyncMock()
         mock_instance.login = AsyncMock()
