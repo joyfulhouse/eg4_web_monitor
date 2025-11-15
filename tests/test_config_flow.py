@@ -128,6 +128,9 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         CONF_PLANT_NAME: "Test Plant 1",
     }
 
+    # Ensure proper cleanup before teardown
+    await hass.async_block_till_done()
+
 
 async def test_user_flow_success_single_plant(
     hass: HomeAssistant, mock_api_single_plant
