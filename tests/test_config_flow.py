@@ -7,6 +7,7 @@ import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.config_flow import EG4WebMonitorConfigFlow
 from custom_components.eg4_web_monitor.const import (
@@ -135,7 +136,9 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
     with patch(
         "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
-        mock_api.return_value.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        api_instance = mock_api.return_value
+        api_instance.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -161,9 +164,11 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
     with patch(
         "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api:
-        mock_api.return_value.login = AsyncMock(
+        api_instance = mock_api.return_value
+        api_instance.login = AsyncMock(
             side_effect=EG4ConnectionError("Cannot connect")
         )
+        api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -242,9 +247,11 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
     with patch(
         "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
     ) as mock_api_error:
-        mock_api_error.return_value.login = AsyncMock(
+        api_instance = mock_api_error.return_value
+        api_instance.login = AsyncMock(
             side_effect=EG4AuthError("Invalid credentials")
         )
+        api_instance.close = AsyncMock()
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -292,9 +299,8 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
 async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
     """Test flow aborts if already configured."""
     # Create existing entry
-    config_entries.ConfigEntry(
+    MockConfigEntry(
         version=1,
-        minor_version=1,
         domain=DOMAIN,
         title="EG4 Web Monitor",
         data={
