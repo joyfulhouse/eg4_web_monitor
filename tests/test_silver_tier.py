@@ -81,28 +81,41 @@ class TestServiceExceptionHandling:
         assert "not found" in str(exc_info.value).lower()
 
     async def test_refresh_service_raises_validation_error_for_unloaded_entry(
-        self, hass, mock_config_entry
+        self, hass
     ):
         """Test refresh service raises ServiceValidationError for unloaded entry."""
         from homeassistant.exceptions import ServiceValidationError
         from custom_components.eg4_web_monitor import async_setup
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
 
         # Set up the integration
         await async_setup(hass, {})
 
-        # Add entry with NOT_LOADED state
-        mock_config_entry.add_to_hass(hass)
-
-        # Set state after adding
-        entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
-        entry.state = ConfigEntryState.NOT_LOADED
+        # Create entry with NOT_LOADED state
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Web Monitor - Test Plant",
+            data={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "test_pass",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test Plant",
+            },
+            entry_id="test_entry_id",
+            source="user",
+            state=ConfigEntryState.NOT_LOADED,  # Set state in constructor
+        )
+        entry.add_to_hass(hass)
 
         # Try to refresh unloaded entry
         with pytest.raises(ServiceValidationError) as exc_info:
             await hass.services.async_call(
                 DOMAIN,
                 "refresh_data",
-                {"entry_id": mock_config_entry.entry_id},
+                {"entry_id": entry.entry_id},
                 blocking=True,
             )
 
