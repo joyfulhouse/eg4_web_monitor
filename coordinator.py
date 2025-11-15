@@ -55,12 +55,8 @@ from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4Connectio
 _LOGGER = logging.getLogger(__name__)
 
 
-class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: ignore[misc]
-    """Class to manage fetching EG4 Web Monitor data from the API.
-
-    Note: type: ignore[misc] - Home Assistant's DataUpdateCoordinator lacks proper type stubs.
-    Mypy cannot verify the base class type at runtime.
-    """
+class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    """Class to manage fetching EG4 Web Monitor data from the API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
@@ -708,6 +704,29 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                         value = to_camel_case(value)
 
                     sensors[sensor_type] = value
+
+        # Calculate net grid power for standard inverters
+        # pToUser = import from grid (positive when importing)
+        # pToGrid = export to grid (positive when exporting)
+        # grid_power = pToUser - pToGrid (positive = importing, negative = exporting)
+        if "pToUser" in runtime and "pToGrid" in runtime:
+            try:
+                p_to_user = float(runtime["pToUser"])  # Import from grid
+                p_to_grid = float(runtime["pToGrid"])  # Export to grid
+                sensors["grid_power"] = p_to_user - p_to_grid
+                _LOGGER.debug(
+                    "Calculated grid_power: %s - %s = %s W (positive=importing, negative=exporting)",
+                    p_to_user,
+                    p_to_grid,
+                    sensors["grid_power"],
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Could not calculate grid_power from pToUser=%s and pToGrid=%s: %s",
+                    runtime.get("pToUser"),
+                    runtime.get("pToGrid"),
+                    e,
+                )
 
         return sensors
 
