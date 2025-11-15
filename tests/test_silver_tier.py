@@ -25,8 +25,12 @@ from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
 @pytest.fixture
 def mock_config_entry():
     """Create a mock config entry."""
-    return MagicMock(
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    return MockConfigEntry(
+        version=1,
         domain=DOMAIN,
+        title="EG4 Web Monitor - Test Plant",
         data={
             CONF_USERNAME: "test_user",
             CONF_PASSWORD: "test_pass",
@@ -36,7 +40,7 @@ def mock_config_entry():
             CONF_PLANT_NAME: "Test Plant",
         },
         entry_id="test_entry_id",
-        state=ConfigEntryState.LOADED,
+        source="user",
     )
 
 
@@ -86,11 +90,12 @@ class TestServiceExceptionHandling:
         # Set up the integration
         await async_setup(hass, {})
 
-        # Add entry to hass first, then set state to NOT_LOADED
+        # Add entry with NOT_LOADED state
         mock_config_entry.add_to_hass(hass)
 
-        # Need to update the entry state after adding
-        hass.config_entries._entries[mock_config_entry.entry_id].state = ConfigEntryState.NOT_LOADED
+        # Set state after adding
+        entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+        entry.state = ConfigEntryState.NOT_LOADED
 
         # Try to refresh unloaded entry
         with pytest.raises(ServiceValidationError) as exc_info:

@@ -296,30 +296,30 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
         assert result["title"] == "EG4 Web Monitor - Test Plant"
 
 
-async def test_user_flow_already_configured(hass: HomeAssistant, mock_api_single_plant):
+async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
     """Test flow aborts if already configured."""
-    # Create existing entry - unique_id is just username at user step (line 67)
+    # Create existing entry - unique_id format is {username}_{plant_id}
     MockConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="EG4 Web Monitor - Test Plant",
+        title="EG4 Web Monitor - Test Plant 1",
         data={
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
             CONF_VERIFY_SSL: True,
             CONF_PLANT_ID: "123",
-            CONF_PLANT_NAME: "Test Plant",
+            CONF_PLANT_NAME: "Test Plant 1",
         },
         source=config_entries.SOURCE_USER,
-        unique_id="test@example.com",  # Just username
+        unique_id="test@example.com_123",  # Format: {username}_{plant_id}
     ).add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # Try to configure with same username - should abort
+    # Try to configure with same username - should proceed to plant selection
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -330,7 +330,17 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api_single
         },
     )
 
-    # Should abort due to duplicate username (checked at line 67-68)
+    # Should show plant selection (username check on line 67 only sets unique_id temporarily)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "plant"
+
+    # Select the same plant that's already configured
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_PLANT_ID: "123"},
+    )
+
+    # Now should abort due to duplicate {username}_{plant_id}
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
