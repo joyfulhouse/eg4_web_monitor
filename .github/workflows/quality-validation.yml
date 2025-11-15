@@ -790,9 +790,14 @@ jobs:
           echo "✅ py.typed marker exists (API package)"
 
       - name: Run mypy type checking
+        continue-on-error: true
         run: |
           echo "Running mypy type checking..."
-          mypy --config-file mypy.ini . || echo "⚠️ Type errors found (non-blocking for now)"
+          mypy --config-file mypy.ini . || {
+            echo "⚠️ Type errors found - this is expected during initial Platinum implementation"
+            echo "Type checking will become strict in future releases"
+            exit 0
+          }
 
   platinum-comprehensive-tests:
     name: Platinum - Comprehensive Test Suite
@@ -809,27 +814,41 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements-test.txt || echo "Installing core dependencies..."
-          pip install pytest pytest-asyncio pytest-cov aiohttp homeassistant
+          if [ -f "requirements-test.txt" ]; then
+            pip install -r requirements-test.txt
+          fi
+          pip install pytest pytest-asyncio pytest-cov aiohttp homeassistant pytest-homeassistant-custom-component
 
       - name: Run API client tests
         run: |
           if [ -f "tests/test_api_client.py" ]; then
             echo "Running API client comprehensive tests..."
-            pytest tests/test_api_client.py -v
-            echo "✅ API client tests passed"
+            pytest tests/test_api_client.py -v --tb=short
+            if [ $? -eq 0 ]; then
+              echo "✅ API client tests passed"
+            else
+              echo "❌ API client tests failed"
+              exit 1
+            fi
           else
-            echo "⚠️ API client tests not found"
+            echo "❌ API client tests not found"
+            exit 1
           fi
 
       - name: Run coordinator tests
         run: |
           if [ -f "tests/test_coordinator_platinum.py" ]; then
             echo "Running coordinator comprehensive tests..."
-            pytest tests/test_coordinator_platinum.py -v
-            echo "✅ Coordinator tests passed"
+            pytest tests/test_coordinator_platinum.py -v --tb=short
+            if [ $? -eq 0 ]; then
+              echo "✅ Coordinator tests passed"
+            else
+              echo "❌ Coordinator tests failed"
+              exit 1
+            fi
           else
-            echo "⚠️ Coordinator tests not found"
+            echo "❌ Coordinator tests not found"
+            exit 1
           fi
 
   platinum-validation-script:
