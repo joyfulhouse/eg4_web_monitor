@@ -4,13 +4,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import async_test_home_assistant
+from pytest_homeassistant_custom_component.common import get_test_home_assistant
 
 
 @pytest.fixture
-async def hass(tmp_path):
+async def hass(tmp_path, event_loop):
     """Return a Home Assistant instance for testing."""
-    hass = await async_test_home_assistant(tmp_path)
+    hass = get_test_home_assistant()
     yield hass
     await hass.async_stop(force=True)
 
