@@ -86,8 +86,11 @@ class TestServiceExceptionHandling:
         # Set up the integration
         await async_setup(hass, {})
 
-        mock_config_entry.state = ConfigEntryState.NOT_LOADED
+        # Add entry to hass first, then set state to NOT_LOADED
         mock_config_entry.add_to_hass(hass)
+
+        # Need to update the entry state after adding
+        hass.config_entries._entries[mock_config_entry.entry_id].state = ConfigEntryState.NOT_LOADED
 
         # Try to refresh unloaded entry
         with pytest.raises(ServiceValidationError) as exc_info:

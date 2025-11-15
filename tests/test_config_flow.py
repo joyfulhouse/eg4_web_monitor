@@ -296,13 +296,13 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
         assert result["title"] == "EG4 Web Monitor - Test Plant"
 
 
-async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
+async def test_user_flow_already_configured(hass: HomeAssistant, mock_api_single_plant):
     """Test flow aborts if already configured."""
-    # Create existing entry
+    # Create existing entry - unique_id is just username at user step (line 67)
     MockConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="EG4 Web Monitor",
+        title="EG4 Web Monitor - Test Plant",
         data={
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "testpassword",
@@ -312,14 +312,14 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
             CONF_PLANT_NAME: "Test Plant",
         },
         source=config_entries.SOURCE_USER,
-        unique_id="test@example.com",
+        unique_id="test@example.com",  # Just username
     ).add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # Try to configure with same username
+    # Try to configure with same username - should abort
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -330,7 +330,7 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
         },
     )
 
-    # Should abort due to duplicate
+    # Should abort due to duplicate username (checked at line 67-68)
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
