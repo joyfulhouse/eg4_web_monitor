@@ -188,5 +188,16 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "Configuration entry {entry_id} not found. Please verify the entry ID is correct."
+    },
+    "entry_not_loaded": {
+      "message": "Configuration entry {entry_id} is not loaded. Please ensure the integration is properly configured and running."
+    },
+    "no_coordinators": {
+      "message": "No EG4 coordinators found to refresh. Please ensure at least one EG4 Web Monitor integration is configured and loaded."
+    }
   }
 }
