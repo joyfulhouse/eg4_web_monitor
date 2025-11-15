@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -40,7 +41,7 @@ def mock_api():
 @pytest.fixture
 def mock_config_entry():
     """Create a mock config entry."""
-    return config_entries.ConfigEntry(
+    return MockConfigEntry(
         version=1,
         domain=DOMAIN,
         title="EG4 Web Monitor - Station 1",
@@ -333,7 +334,7 @@ async def test_reconfigure_invalid_plant(hass, mock_api, mock_config_entry):
 async def test_reconfigure_to_already_configured_account(hass, mock_api):
     """Test reconfiguring to an account/plant combination that's already configured."""
     # Create two config entries - BOTH with same username to test conflict
-    entry1 = config_entries.ConfigEntry(
+    entry1 = MockConfigEntry(
         version=1,
         domain=DOMAIN,
         title="EG4 Web Monitor - Station 1",
@@ -351,7 +352,7 @@ async def test_reconfigure_to_already_configured_account(hass, mock_api):
     )
     entry1.add_to_hass(hass)
 
-    entry2 = config_entries.ConfigEntry(
+    entry2 = MockConfigEntry(
         version=1,
         domain=DOMAIN,
         title="EG4 Web Monitor - Station 2",
