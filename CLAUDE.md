@@ -243,7 +243,7 @@ pytest tests/ -v --log-cli-level=DEBUG
 ### Phase 1: API Testing
 ```bash
 cd eg4_inverter_api
-cp ../secrets.py.example ../secrets.py
+cp ../tests/secrets.py.example ../secrets.py
 # Edit secrets.py with credentials
 python tests/test_client.py
 ```
