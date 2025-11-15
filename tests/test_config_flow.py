@@ -42,6 +42,10 @@ def mock_setup_entry():
             "homeassistant.config_entries.ConfigEntries.async_setup",
             new=AsyncMock(return_value=True),
         ),
+        patch(
+            "custom_components.eg4_web_monitor.coordinator.EG4DataUpdateCoordinator._should_refresh_parameters",
+            return_value=False,
+        ),
     ):
         yield
 

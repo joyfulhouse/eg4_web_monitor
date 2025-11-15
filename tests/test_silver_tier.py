@@ -22,6 +22,21 @@ from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_hourly_refresh():
+    """Mock _should_refresh_parameters to prevent background task creation.
+
+    Tests that create coordinators and call _async_update_data() trigger
+    _hourly_parameter_refresh() which creates unawaited background tasks.
+    This mock prevents the background task from being created during tests.
+    """
+    with patch(
+        "custom_components.eg4_web_monitor.coordinator.EG4DataUpdateCoordinator._should_refresh_parameters",
+        return_value=False,
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_config_entry():
     """Create a mock config entry."""
