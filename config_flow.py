@@ -427,7 +427,17 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Update the config entry with new data."""
         # Update unique ID if username changed
         unique_id = f"{self._username}_{plant_id}"
-        await self.async_set_unique_id(unique_id)
+
+        # Defensive check: If the new unique ID matches an existing entry
+        # (other than the one being reconfigured), abort to prevent conflicts
+        existing_entry = await self.async_set_unique_id(unique_id)
+        if existing_entry and existing_entry.entry_id != entry.entry_id:
+            _LOGGER.warning(
+                "Cannot reconfigure to account %s with plant %s - already configured",
+                self._username,
+                plant_name,
+            )
+            return self.async_abort(reason="already_configured")
 
         # Update entry title
         title = f"EG4 Web Monitor - {plant_name}"

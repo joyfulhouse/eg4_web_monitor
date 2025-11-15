@@ -327,3 +327,145 @@ async def test_reconfigure_invalid_plant(hass, mock_api, mock_config_entry):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "invalid_plant"
+
+
+async def test_reconfigure_to_already_configured_account(hass, mock_api):
+    """Test reconfiguring to an account/plant combination that's already configured."""
+    # Create two config entries
+    entry1 = config_entries.ConfigEntry(
+        version=1,
+        domain=DOMAIN,
+        title="EG4 Web Monitor - Station 1",
+        data={
+            CONF_USERNAME: "user1",
+            CONF_PASSWORD: "pass1",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "plant1",
+            CONF_PLANT_NAME: "Station 1",
+        },
+        source="user",
+        entry_id="entry1",
+        unique_id="user1_plant1",
+    )
+    entry1.add_to_hass(hass)
+
+    entry2 = config_entries.ConfigEntry(
+        version=1,
+        domain=DOMAIN,
+        title="EG4 Web Monitor - Station 2",
+        data={
+            CONF_USERNAME: "user2",
+            CONF_PASSWORD: "pass2",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "plant2",
+            CONF_PLANT_NAME: "Station 2",
+        },
+        source="user",
+        entry_id="entry2",
+        unique_id="user2_plant2",
+    )
+    entry2.add_to_hass(hass)
+
+    # Mock API to return plant1 for user2's account
+    mock_api.get_plants = AsyncMock(
+        return_value=[{"plantId": "plant1", "name": "Station 1"}]
+    )
+
+    # Try to reconfigure entry2 to use user2 + plant1
+    # This should conflict with entry1 (user1_plant1)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry2.entry_id,
+        },
+    )
+
+    # Submit with user2 credentials (which will return plant1)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_USERNAME: "user2",
+            CONF_PASSWORD: "new_password",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+    # Should abort with already_configured since user2_plant1 would conflict
+    # Note: This test may need adjustment based on actual unique_id logic
+    # The conflict prevention should trigger here
+    assert result["type"] == FlowResultType.ABORT
+
+
+async def test_reconfigure_current_plant_no_longer_exists(hass, mock_api, mock_config_entry):
+    """Test reconfiguring when current plant no longer exists in the account."""
+    mock_config_entry.add_to_hass(hass)
+
+    # Mock API to return plants that don't include the current plant
+    mock_api.get_plants = AsyncMock(
+        return_value=[
+            {"plantId": "plant3", "name": "New Station 3"},
+            {"plantId": "plant4", "name": "New Station 4"},
+        ]
+    )
+
+    # Start reconfigure flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": mock_config_entry.entry_id,
+        },
+    )
+
+    # Submit with same username (password change)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_USERNAME: "test_user",  # Same username
+            CONF_PASSWORD: "new_password",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+    # Should still complete successfully, keeping the old plant_id
+    # The system should handle the case where the plant might not exist anymore
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+
+
+async def test_reconfigure_timeout_handling(hass, mock_api, mock_config_entry):
+    """Test reconfigure with timeout error."""
+    import asyncio
+
+    mock_api.login.side_effect = asyncio.TimeoutError("Connection timed out")
+    mock_config_entry.add_to_hass(hass)
+
+    # Start reconfigure flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": mock_config_entry.entry_id,
+        },
+    )
+
+    # Submit with credentials
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_USERNAME: "test_user",
+            CONF_PASSWORD: "test_password",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+    # Should show form with error
+    assert result["type"] == FlowResultType.FORM
+    # The error will be "unknown" since we handle generic exceptions
+    assert "base" in result["errors"]

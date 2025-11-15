@@ -72,7 +72,9 @@
       "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
       "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your EG4 Web Monitor account.",
       "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
-      "timeout": "Connection to EG4 Web Monitor timed out. Please check your internet connection and try again."
+      "timeout": "Connection to EG4 Web Monitor timed out. Please check your internet connection and try again.",
+      "reconfigure_timeout": "Connection timed out during reconfiguration. Please check your internet connection and try again.",
+      "reconfigure_network": "Network error during reconfiguration. Please verify your network connection and EG4 Web Monitor service availability."
     },
     "abort": {
       "already_configured": "This EG4 Web Monitor station is already configured. Each station requires a separate integration instance.",

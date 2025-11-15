@@ -270,6 +270,19 @@ jobs:
             echo "✅ Good test coverage ($total_tests tests)"
           fi
 
+      - name: Run tests with pytest
+        run: |
+          # Run tests with coverage
+          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
   # Job 5: Manifest validation
   manifest-validation:
     name: Manifest Gold Tier Requirements
