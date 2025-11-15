@@ -1417,7 +1417,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                     available_params = [
                         k for k in parameter_data.keys() if "FUNC_" in k
                     ]
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
                         param_key,
                         serial_number,
