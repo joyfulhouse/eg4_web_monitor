@@ -5,6 +5,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+# Enable custom integrations for testing
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations):
+    """Enable loading custom integrations in all tests."""
+    yield
+
 
 @pytest.fixture
 def mock_setup_entry():
