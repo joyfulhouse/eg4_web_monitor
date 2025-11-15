@@ -67,7 +67,7 @@ class TestCoordinatorInitialization:
     def test_init_with_session_injection(self, mock_hass, mock_config_entry):
         """Test that coordinator injects Home Assistant's session (Platinum tier)."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             _coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
@@ -84,7 +84,7 @@ class TestCoordinatorInitialization:
     def test_init_with_correct_credentials(self, mock_hass, mock_config_entry):
         """Test that coordinator initializes with correct credentials."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             _coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
@@ -103,7 +103,7 @@ class TestDataUpdate:
     async def test_successful_data_update(self, mock_hass, mock_config_entry):
         """Test successful data update."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             # Mock API responses
             mock_api = Mock()
@@ -142,7 +142,7 @@ class TestDataUpdate:
     ):
         """Test that authentication errors trigger reauthentication flow."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             # Mock API to raise auth error
             mock_api = Mock()
@@ -163,7 +163,7 @@ class TestDataUpdate:
     ):
         """Test that connection errors raise UpdateFailed."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             # Mock API to raise connection error
             mock_api = Mock()
@@ -188,7 +188,7 @@ class TestAvailabilityLogging:
     ):
         """Test that unavailability is logged."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.get_all_device_data = AsyncMock(
@@ -213,7 +213,7 @@ class TestAvailabilityLogging:
     ):
         """Test that recovery is logged."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.get_all_device_data = AsyncMock(
@@ -250,7 +250,7 @@ class TestParameterRefresh:
     ):
         """Test that hourly parameter refresh is triggered when due."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.get_all_device_data = AsyncMock(
@@ -282,7 +282,7 @@ class TestParameterRefresh:
     async def test_refresh_all_device_parameters(self, mock_hass, mock_config_entry):
         """Test refreshing parameters for all devices."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.read_parameters = AsyncMock(
@@ -319,7 +319,7 @@ class TestCacheInvalidation:
     ):
         """Test that cache is invalidated before hour boundaries."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.clear_cache = Mock()
@@ -355,7 +355,7 @@ class TestWorkingModeControl:
     async def test_set_working_mode_success(self, mock_hass, mock_config_entry):
         """Test successful working mode change."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = Mock()
             mock_api.control_function_parameter = AsyncMock(
@@ -382,7 +382,7 @@ class TestWorkingModeControl:
 
     def test_get_working_mode_state_from_cache(self, mock_hass, mock_config_entry):
         """Test retrieving working mode state from cached parameters."""
-        with patch("custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"):
+        with patch("custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"):
             coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
             coordinator.data = {
                 "parameters": {

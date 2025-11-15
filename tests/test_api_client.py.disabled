@@ -7,8 +7,8 @@ Tests Platinum tier requirements:
 - Type safety
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 import pytest
@@ -54,7 +54,8 @@ class TestAPIClientInitialization:
     @pytest.mark.asyncio
     async def test_init_with_injected_session(self):
         """Test initialization with injected session (Platinum tier requirement)."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        # Create a proper async mock session
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         client = EG4InverterAPI(
@@ -77,7 +78,7 @@ class TestWebsessionInjection:
     @pytest.mark.asyncio
     async def test_injected_session_not_closed_by_client(self):
         """Test that injected session is not closed when client closes."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
         mock_session.close = AsyncMock()
 
@@ -103,7 +104,7 @@ class TestWebsessionInjection:
 
         # Create a session
         with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock(spec=aiohttp.ClientSession)
+            mock_session = AsyncMock(spec=aiohttp.ClientSession)
             mock_session.closed = False
             mock_session.close = AsyncMock()
             mock_session_class.return_value = mock_session
@@ -122,7 +123,7 @@ class TestWebsessionInjection:
     @pytest.mark.asyncio
     async def test_session_reuse_with_injection(self):
         """Test that injected session is reused across requests."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         client = EG4InverterAPI(
@@ -148,7 +149,7 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_login_success(self):
         """Test successful login."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         # Mock successful response
@@ -159,8 +160,6 @@ class TestAuthentication:
         mock_response.json = AsyncMock(return_value={"success": True})
 
         mock_session.request = AsyncMock(return_value=mock_response)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         # Mock cookie jar for session ID
         mock_cookie = Mock()
@@ -183,7 +182,7 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_login_failure_invalid_credentials(self):
         """Test login with invalid credentials."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         # Mock failed response
@@ -196,8 +195,6 @@ class TestAuthentication:
         )
 
         mock_session.request = AsyncMock(return_value=mock_response)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         client = EG4InverterAPI(
             username="test_user",
@@ -215,7 +212,7 @@ class TestCachingBehavior:
     @pytest.mark.asyncio
     async def test_cache_hit_reduces_api_calls(self):
         """Test that cached responses reduce API calls."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         call_count = 0
@@ -233,8 +230,6 @@ class TestCachingBehavior:
             return mock_response
 
         mock_session.request = mock_request
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         client = EG4InverterAPI(
             username="test_user",
@@ -244,7 +239,7 @@ class TestCachingBehavior:
 
         # Mock session ID to skip login
         client._session_id = "test_session"
-        client._session_expires = asyncio.get_event_loop().time() + 3600
+        client._session_expires = datetime.now() + timedelta(hours=1)
 
         # Make same request twice
         serial = "1234567890"
@@ -268,15 +263,13 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_connection_error_handling(self):
         """Test handling of connection errors."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         # Mock connection error
         mock_session.request = AsyncMock(
             side_effect=aiohttp.ClientError("Connection failed")
         )
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         client = EG4InverterAPI(
             username="test_user",
@@ -290,7 +283,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_auth_error_retry_logic(self):
         """Test authentication error triggers retry."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
 
         # First call fails with auth error, second succeeds
@@ -319,8 +312,6 @@ class TestErrorHandling:
             return mock_response
 
         mock_session.request = mock_request
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         # Mock cookie jar
         mock_cookie = Mock()
@@ -335,7 +326,7 @@ class TestErrorHandling:
         )
 
         client._session_id = "old_session"
-        client._session_expires = asyncio.get_event_loop().time() + 3600
+        client._session_expires = datetime.now() + timedelta(hours=1)
 
         # This should trigger retry logic
         # Note: This test verifies the retry mechanism exists
@@ -390,7 +381,8 @@ class TestAsyncContextManager:
     @pytest.mark.asyncio
     async def test_context_manager_with_injected_session(self):
         """Test context manager with injected session."""
-        mock_session = MagicMock(spec=aiohttp.ClientSession)
+        # Create a proper mock that can be awaited
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
         mock_session.closed = False
         mock_session.close = AsyncMock()
 
@@ -402,9 +394,12 @@ class TestAsyncContextManager:
         mock_response.json = AsyncMock(return_value={"success": True})
 
         mock_session.request = AsyncMock(return_value=mock_response)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        mock_session._cookie_jar = []
+
+        # Mock cookie jar for session ID
+        mock_cookie = Mock()
+        mock_cookie.key = "JSESSIONID"
+        mock_cookie.value = "test_session_123"
+        mock_session._cookie_jar = [mock_cookie]
 
         async with EG4InverterAPI(
             username="test_user",

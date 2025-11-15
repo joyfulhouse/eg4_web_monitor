@@ -420,7 +420,7 @@ class TestReauthentication:
 
         # Mock successful login
         with patch(
-            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock()
@@ -457,7 +457,7 @@ class TestReauthentication:
 
         # Mock failed login
         with patch(
-            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
