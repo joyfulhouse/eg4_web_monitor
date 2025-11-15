@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import aiohttp_client
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                 CONF_BASE_URL, "https://monitor.eg4electronics.com"
             ),
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
-            session=hass.helpers.aiohttp_client.async_get_clientsession(),
+            session=aiohttp_client.async_get_clientsession(hass),
         )
 
         # Device tracking
