@@ -1,20 +1,21 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.setup import async_setup_component
 
 
 @pytest.fixture
-def hass(event_loop):
+async def hass(tmp_path):
     """Return a Home Assistant instance for testing."""
-    hass = HomeAssistant()
+    hass = HomeAssistant(str(tmp_path))
     hass.config.skip_pip = True
-    event_loop.run_until_complete(async_setup_component(hass, "homeassistant", {}))
+
+    await hass.async_block_till_done()
     yield hass
-    event_loop.run_until_complete(hass.async_stop(force=True))
+    await hass.async_stop(force=True)
 
 
 @pytest.fixture
