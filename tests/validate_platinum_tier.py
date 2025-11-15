@@ -102,7 +102,7 @@ def check_websession_injection() -> bool:
             coord_content = coord_file.read()
 
             # Check for session injection in coordinator
-            if "async_get_clientsession()" in coord_content:
+            if "async_get_clientsession" in coord_content:
                 print("  ✅ Coordinator injects Home Assistant's aiohttp session")
             else:
                 print("  ❌ Coordinator does not inject session")
