@@ -39,9 +39,7 @@ def allow_shutdown_thread(monkeypatch):
             filtered_threads = [
                 thread
                 for thread in threads
-                if not (
-                    thread.name and "_run_safe_shutdown_loop" in thread.name
-                )
+                if not (thread.name and "_run_safe_shutdown_loop" in thread.name)
             ]
 
             # Temporarily replace threading.enumerate to return filtered list
