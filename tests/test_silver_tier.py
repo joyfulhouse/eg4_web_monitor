@@ -420,7 +420,7 @@ class TestReauthentication:
 
         # Mock successful login
         with patch(
-            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock()
@@ -429,6 +429,11 @@ class TestReauthentication:
 
             # Mock config entry update
             mock_entry = MagicMock()
+            mock_entry.data = {
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "old_password",
+            }
+            mock_entry.entry_id = "test_entry_id"
             flow.async_set_unique_id = AsyncMock(return_value=mock_entry)
             hass.config_entries.async_update_entry = MagicMock()
             hass.config_entries.async_reload = AsyncMock()
@@ -457,7 +462,7 @@ class TestReauthentication:
 
         # Mock failed login
         with patch(
-            "custom_components.eg4_web_monitor.eg4_inverter_api.EG4InverterAPI"
+            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
         ) as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
