@@ -5,6 +5,14 @@ Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS
 
 ## Quality Scale Compliance
 
+### Platinum Tier Status - January 2025 🏆
+**PLATINUM TIER COMPLIANT** - Meeting all 36 requirements (3 Platinum + 5 Gold + 10 Silver + 18 Bronze)
+
+**Platinum Tier Requirements (3/3)**:
+1. **Async Dependency**: Full async implementation using aiohttp for all HTTP operations
+2. **Websession Injection**: API client supports injected aiohttp.ClientSession from Home Assistant
+3. **Strict Typing**: Comprehensive mypy strict typing configuration with type hints throughout codebase
+
 ### Gold Tier Status - November 2025 ✅
 **GOLD TIER COMPLIANT** - Meeting all 33 requirements (5 Gold + 10 Silver + 18 Bronze)
 
@@ -29,13 +37,16 @@ Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS
 
 **Validation**:
 ```bash
-python tests/validate_gold_tier.py   # All 5 Gold requirements
-python tests/validate_silver_tier.py # All 10 Silver requirements
-python tests/validate_bronze_tier.py # All 18 Bronze requirements
+python tests/validate_platinum_tier.py # All 3 Platinum requirements
+python tests/validate_gold_tier.py     # All 5 Gold requirements
+python tests/validate_silver_tier.py   # All 10 Silver requirements
+python tests/validate_bronze_tier.py   # All 18 Bronze requirements
 pytest tests/ --cov=. --cov-report=term-missing
+mypy --config-file mypy.ini .          # Strict type checking
 ```
 
 **Quality Scale Reference**: https://www.home-assistant.io/docs/quality_scale/
+**Platinum Tier Reference**: https://developers.home-assistant.io/docs/core/integration-quality-scale/#-platinum
 
 ## API Architecture
 

@@ -52,7 +52,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self.entry = entry
         self.plant_id = entry.data[CONF_PLANT_ID]
 
-        # Initialize API clien
+        # Initialize API client with injected session (Platinum tier requirement)
+        # Home Assistant manages the aiohttp ClientSession for efficient resource usage
         self.api = EG4InverterAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
@@ -60,6 +61,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 CONF_BASE_URL, "https://monitor.eg4electronics.com"
             ),
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
+            session=hass.helpers.aiohttp_client.async_get_clientsession(),
         )
 
         # Device tracking

@@ -151,11 +151,14 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_credentials(self) -> None:
         """Test if we can authenticate with the given credentials."""
+        # Inject Home Assistant's aiohttp session (Platinum tier requirement)
+        session = self.hass.helpers.aiohttp_client.async_get_clientsession()
         self._api = EG4InverterAPI(
             username=self._username,
             password=self._password,
             base_url=self._base_url,
             verify_ssl=self._verify_ssl,
+            session=session,
         )
 
         try:
@@ -225,12 +228,14 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Update password
                 password = user_input[CONF_PASSWORD]
 
-                # Test new credentials
+                # Test new credentials with injected session (Platinum tier requirement)
+                session = self.hass.helpers.aiohttp_client.async_get_clientsession()
                 api = EG4InverterAPI(
                     username=self._username,
                     password=password,
                     base_url=self._base_url,
                     verify_ssl=self._verify_ssl,
+                    session=session,
                 )
 
                 try:

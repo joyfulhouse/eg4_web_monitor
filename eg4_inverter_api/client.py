@@ -26,16 +26,30 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         *,
         base_url: str = "https://monitor.eg4electronics.com",
         verify_ssl: bool = True,
-        timeout: int = 30
+        timeout: int = 30,
+        session: Optional[aiohttp.ClientSession] = None
     ):
-        """Initialize the EG4 Inverter API client."""
+        """Initialize the EG4 Inverter API client.
+
+        Args:
+            username: API username for authentication
+            password: API password for authentication
+            base_url: Base URL for the EG4 API
+            verify_ssl: Whether to verify SSL certificates
+            timeout: Request timeout in seconds
+            session: Optional aiohttp.ClientSession to use for requests.
+                    If not provided, a new session will be created.
+                    Platinum tier requirement: Support websession injection.
+        """
         self.username = username
         self.password = password
         self.base_url = base_url.rstrip("/")
         self.verify_ssl = verify_ssl
         self.timeout = ClientTimeout(total=timeout)
 
-        self._session: Optional[aiohttp.ClientSession] = None
+        # Platinum tier: Support injected session
+        self._session: Optional[aiohttp.ClientSession] = session
+        self._owns_session: bool = session is None  # Track if we created the session
         self._session_id: Optional[str] = None
         self._session_expires: Optional[datetime] = None
         self._plants: Optional[List[Dict[str, Any]]] = None
@@ -82,17 +96,31 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         await self.close()
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
+        """Get or create aiohttp session.
+
+        Returns:
+            aiohttp.ClientSession: The session to use for requests.
+                                  Either the injected session or a newly created one.
+        """
+        # If session was injected, use it (don't recreate if closed)
+        if self._session is not None and not self._owns_session:
+            return self._session
+
+        # If we own the session, create it if needed
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
             self._session = aiohttp.ClientSession(
                 connector=connector, timeout=self.timeout
             )
+            self._owns_session = True
         return self._session
 
-    async def close(self):
-        """Close the session."""
-        if self._session and not self._session.closed:
+    async def close(self) -> None:
+        """Close the session if we own it.
+
+        Platinum tier: Only close the session if we created it, not if it was injected.
+        """
+        if self._session and not self._session.closed and self._owns_session:
             await self._session.close()
 
     async def _apply_backoff(self) -> None:
