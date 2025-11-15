@@ -7,14 +7,9 @@ Monitor your EG4 Solar Inverters, GridBOSS devices, and battery systems directly
 This integration was inspired by and built upon the excellent work by [@twistedroutes](https://github.com/twistedroutes) and their [eg4_inverter_ha](https://github.com/twistedroutes/eg4_inverter_ha) project. We extend our sincere gratitude for their pioneering efforts in EG4 device integration for Home Assistant.
 
 [![GitHub Release][releases-shield]][releases]
-[![GitHub Activity][commits-shield]][commits]
 [![License][license-shield]](LICENSE)
 [![HACS][hacsbadge]][hacs]
-[![Platinum Tier][platinum-badge]][platinum-workflow]
-[![Gold Tier][gold-badge]][gold-workflow]
-[![Silver Tier][silver-badge]][silver-workflow]
-[![Bronze Tier][bronze-badge]][bronze-workflow]
-[![Config Flow Tests][tests-badge]][tests-workflow]
+[![CI][ci-badge]][ci-workflow]
 [![Project Maintenance][maintenance-shield]][user_profile]
 [![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
 
@@ -436,21 +431,11 @@ Unofficial integration not affiliated with EG4 Electronics. Use at your own risk
 
 [releases-shield]: https://img.shields.io/github/v/release/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [releases]: https://github.com/joyfulhouse/eg4_web_monitor/releases
-[commits-shield]: https://img.shields.io/github/commit-activity/y/joyfulhouse/eg4_web_monitor?style=for-the-badge
-[commits]: https://github.com/joyfulhouse/eg4_web_monitor/commits/main
 [license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [hacs]: https://hacs.xyz
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[platinum-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=Platinum%20Tier&style=for-the-badge&color=platinum
-[platinum-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
-[gold-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=Gold%20Tier&style=for-the-badge&color=gold
-[gold-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
-[silver-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/silver-tier-validation.yml?branch=main&label=Silver%20Tier&style=for-the-badge
-[silver-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/silver-tier-validation.yml
-[bronze-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/bronze-tier-validation.yml?branch=main&label=Bronze%20Tier&style=for-the-badge
-[bronze-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/bronze-tier-validation.yml
-[tests-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/bronze-tier-validation.yml?branch=main&label=Tests&style=for-the-badge
-[tests-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/bronze-tier-validation.yml
+[ci-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=CI&style=for-the-badge
+[ci-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
 [maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge
 [user_profile]: https://github.com/joyfulhouse
 [buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge

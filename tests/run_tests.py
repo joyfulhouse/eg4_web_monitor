@@ -10,7 +10,9 @@ from typing import Optional
 
 def install_test_requirements() -> None:
     """Install test requirements."""
-    requirements_file = Path(__file__).parent / "tests" / "requirements.txt"
+    # Now run_tests.py is in the tests directory, so parent is the integration root
+    integration_root = Path(__file__).parent.parent
+    requirements_file = integration_root / "requirements-test.txt"
     if requirements_file.exists():
         print("📦 Installing test requirements...")
         subprocess.run(
@@ -26,11 +28,9 @@ def run_tests(
     coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None
 ) -> int:
     """Run the test suite."""
-    tests_dir = Path(__file__).parent / "tests"
-
-    if not tests_dir.exists():
-        print("❌ Tests directory not found")
-        return 1
+    # Now run_tests.py is in the tests directory
+    tests_dir = Path(__file__).parent
+    integration_root = tests_dir.parent
 
     # Build pytest command
     cmd = [sys.executable, "-m", "pytest"]
@@ -63,7 +63,7 @@ def run_tests(
     print(f"🧪 Running tests: {' '.join(cmd[2:])}")
 
     try:
-        result = subprocess.run(cmd, cwd=Path(__file__).parent, check=False)
+        result = subprocess.run(cmd, cwd=integration_root, check=False)
         if result.returncode == 0:
             print("✅ All tests passed!")
             if coverage:
@@ -82,6 +82,9 @@ def run_tests(
 def run_linting() -> int:
     """Run code linting."""
     print("🔍 Running code linting...")
+
+    # Now run_tests.py is in the tests directory, so parent is the integration root
+    integration_root = Path(__file__).parent.parent
 
     # Check if flake8 is available
     try:
@@ -102,7 +105,7 @@ def run_linting() -> int:
                 "--max-line-length=120",
                 "--ignore=E501,W503",
             ],
-            cwd=Path(__file__).parent,
+            cwd=integration_root,
             check=False,
         )
 
