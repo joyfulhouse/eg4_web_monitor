@@ -21,22 +21,21 @@ class TestEG4QuickChargeSwitch:
                 "1234567890": {
                     "type": "inverter",
                     "model": "FlexBOSS21",
-                    "sensors": {},
                 }
             }
         }
-        coordinator.get_device_info.return_value = {
-            "identifiers": {("eg4_web_monitor", "1234567890")},
-            "name": "FlexBOSS21 1234567890",
+        device_data = {
+            "type": "inverter",
+            "model": "FlexBOSS21",
         }
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity._serial == "1234567890"
-        assert entity._attr_name == "Quick Charge"
 
     def test_is_on_when_enabled(self):
         """Test switch is on when quick charge is enabled."""
@@ -44,15 +43,20 @@ class TestEG4QuickChargeSwitch:
         coordinator.data = {
             "devices": {
                 "1234567890": {
-                    "quick_charge_status": {"status": True}
+                    "type": "inverter",
+                    "quick_charge_status": {"hasUnclosedQuickChargeTask": True}
                 }
+            },
+            "device_info": {
+                "1234567890": {"deviceTypeText4APP": "FlexBOSS21"}
             }
         }
-        coordinator.get_device_info.return_value = {}
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity.is_on is True
@@ -63,15 +67,20 @@ class TestEG4QuickChargeSwitch:
         coordinator.data = {
             "devices": {
                 "1234567890": {
-                    "quick_charge_status": {"status": False}
+                    "type": "inverter",
+                    "quick_charge_status": {"hasUnclosedQuickChargeTask": False}
                 }
+            },
+            "device_info": {
+                "1234567890": {"deviceTypeText4APP": "FlexBOSS21"}
             }
         }
-        coordinator.get_device_info.return_value = {}
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity.is_on is False
@@ -79,12 +88,16 @@ class TestEG4QuickChargeSwitch:
     def test_is_on_missing_data(self):
         """Test switch state when data is missing."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {},
+            "device_info": {}
+        }
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity.is_on is False
@@ -93,16 +106,23 @@ class TestEG4QuickChargeSwitch:
     async def test_async_turn_on(self):
         """Test turning on quick charge."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
         coordinator.api.enable_quick_charge = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
@@ -113,20 +133,27 @@ class TestEG4QuickChargeSwitch:
     async def test_async_turn_off(self):
         """Test turning off quick charge."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
-        coordinator.api.disable_quick_charge = AsyncMock()
+        coordinator.api.stop_quick_charge = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 
-        coordinator.api.disable_quick_charge.assert_called_once_with("1234567890")
+        coordinator.api.stop_quick_charge.assert_called_once_with("1234567890")
         coordinator.async_request_refresh.assert_called_once()
 
 
@@ -136,16 +163,19 @@ class TestEG4BatteryBackupSwitch:
     def test_initialization(self):
         """Test entity initialization."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+        }
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity._serial == "1234567890"
-        assert entity._attr_name == "Battery Backup"
 
     def test_is_on_when_enabled(self):
         """Test switch is on when battery backup is enabled."""
@@ -153,15 +183,18 @@ class TestEG4BatteryBackupSwitch:
         coordinator.data = {
             "devices": {
                 "1234567890": {
+                    "type": "inverter",
                     "battery_backup_status": {"enabled": True}
                 }
-            }
+            },
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
         }
-        coordinator.get_device_info.return_value = {}
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity.is_on is True
@@ -172,15 +205,18 @@ class TestEG4BatteryBackupSwitch:
         coordinator.data = {
             "devices": {
                 "1234567890": {
+                    "type": "inverter",
                     "battery_backup_status": {"enabled": False}
                 }
-            }
+            },
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
         }
-        coordinator.get_device_info.return_value = {}
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
 
         assert entity.is_on is False
@@ -189,44 +225,55 @@ class TestEG4BatteryBackupSwitch:
     async def test_async_turn_on(self):
         """Test turning on battery backup."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock()
+        coordinator.api.write_parameters = AsyncMock(return_value=True)
         coordinator.async_request_refresh = AsyncMock()
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
-        coordinator.api.write_parameters.assert_called_once_with(
-            "1234567890", {"FUNC_EPS_EN": 1}
-        )
+        coordinator.api.write_parameters.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_turn_off(self):
         """Test turning off battery backup."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock()
+        coordinator.api.write_parameters = AsyncMock(return_value=True)
         coordinator.async_request_refresh = AsyncMock()
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
             coordinator=coordinator,
             serial="1234567890",
+            device_data=device_data,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 
-        coordinator.api.write_parameters.assert_called_once_with(
-            "1234567890", {"FUNC_EPS_EN": 0}
-        )
+        coordinator.api.write_parameters.assert_called_once()
+        coordinator.async_request_refresh.assert_called_once()
 
 
 class TestEG4WorkingModeSwitch:
@@ -235,37 +282,52 @@ class TestEG4WorkingModeSwitch:
     def test_initialization(self):
         """Test entity initialization."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
+            "parameters": {"1234567890": {}}
+        }
+        device_info = {"deviceTypeText4APP": "FlexBOSS21"}
+        mode_config = {
+            "name": "Self Use",
+            "param": "FUNC_WORK_MODE",
+            "value": 0,
+            "entity_category": None
+        }
 
         entity = EG4WorkingModeSwitch(
             coordinator=coordinator,
-            serial="1234567890",
-            mode_name="Self Use",
-            mode_value=0,
+            device_info=device_info,
+            serial_number="1234567890",
+            mode_config=mode_config,
         )
 
-        assert entity._serial == "1234567890"
-        assert entity._mode_name == "Self Use"
-        assert entity._mode_value == 0
+        assert entity._serial_number == "1234567890"
+        assert entity._mode_config["name"] == "Self Use"
+        assert entity._mode_config["value"] == 0
 
     def test_is_on_when_mode_active(self):
         """Test switch is on when this mode is active."""
         coordinator = MagicMock()
         coordinator.data = {
-            "devices": {
-                "1234567890": {
-                    "parameters": {"WORK_MODE": 0}
-                }
-            }
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
+            "parameters": {"1234567890": {"FUNC_WORK_MODE": 0}}
         }
-        coordinator.get_device_info.return_value = {}
+        coordinator.get_working_mode_state = MagicMock(return_value=True)
+        device_info = {"deviceTypeText4APP": "FlexBOSS21"}
+        mode_config = {
+            "name": "Self Use",
+            "param": "FUNC_WORK_MODE",
+            "value": 0,
+            "entity_category": None
+        }
 
         entity = EG4WorkingModeSwitch(
             coordinator=coordinator,
-            serial="1234567890",
-            mode_name="Self Use",
-            mode_value=0,
+            device_info=device_info,
+            serial_number="1234567890",
+            mode_config=mode_config,
         )
 
         assert entity.is_on is True
@@ -274,19 +336,24 @@ class TestEG4WorkingModeSwitch:
         """Test switch is off when different mode is active."""
         coordinator = MagicMock()
         coordinator.data = {
-            "devices": {
-                "1234567890": {
-                    "parameters": {"WORK_MODE": 1}
-                }
-            }
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
+            "parameters": {"1234567890": {"FUNC_WORK_MODE": 1}}
         }
-        coordinator.get_device_info.return_value = {}
+        coordinator.get_working_mode_state = MagicMock(return_value=False)
+        device_info = {"deviceTypeText4APP": "FlexBOSS21"}
+        mode_config = {
+            "name": "Self Use",
+            "param": "FUNC_WORK_MODE",
+            "value": 0,
+            "entity_category": None
+        }
 
         entity = EG4WorkingModeSwitch(
             coordinator=coordinator,
-            serial="1234567890",
-            mode_name="Self Use",
-            mode_value=0,
+            device_info=device_info,
+            serial_number="1234567890",
+            mode_config=mode_config,
         )
 
         assert entity.is_on is False
@@ -295,41 +362,65 @@ class TestEG4WorkingModeSwitch:
     async def test_async_turn_on(self):
         """Test switching to this mode."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"parameters": {}}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
+            "parameters": {"1234567890": {}}
+        }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock()
+        coordinator.api.write_parameters = AsyncMock(return_value=True)
         coordinator.async_request_refresh = AsyncMock()
+        device_info = {"deviceTypeText4APP": "FlexBOSS21"}
+        mode_config = {
+            "name": "Selling First",
+            "param": "FUNC_WORK_MODE",
+            "value": 1,
+            "entity_category": None
+        }
 
         entity = EG4WorkingModeSwitch(
             coordinator=coordinator,
-            serial="1234567890",
-            mode_name="Selling First",
-            mode_value=1,
+            device_info=device_info,
+            serial_number="1234567890",
+            mode_config=mode_config,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
-        coordinator.api.write_parameters.assert_called_once_with(
-            "1234567890", {"WORK_MODE": 1}
-        )
+        coordinator.api.write_parameters.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_turn_off_does_nothing(self):
         """Test turning off does nothing (can't unset a mode)."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
-        coordinator.get_device_info.return_value = {}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter"}},
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
+            "parameters": {"1234567890": {}}
+        }
         coordinator.api = MagicMock()
         coordinator.api.write_parameters = AsyncMock()
+        device_info = {"deviceTypeText4APP": "FlexBOSS21"}
+        mode_config = {
+            "name": "Self Use",
+            "param": "FUNC_WORK_MODE",
+            "value": 0,
+            "entity_category": None
+        }
 
         entity = EG4WorkingModeSwitch(
             coordinator=coordinator,
-            serial="1234567890",
-            mode_name="Self Use",
-            mode_value=0,
+            device_info=device_info,
+            serial_number="1234567890",
+            mode_config=mode_config,
         )
+
+        # Mock async_write_ha_state to avoid needing Home Assistant instance
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 

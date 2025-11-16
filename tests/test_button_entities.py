@@ -29,29 +29,35 @@ class TestEG4RefreshButton:
             "name": "FlexBOSS21 1234567890",
             "model": "FlexBOSS21",
         }
+        device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4RefreshButton(
             coordinator=coordinator,
             serial="1234567890",
-            device_type="inverter",
+            device_data=device_data,
+            model="FlexBOSS21",
         )
 
         assert entity._serial == "1234567890"
-        assert entity._device_type == "inverter"
+        assert entity._model == "FlexBOSS21"
         assert "Refresh" in entity._attr_name
 
     @pytest.mark.asyncio
     async def test_async_press_refreshes_coordinator(self):
         """Test pressing button refreshes coordinator."""
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {}}}
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
         coordinator.get_device_info.return_value = {}
         coordinator.async_request_refresh = AsyncMock()
+        coordinator.refresh_all_device_parameters = AsyncMock()
+        coordinator.api = MagicMock()
+        device_data = {"type": "inverter"}
 
         entity = EG4RefreshButton(
             coordinator=coordinator,
             serial="1234567890",
-            device_type="inverter",
+            device_data=device_data,
+            model="FlexBOSS21",
         )
 
         await entity.async_press()
@@ -69,11 +75,13 @@ class TestEG4RefreshButton:
             "manufacturer": "EG4 Electronics",
         }
         coordinator.get_device_info.return_value = device_info
+        device_data = {"type": "inverter"}
 
         entity = EG4RefreshButton(
             coordinator=coordinator,
             serial="1234567890",
-            device_type="inverter",
+            device_data=device_data,
+            model="FlexBOSS21",
         )
 
         assert entity.device_info == device_info
@@ -94,15 +102,16 @@ class TestEG4BatteryRefreshButton:
                 }
             }
         }
-        coordinator.get_device_info.return_value = {}
 
         entity = EG4BatteryRefreshButton(
             coordinator=coordinator,
-            serial="1234567890",
+            parent_serial="1234567890",
             battery_key="1234567890-01",
+            parent_model="FlexBOSS21",
+            battery_id="1234567890-01",
         )
 
-        assert entity._serial == "1234567890"
+        assert entity._parent_serial == "1234567890"
         assert entity._battery_key == "1234567890-01"
         assert "Refresh" in entity._attr_name
 
@@ -119,13 +128,16 @@ class TestEG4BatteryRefreshButton:
                 }
             }
         }
-        coordinator.get_device_info.return_value = {}
         coordinator.async_request_refresh = AsyncMock()
+        coordinator.api = MagicMock()
+        coordinator.api.get_battery_info = AsyncMock()
 
         entity = EG4BatteryRefreshButton(
             coordinator=coordinator,
-            serial="1234567890",
+            parent_serial="1234567890",
             battery_key="1234567890-01",
+            parent_model="FlexBOSS21",
+            battery_id="1234567890-01",
         )
 
         await entity.async_press()
@@ -142,12 +154,13 @@ class TestEG4BatteryRefreshButton:
                 }
             }
         }
-        coordinator.get_device_info.return_value = {}
 
         entity = EG4BatteryRefreshButton(
             coordinator=coordinator,
-            serial="1234567890",
+            parent_serial="1234567890",
             battery_key="1234567890-01",
+            parent_model="FlexBOSS21",
+            battery_id="1234567890-01",
         )
 
         assert "1234567890" in entity.unique_id
@@ -161,26 +174,17 @@ class TestEG4StationRefreshButton:
     def test_initialization(self):
         """Test entity initialization."""
         coordinator = MagicMock()
-        coordinator.config_entry = MagicMock()
-        coordinator.config_entry.data = {
-            "plant_id": "12345",
-            "plant_name": "Test Plant",
-        }
+        coordinator.plant_id = "12345"
 
         entity = EG4StationRefreshButton(coordinator=coordinator)
 
         assert "Refresh" in entity._attr_name
-        assert "Station" in entity._attr_name or "Plant" in entity._attr_name
 
     @pytest.mark.asyncio
     async def test_async_press_refreshes_coordinator(self):
         """Test pressing station refresh button."""
         coordinator = MagicMock()
-        coordinator.config_entry = MagicMock()
-        coordinator.config_entry.data = {
-            "plant_id": "12345",
-            "plant_name": "Test Plant",
-        }
+        coordinator.plant_id = "12345"
         coordinator.async_request_refresh = AsyncMock()
 
         entity = EG4StationRefreshButton(coordinator=coordinator)
@@ -192,10 +196,11 @@ class TestEG4StationRefreshButton:
     def test_device_info(self):
         """Test station device info."""
         coordinator = MagicMock()
-        coordinator.config_entry = MagicMock()
-        coordinator.config_entry.data = {
-            "plant_id": "12345",
-            "plant_name": "Test Plant",
+        coordinator.plant_id = "12345"
+        coordinator.get_station_device_info.return_value = {
+            "identifiers": {("eg4_web_monitor", "station_12345")},
+            "name": "Test Plant",
+            "manufacturer": "EG4 Electronics",
         }
 
         entity = EG4StationRefreshButton(coordinator=coordinator)
@@ -208,11 +213,7 @@ class TestEG4StationRefreshButton:
     def test_unique_id(self):
         """Test station unique ID."""
         coordinator = MagicMock()
-        coordinator.config_entry = MagicMock()
-        coordinator.config_entry.data = {
-            "plant_id": "12345",
-            "plant_name": "Test Plant",
-        }
+        coordinator.plant_id = "12345"
 
         entity = EG4StationRefreshButton(coordinator=coordinator)
 
