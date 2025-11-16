@@ -75,18 +75,23 @@ class TestAsyncSetup:
         # Add config entry
         mock_config_entry.add_to_hass(hass)
 
-        # Mock the state property to return LOADED
-        with patch.object(type(mock_config_entry), 'state', new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)):
-            # Call service
-            await hass.services.async_call(
-                DOMAIN,
-                "refresh_data",
-                {"entry_id": "test_entry_id"},
-                blocking=True,
-            )
+        # Mock the entry state to be LOADED
+        mock_config_entry.state = ConfigEntryState.LOADED
 
-            # Verify coordinator was refreshed
-            mock_coordinator.async_request_refresh.assert_called_once()
+        # Load the entry to make it available
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN]["test_entry_id"] = {"coordinator": mock_coordinator}
+
+        # Call service
+        await hass.services.async_call(
+            DOMAIN,
+            "refresh_data",
+            {"entry_id": "test_entry_id"},
+            blocking=True,
+        )
+
+        # Verify coordinator was refreshed
+        mock_coordinator.async_request_refresh.assert_called_once()
 
     async def test_refresh_service_with_invalid_entry_id(self, hass: HomeAssistant):
         """Test refresh service raises error for invalid entry_id."""
@@ -153,19 +158,25 @@ class TestAsyncSetup:
         entry2.add_to_hass(hass)
 
         # Mock both entries as LOADED
-        with patch.object(type(entry1), 'state', new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)):
-            with patch.object(type(entry2), 'state', new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)):
-                # Call service without entry_id
-                await hass.services.async_call(
-                    DOMAIN,
-                    "refresh_data",
-                    {},
-                    blocking=True,
-                )
+        entry1.state = ConfigEntryState.LOADED
+        entry2.state = ConfigEntryState.LOADED
 
-                # Verify both coordinators were refreshed
-                mock_coord1.async_request_refresh.assert_called_once()
-                mock_coord2.async_request_refresh.assert_called_once()
+        # Load the entries to make them available
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN]["entry_1"] = {"coordinator": mock_coord1}
+        hass.data[DOMAIN]["entry_2"] = {"coordinator": mock_coord2}
+
+        # Call service without entry_id
+        await hass.services.async_call(
+            DOMAIN,
+            "refresh_data",
+            {},
+            blocking=True,
+        )
+
+        # Verify both coordinators were refreshed
+        mock_coord1.async_request_refresh.assert_called_once()
+        mock_coord2.async_request_refresh.assert_called_once()
 
     async def test_refresh_service_with_no_coordinators(self, hass: HomeAssistant):
         """Test refresh service raises error when no coordinators exist."""

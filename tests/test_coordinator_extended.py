@@ -1,10 +1,9 @@
 """Extended tests for EG4 Data Update Coordinator - Device Processing."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, patch
+from datetime import datetime
 
-from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -44,6 +43,21 @@ def mock_parameter_refresh():
         return_value=False,
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def mock_api_calls():
+    """Mock API client calls to prevent network requests."""
+    with patch(
+        "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.get_quick_charge_status",
+        new_callable=AsyncMock,
+        return_value={"status": False},
+    ) as mock_quick_charge, patch(
+        "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.read_parameters",
+        new_callable=AsyncMock,
+        return_value={"FUNC_EPS_EN": 1},
+    ) as mock_read_params:
+        yield mock_quick_charge, mock_read_params
 
 
 class TestCoordinatorInverterProcessing:
@@ -105,7 +119,8 @@ class TestCoordinatorInverterProcessing:
         result = await coordinator._process_inverter_data("1234567890", device_data)
 
         assert "batteries" in result
-        assert "Battery_ID_01" in result["batteries"]
+        # Battery key is cleaned: "Battery_ID_01" -> "1234567890-01"
+        assert "1234567890-01" in result["batteries"]
 
     async def test_process_inverter_data_without_runtime(
         self, hass, mock_config_entry
@@ -182,7 +197,7 @@ class TestCoordinatorModelExtraction:
 
         # Set up temp device info
         coordinator._temp_device_info = {
-            "1234567890": {"model": "FlexBOSS21"}
+            "1234567890": {"deviceTypeText4APP": "FlexBOSS21"}
         }
 
         model = coordinator._extract_model_from_overview("1234567890")
@@ -317,8 +332,9 @@ class TestCoordinatorBatteryProcessing:
 
         result = await coordinator._process_inverter_data("1234567890", device_data)
 
-        assert "Battery_ID_01" in result["batteries"]
-        battery_sensors = result["batteries"]["Battery_ID_01"]
+        # Battery key is cleaned: "Battery_ID_01" -> "1234567890-01"
+        assert "1234567890-01" in result["batteries"]
+        battery_sensors = result["batteries"]["1234567890-01"]
         assert "state_of_charge" in battery_sensors
         assert battery_sensors["state_of_charge"] == 85
 
@@ -341,9 +357,10 @@ class TestCoordinatorBatteryProcessing:
 
         result = await coordinator._process_inverter_data("1234567890", device_data)
 
+        # Battery keys are cleaned: "Battery_ID_XX" -> "1234567890-XX"
         assert len(result["batteries"]) == 2
-        assert "Battery_ID_01" in result["batteries"]
-        assert "Battery_ID_02" in result["batteries"]
+        assert "1234567890-01" in result["batteries"]
+        assert "1234567890-02" in result["batteries"]
 
 
 class TestCoordinatorParameterManagement:
