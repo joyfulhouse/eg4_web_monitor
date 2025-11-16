@@ -1088,6 +1088,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 device_info["via_device"] = (DOMAIN, parallel_group_serial)
 
         # Return as Dict (compatible with DeviceInfo type)
+        # TypedDict compatibility: dict[str, Any] is structurally compatible with DeviceInfo
         return device_info  # type: ignore[return-value]
 
     def _get_parallel_group_for_device(self, device_serial: str) -> Optional[str]:

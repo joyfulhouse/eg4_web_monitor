@@ -763,9 +763,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install mypy
+      - name: Install mypy and dependencies
         run: |
-          pip install mypy aiohttp
+          pip install mypy aiohttp homeassistant
 
       - name: Verify strict typing configuration
         run: |
