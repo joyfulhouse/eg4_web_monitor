@@ -383,7 +383,6 @@ class TestEG4WorkingModeSwitch:
 
         coordinator.set_working_mode.assert_called_once()
 
-
     @pytest.mark.asyncio
     async def test_async_turn_off_does_nothing(self):
         """Test turning off does nothing (can't unset a mode)."""
