@@ -85,7 +85,9 @@ class TestAsyncSetup:
 
         # Mock the state property to return LOADED
         with patch.object(
-            type(mock_config_entry), "state", new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)
+            type(mock_config_entry),
+            "state",
+            new_callable=lambda: property(lambda self: ConfigEntryState.LOADED),
         ):
             # Call service
             await hass.services.async_call(
@@ -170,10 +172,17 @@ class TestAsyncSetup:
         hass.data[DOMAIN]["entry_2"] = {"coordinator": mock_coord2}
 
         # Mock state property for both entries to return LOADED
-        with patch.object(
-            type(entry1), "state", new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)
-        ), patch.object(
-            type(entry2), "state", new_callable=lambda: property(lambda self: ConfigEntryState.LOADED)
+        with (
+            patch.object(
+                type(entry1),
+                "state",
+                new_callable=lambda: property(lambda self: ConfigEntryState.LOADED),
+            ),
+            patch.object(
+                type(entry2),
+                "state",
+                new_callable=lambda: property(lambda self: ConfigEntryState.LOADED),
+            ),
         ):
             # Call service without entry_id
             await hass.services.async_call(
