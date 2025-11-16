@@ -1,41 +1,46 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main, develop]
   workflow_run:
     workflows: ["Home Assistant Validation", "Quality Tier Validation"]
     types:
       - completed
 
 jobs:
-  # Wait for all validations to complete successfully before reviewing
+  # Only run on PRs and only after validation succeeds
   check-validation:
     name: Check Validation Status
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    # Only run if: 1) workflow succeeded AND 2) it was triggered by a pull request
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
     outputs:
-      should_review: ${{ steps.check.outputs.should_review }}
+      pr_number: ${{ steps.get_pr.outputs.pr_number }}
+      pr_head_sha: ${{ steps.get_pr.outputs.pr_head_sha }}
     steps:
-      - name: Check if validation passed
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_run" ]; then
-            # Triggered by workflow_run - validation already completed
-            echo "should_review=true" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" == "pull_request" ]; then
-            # Triggered by PR event - wait for validation
-            echo "should_review=wait" >> $GITHUB_OUTPUT
-          else
-            echo "should_review=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Get PR information
+        id: get_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${context.payload.workflow_run.head_branch}`
+            });
+
+            if (pulls.data.length > 0) {
+              core.setOutput('pr_number', pulls.data[0].number);
+              core.setOutput('pr_head_sha', pulls.data[0].head.sha);
+            }
 
   claude-code-review:
     name: 🤖 Claude Code Review
     runs-on: ubuntu-latest
     needs: check-validation
-    if: needs.check-validation.outputs.should_review == 'true' || needs.check-validation.outputs.should_review == 'wait'
+    if: needs.check-validation.outputs.pr_number != ''
     permissions:
       contents: read
       pull-requests: write
@@ -43,38 +48,19 @@ jobs:
       id-token: write
       actions: read
     steps:
-      - name: Checkout repository
+      - name: Checkout PR code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
-
-      # Wait for Home Assistant validation to complete if triggered by PR event
-      - name: Wait for Home Assistant validation
-        if: needs.check-validation.outputs.should_review == 'wait'
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-name: '✅ Validation Summary'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-          allowed-conclusions: success
-
-      # Wait for Quality Tier validation to complete if triggered by PR event
-      - name: Wait for Quality Tier validation
-        if: needs.check-validation.outputs.should_review == 'wait'
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          check-name: '🏆 Platinum Tier Summary'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-          allowed-conclusions: success
+          ref: ${{ needs.check-validation.outputs.pr_head_sha }}
+          fetch-depth: 0
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           use_sticky_comment: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          pull_request_number: ${{ needs.check-validation.outputs.pr_number }}
           additional_permissions: |
             actions: read
           prompt: |
