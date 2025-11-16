@@ -75,12 +75,12 @@ class TestAsyncSetup:
         # Add config entry
         mock_config_entry.add_to_hass(hass)
 
-        # Mock the entry state to be LOADED
-        mock_config_entry.state = ConfigEntryState.LOADED
-
         # Load the entry to make it available
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN]["test_entry_id"] = {"coordinator": mock_coordinator}
+
+        # Mock the entry to appear loaded by setting runtime_data
+        mock_config_entry.runtime_data = mock_coordinator
 
         # Call service
         await hass.services.async_call(
@@ -156,10 +156,6 @@ class TestAsyncSetup:
         )
         entry2.runtime_data = mock_coord2
         entry2.add_to_hass(hass)
-
-        # Mock both entries as LOADED
-        entry1.state = ConfigEntryState.LOADED
-        entry2.state = ConfigEntryState.LOADED
 
         # Load the entries to make them available
         hass.data.setdefault(DOMAIN, {})

@@ -273,6 +273,7 @@ class TestNumberPlatform:
             coordinator=mock_coordinator,
             serial="1234567890",
         )
+        number.hass = hass
 
         await number.async_set_native_value(85)
 
@@ -316,18 +317,19 @@ class TestSwitchPlatform:
 
     async def test_switch_turn_on(self, hass, mock_coordinator):
         """Test switch turn on."""
-        from custom_components.eg4_web_monitor.switch import ACChargeSwitch
+        from custom_components.eg4_web_monitor.switch import EG4BatteryBackupSwitch
 
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
 
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
-        switch = ACChargeSwitch(
+        switch = EG4BatteryBackupSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
             device_data=device_data,
         )
+        switch.hass = hass
 
         await switch.async_turn_on()
 
@@ -336,18 +338,19 @@ class TestSwitchPlatform:
 
     async def test_switch_turn_off(self, hass, mock_coordinator):
         """Test switch turn off."""
-        from custom_components.eg4_web_monitor.switch import ACChargeSwitch
+        from custom_components.eg4_web_monitor.switch import EG4BatteryBackupSwitch
 
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
 
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
-        switch = ACChargeSwitch(
+        switch = EG4BatteryBackupSwitch(
             coordinator=mock_coordinator,
             serial="1234567890",
             device_data=device_data,
         )
+        switch.hass = hass
 
         await switch.async_turn_off()
 
@@ -402,6 +405,7 @@ class TestSelectPlatform:
             serial="1234567890",
             device_data=device_data,
         )
+        select.hass = hass
 
         # Assuming options are "Normal" and "Standby"
         if "Normal" in select.options:
@@ -452,10 +456,7 @@ class TestEntityAvailability:
         """Test entity is unavailable when coordinator has no data."""
         from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
 
-        # Save original data
-        original_data = mock_coordinator.data
-        mock_coordinator.data = None
-
+        # Create sensor first
         sensor = EG4InverterSensor(
             coordinator=mock_coordinator,
             serial="1234567890",
@@ -463,10 +464,10 @@ class TestEntityAvailability:
             device_type="inverter",
         )
 
-        assert sensor.available is False
+        # Then remove data to test unavailability
+        mock_coordinator.data = None
 
-        # Restore original data
-        mock_coordinator.data = original_data
+        assert sensor.available is False
 
 
 class TestEntityUpdates:
@@ -482,6 +483,7 @@ class TestEntityUpdates:
             sensor_key="ac_power",
             device_type="inverter",
         )
+        sensor.hass = hass
 
         # Initial value
         assert sensor.native_value == 5000
