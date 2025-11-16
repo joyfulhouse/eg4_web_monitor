@@ -414,10 +414,9 @@ class TestCoordinatorDeviceData:
         assert "devices" in result
         assert "1234567890" in result["devices"]
 
-        # Clean up coordinator's debouncer to prevent lingering timers
+        # Clean up coordinator to prevent lingering timers
         await hass.async_block_till_done()
-        if hasattr(coordinator, "_debounced_refresh"):
-            coordinator._debounced_refresh.async_cancel()
+        await coordinator.async_shutdown()
         await hass.async_block_till_done()
 
     async def test_process_device_data_handles_gridboss(self, hass, mock_config_entry):
@@ -444,10 +443,9 @@ class TestCoordinatorDeviceData:
         assert "devices" in result
         assert "9876543210" in result["devices"]
 
-        # Clean up coordinator's debouncer to prevent lingering timers
+        # Clean up coordinator to prevent lingering timers
         await hass.async_block_till_done()
-        if hasattr(coordinator, "_debounced_refresh"):
-            coordinator._debounced_refresh.async_cancel()
+        await coordinator.async_shutdown()
         await hass.async_block_till_done()
 
 

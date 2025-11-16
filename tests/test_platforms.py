@@ -314,11 +314,9 @@ class TestNumberPlatform:
         # Some entities may not call write_parameter, so we just check it was set up correctly
         assert test_entity is not None
 
-        # Clean up any pending tasks/timers to prevent lingering timers
+        # Clean up coordinator to prevent lingering timers
         await hass.async_block_till_done()
-        # Clean up coordinator's debouncer if it exists
-        if hasattr(mock_coordinator, "_debounced_refresh"):
-            mock_coordinator._debounced_refresh.async_cancel()
+        await mock_coordinator.async_shutdown()
         await hass.async_block_till_done()
 
 
