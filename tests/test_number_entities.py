@@ -13,6 +13,109 @@ from custom_components.eg4_web_monitor.number import (
 )
 
 
+class TestNumberPlatformSetup:
+    """Test number platform setup."""
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_with_inverter(self, hass):
+        """Test async_setup_entry creates entities for inverter."""
+        from custom_components.eg4_web_monitor.number import async_setup_entry
+
+        # Create mock config entry
+        config_entry = MagicMock()
+
+        # Create mock coordinator with inverter data
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "devices": {
+                "1234567890": {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                }
+            },
+            "device_info": {
+                "1234567890": {
+                    "deviceTypeText4APP": "FlexBOSS21",
+                }
+            },
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value={})
+        config_entry.runtime_data = mock_coordinator
+
+        entities = []
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        # Should create number entities for FlexBOSS21 inverter
+        assert len(entities) > 0
+        # FlexBOSS21 should get AC Charge Power, PV Charge Power, and SOC entities
+        entity_types = [type(e).__name__ for e in entities]
+        assert "ACChargePowerNumber" in entity_types
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_with_gridboss(self, hass):
+        """Test async_setup_entry skips GridBOSS devices."""
+        from custom_components.eg4_web_monitor.number import async_setup_entry
+
+        config_entry = MagicMock()
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "devices": {
+                "gridboss123": {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                }
+            },
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value={})
+        config_entry.runtime_data = mock_coordinator
+
+        entities = []
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        # Should not create number entities for GridBOSS
+        assert len(entities) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_with_xp_device(self, hass):
+        """Test async_setup_entry creates entities for XP device."""
+        from custom_components.eg4_web_monitor.number import async_setup_entry
+
+        config_entry = MagicMock()
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "devices": {
+                "xp1234567890": {
+                    "type": "inverter",
+                    "model": "XP",
+                }
+            },
+            "device_info": {
+                "xp1234567890": {
+                    "deviceTypeText4APP": "XP",
+                }
+            },
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value={})
+        config_entry.runtime_data = mock_coordinator
+
+        entities = []
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        # Should create some number entities for XP device
+        assert len(entities) > 0
+
+
 class TestACChargePowerNumber:
     """Test ACChargePowerNumber entity logic."""
 
@@ -351,4 +454,325 @@ class TestOffGridSOCCutoffNumber:
 
         await entity.async_set_native_value(15)
 
+        coordinator.api.write_parameter.assert_called_once()
+
+
+class TestNumberEntityAvailability:
+    """Test number entity availability."""
+
+    def test_entity_available_when_update_success(self):
+        """Test entity is available when coordinator update successful."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.last_update_success = True
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        assert entity.available is True
+
+    def test_entity_unavailable_when_update_fails(self):
+        """Test entity is unavailable when coordinator update fails."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.last_update_success = False
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        assert entity.available is False
+
+
+class TestNumberEntityAttributes:
+    """Test number entity attributes and properties."""
+
+    def test_device_info(self):
+        """Test device_info property."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {
+                "1234567890": {"type": "inverter", "model": "FlexBOSS21"}
+            },
+            "device_info": {
+                "1234567890": {
+                    "deviceTypeText4APP": "FlexBOSS21",
+                }
+            },
+        }
+        # Mock get_device_info to return proper DeviceInfo dict
+        coordinator.get_device_info = MagicMock(return_value={
+            "identifiers": {("eg4_web_monitor", "1234567890")},
+            "name": "FlexBOSS21",
+            "manufacturer": "EG4",
+        })
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        device_info = entity.device_info
+        assert device_info is not None
+        assert "1234567890" in str(device_info.get("identifiers"))
+
+    def test_unique_id(self):
+        """Test unique_id is properly generated."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        assert entity.unique_id is not None
+        assert "1234567890" in entity.unique_id
+        assert "ac_charge_power" in entity.unique_id
+
+    def test_entity_name_and_mode(self):
+        """Test entity name and mode configuration."""
+        from ..number import ACChargePowerNumber
+        from homeassistant.components.number import NumberMode
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        assert entity._attr_name == "AC Charge Power"
+        assert entity._attr_mode == NumberMode.BOX
+        assert entity._attr_has_entity_name is True
+
+
+class TestNumberEntityValueRetrieval:
+    """Test number entity value retrieval methods."""
+
+    def test_get_value_from_coordinator(self):
+        """Test _get_value_from_coordinator method."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {
+                    "HOLD_AC_CHARGE_POWER_CMD": 7.5,
+                }
+            },
+        }
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Test that _get_value_from_coordinator returns the value
+        value = entity._get_value_from_coordinator()
+        assert value == 7.5
+
+    def test_get_value_from_coordinator_missing(self):
+        """Test _get_value_from_coordinator when parameter is missing."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {}
+            },
+        }
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Test that _get_value_from_coordinator returns None when missing
+        value = entity._get_value_from_coordinator()
+        assert value is None
+
+    def test_native_value_uses_coordinator_value(self):
+        """Test that native_value prefers coordinator value over cached."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {
+                    "HOLD_AC_CHARGE_POWER_CMD": 10.0,
+                }
+            },
+        }
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Set a different cached value
+        entity._current_value = 5.0
+
+        # native_value should return coordinator value (10), not cached (5)
+        assert entity.native_value == 10
+
+    def test_native_value_falls_back_to_cached(self):
+        """Test that native_value falls back to cached value when coordinator has none."""
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {}
+            },
+        }
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Set a cached value
+        entity._current_value = 8.0
+
+        # native_value should return cached value
+        assert entity.native_value == 8
+
+
+class TestNumberEntityErrorHandling:
+    """Test error handling in number entities."""
+
+    @pytest.mark.asyncio
+    async def test_set_value_with_api_error(self):
+        """Test handling of API errors when setting value."""
+        from homeassistant.exceptions import HomeAssistantError
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(side_effect=Exception("API Error"))
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Should raise HomeAssistantError with API error details
+        with pytest.raises(HomeAssistantError, match="API Error"):
+            await entity.async_set_native_value(5.0)
+
+    @pytest.mark.asyncio
+    async def test_set_value_out_of_range(self):
+        """Test setting value outside allowed range."""
+        from homeassistant.exceptions import HomeAssistantError
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Value outside range (0-15 kW) should raise error
+        with pytest.raises(HomeAssistantError, match="must be between 0-15 kW"):
+            await entity.async_set_native_value(20.0)
+
+        # API should not be called for out-of-range value
+        coordinator.api.write_parameter.assert_not_called()
+
+        # Value within range should work
+        await entity.async_set_native_value(5.0)
+        coordinator.api.write_parameter.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_value_non_integer(self):
+        """Test setting non-integer value raises error."""
+        from homeassistant.exceptions import HomeAssistantError
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Non-integer value (5.7) should raise error
+        with pytest.raises(HomeAssistantError, match="must be an integer value"):
+            await entity.async_set_native_value(5.7)
+
+        # API should not be called
+        coordinator.api.write_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_set_value_api_write_failure(self):
+        """Test handling of API write returning failure."""
+        from homeassistant.exceptions import HomeAssistantError
+        from ..number import ACChargePowerNumber
+
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": False, "message": "Device offline"})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = ACChargePowerNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Should raise HomeAssistantError with API error message
+        with pytest.raises(HomeAssistantError, match="Device offline"):
+            await entity.async_set_native_value(5.0)
+
+        # API should have been called
         coordinator.api.write_parameter.assert_called_once()

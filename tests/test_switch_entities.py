@@ -7,7 +7,112 @@ from custom_components.eg4_web_monitor.switch import (
     EG4QuickChargeSwitch,
     EG4BatteryBackupSwitch,
     EG4WorkingModeSwitch,
+    EG4DSTSwitch,
 )
+
+
+class TestSwitchPlatformSetup:
+    """Test switch platform setup."""
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_with_station_and_inverter(self, hass):
+        """Test async_setup_entry creates entities for station and inverter."""
+        from custom_components.eg4_web_monitor.switch import async_setup_entry
+
+        config_entry = MagicMock()
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "station": {"name": "Test Station"},
+            "devices": {
+                "1234567890": {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                }
+            },
+            "device_info": {
+                "1234567890": {
+                    "deviceTypeText4APP": "FlexBOSS21",
+                }
+            },
+        }
+        config_entry.runtime_data = mock_coordinator
+
+        entities = []
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        # Should create DST switch + inverter switches
+        assert len(entities) > 0
+        entity_types = [type(e).__name__ for e in entities]
+        assert "EG4DSTSwitch" in entity_types
+        assert "EG4QuickChargeSwitch" in entity_types
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_no_coordinator_data(self, hass):
+        """Test async_setup_entry handles missing coordinator data."""
+        from custom_components.eg4_web_monitor.switch import async_setup_entry
+
+        config_entry = MagicMock()
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = None
+        config_entry.runtime_data = mock_coordinator
+
+        entities = []
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        # Should not create any entities
+        assert len(entities) == 0
+
+
+class TestEG4DSTSwitch:
+    """Test EG4DSTSwitch entity logic."""
+
+    def test_initialization(self):
+        """Test DST switch initialization."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "station": {"name": "Test Station"},
+        }
+
+        entity = EG4DSTSwitch(coordinator)
+
+        assert entity._attr_name == "Daylight Saving Time"
+        assert entity.unique_id is not None
+
+    def test_is_on_when_enabled(self):
+        """Test DST switch is on when DST is enabled."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "station": {
+                "name": "Test Station",
+                "daylightSavingTime": True,
+            }
+        }
+
+        entity = EG4DSTSwitch(coordinator)
+
+        assert entity.is_on is True
+
+    def test_is_on_when_disabled(self):
+        """Test DST switch is off when DST is disabled."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "station": {
+                "name": "Test Station",
+                "daylightSavingTime": False,
+            }
+        }
+
+        entity = EG4DSTSwitch(coordinator)
+
+        assert entity.is_on is False
 
 
 class TestEG4QuickChargeSwitch:
