@@ -77,16 +77,31 @@ class TestAsyncSetup:
         # Add config entry and set it up properly
         mock_config_entry.add_to_hass(hass)
 
-        # Mock coordinator creation and platform setup
+        # Mock coordinator creation and prevent platform entity setup
         with (
             patch(
                 "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
                 return_value=mock_coordinator,
             ),
-            patch.object(
-                hass.config_entries,
-                "async_forward_entry_setups",
-                new=AsyncMock(),
+            patch(
+                "custom_components.eg4_web_monitor.sensor.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.number.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.switch.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.button.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.select.async_setup_entry",
+                new=AsyncMock(return_value=True),
             ),
         ):
             await async_setup_entry(hass, mock_config_entry)
@@ -172,10 +187,25 @@ class TestAsyncSetup:
                 "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
                 side_effect=[mock_coord1, mock_coord2],
             ),
-            patch.object(
-                hass.config_entries,
-                "async_forward_entry_setups",
-                new=AsyncMock(),
+            patch(
+                "custom_components.eg4_web_monitor.sensor.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.number.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.switch.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.button.async_setup_entry",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.select.async_setup_entry",
+                new=AsyncMock(return_value=True),
             ),
         ):
             await async_setup_entry(hass, entry1)
