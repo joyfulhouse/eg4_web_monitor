@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity import EntityCategory
 else:
     try:
-        from homeassistant.helpers.entity import EntityCategory
+        from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
     except ImportError:
         # Fallback for type checking
         EntityCategory = None  # type: ignore[assignment, misc]
@@ -1319,6 +1319,7 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "pDisCharge": "battery_discharge_power",
     "batPower": "battery_power",
     "batStatus": "battery_status",
+    # Note: grid_power calculated from pToUser - pToGrid in coordinator
     # Voltage sensors
     "acVoltage": "ac_voltage",
     "dcVoltage": "dc_voltage",

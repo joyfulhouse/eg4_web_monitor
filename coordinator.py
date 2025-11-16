@@ -58,8 +58,7 @@ _LOGGER = logging.getLogger(__name__)
 class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: ignore[misc]
     """Class to manage fetching EG4 Web Monitor data from the API.
 
-    Note: type: ignore[misc] - Home Assistant's DataUpdateCoordinator lacks proper type stubs.
-    Mypy cannot verify the base class type at runtime.
+    Note: type: ignore[misc] - DataUpdateCoordinator base class lacks proper type stubs in some HA versions.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -708,6 +707,29 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                         value = to_camel_case(value)
 
                     sensors[sensor_type] = value
+
+        # Calculate net grid power for standard inverters
+        # pToUser = import from grid (positive when importing)
+        # pToGrid = export to grid (positive when exporting)
+        # grid_power = pToUser - pToGrid (positive = importing, negative = exporting)
+        if "pToUser" in runtime and "pToGrid" in runtime:
+            try:
+                p_to_user = float(runtime["pToUser"])  # Import from grid
+                p_to_grid = float(runtime["pToGrid"])  # Export to grid
+                sensors["grid_power"] = p_to_user - p_to_grid
+                _LOGGER.debug(
+                    "Calculated grid_power: %s - %s = %s W (positive=importing, negative=exporting)",
+                    p_to_user,
+                    p_to_grid,
+                    sensors["grid_power"],
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Could not calculate grid_power from pToUser=%s and pToGrid=%s: %s",
+                    runtime.get("pToUser"),
+                    runtime.get("pToGrid"),
+                    e,
+                )
 
         return sensors
 
