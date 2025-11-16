@@ -30,11 +30,28 @@ jobs:
         run: |
           # Create the standard Home Assistant custom_components directory structure
           mkdir -p custom_components/eg4_web_monitor
-          # Copy integration files to the domain-named directory
-          cp -r repository/* custom_components/eg4_web_monitor/ || true
-          # Remove .git and .github from the integration directory
-          rm -rf custom_components/eg4_web_monitor/.git
-          rm -rf custom_components/eg4_web_monitor/.github
+
+          # Copy integration files excluding gitignored items
+          rsync -av \
+            --exclude='venv' \
+            --exclude='.venv' \
+            --exclude='*.pyc' \
+            --exclude='__pycache__' \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='test_env' \
+            --exclude='eg4_test_env' \
+            --exclude='samples' \
+            --exclude='eg4_inverter_api/samples' \
+            --exclude='secrets.py' \
+            --exclude='.claude' \
+            --exclude='claude' \
+            --exclude='.mypy_cache' \
+            --exclude='.pytest_cache' \
+            --exclude='.coverage' \
+            --exclude='*.egg-info' \
+            repository/ custom_components/eg4_web_monitor/
+
           ls -la custom_components/eg4_web_monitor/
 
       - name: Run Hassfest
