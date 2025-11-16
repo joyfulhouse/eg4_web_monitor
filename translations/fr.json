@@ -127,6 +127,7 @@
       "status_text": {"name": "État"},
       "grid_power": {"name": "Puissance du réseau"},
       "load_power": {"name": "Puissance de charge"},
+      "consumption_power": {"name": "Puissance de consommation"},
       "pv_total_power": {"name": "Puissance PV totale"},
       "pv1_power": {"name": "Puissance PV1"},
       "pv2_power": {"name": "Puissance PV2"},

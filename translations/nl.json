@@ -127,6 +127,7 @@
       "status_text": {"name": "Status"},
       "grid_power": {"name": "Netvermogen"},
       "load_power": {"name": "Belastingsvermogen"},
+      "consumption_power": {"name": "Verbruiksvermogen"},
       "pv_total_power": {"name": "Totaal PV-vermogen"},
       "pv1_power": {"name": "PV1-vermogen"},
       "pv2_power": {"name": "PV2-vermogen"},

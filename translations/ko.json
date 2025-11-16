@@ -127,6 +127,7 @@
       "status_text": {"name": "상태"},
       "grid_power": {"name": "그리드 전력"},
       "load_power": {"name": "부하 전력"},
+      "consumption_power": {"name": "소비 전력"},
       "pv_total_power": {"name": "PV 총 전력"},
       "pv1_power": {"name": "PV1 전력"},
       "pv2_power": {"name": "PV2 전력"},

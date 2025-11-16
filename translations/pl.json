@@ -127,6 +127,7 @@
       "status_text": {"name": "Stan"},
       "grid_power": {"name": "Moc sieci"},
       "load_power": {"name": "Moc obciążenia"},
+      "consumption_power": {"name": "Moc zużycia"},
       "pv_total_power": {"name": "Całkowita moc PV"},
       "pv1_power": {"name": "Moc PV1"},
       "pv2_power": {"name": "Moc PV2"},
