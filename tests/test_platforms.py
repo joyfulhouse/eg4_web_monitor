@@ -472,9 +472,7 @@ class TestEntityAvailability:
 class TestEntityUpdates:
     """Test entity state updates."""
 
-    async def test_sensor_updates_on_coordinator_refresh(
-        self, hass, mock_coordinator
-    ):
+    async def test_sensor_updates_on_coordinator_refresh(self, hass, mock_coordinator):
         """Test sensor updates when coordinator refreshes."""
         from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
 

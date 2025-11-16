@@ -48,24 +48,25 @@ def mock_parameter_refresh():
 @pytest.fixture(autouse=True)
 def mock_api_calls():
     """Mock API client calls to prevent network requests."""
-    with patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.get_quick_charge_status",
-        new_callable=AsyncMock,
-        return_value={"status": False},
-    ) as mock_quick_charge, patch(
-        "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.read_parameters",
-        new_callable=AsyncMock,
-        return_value={"FUNC_EPS_EN": 1},
-    ) as mock_read_params:
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.get_quick_charge_status",
+            new_callable=AsyncMock,
+            return_value={"status": False},
+        ) as mock_quick_charge,
+        patch(
+            "custom_components.eg4_web_monitor.eg4_inverter_api.client.EG4InverterAPI.read_parameters",
+            new_callable=AsyncMock,
+            return_value={"FUNC_EPS_EN": 1},
+        ) as mock_read_params,
+    ):
         yield mock_quick_charge, mock_read_params
 
 
 class TestCoordinatorInverterProcessing:
     """Test coordinator inverter data processing."""
 
-    async def test_process_inverter_data_with_runtime(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_inverter_data_with_runtime(self, hass, mock_config_entry):
         """Test processing inverter with runtime data."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -93,9 +94,7 @@ class TestCoordinatorInverterProcessing:
         assert "sensors" in result
         assert "batteries" in result
 
-    async def test_process_inverter_data_with_batteries(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_inverter_data_with_batteries(self, hass, mock_config_entry):
         """Test processing inverter with battery data."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -122,9 +121,7 @@ class TestCoordinatorInverterProcessing:
         # Battery key is cleaned: "Battery_ID_01" -> "1234567890-01"
         assert "1234567890-01" in result["batteries"]
 
-    async def test_process_inverter_data_without_runtime(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_inverter_data_without_runtime(self, hass, mock_config_entry):
         """Test processing inverter without runtime data."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -261,9 +258,7 @@ class TestCoordinatorSensorMapping:
 class TestCoordinatorErrorHandling:
     """Test coordinator error handling in device processing."""
 
-    async def test_process_device_with_error_flag(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_device_with_error_flag(self, hass, mock_config_entry):
         """Test processing device with error flag."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -283,9 +278,7 @@ class TestCoordinatorErrorHandling:
         assert result["devices"]["1234567890"]["type"] == "unknown"
         assert "error" in result["devices"]["1234567890"]
 
-    async def test_process_unknown_device_type(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_unknown_device_type(self, hass, mock_config_entry):
         """Test processing device with unknown type."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -371,11 +364,7 @@ class TestCoordinatorParameterManagement:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         # Set existing data with parameters
-        coordinator.data = {
-            "parameters": {
-                "1234567890": {"charge_power_limit": 5000}
-            }
-        }
+        coordinator.data = {"parameters": {"1234567890": {"charge_power_limit": 5000}}}
 
         device_data = {
             "devices": {
@@ -389,9 +378,7 @@ class TestCoordinatorParameterManagement:
         # Mock API calls
         coordinator.api.get_inverter_runtime = AsyncMock(return_value={})
         coordinator.api.get_inverter_energy = AsyncMock(return_value={})
-        coordinator.api.get_battery_info = AsyncMock(
-            return_value={"batteryArray": []}
-        )
+        coordinator.api.get_battery_info = AsyncMock(return_value={"batteryArray": []})
 
         result = await coordinator._process_device_data(device_data)
 

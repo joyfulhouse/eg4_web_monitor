@@ -46,9 +46,7 @@ class TestACChargePowerNumber:
                     "model": "FlexBOSS21",
                 }
             },
-            "parameters": {
-                "1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 5.0}
-            }
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 5.0}},
         }
 
         entity = ACChargePowerNumber(
@@ -160,9 +158,7 @@ class TestGridPeakShavingPowerNumber:
                     "model": "FlexBOSS21",
                 }
             },
-            "parameters": {
-                "1234567890": {"_12K_HOLD_GRID_PEAK_SHAVING_POWER": 5.0}
-            }
+            "parameters": {"1234567890": {"_12K_HOLD_GRID_PEAK_SHAVING_POWER": 5.0}},
         }
 
         entity = GridPeakShavingPowerNumber(
@@ -220,9 +216,7 @@ class TestACChargeSOCLimitNumber:
                     "model": "FlexBOSS21",
                 }
             },
-            "parameters": {
-                "1234567890": {"HOLD_AC_CHARGE_SOC_LIMIT": 90.0}
-            }
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_SOC_LIMIT": 90.0}},
         }
 
         entity = ACChargeSOCLimitNumber(
@@ -291,9 +285,7 @@ class TestOnGridSOCCutoffNumber:
                     "model": "FlexBOSS21",
                 }
             },
-            "parameters": {
-                "1234567890": {"HOLD_DISCHG_CUT_OFF_SOC_EOD": 20.0}
-            }
+            "parameters": {"1234567890": {"HOLD_DISCHG_CUT_OFF_SOC_EOD": 20.0}},
         }
 
         entity = OnGridSOCCutoffNumber(
@@ -328,9 +320,7 @@ class TestOffGridSOCCutoffNumber:
                     "model": "FlexBOSS21",
                 }
             },
-            "parameters": {
-                "1234567890": {"HOLD_SOC_LOW_LIMIT_EPS_DISCHG": 10.0}
-            }
+            "parameters": {"1234567890": {"HOLD_SOC_LOW_LIMIT_EPS_DISCHG": 10.0}},
         }
 
         entity = OffGridSOCCutoffNumber(

@@ -44,12 +44,10 @@ class TestEG4QuickChargeSwitch:
             "devices": {
                 "1234567890": {
                     "type": "inverter",
-                    "quick_charge_status": {"hasUnclosedQuickChargeTask": True}
+                    "quick_charge_status": {"hasUnclosedQuickChargeTask": True},
                 }
             },
-            "device_info": {
-                "1234567890": {"deviceTypeText4APP": "FlexBOSS21"}
-            }
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -68,12 +66,10 @@ class TestEG4QuickChargeSwitch:
             "devices": {
                 "1234567890": {
                     "type": "inverter",
-                    "quick_charge_status": {"hasUnclosedQuickChargeTask": False}
+                    "quick_charge_status": {"hasUnclosedQuickChargeTask": False},
                 }
             },
-            "device_info": {
-                "1234567890": {"deviceTypeText4APP": "FlexBOSS21"}
-            }
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -88,10 +84,7 @@ class TestEG4QuickChargeSwitch:
     def test_is_on_missing_data(self):
         """Test switch state when data is missing."""
         coordinator = MagicMock()
-        coordinator.data = {
-            "devices": {},
-            "device_info": {}
-        }
+        coordinator.data = {"devices": {}, "device_info": {}}
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4QuickChargeSwitch(
@@ -108,7 +101,7 @@ class TestEG4QuickChargeSwitch:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
         coordinator.api.enable_quick_charge = AsyncMock()
@@ -135,7 +128,7 @@ class TestEG4QuickChargeSwitch:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
         coordinator.api.stop_quick_charge = AsyncMock()
@@ -165,7 +158,7 @@ class TestEG4BatteryBackupSwitch:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -184,10 +177,10 @@ class TestEG4BatteryBackupSwitch:
             "devices": {
                 "1234567890": {
                     "type": "inverter",
-                    "battery_backup_status": {"enabled": True}
+                    "battery_backup_status": {"enabled": True},
                 }
             },
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -206,10 +199,10 @@ class TestEG4BatteryBackupSwitch:
             "devices": {
                 "1234567890": {
                     "type": "inverter",
-                    "battery_backup_status": {"enabled": False}
+                    "battery_backup_status": {"enabled": False},
                 }
             },
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -227,7 +220,7 @@ class TestEG4BatteryBackupSwitch:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
         coordinator.api.write_parameters = AsyncMock(return_value=True)
@@ -254,7 +247,7 @@ class TestEG4BatteryBackupSwitch:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
-            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}}
+            "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
         coordinator.api.write_parameters = AsyncMock(return_value=True)
@@ -285,14 +278,14 @@ class TestEG4WorkingModeSwitch:
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
-            "parameters": {"1234567890": {}}
+            "parameters": {"1234567890": {}},
         }
         device_info = {"deviceTypeText4APP": "FlexBOSS21"}
         mode_config = {
             "name": "Self Use",
             "param": "FUNC_WORK_MODE",
             "value": 0,
-            "entity_category": None
+            "entity_category": None,
         }
 
         entity = EG4WorkingModeSwitch(
@@ -312,7 +305,7 @@ class TestEG4WorkingModeSwitch:
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
-            "parameters": {"1234567890": {"FUNC_WORK_MODE": 0}}
+            "parameters": {"1234567890": {"FUNC_WORK_MODE": 0}},
         }
         coordinator.get_working_mode_state = MagicMock(return_value=True)
         device_info = {"deviceTypeText4APP": "FlexBOSS21"}
@@ -320,7 +313,7 @@ class TestEG4WorkingModeSwitch:
             "name": "Self Use",
             "param": "FUNC_WORK_MODE",
             "value": 0,
-            "entity_category": None
+            "entity_category": None,
         }
 
         entity = EG4WorkingModeSwitch(
@@ -338,7 +331,7 @@ class TestEG4WorkingModeSwitch:
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
-            "parameters": {"1234567890": {"FUNC_WORK_MODE": 1}}
+            "parameters": {"1234567890": {"FUNC_WORK_MODE": 1}},
         }
         coordinator.get_working_mode_state = MagicMock(return_value=False)
         device_info = {"deviceTypeText4APP": "FlexBOSS21"}
@@ -346,7 +339,7 @@ class TestEG4WorkingModeSwitch:
             "name": "Self Use",
             "param": "FUNC_WORK_MODE",
             "value": 0,
-            "entity_category": None
+            "entity_category": None,
         }
 
         entity = EG4WorkingModeSwitch(
@@ -365,7 +358,7 @@ class TestEG4WorkingModeSwitch:
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
-            "parameters": {"1234567890": {}}
+            "parameters": {"1234567890": {}},
         }
         coordinator.api = MagicMock()
         coordinator.api.write_parameters = AsyncMock(return_value=True)
@@ -375,7 +368,7 @@ class TestEG4WorkingModeSwitch:
             "name": "Selling First",
             "param": "FUNC_WORK_MODE",
             "value": 1,
-            "entity_category": None
+            "entity_category": None,
         }
 
         entity = EG4WorkingModeSwitch(
@@ -400,7 +393,7 @@ class TestEG4WorkingModeSwitch:
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter"}},
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
-            "parameters": {"1234567890": {}}
+            "parameters": {"1234567890": {}},
         }
         coordinator.api = MagicMock()
         coordinator.api.write_parameters = AsyncMock()
@@ -409,7 +402,7 @@ class TestEG4WorkingModeSwitch:
             "name": "Self Use",
             "param": "FUNC_WORK_MODE",
             "value": 0,
-            "entity_category": None
+            "entity_category": None,
         }
 
         entity = EG4WorkingModeSwitch(

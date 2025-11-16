@@ -141,7 +141,9 @@ class TestCoordinatorDataFetching:
         )
 
         with patch.object(
-            coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})
+            coordinator,
+            "_process_device_data",
+            new=AsyncMock(return_value={"devices": {}}),
         ):
             data = await coordinator._async_update_data()
 
@@ -193,7 +195,9 @@ class TestCoordinatorDataFetching:
         # Verify availability state changed
         assert coordinator._last_available_state is False
 
-    async def test_fetch_data_logs_reconnection(self, hass, mock_config_entry, mock_api_data):
+    async def test_fetch_data_logs_reconnection(
+        self, hass, mock_config_entry, mock_api_data
+    ):
         """Test coordinator logs when service reconnects."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -202,10 +206,14 @@ class TestCoordinatorDataFetching:
 
         # Mock API methods
         coordinator.api.get_all_device_data = AsyncMock(return_value=mock_api_data)
-        coordinator.api.get_plant_details = AsyncMock(return_value={"name": "Test Plant"})
+        coordinator.api.get_plant_details = AsyncMock(
+            return_value={"name": "Test Plant"}
+        )
 
         with patch.object(
-            coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})
+            coordinator,
+            "_process_device_data",
+            new=AsyncMock(return_value={"devices": {}}),
         ):
             await coordinator._async_update_data()
 
@@ -225,7 +233,9 @@ class TestCoordinatorDataFetching:
         )
 
         with patch.object(
-            coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})
+            coordinator,
+            "_process_device_data",
+            new=AsyncMock(return_value={"devices": {}}),
         ):
             data = await coordinator._async_update_data()
 
@@ -245,7 +255,10 @@ class TestCoordinatorCaching:
 
         # Set current time to 4 minutes before hour
         mock_now = datetime(2025, 1, 15, 13, 56, 0)
-        with patch("custom_components.eg4_web_monitor.coordinator.dt_util.utcnow", return_value=mock_now):
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
+            return_value=mock_now,
+        ):
             assert coordinator._should_invalidate_cache() is True
 
     async def test_should_not_invalidate_cache_far_from_hour(
@@ -256,7 +269,10 @@ class TestCoordinatorCaching:
 
         # Set current time to 10 minutes after hour
         mock_now = datetime(2025, 1, 15, 13, 10, 0)
-        with patch("custom_components.eg4_web_monitor.coordinator.dt_util.utcnow", return_value=mock_now):
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
+            return_value=mock_now,
+        ):
             assert coordinator._should_invalidate_cache() is False
 
     async def test_invalidate_cache_respects_rate_limit(self, hass, mock_config_entry):
@@ -268,7 +284,10 @@ class TestCoordinatorCaching:
 
         # Current time is 5 minutes later (within 10-minute limit)
         mock_now = datetime(2025, 1, 15, 13, 57, 0)
-        with patch("custom_components.eg4_web_monitor.coordinator.dt_util.utcnow", return_value=mock_now):
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
+            return_value=mock_now,
+        ):
             assert coordinator._should_invalidate_cache() is False
 
     async def test_invalidate_all_caches_calls_api(self, hass, mock_config_entry):
@@ -276,7 +295,7 @@ class TestCoordinatorCaching:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         # Mock API invalidate method - the API client has this method
-        if hasattr(coordinator.api, 'invalidate_all_caches'):
+        if hasattr(coordinator.api, "invalidate_all_caches"):
             coordinator.api.invalidate_all_caches = MagicMock()
             coordinator._invalidate_all_caches()
             coordinator.api.invalidate_all_caches.assert_called_once()
@@ -321,7 +340,8 @@ class TestCoordinatorParameterRefresh:
             # Should return True since it's been over an hour
             assert (
                 coordinator._last_parameter_refresh is None
-                or datetime.now() - coordinator._last_parameter_refresh > timedelta(hours=1)
+                or datetime.now() - coordinator._last_parameter_refresh
+                > timedelta(hours=1)
             ) is True
 
     async def test_should_not_refresh_parameters_when_recent(
@@ -353,7 +373,9 @@ class TestCoordinatorParameterRefresh:
         # Mock read_device_parameters_ranges
         with patch(
             "custom_components.eg4_web_monitor.coordinator.read_device_parameters_ranges",
-            new=AsyncMock(return_value=[{"param1": 100}, {"param2": 200}, {"param3": 300}]),
+            new=AsyncMock(
+                return_value=[{"param1": 100}, {"param2": 200}, {"param3": 300}]
+            ),
         ):
             await coordinator._hourly_parameter_refresh()
 
@@ -364,9 +386,7 @@ class TestCoordinatorParameterRefresh:
 class TestCoordinatorDeviceData:
     """Test coordinator device data processing."""
 
-    async def test_process_device_data_handles_inverters(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_device_data_handles_inverters(self, hass, mock_config_entry):
         """Test processing of inverter device data."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -387,18 +407,14 @@ class TestCoordinatorDeviceData:
         coordinator.api.get_inverter_energy = AsyncMock(
             return_value={"todayEnergy": 456}
         )
-        coordinator.api.get_battery_info = AsyncMock(
-            return_value={"batteryArray": []}
-        )
+        coordinator.api.get_battery_info = AsyncMock(return_value={"batteryArray": []})
 
         result = await coordinator._process_device_data(device_data)
 
         assert "devices" in result
         assert "1234567890" in result["devices"]
 
-    async def test_process_device_data_handles_gridboss(
-        self, hass, mock_config_entry
-    ):
+    async def test_process_device_data_handles_gridboss(self, hass, mock_config_entry):
         """Test processing of GridBOSS device data."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -442,9 +458,7 @@ class TestCoordinatorAvailability:
 
         assert coordinator._last_available_state is False
 
-    async def test_logs_state_transitions(
-        self, hass, mock_config_entry, mock_api_data
-    ):
+    async def test_logs_state_transitions(self, hass, mock_config_entry, mock_api_data):
         """Test coordinator logs availability state transitions."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -453,10 +467,14 @@ class TestCoordinatorAvailability:
 
         # Mock successful fetch
         coordinator.api.get_all_device_data = AsyncMock(return_value=mock_api_data)
-        coordinator.api.get_plant_details = AsyncMock(return_value={"name": "Test Plant"})
+        coordinator.api.get_plant_details = AsyncMock(
+            return_value={"name": "Test Plant"}
+        )
 
         with patch.object(
-            coordinator, "_process_device_data", new=AsyncMock(return_value={"devices": {}})
+            coordinator,
+            "_process_device_data",
+            new=AsyncMock(return_value={"devices": {}}),
         ):
             with patch(
                 "custom_components.eg4_web_monitor.coordinator._LOGGER"

@@ -229,7 +229,9 @@ class TestCleanBatteryDisplayName:
 
     def test_battery_id_format(self):
         """Test Battery_ID format."""
-        assert clean_battery_display_name("Battery_ID_01", "1234567890") == "1234567890-01"
+        assert (
+            clean_battery_display_name("Battery_ID_01", "1234567890") == "1234567890-01"
+        )
 
     def test_serial_battery_id_format(self):
         """Test serial_Battery_ID format."""
@@ -250,7 +252,9 @@ class TestCleanBatteryDisplayName:
 
     def test_generic_key(self):
         """Test generic key with underscores."""
-        assert clean_battery_display_name("some_key_name", "1234567890") == "some-key-name"
+        assert (
+            clean_battery_display_name("some_key_name", "1234567890") == "some-key-name"
+        )
 
 
 class TestExtractIndividualBatterySensors:
@@ -437,7 +441,9 @@ class TestSafeGetNestedValue:
     def test_missing_key(self):
         """Test missing key returns default."""
         data = {"level1": {"level2": "value"}}
-        result = safe_get_nested_value(data, ["level1", "missing", "key"], default="default")
+        result = safe_get_nested_value(
+            data, ["level1", "missing", "key"], default="default"
+        )
         assert result == "default"
 
     def test_none_intermediate(self):
@@ -618,7 +624,9 @@ class TestProcessParameterResponses:
         ]
 
         mock_logger = MagicMock()
-        results = list(process_parameter_responses(responses, "1234567890", mock_logger))
+        results = list(
+            process_parameter_responses(responses, "1234567890", mock_logger)
+        )
 
         assert len(results) == 3
         assert results[0] == (0, {"register_0": "value0"}, 0)
@@ -634,7 +642,9 @@ class TestProcessParameterResponses:
         ]
 
         mock_logger = MagicMock()
-        results = list(process_parameter_responses(responses, "1234567890", mock_logger))
+        results = list(
+            process_parameter_responses(responses, "1234567890", mock_logger)
+        )
 
         # Should only get 2 results (exception is skipped)
         assert len(results) == 2
@@ -653,7 +663,9 @@ class TestProcessParameterResponses:
         ]
 
         mock_logger = MagicMock()
-        results = list(process_parameter_responses(responses, "1234567890", mock_logger))
+        results = list(
+            process_parameter_responses(responses, "1234567890", mock_logger)
+        )
 
         assert len(results) == 0
         assert mock_logger.debug.call_count == 3

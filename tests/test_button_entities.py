@@ -95,11 +95,7 @@ class TestEG4BatteryRefreshButton:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {
-                "1234567890": {
-                    "batteries": {
-                        "1234567890-01": {"state_of_charge": 85}
-                    }
-                }
+                "1234567890": {"batteries": {"1234567890-01": {"state_of_charge": 85}}}
             }
         }
 
@@ -120,13 +116,7 @@ class TestEG4BatteryRefreshButton:
         """Test pressing battery refresh button."""
         coordinator = MagicMock()
         coordinator.data = {
-            "devices": {
-                "1234567890": {
-                    "batteries": {
-                        "1234567890-01": {}
-                    }
-                }
-            }
+            "devices": {"1234567890": {"batteries": {"1234567890-01": {}}}}
         }
         coordinator.async_request_refresh = AsyncMock()
         coordinator.api = MagicMock()
@@ -148,11 +138,7 @@ class TestEG4BatteryRefreshButton:
         """Test unique ID includes battery key."""
         coordinator = MagicMock()
         coordinator.data = {
-            "devices": {
-                "1234567890": {
-                    "batteries": {"1234567890-01": {}}
-                }
-            }
+            "devices": {"1234567890": {"batteries": {"1234567890-01": {}}}}
         }
 
         entity = EG4BatteryRefreshButton(
