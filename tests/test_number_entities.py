@@ -76,7 +76,8 @@ class TestACChargePowerNumber:
         """Test setting new value."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
 
         entity = ACChargePowerNumber(
@@ -84,11 +85,16 @@ class TestACChargePowerNumber:
             serial="1234567890",
         )
 
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
         await entity.async_set_native_value(6.0)
 
         # Just verify it was called, don't assert exact parameters
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.write_parameter.assert_called_once()
+        # Note: async_request_refresh is not called directly by this method
 
 
 class TestPVChargePowerNumber:
@@ -111,7 +117,8 @@ class TestPVChargePowerNumber:
         """Test setting PV charge power value."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
 
         entity = PVChargePowerNumber(
@@ -119,11 +126,15 @@ class TestPVChargePowerNumber:
             serial="1234567890",
         )
 
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
         # PV charge power range is 0-15 kW
         await entity.async_set_native_value(10.0)
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.write_parameter.assert_called_once()
 
 
 class TestGridPeakShavingPowerNumber:
@@ -167,7 +178,8 @@ class TestGridPeakShavingPowerNumber:
         """Test setting peak shaving power."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
 
         entity = GridPeakShavingPowerNumber(
@@ -175,10 +187,14 @@ class TestGridPeakShavingPowerNumber:
             serial="1234567890",
         )
 
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
         await entity.async_set_native_value(8.0)
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.write_parameter.assert_called_once()
 
 
 class TestACChargeSOCLimitNumber:
@@ -218,8 +234,8 @@ class TestACChargeSOCLimitNumber:
         assert entity.native_value == 90
 
     @pytest.mark.asyncio
-    async def test_async_set_native_value_updates_all_inverters(self):
-        """Test setting SOC limit updates all inverters in station."""
+    async def test_async_set_native_value(self):
+        """Test setting SOC limit for this inverter."""
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {
@@ -228,7 +244,8 @@ class TestACChargeSOCLimitNumber:
                 "gridboss123": {"type": "gridboss", "model": "GridBOSS"},
             }
         }
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
 
         entity = ACChargeSOCLimitNumber(
@@ -236,15 +253,19 @@ class TestACChargeSOCLimitNumber:
             serial="1234567890",
         )
 
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
         await entity.async_set_native_value(85)
 
-        # Should update both inverters, not the gridboss
-        assert coordinator.api.write_parameters.call_count == 2
-        calls = coordinator.api.write_parameters.call_args_list
-        serials = [call[0][0] for call in calls]
-        assert "1234567890" in serials
-        assert "0987654321" in serials
-        assert "gridboss123" not in serials
+        # Should write parameter to this inverter only
+        assert coordinator.api.write_parameter.call_count == 1
+        call_args = coordinator.api.write_parameter.call_args[1]
+        assert call_args["inverter_sn"] == "1234567890"
+        assert call_args["hold_param"] == "HOLD_AC_CHARGE_SOC_LIMIT"
+        assert call_args["value_text"] == "85"
 
 
 class TestOnGridSOCCutoffNumber:
@@ -325,7 +346,8 @@ class TestOffGridSOCCutoffNumber:
         """Test setting off-grid SOC cutoff."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
 
         entity = OffGridSOCCutoffNumber(
@@ -333,7 +355,11 @@ class TestOffGridSOCCutoffNumber:
             serial="1234567890",
         )
 
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
         await entity.async_set_native_value(15)
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.write_parameter.assert_called_once()
