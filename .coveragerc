@@ -1,0 +1,25 @@
+[run]
+source = custom_components/eg4_web_monitor
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */test_env/*
+    */secrets.py
+    */test_plant_api.py
+    */eg4_inverter_api/tests/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+precision = 2
+
+[html]
+directory = htmlcov

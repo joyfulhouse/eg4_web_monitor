@@ -280,6 +280,12 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 ```
 
+**Coverage Configuration** (.coveragerc):
+- Excludes `secrets.py` (credentials file, not in git)
+- Excludes `test_plant_api.py` (test utility, not production code)
+- Excludes all test directories and files
+- Coverage target: >95% for production code only
+
 **Requirements** (requirements-test.txt):
 ```
 pytest>=7.4.0
@@ -295,7 +301,7 @@ homeassistant>=2024.1.0
 pip install -r requirements-test.txt
 
 # Run all tests with coverage
-pytest tests/ --cov=. --cov-report=term-missing
+pytest tests/ --cov=. --cov-report=term-missing --cov-config=.coveragerc
 
 # Run specific test file
 pytest tests/test_config_flow.py -v
@@ -411,3 +417,4 @@ docker-compose logs -f homeassistant | grep eg4_web_monitor
 8. Graceful handling of network/API issues
 9. Efficient API usage with parallel requests
 10. Comprehensive debug logging available
+- use https://docs.aiohttp.org/en/stable/testing.html for aiohttp testing
