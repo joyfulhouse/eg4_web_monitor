@@ -264,19 +264,30 @@ class TestNumberPlatform:
 
     async def test_number_set_value(self, hass, mock_config_entry, mock_coordinator):
         """Test number entity set value through service call."""
+        from custom_components.eg4_web_monitor.number import async_setup_entry
+
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
         mock_coordinator.api.read_device_parameters_ranges = AsyncMock(
             return_value=[{"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 85}]
         )
 
-        # Set up the integration properly
+        # Set up just the number platform directly
         mock_config_entry.runtime_data = mock_coordinator
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+
+        entities = []
+
+        async def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+            for entity in new_entities:
+                await entity.async_added_to_hass()
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
         await hass.async_block_till_done()
 
-        # Use the service to set the value (proper HA testing pattern)
+        # Find the entity
         entity_id = "number.eg4_flexboss21_1234567890_system_charge_soc_limit"
+        # Use the service to set the value (proper HA testing pattern)
         await hass.services.async_call(
             "number",
             "set_value",
@@ -324,13 +335,23 @@ class TestSwitchPlatform:
 
     async def test_switch_turn_on(self, hass, mock_config_entry, mock_coordinator):
         """Test switch turn on through service call."""
+        from custom_components.eg4_web_monitor.switch import async_setup_entry
+
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
         mock_coordinator.api.read_device_parameters_ranges = AsyncMock(return_value=[])
 
-        # Set up the integration properly
+        # Set up just the switch platform directly
         mock_config_entry.runtime_data = mock_coordinator
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+
+        entities = []
+
+        async def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+            for entity in new_entities:
+                await entity.async_added_to_hass()
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
         await hass.async_block_till_done()
 
         # Use the service to turn on (proper HA testing pattern)
@@ -347,13 +368,23 @@ class TestSwitchPlatform:
 
     async def test_switch_turn_off(self, hass, mock_config_entry, mock_coordinator):
         """Test switch turn off through service call."""
+        from custom_components.eg4_web_monitor.switch import async_setup_entry
+
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
         mock_coordinator.api.read_device_parameters_ranges = AsyncMock(return_value=[])
 
-        # Set up the integration properly
+        # Set up just the switch platform directly
         mock_config_entry.runtime_data = mock_coordinator
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+
+        entities = []
+
+        async def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+            for entity in new_entities:
+                await entity.async_added_to_hass()
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
         await hass.async_block_till_done()
 
         # Use the service to turn off (proper HA testing pattern)
@@ -404,15 +435,25 @@ class TestSelectPlatform:
 
     async def test_select_option(self, hass, mock_config_entry, mock_coordinator):
         """Test select entity option change through service call."""
+        from custom_components.eg4_web_monitor.select import async_setup_entry
+
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
         mock_coordinator.api.read_device_parameters_ranges = AsyncMock(
             return_value=[{"HOLD_WORK_MODE": 0}]
         )
 
-        # Set up the integration properly
+        # Set up just the select platform directly
         mock_config_entry.runtime_data = mock_coordinator
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+
+        entities = []
+
+        async def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+            for entity in new_entities:
+                await entity.async_added_to_hass()
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
         await hass.async_block_till_done()
 
         # Use the service to select option (proper HA testing pattern)
@@ -490,9 +531,19 @@ class TestEntityUpdates:
         self, hass, mock_config_entry, mock_coordinator
     ):
         """Test sensor updates when coordinator refreshes - use hass.states."""
-        # Set up the integration properly
+        from custom_components.eg4_web_monitor.sensor import async_setup_entry
+
+        # Set up just the sensor platform directly
         mock_config_entry.runtime_data = mock_coordinator
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+
+        entities = []
+
+        async def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+            for entity in new_entities:
+                await entity.async_added_to_hass()
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
         await hass.async_block_till_done()
 
         # Check initial state through hass.states (proper HA testing pattern)

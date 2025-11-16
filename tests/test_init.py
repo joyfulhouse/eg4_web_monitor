@@ -68,16 +68,25 @@ class TestAsyncSetup:
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
         """Test refresh service with valid entry_id."""
+        # Ensure async methods are AsyncMock
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+
         # Setup integration
         await async_setup(hass, {})
 
         # Add config entry and set it up properly
         mock_config_entry.add_to_hass(hass)
 
-        # Actually load the entry using async_setup_entry
-        with patch(
-            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-            return_value=mock_coordinator,
+        # Mock coordinator creation and platform setup
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.async_forward_entry_setups",
+                new=AsyncMock(),
+            ),
         ):
             await async_setup_entry(hass, mock_config_entry)
 
@@ -133,11 +142,13 @@ class TestAsyncSetup:
         mock_coord1.entry = MagicMock()
         mock_coord1.entry.entry_id = "entry_1"
         mock_coord1.async_request_refresh = AsyncMock()
+        mock_coord1.async_config_entry_first_refresh = AsyncMock()
 
         mock_coord2 = MagicMock()
         mock_coord2.entry = MagicMock()
         mock_coord2.entry.entry_id = "entry_2"
         mock_coord2.async_request_refresh = AsyncMock()
+        mock_coord2.async_config_entry_first_refresh = AsyncMock()
 
         # Create config entries
         entry1 = MockConfigEntry(
@@ -155,9 +166,15 @@ class TestAsyncSetup:
         entry2.add_to_hass(hass)
 
         # Actually load both entries using async_setup_entry
-        with patch(
-            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-            side_effect=[mock_coord1, mock_coord2],
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                side_effect=[mock_coord1, mock_coord2],
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.async_forward_entry_setups",
+                new=AsyncMock(),
+            ),
         ):
             await async_setup_entry(hass, entry1)
             await async_setup_entry(hass, entry2)
