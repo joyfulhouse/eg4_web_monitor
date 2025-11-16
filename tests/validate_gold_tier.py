@@ -25,8 +25,8 @@ def validate_translations():
     """Validate translation support (Gold tier requirement)."""
     print("🌍 Validating translation support...")
 
-    # Check for strings.json
-    strings_file = Path("strings.json")
+    # Check for strings.json in integration directory
+    strings_file = Path("custom_components/eg4_web_monitor/strings.json")
     if not strings_file.exists():
         print("  ❌ strings.json not found")
         return False
@@ -62,7 +62,7 @@ def validate_translations():
         return False
 
     # Check for translations directory
-    translations_dir = Path("translations")
+    translations_dir = Path("custom_components/eg4_web_monitor/translations")
     if not translations_dir.exists():
         print("  ❌ translations/ directory not found")
         return False
@@ -85,7 +85,7 @@ def validate_reconfiguration():
     """Validate reconfiguration support (Gold tier requirement)."""
     print("🔧 Validating reconfiguration support...")
 
-    config_flow_file = Path("config_flow.py")
+    config_flow_file = Path("custom_components/eg4_web_monitor/config_flow.py")
     if not config_flow_file.exists():
         print("  ❌ config_flow.py not found")
         return False
@@ -184,6 +184,7 @@ def validate_tests():
     """Validate comprehensive automated tests (Gold tier requirement)."""
     print("🧪 Validating automated test coverage...")
 
+    # Tests are at repo root level
     tests_dir = Path("tests")
     if not tests_dir.exists():
         print("  ❌ tests/ directory not found")
@@ -229,7 +230,7 @@ def validate_manifest():
     """Validate manifest.json for Gold tier requirements."""
     print("📋 Validating manifest.json...")
 
-    manifest_file = Path("manifest.json")
+    manifest_file = Path("custom_components/eg4_web_monitor/manifest.json")
     if not manifest_file.exists():
         print("  ❌ manifest.json not found")
         return False
@@ -299,9 +300,13 @@ def main():
     print("=" * 70)
     print()
 
-    # Change to project root directory
-    script_dir = Path(__file__).parent.parent
-    os.chdir(script_dir)
+    # Expect to run from repo root
+    integration_path = Path("custom_components/eg4_web_monitor")
+    if not integration_path.exists():
+        print("❌ Error: Must run from repository root")
+        print(f"   Expected integration at: {integration_path}")
+        sys.exit(1)
+
     print(f"Working directory: {os.getcwd()}\n")
 
     validations = [

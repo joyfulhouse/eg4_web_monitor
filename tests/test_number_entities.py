@@ -465,7 +465,7 @@ class TestNumberEntityAvailability:
 
     def test_entity_available_when_update_success(self):
         """Test entity is available when coordinator update successful."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
@@ -480,7 +480,7 @@ class TestNumberEntityAvailability:
 
     def test_entity_unavailable_when_update_fails(self):
         """Test entity is unavailable when coordinator update fails."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
@@ -499,7 +499,7 @@ class TestNumberEntityAttributes:
 
     def test_device_info(self):
         """Test device_info property."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -530,7 +530,7 @@ class TestNumberEntityAttributes:
 
     def test_unique_id(self):
         """Test unique_id is properly generated."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -549,7 +549,7 @@ class TestNumberEntityAttributes:
 
     def test_entity_name_and_mode(self):
         """Test entity name and mode configuration."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
         from homeassistant.components.number import NumberMode
 
         coordinator = MagicMock()
@@ -573,7 +573,7 @@ class TestNumberEntityValueRetrieval:
 
     def test_get_value_from_coordinator(self):
         """Test _get_value_from_coordinator method."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -597,7 +597,7 @@ class TestNumberEntityValueRetrieval:
 
     def test_get_value_from_coordinator_missing(self):
         """Test _get_value_from_coordinator when parameter is missing."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -617,7 +617,7 @@ class TestNumberEntityValueRetrieval:
 
     def test_native_value_uses_coordinator_value(self):
         """Test that native_value prefers coordinator value over cached."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -643,7 +643,7 @@ class TestNumberEntityValueRetrieval:
 
     def test_native_value_falls_back_to_cached(self):
         """Test that native_value falls back to cached value when coordinator has none."""
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -671,7 +671,7 @@ class TestNumberEntityErrorHandling:
     async def test_set_value_with_api_error(self):
         """Test handling of API errors when setting value."""
         from homeassistant.exceptions import HomeAssistantError
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -698,7 +698,7 @@ class TestNumberEntityErrorHandling:
     async def test_set_value_out_of_range(self):
         """Test setting value outside allowed range."""
         from homeassistant.exceptions import HomeAssistantError
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -732,7 +732,7 @@ class TestNumberEntityErrorHandling:
     async def test_set_value_non_integer(self):
         """Test setting non-integer value raises error."""
         from homeassistant.exceptions import HomeAssistantError
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
@@ -762,7 +762,7 @@ class TestNumberEntityErrorHandling:
     async def test_set_value_api_write_failure(self):
         """Test handling of API write returning failure."""
         from homeassistant.exceptions import HomeAssistantError
-        from ..number import ACChargePowerNumber
+        from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
         coordinator.data = {
