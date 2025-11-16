@@ -60,7 +60,6 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           use_sticky_comment: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          pull_request_number: ${{ needs.check-validation.outputs.pr_number }}
           additional_permissions: |
             actions: read
           prompt: |
