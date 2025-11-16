@@ -18,7 +18,7 @@ else:
         from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
     except ImportError:
         # Fallback for type checking
-        EntityCategory = None  # type: ignore[assignment, misc]
+        EntityCategory = None  # type: ignore[assignment, misc, attr-defined]
 
 # Integration constants
 DOMAIN = "eg4_web_monitor"
