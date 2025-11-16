@@ -202,6 +202,9 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
             Dict[str, Any], SENSOR_TYPES.get(sensor_key, {})
         )
 
+        # Monotonic state tracking for total_increasing sensors
+        self._last_valid_state: Optional[float] = None
+
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
 
@@ -260,7 +263,34 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
             return None
 
         sensors = device_data.get("sensors", {})
-        return sensors.get(self._sensor_key)
+        raw_value = sensors.get(self._sensor_key)
+
+        # Apply monotonic state tracking for total_increasing sensors
+        if self._attr_state_class == "total_increasing" and raw_value is not None:
+            try:
+                current_value = float(raw_value)
+
+                # If we have a previous valid state, ensure we never decrease
+                if self._last_valid_state is not None:
+                    if current_value < self._last_valid_state:
+                        _LOGGER.debug(
+                            "Sensor %s: Preventing state decrease from %.2f to %.2f, "
+                            "maintaining %.2f",
+                            self._attr_unique_id,
+                            self._last_valid_state,
+                            current_value,
+                            self._last_valid_state,
+                        )
+                        return self._last_valid_state
+
+                # Update last valid state and return current value
+                self._last_valid_state = current_value
+                return current_value
+            except (ValueError, TypeError):
+                # If conversion fails, return raw value
+                return raw_value
+
+        return raw_value
 
     @property
     def available(self) -> bool:
@@ -296,6 +326,9 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         self._sensor_config: Dict[str, Any] = cast(
             Dict[str, Any], SENSOR_TYPES.get(sensor_key, {})
         )
+
+        # Monotonic state tracking for total_increasing sensors
+        self._last_valid_state: Optional[float] = None
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
@@ -363,7 +396,34 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
 
         batteries = device_data.get("batteries", {})
         battery_data = batteries.get(self._battery_key, {})
-        return battery_data.get(self._sensor_key)
+        raw_value = battery_data.get(self._sensor_key)
+
+        # Apply monotonic state tracking for total_increasing sensors
+        if self._attr_state_class == "total_increasing" and raw_value is not None:
+            try:
+                current_value = float(raw_value)
+
+                # If we have a previous valid state, ensure we never decrease
+                if self._last_valid_state is not None:
+                    if current_value < self._last_valid_state:
+                        _LOGGER.debug(
+                            "Sensor %s: Preventing state decrease from %.2f to %.2f, "
+                            "maintaining %.2f",
+                            self._attr_unique_id,
+                            self._last_valid_state,
+                            current_value,
+                            self._last_valid_state,
+                        )
+                        return self._last_valid_state
+
+                # Update last valid state and return current value
+                self._last_valid_state = current_value
+                return current_value
+            except (ValueError, TypeError):
+                # If conversion fails, return raw value
+                return raw_value
+
+        return raw_value
 
     @property
     def available(self) -> bool:
