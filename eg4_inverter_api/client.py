@@ -224,10 +224,12 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         data: Optional[Dict[str, Any]] = None,
         authenticated: bool = True,
         retry_count: int = 0,
+        skip_backoff: bool = False,
     ) -> Dict[str, Any]:
         """Make an HTTP request to the API with authentication retry logic."""
-        # Apply backoff delay before making the request
-        await self._apply_backoff()
+        # Apply backoff delay before making the request (unless skipped for critical operations)
+        if not skip_backoff:
+            await self._apply_backoff()
 
         if authenticated:
             await self._ensure_authenticated()
@@ -1011,3 +1013,254 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         self._response_cache.clear()
         self._device_cache_expires = None
         _LOGGER.info("Cleared all cached data")
+
+    # Plant/Station Configuration Methods
+
+    async def get_plant_details(self, plant_id: str) -> Dict[str, Any]:
+        """Get detailed plant/station configuration information.
+
+        Args:
+            plant_id: The plant/station ID
+
+        Returns:
+            Dict containing plant configuration including:
+                - plantId: Plant identifier
+                - name: Station name
+                - nominalPower: Solar PV power rating (W)
+                - timezone: Timezone string (e.g., "GMT -8")
+                - daylightSavingTime: DST enabled (boolean)
+                - continent: Continent enum value
+                - region: Region enum value
+                - country: Country enum value
+                - longitude: Geographic coordinate
+                - latitude: Geographic coordinate
+                - createDate: Plant creation date
+                - address: Physical address
+
+        Raises:
+            EG4APIError: If plant not found or API error occurs
+        """
+        data = {
+            "page": 1,
+            "rows": 20,
+            "searchText": "",
+            "targetPlantId": str(plant_id),
+            "sort": "createDate",
+            "order": "desc",
+        }
+
+        result = await self._make_request(
+            "POST", "/WManage/web/config/plant/list/viewer", data=data
+        )
+
+        if isinstance(result, dict) and result.get("rows"):
+            plant_data = result["rows"][0]
+            _LOGGER.debug(
+                "Retrieved plant details for plant %s: %s",
+                plant_id,
+                plant_data.get("name"),
+            )
+            return dict(plant_data)
+
+        raise EG4APIError(f"Plant {plant_id} not found in API response")
+
+    async def _get_plant_form_config(self, plant_id: str) -> Dict[str, Any]:
+        """Get plant configuration from HTML form (includes enum values).
+
+        This fetches the edit page HTML and extracts the form values which
+        contain the actual enum values needed for the POST request.
+
+        Args:
+            plant_id: The plant/station ID
+
+        Returns:
+            Dict with form field values (enums like WEST8, NORTH_AMERICA, etc.)
+        """
+        import re
+
+        # Fetch the HTML edit page
+        session = await self._get_session()
+        url = f"{self.base_url}/WManage/web/config/plant/edit/{plant_id}"
+
+        headers = (
+            {"Cookie": f"JSESSIONID={self._session_id}"} if self._session_id else {}
+        )
+
+        async with session.get(url, headers=headers) as response:
+            html = await response.text()
+
+        # Parse form values using regex
+        config = {}
+
+        # Extract input values
+        name_match = re.search(r'name="name".*?value="([^"]*)"', html)
+        if name_match:
+            config["name"] = name_match.group(1)
+
+        power_match = re.search(r'name="nominalPower".*?value="([^"]*)"', html)
+        if power_match:
+            config["nominalPower"] = (
+                int(power_match.group(1)) if power_match.group(1) else 0
+            )
+
+        date_match = re.search(r'name="createDate".*?value="([^"]*)"', html)
+        if date_match:
+            config["createDate"] = date_match.group(1)
+
+        lon_match = re.search(r'name="longitude".*?value="([^"]*)"', html)
+        if lon_match:
+            config["longitude"] = lon_match.group(1)
+
+        lat_match = re.search(r'name="latitude".*?value="([^"]*)"', html)
+        if lat_match:
+            config["latitude"] = lat_match.group(1)
+
+        # Extract selected options (enum values)
+        # Continent
+        continent_match = re.search(
+            r'name="continent".*?<option value="(\w+)" selected', html, re.DOTALL
+        )
+        if continent_match:
+            config["continent"] = continent_match.group(1)
+
+        # Region
+        region_match = re.search(
+            r'name="region".*?<option value="(\w+)" selected', html, re.DOTALL
+        )
+        if region_match:
+            config["region"] = region_match.group(1)
+
+        # Country
+        country_match = re.search(
+            r'name="country".*?<option value="([\w_]+)" selected', html, re.DOTALL
+        )
+        if country_match:
+            config["country"] = country_match.group(1)
+
+        # Timezone
+        timezone_match = re.search(
+            r'name="timezone".*?<option value="([\w_]+)" selected', html, re.DOTALL
+        )
+        if timezone_match:
+            config["timezone"] = timezone_match.group(1)
+
+        # DST radio button
+        dst_match = re.search(r'name="daylightSavingTime" value="true" checked', html)
+        config["daylightSavingTime"] = bool(dst_match)
+
+        _LOGGER.info(
+            "✅ Parsed HTML form for plant %s - extracted enum values: continent=%s, region=%s, country=%s, timezone=%s, dst=%s",
+            plant_id,
+            config.get("continent"),
+            config.get("region"),
+            config.get("country"),
+            config.get("timezone"),
+            config.get("daylightSavingTime"),
+        )
+        return config
+
+    async def update_plant_config(self, plant_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Update plant/station configuration.
+
+        This method fetches the current configuration and merges it with
+        the provided updates to ensure all required fields are present.
+
+        Args:
+            plant_id: The plant/station ID
+            **kwargs: Configuration parameters to update:
+                - name (str): Station name
+                - nominalPower (int): Solar PV power rating in Watts
+                - continent (str): Continent enum (e.g., "NORTH_AMERICA")
+                - region (str): Region enum (e.g., "NORTH_AMERICA")
+                - country (str): Country enum (e.g., "UNITED_STATES_OF_AMERICA")
+                - timezone (str): Timezone enum (e.g., "WEST8")
+                - daylightSavingTime (bool): DST enabled
+
+        Returns:
+            Dict containing API response (success status and message)
+
+        Raises:
+            EG4APIError: If update fails or validation error occurs
+
+        Example:
+            await api.update_plant_config(
+                "12345",
+                daylightSavingTime=True,
+                nominalPower=20000
+            )
+        """
+        # Get current configuration from HTML form (has enum values)
+        _LOGGER.info(
+            "🔍 Fetching HTML form to extract enum values for plant %s", plant_id
+        )
+        current = await self._get_plant_form_config(plant_id)
+
+        # Merge current config with updates
+        # Note: longitude, latitude, and createDate are read-only but required
+        data = {
+            "plantId": str(plant_id),
+            "name": kwargs.get("name", current.get("name")),
+            "longitude": current.get("longitude"),
+            "latitude": current.get("latitude"),
+            "createDate": current.get("createDate"),
+            "nominalPower": kwargs.get("nominalPower", current.get("nominalPower")),
+            "continent": kwargs.get("continent", current.get("continent")),
+            "region": kwargs.get("region", current.get("region")),
+            "country": kwargs.get("country", current.get("country")),
+            "timezone": kwargs.get("timezone", current.get("timezone")),
+            "daylightSavingTime": kwargs.get(
+                "daylightSavingTime", current.get("daylightSavingTime")
+            ),
+        }
+
+        _LOGGER.info(
+            "Updating plant %s configuration: %s",
+            plant_id,
+            {k: v for k, v in kwargs.items()},
+        )
+        _LOGGER.debug(
+            "📤 Sending to API - timezone=%s, country=%s, continent=%s, region=%s, dst=%s",
+            data.get("timezone"),
+            data.get("country"),
+            data.get("continent"),
+            data.get("region"),
+            data.get("daylightSavingTime"),
+        )
+
+        response = await self._make_request(
+            "POST", "/WManage/web/config/plant/edit", data=data, skip_backoff=True
+        )
+
+        _LOGGER.debug("Plant %s configuration updated successfully", plant_id)
+        return response
+
+    async def set_daylight_saving_time(
+        self, plant_id: str, enabled: bool
+    ) -> Dict[str, Any]:
+        """Set Daylight Saving Time (DST) for a plant/station.
+
+        Convenience method for toggling DST without affecting other settings.
+
+        Args:
+            plant_id: The plant/station ID
+            enabled: True to enable DST, False to disable
+
+        Returns:
+            Dict containing API response
+
+        Raises:
+            EG4APIError: If update fails
+
+        Example:
+            # Enable DST
+            await api.set_daylight_saving_time("12345", True)
+
+            # Disable DST
+            await api.set_daylight_saving_time("12345", False)
+        """
+        _LOGGER.info(
+            "Setting Daylight Saving Time to %s for plant %s",
+            "enabled" if enabled else "disabled",
+            plant_id,
+        )
+        return await self.update_plant_config(plant_id, daylightSavingTime=enabled)

@@ -1,0 +1,63 @@
+# EG4 Web Monitor Documentation
+
+This directory contains technical documentation, API references, and implementation guides for the EG4 Web Monitor Home Assistant integration.
+
+## 📚 Documentation Index
+
+### API Documentation
+- **[Plant API Documentation](PLANT_API_DOCUMENTATION.md)** - Complete API reference for plant/station configuration endpoints
+  - Plant details retrieval
+  - Configuration update methods
+  - Daylight Saving Time management
+  - Timezone and location settings
+
+### Implementation Guides
+- **[DST Automation Implementation](DST_AUTOMATION_IMPLEMENTATION.md)** - Step-by-step guide for implementing automatic Daylight Saving Time management
+  - API endpoint analysis
+  - Station device creation
+  - Entity implementation (sensors, switches)
+  - Automation examples
+
+- **[Implementation Summary](IMPLEMENTATION_SUMMARY.md)** - Complete overview of all station/plant features
+  - Entity types and configurations
+  - Data mappings and field descriptions
+  - Device hierarchy
+  - Example configurations
+
+## 🔗 Related Documentation
+
+- **[Main README](../README.md)** - Integration overview, installation, and user guide
+- **[Automations](../automations/README.md)** - Pre-built automation examples
+- **[Samples](../samples/README.md)** - API response samples and test data
+- **[Claude Instructions](../CLAUDE.md)** - Development guidelines and project structure
+
+## 📖 Additional Resources
+
+### For Users
+- Installation and setup: See [Main README](../README.md)
+- Automation examples: See [Automations](../automations/)
+- Troubleshooting: Check integration logs and [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
+
+### For Developers
+- API client: `eg4_inverter_api/client.py`
+- Coordinator: `coordinator.py`
+- Entity platforms: `sensor.py`, `switch.py`, `button.py`, etc.
+- Constants: `const.py`
+- Type definitions: See inline type hints throughout codebase
+
+## 🤝 Contributing
+
+When adding new features or documentation:
+1. Update relevant docs in this directory
+2. Add API samples to `samples/` directory
+3. Include automation examples in `automations/` if applicable
+4. Update the main README with user-facing information
+5. Follow Home Assistant [quality scale guidelines](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
+
+## 📝 Documentation Standards
+
+- Use clear, descriptive headings
+- Include code examples with proper syntax highlighting
+- Document all API endpoints with request/response examples
+- Keep technical details separate from user documentation
+- Update this index when adding new documentation files

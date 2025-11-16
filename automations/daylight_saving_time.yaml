@@ -1,0 +1,94 @@
+# EG4 Daylight Saving Time Automation
+# Automatically enables/disables DST based on US rules (2nd Sunday of March / 1st Sunday of November)
+
+alias: "EG4 - Daylight Saving Time Management"
+description: >
+  Automatically manages DST settings for EG4 inverters based on US DST rules.
+  Enables DST on the 2nd Sunday of March at 2:00 AM.
+  Disables DST on the 1st Sunday of November at 2:00 AM.
+
+mode: single
+
+trigger:
+  # Trigger 1: Enable DST - 2nd Sunday of March at 2:00 AM
+  - platform: time
+    at: "02:00:00"
+    id: enable_dst
+
+  # Trigger 2: Disable DST - 1st Sunday of November at 2:00 AM
+  - platform: time
+    at: "02:00:00"
+    id: disable_dst
+
+condition:
+  # Ensure we only run on the correct Sundays
+  - condition: template
+    alias: "Verify it's a Sunday"
+    value_template: "{{ now().weekday() == 6 }}"
+
+action:
+  - choose:
+      # Enable DST on 2nd Sunday of March
+      - conditions:
+          - condition: trigger
+            id: enable_dst
+          - condition: template
+            alias: "2nd Sunday of March"
+            value_template: >
+              {% set current_date = now() %}
+              {% set month = current_date.month %}
+              {% set day = current_date.day %}
+              {% if month == 3 %}
+                {# Find the 2nd Sunday of March #}
+                {% set first_day = current_date.replace(day=1) %}
+                {% set first_weekday = first_day.weekday() %}
+                {# Days until first Sunday: 6 - first_weekday (if first day is not Sunday) #}
+                {% set days_to_first_sunday = (6 - first_weekday) % 7 %}
+                {% set first_sunday = 1 + days_to_first_sunday %}
+                {% set second_sunday = first_sunday + 7 %}
+                {{ day == second_sunday }}
+              {% else %}
+                false
+              {% endif %}
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: switch.station_your_station_name_daylight_saving_time
+          - service: notify.persistent_notification
+            data:
+              title: "EG4 DST Enabled"
+              message: >
+                Daylight Saving Time has been automatically enabled on {{ now().strftime('%B %d, %Y at %I:%M %p') }}.
+                This occurs on the 2nd Sunday of March per US DST rules.
+
+      # Disable DST on 1st Sunday of November
+      - conditions:
+          - condition: trigger
+            id: disable_dst
+          - condition: template
+            alias: "1st Sunday of November"
+            value_template: >
+              {% set current_date = now() %}
+              {% set month = current_date.month %}
+              {% set day = current_date.day %}
+              {% if month == 11 %}
+                {# Find the 1st Sunday of November #}
+                {% set first_day = current_date.replace(day=1) %}
+                {% set first_weekday = first_day.weekday() %}
+                {# Days until first Sunday: 6 - first_weekday (if first day is not Sunday) #}
+                {% set days_to_first_sunday = (6 - first_weekday) % 7 %}
+                {% set first_sunday = 1 + days_to_first_sunday %}
+                {{ day == first_sunday }}
+              {% else %}
+                false
+              {% endif %}
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: switch.station_your_station_name_daylight_saving_time
+          - service: notify.persistent_notification
+            data:
+              title: "EG4 DST Disabled"
+              message: >
+                Daylight Saving Time has been automatically disabled on {{ now().strftime('%B %d, %Y at %I:%M %p') }}.
+                This occurs on the 1st Sunday of November per US DST rules.

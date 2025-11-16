@@ -1,9 +1,11 @@
 """Switch platform for EG4 Web Monitor integration."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -38,8 +40,22 @@ async def async_setup_entry(
 
     entities: List[SwitchEntity] = []
 
-    if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for switch setup")
+    if not coordinator.data:
+        _LOGGER.warning("No coordinator data available for switch setup")
+        return
+
+    # Create station DST switch if station data is available
+    if "station" in coordinator.data:
+        entities.append(EG4DSTSwitch(coordinator))
+        _LOGGER.info("✅ Added DST switch for station")
+
+    # Skip device switches if no devices data
+    if "devices" not in coordinator.data:
+        _LOGGER.warning(
+            "No device data for switch setup, creating station switches only"
+        )
+        if entities:
+            async_add_entities(entities, True)
         return
 
     # Create switch entities for compatible devices
@@ -103,7 +119,7 @@ async def async_setup_entry(
                         )
                     )
                     _LOGGER.info(
-                        "✅ Added working mode switch '%s' for compatible device %s (%s)",
+                        "✅ Added working mode switch '%s' for device %s (%s)",
                         mode_config["name"],
                         serial,
                         model,
@@ -619,6 +635,146 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[mis
                 "Failed to disable working mode %s for device %s: %s",
                 self._mode_config["param"],
                 self._serial_number,
+                e,
+            )
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):  # type: ignore[misc]
+    """Switch entity for station Daylight Saving Time configuration."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+    ) -> None:
+        """Initialize the DST switch."""
+        super().__init__(coordinator)
+        self._attr_has_entity_name = True
+        self._attr_name = "Daylight Saving Time"
+        self._attr_icon = "mdi:clock-time-four"
+        self._attr_entity_category = EntityCategory.CONFIG
+
+        # Build unique ID
+        self._attr_unique_id = f"station_{coordinator.plant_id}_dst"
+
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: Optional[bool] = None
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        """Return device information."""
+        device_info = self.coordinator.get_station_device_info()
+        return dict(device_info) if device_info else {}
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if DST is enabled."""
+        # Use optimistic state if available (during turn_on/turn_off)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        if not self.coordinator.data or "station" not in self.coordinator.data:
+            return False
+
+        station_data = self.coordinator.data["station"]
+        dst_value = station_data.get("daylightSavingTime", False)
+        _LOGGER.debug(
+            "DST switch state for plant %s: daylightSavingTime=%s (type: %s)",
+            self.coordinator.plant_id,
+            dst_value,
+            type(dst_value).__name__,
+        )
+        return bool(dst_value)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.data is not None
+            and "station" in self.coordinator.data
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable Daylight Saving Time."""
+        try:
+            _LOGGER.info(
+                "Enabling Daylight Saving Time for station %s",
+                self.coordinator.plant_id,
+            )
+
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = True
+            self.async_write_ha_state()
+
+            await self.coordinator.api.set_daylight_saving_time(
+                self.coordinator.plant_id, True
+            )
+
+            _LOGGER.info(
+                "Successfully enabled Daylight Saving Time for station %s",
+                self.coordinator.plant_id,
+            )
+
+            # Wait 2 seconds for server to apply changes before refreshing
+            await asyncio.sleep(2)
+
+            # Request coordinator refresh to update all entities
+            await self.coordinator.async_request_refresh()
+
+            # Clear optimistic state after refresh
+            self._optimistic_state = None
+            self.async_write_ha_state()
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to enable Daylight Saving Time for station %s: %s",
+                self.coordinator.plant_id,
+                e,
+            )
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable Daylight Saving Time."""
+        try:
+            _LOGGER.info(
+                "Disabling Daylight Saving Time for station %s",
+                self.coordinator.plant_id,
+            )
+
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = False
+            self.async_write_ha_state()
+
+            await self.coordinator.api.set_daylight_saving_time(
+                self.coordinator.plant_id, False
+            )
+
+            _LOGGER.info(
+                "Successfully disabled Daylight Saving Time for station %s",
+                self.coordinator.plant_id,
+            )
+
+            # Wait 2 seconds for server to apply changes before refreshing
+            await asyncio.sleep(2)
+
+            # Request coordinator refresh to update all entities
+            await self.coordinator.async_request_refresh()
+
+            # Clear optimistic state after refresh
+            self._optimistic_state = None
+            self.async_write_ha_state()
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to disable Daylight Saving Time for station %s: %s",
+                self.coordinator.plant_id,
                 e,
             )
             # Revert optimistic state on error

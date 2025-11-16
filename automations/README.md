@@ -4,6 +4,37 @@ This directory contains example Home Assistant automations that work with the EG
 
 ## Available Automations
 
+### 🕐 Daylight Saving Time Management (`daylight_saving_time.yaml`)
+
+Automatically manages Daylight Saving Time (DST) settings for EG4 inverters based on US DST rules.
+
+#### **Functionality**:
+- **Spring Forward**: Enables DST on 2nd Sunday of March at 2:00 AM
+- **Fall Back**: Disables DST on 1st Sunday of November at 2:00 AM
+- **Automatic Detection**: Uses template logic to calculate the correct Sundays
+- **Notifications**: Sends persistent notifications when DST changes are applied
+- **US Rules Compliant**: Follows current US DST regulations (Energy Policy Act of 2005)
+
+#### **How It Works**:
+1. **Time Triggers**: Automation runs at 2:00 AM daily
+2. **Sunday Validation**: Confirms the current day is Sunday
+3. **Date Calculation**: Templates determine if it's the correct Sunday for DST changes
+4. **Smart Action**: Enables/disables DST switch based on the date
+5. **Confirmation**: Sends notification with timestamp of the change
+
+#### **Required Customization**:
+Update the entity ID to match your station:
+```yaml
+entity_id: switch.station_your_station_name_daylight_saving_time
+```
+
+#### **Benefits**:
+- **Hands-Free**: No manual DST changes needed twice per year
+- **Accurate Timing**: Follows exact US DST rules
+- **Self-Contained**: No helper entities or complex setup required
+- **Notification**: Know when changes happen automatically
+- **Reliable**: Template-based date calculation ensures correct Sundays
+
 ### 🔋 Battery Cell Balancing (`battery_cell_balancing.yaml`)
 
 A single, comprehensive automation that monitors battery cell voltage deltas and automatically manages the complete top balancing cycle.
