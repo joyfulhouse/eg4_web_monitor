@@ -1,0 +1,203 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG4 Web Monitor Configuratie",
+        "description": "Verbind met je EG4 Web Monitor account om je zonne-omvormers, GridBOSS-apparaten en batterijsystemen te beheren.",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-certificaat verifiëren"
+        },
+        "data_description": {
+          "username": "Je EG4 Web Monitor account gebruikersnaam",
+          "password": "Je EG4 Web Monitor account wachtwoord",
+          "base_url": "De basis-URL voor de EG4 Web Monitor API",
+          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen"
+        }
+      },
+      "plant": {
+        "title": "Selecteer station",
+        "description": "Kies welk zonnestation/installatie je wilt monitoren. Je kunt extra stations toevoegen door aparte integratie-instanties aan te maken.",
+        "data": {
+          "plant_id": "Station/Installatie"
+        },
+        "data_description": {
+          "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
+        }
+      },
+      "reauth": {
+        "title": "EG4 Web Monitor opnieuw authenticeren",
+        "description": "Je sessie is verlopen of de inloggegevens zijn ongeldig. Voer je inloggegevens opnieuw in om je apparaten te blijven monitoren.",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Bevestig opnieuw authenticeren",
+        "description": "Bevestig je bijgewerkte inloggegevens om de toegang tot je EG4-apparaten te herstellen."
+      },
+      "reconfigure": {
+        "title": "EG4 Web Monitor herconfigureren",
+        "description": "Werk je EG4 Web Monitor configuratie-instellingen bij. Je kunt verbindingsparameters wijzigen of naar een ander station overschakelen.",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-certificaat verifiëren"
+        },
+        "data_description": {
+          "username": "Je EG4 Web Monitor account gebruikersnaam",
+          "password": "Je EG4 Web Monitor account wachtwoord",
+          "base_url": "De basis-URL voor de EG4 Web Monitor API",
+          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen"
+        }
+      },
+      "reconfigure_plant": {
+        "title": "Verander station",
+        "description": "Selecteer een ander zonnestation/installatie om te monitoren met deze integratie-instantie.",
+        "data": {
+          "plant_id": "Station/Installatie"
+        },
+        "data_description": {
+          "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met EG4 Web Monitor. Controleer je netwerkverbinding en probeer het opnieuw.",
+      "invalid_auth": "Ongeldige gebruikersnaam of wachtwoord. Controleer je inloggegevens en probeer het opnieuw.",
+      "unknown": "Er is een onverwachte fout opgetreden. Probeer het opnieuw of controleer de logs voor meer details.",
+      "no_plants": "Geen zonnestations/installaties gevonden in je account. Zorg ervoor dat je minstens één station hebt geconfigureerd in je EG4 Web Monitor account.",
+      "invalid_plant": "Het geselecteerde station/installatie is niet meer beschikbaar. Selecteer een ander station.",
+      "timeout": "Verbinding met EG4 Web Monitor is verlopen. Controleer je internetverbinding en probeer het opnieuw."
+    },
+    "abort": {
+      "already_configured": "Dit EG4 Web Monitor station is al geconfigureerd. Elk station vereist een aparte integratie-instantie.",
+      "reauth_successful": "Opnieuw authenticeren geslaagd! Je EG4 Web Monitor integratie is nu opnieuw verbonden.",
+      "reconfigure_successful": "Herconfiguratie geslaagd! Je EG4 Web Monitor instellingen zijn bijgewerkt."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG4 Web Monitor Opties",
+        "description": "Configureer geavanceerde opties voor je EG4 Web Monitor integratie.",
+        "data": {
+          "scan_interval": "Update-interval (seconden)"
+        },
+        "data_description": {
+          "scan_interval": "Hoe vaak de EG4 API wordt gepolld voor updates (minimaal 30 seconden)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "operating_mode": {
+      "options": {
+        "normal": "Normaal",
+        "standby": "Standby"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ac_power": {"name": "AC-vermogen"},
+      "ac_voltage": {"name": "AC-spanning"},
+      "ac_current": {"name": "AC-stroom"},
+      "frequency": {"name": "Frequentie"},
+      "dc_power": {"name": "DC-vermogen"},
+      "dc_voltage": {"name": "DC-spanning"},
+      "dc_current": {"name": "DC-stroom"},
+      "battery_power": {"name": "Batterijvermogen"},
+      "battery_voltage": {"name": "Batterijspanning"},
+      "battery_current": {"name": "Batterijstroom"},
+      "state_of_charge": {"name": "Laadtoestand"},
+      "state_of_health": {"name": "Gezondheidstoestand"},
+      "total_energy": {"name": "Totale energie"},
+      "daily_energy": {"name": "Dagelijkse energie"},
+      "monthly_energy": {"name": "Maandelijkse energie"},
+      "yearly_energy": {"name": "Jaarlijkse energie"},
+      "internal_temperature": {"name": "Interne temperatuur"},
+      "radiator1_temperature": {"name": "Radiator 1 temperatuur"},
+      "radiator2_temperature": {"name": "Radiator 2 temperatuur"},
+      "status_code": {"name": "Statuscode"},
+      "status_text": {"name": "Status"},
+      "grid_power": {"name": "Netvermogen"},
+      "load_power": {"name": "Belastingsvermogen"},
+      "pv_total_power": {"name": "Totaal PV-vermogen"},
+      "pv1_power": {"name": "PV1-vermogen"},
+      "pv2_power": {"name": "PV2-vermogen"},
+      "pv3_power": {"name": "PV3-vermogen"},
+      "cell_voltage_max": {"name": "Maximale celspanning"},
+      "cell_voltage_min": {"name": "Minimale celspanning"},
+      "cell_voltage_delta": {"name": "Celspanning delta"},
+      "cycle_count": {"name": "Aantal cycli"},
+      "firmware_version": {"name": "Firmwareversie"}
+    },
+    "switch": {
+      "quick_charge": {
+        "name": "Snelladen"
+      },
+      "battery_backup_eps": {
+        "name": "Batterijback-up (EPS)"
+      }
+    },
+    "number": {
+      "system_charge_soc_limit": {
+        "name": "Systeem laad-SOC-limiet"
+      },
+      "ac_charge_power": {
+        "name": "AC-laadvermogen"
+      },
+      "pv_charge_power": {
+        "name": "PV-laadvermogen"
+      },
+      "ac_charge_soc_limit": {
+        "name": "AC-laad-SOC-limiet"
+      },
+      "soc_cutoff": {
+        "name": "SOC-afkapwaarde"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Gegevens vernieuwen"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Bedrijfsmodus",
+        "state": {
+          "normal": "Normaal",
+          "standby": "Standby"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh_data": {
+      "name": "Gegevens vernieuwen",
+      "description": "Forceer een onmiddellijke verversing van apparaatgegevens van de EG4 API, waarbij het normale polling-interval wordt omzeild.",
+      "fields": {
+        "entry_id": {
+          "name": "Configuratie-entry ID",
+          "description": "De configuratie-entry ID die moet worden ververst. Indien niet opgegeven, worden alle EG4 Web Monitor integraties ververst."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "Configuratie-entry {entry_id} niet gevonden. Controleer of de entry ID correct is."
+    },
+    "entry_not_loaded": {
+      "message": "Configuratie-entry {entry_id} is niet geladen. Zorg ervoor dat de integratie correct is geconfigureerd en actief is."
+    },
+    "no_coordinators": {
+      "message": "Geen EG4-coördinatoren gevonden om te vernieuwen. Zorg ervoor dat minstens één EG4 Web Monitor integratie is geconfigureerd en geladen."
+    }
+  }
+}

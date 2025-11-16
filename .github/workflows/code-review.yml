@@ -41,31 +41,27 @@ jobs:
     runs-on: ubuntu-latest
     needs: check-validation
     if: needs.check-validation.outputs.pr_number != ''
+    timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       issues: read
       id-token: write
-      actions: read
     steps:
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.check-validation.outputs.pr_head_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
+        timeout-minutes: 10
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          use_sticky_comment: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          pull_request_number: ${{ needs.check-validation.outputs.pr_number }}
-          additional_permissions: |
-            actions: read
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
           prompt: |
-            Review this pull request for code quality, Home Assistant best practices,
-            and adherence to Platinum tier quality standards. Focus on:
+            Please review this pull request (PR #${{ needs.check-validation.outputs.pr_number }}) and provide feedback on:
 
             **Code Quality**:
             - Code structure and organization
@@ -86,10 +82,18 @@ jobs:
             - Resource lifecycle management
             - Comprehensive test coverage
 
+            **Translation Quality** (if applicable):
+            - Translation file structure and completeness
+            - Consistency across languages
+            - Proper JSON formatting
+
             **API Integration**:
             - Proper use of aiohttp
             - Session management
             - Error handling and retries
             - Data validation
 
-            Provide actionable feedback and suggestions for improvement.
+            Use the repository's CLAUDE.md for guidance on style and conventions.
+
+            IMPORTANT: Use `gh pr comment ${{ needs.check-validation.outputs.pr_number }}` with your Bash tool to leave your review as a comment on the PR.
+            Be constructive and helpful in your feedback. If the code looks good, provide a brief positive summary.

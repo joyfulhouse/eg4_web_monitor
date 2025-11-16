@@ -1,0 +1,203 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG4 Web Monitor Einrichtung",
+        "description": "Verbinden Sie sich mit Ihrem EG4 Web Monitor-Konto, um Ihre Solarwechselrichter, GridBOSS-Geräte und Batteriesysteme zu verwalten.",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-Zertifikat überprüfen"
+        },
+        "data_description": {
+          "username": "Ihr EG4 Web Monitor-Kontobenutzername",
+          "password": "Ihr EG4 Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+        }
+      },
+      "plant": {
+        "title": "Station auswählen",
+        "description": "Wählen Sie aus, welche Solarstation/Anlage überwacht werden soll. Sie können weitere Stationen hinzufügen, indem Sie separate Integrationsinstanzen erstellen.",
+        "data": {
+          "plant_id": "Station/Anlage"
+        },
+        "data_description": {
+          "plant_id": "Wählen Sie die Solaranlage aus, die Sie überwachen möchten"
+        }
+      },
+      "reauth": {
+        "title": "EG4 Web Monitor erneut authentifizieren",
+        "description": "Ihre Sitzung ist abgelaufen oder die Anmeldedaten sind ungültig. Bitte geben Sie Ihre Anmeldedaten erneut ein, um Ihre Geräte weiterhin zu überwachen.",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Erneute Authentifizierung bestätigen",
+        "description": "Bitte bestätigen Sie Ihre aktualisierten Anmeldedaten, um den Zugriff auf Ihre EG4-Geräte wiederherzustellen."
+      },
+      "reconfigure": {
+        "title": "EG4 Web Monitor neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre EG4 Web Monitor-Konfigurationseinstellungen. Sie können Verbindungsparameter ändern oder zu einer anderen Station wechseln.",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-Zertifikat überprüfen"
+        },
+        "data_description": {
+          "username": "Ihr EG4 Web Monitor-Kontobenutzername",
+          "password": "Ihr EG4 Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+        }
+      },
+      "reconfigure_plant": {
+        "title": "Station wechseln",
+        "description": "Wählen Sie eine andere Solarstation/Anlage aus, die mit dieser Integrationsinstanz überwacht werden soll.",
+        "data": {
+          "plant_id": "Station/Anlage"
+        },
+        "data_description": {
+          "plant_id": "Wählen Sie die Solaranlage aus, die Sie überwachen möchten"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zu EG4 Web Monitor nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.",
+      "invalid_auth": "Ungültiger Benutzername oder Passwort. Bitte überprüfen Sie Ihre Anmeldedaten und versuchen Sie es erneut.",
+      "unknown": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut oder überprüfen Sie die Protokolle für weitere Details.",
+      "no_plants": "Keine Solarstationen/Anlagen in Ihrem Konto gefunden. Bitte stellen Sie sicher, dass Sie mindestens eine Station in Ihrem EG4 Web Monitor-Konto konfiguriert haben.",
+      "invalid_plant": "Die ausgewählte Station/Anlage ist nicht mehr verfügbar. Bitte wählen Sie eine andere Station aus.",
+      "timeout": "Zeitüberschreitung bei Verbindung zu EG4 Web Monitor. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
+    },
+    "abort": {
+      "already_configured": "Diese EG4 Web Monitor-Station ist bereits konfiguriert. Jede Station benötigt eine separate Integrationsinstanz.",
+      "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre EG4 Web Monitor-Integration ist jetzt wieder verbunden.",
+      "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre EG4 Web Monitor-Einstellungen wurden aktualisiert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG4 Web Monitor Optionen",
+        "description": "Konfigurieren Sie erweiterte Optionen für Ihre EG4 Web Monitor-Integration.",
+        "data": {
+          "scan_interval": "Aktualisierungsintervall (Sekunden)"
+        },
+        "data_description": {
+          "scan_interval": "Wie oft die EG4-API für Updates abgefragt werden soll (mindestens 30 Sekunden)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "operating_mode": {
+      "options": {
+        "normal": "Normal",
+        "standby": "Standby"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ac_power": {"name": "AC-Leistung"},
+      "ac_voltage": {"name": "AC-Spannung"},
+      "ac_current": {"name": "AC-Strom"},
+      "frequency": {"name": "Frequenz"},
+      "dc_power": {"name": "DC-Leistung"},
+      "dc_voltage": {"name": "DC-Spannung"},
+      "dc_current": {"name": "DC-Strom"},
+      "battery_power": {"name": "Batterieleistung"},
+      "battery_voltage": {"name": "Batteriespannung"},
+      "battery_current": {"name": "Batteriestrom"},
+      "state_of_charge": {"name": "Ladezustand"},
+      "state_of_health": {"name": "Gesundheitszustand"},
+      "total_energy": {"name": "Gesamtenergie"},
+      "daily_energy": {"name": "Tägliche Energie"},
+      "monthly_energy": {"name": "Monatliche Energie"},
+      "yearly_energy": {"name": "Jährliche Energie"},
+      "internal_temperature": {"name": "Innentemperatur"},
+      "radiator1_temperature": {"name": "Kühler 1 Temperatur"},
+      "radiator2_temperature": {"name": "Kühler 2 Temperatur"},
+      "status_code": {"name": "Statuscode"},
+      "status_text": {"name": "Status"},
+      "grid_power": {"name": "Netzleistung"},
+      "load_power": {"name": "Lastleistung"},
+      "pv_total_power": {"name": "PV-Gesamtleistung"},
+      "pv1_power": {"name": "PV1-Leistung"},
+      "pv2_power": {"name": "PV2-Leistung"},
+      "pv3_power": {"name": "PV3-Leistung"},
+      "cell_voltage_max": {"name": "Maximale Zellenspannung"},
+      "cell_voltage_min": {"name": "Minimale Zellenspannung"},
+      "cell_voltage_delta": {"name": "Zellenspannungsdifferenz"},
+      "cycle_count": {"name": "Zyklenanzahl"},
+      "firmware_version": {"name": "Firmware-Version"}
+    },
+    "switch": {
+      "quick_charge": {
+        "name": "Schnellladung"
+      },
+      "battery_backup_eps": {
+        "name": "Batterienotversorgung (EPS)"
+      }
+    },
+    "number": {
+      "system_charge_soc_limit": {
+        "name": "System-Lade-SOC-Grenze"
+      },
+      "ac_charge_power": {
+        "name": "AC-Ladeleistung"
+      },
+      "pv_charge_power": {
+        "name": "PV-Ladeleistung"
+      },
+      "ac_charge_soc_limit": {
+        "name": "AC-Lade-SOC-Grenze"
+      },
+      "soc_cutoff": {
+        "name": "SOC-Abschaltung"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Daten aktualisieren"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Betriebsmodus",
+        "state": {
+          "normal": "Normal",
+          "standby": "Standby"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh_data": {
+      "name": "Daten aktualisieren",
+      "description": "Sofortige Aktualisierung der Gerätedaten von der EG4-API erzwingen und dabei das normale Abfrageintervall umgehen.",
+      "fields": {
+        "entry_id": {
+          "name": "Konfigurationseintrag-ID",
+          "description": "Die zu aktualisierende Konfigurationseintrag-ID. Wenn nicht angegeben, werden alle EG4 Web Monitor-Integrationen aktualisiert."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "Konfigurationseintrag {entry_id} nicht gefunden. Bitte überprüfen Sie, ob die Eintrags-ID korrekt ist."
+    },
+    "entry_not_loaded": {
+      "message": "Konfigurationseintrag {entry_id} ist nicht geladen. Bitte stellen Sie sicher, dass die Integration ordnungsgemäß konfiguriert ist und ausgeführt wird."
+    },
+    "no_coordinators": {
+      "message": "Keine EG4-Koordinatoren zum Aktualisieren gefunden. Bitte stellen Sie sicher, dass mindestens eine EG4 Web Monitor-Integration konfiguriert und geladen ist."
+    }
+  }
+}
