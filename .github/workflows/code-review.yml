@@ -18,6 +18,7 @@ jobs:
     outputs:
       pr_number: ${{ steps.get_pr.outputs.pr_number }}
       pr_head_sha: ${{ steps.get_pr.outputs.pr_head_sha }}
+      should_review: ${{ steps.check_review.outputs.should_review }}
     steps:
       - name: Get PR information
         id: get_pr
@@ -36,11 +37,39 @@ jobs:
               core.setOutput('pr_head_sha', pulls.data[0].head.sha);
             }
 
+      - name: Check if already reviewed
+        id: check_review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = '${{ steps.get_pr.outputs.pr_number }}';
+            if (!prNumber) {
+              core.setOutput('should_review', 'false');
+              return;
+            }
+
+            // Check if Claude has already commented on this PR
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+
+            const claudeComment = comments.data.find(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('🤖 Claude Code Review')
+            );
+
+            // Only review if no previous Claude review exists
+            core.setOutput('should_review', claudeComment ? 'false' : 'true');
+
   claude-code-review:
     name: 🤖 Claude Code Review
     runs-on: ubuntu-latest
     needs: check-validation
-    if: needs.check-validation.outputs.pr_number != ''
+    if: |
+      needs.check-validation.outputs.pr_number != '' &&
+      needs.check-validation.outputs.should_review == 'true'
     timeout-minutes: 10
     permissions:
       contents: read
