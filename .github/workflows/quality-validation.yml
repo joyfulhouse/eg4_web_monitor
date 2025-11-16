@@ -763,9 +763,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install mypy
+      - name: Install mypy and dependencies
         run: |
-          pip install mypy aiohttp
+          pip install mypy aiohttp homeassistant
 
       - name: Verify strict typing configuration
         run: |
@@ -801,7 +801,11 @@ jobs:
       - name: Run mypy type checking
         run: |
           echo "Running mypy type checking..."
-          mypy --config-file mypy.ini .
+          # Check integration package files, excluding test/development files
+          # The eg4_inverter_api package is checked via relative imports from main files
+          mypy --config-file mypy.ini \
+            __init__.py button.py config_flow.py const.py coordinator.py \
+            number.py select.py sensor.py switch.py utils.py
           if [ $? -ne 0 ]; then
             echo "❌ Type errors found - must be fixed for Platinum tier"
             exit 1

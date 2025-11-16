@@ -5,8 +5,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
     from homeassistant.components.switch import SwitchEntity
@@ -146,7 +147,7 @@ async def async_setup_entry(
         _LOGGER.info("No switch entities to add")
 
 
-class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
     """Switch to control quick charge functionality."""
 
     def __init__(
@@ -302,7 +303,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[mis
             raise
 
 
-class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
     """Switch to control battery backup (EPS) functionality."""
 
     def __init__(
@@ -473,7 +474,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[m
             raise
 
 
-class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
     """Switch for controlling EG4 working modes."""
 
     def __init__(
@@ -643,7 +644,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[mis
             raise
 
 
-class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):  # type: ignore[misc]
+class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
     """Switch entity for station Daylight Saving Time configuration."""
 
     def __init__(
@@ -664,10 +665,10 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):  
         self._optimistic_state: Optional[bool] = None
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         device_info = self.coordinator.get_station_device_info()
-        return dict(device_info) if device_info else {}
+        return device_info if device_info else {}
 
     @property
     def is_on(self) -> bool:

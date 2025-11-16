@@ -4,8 +4,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 
 if TYPE_CHECKING:
     from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
@@ -115,7 +116,7 @@ async def async_setup_entry(
         _LOGGER.info("No refresh button entities to add")
 
 
-class EG4RefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
+class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
     """Button to refresh device data and invalidate cache."""
 
     def __init__(
@@ -172,10 +173,10 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
         )
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         device_info = self.coordinator.get_device_info(self._serial)
-        return dict(device_info) if device_info else {}
+        return device_info if device_info else {}
 
     @property
     def available(self) -> bool:
@@ -242,7 +243,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
             raise
 
 
-class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
+class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
     """Button to refresh individual battery data and invalidate cache."""
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -365,7 +366,7 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[
             raise
 
 
-class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
+class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
     """Button to refresh station/plant data."""
 
     def __init__(
@@ -395,10 +396,10 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[
         )
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         device_info = self.coordinator.get_station_device_info()
-        return dict(device_info) if device_info else {}
+        return device_info if device_info else {}
 
     @property
     def available(self) -> bool:

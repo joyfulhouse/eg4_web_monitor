@@ -10,6 +10,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
@@ -55,11 +56,8 @@ from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4Connectio
 _LOGGER = logging.getLogger(__name__)
 
 
-class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: ignore[misc]
-    """Class to manage fetching EG4 Web Monitor data from the API.
-
-    Note: type: ignore[misc] - DataUpdateCoordinator base class lacks proper type stubs in some HA versions.
-    """
+class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    """Class to manage fetching EG4 Web Monitor data from the API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
@@ -1044,7 +1042,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
         """Extract binary sensor data from GridBOSS midbox response."""
         return {}
 
-    def get_device_info(self, serial: str) -> Optional[Dict[str, Any]]:
+    def get_device_info(self, serial: str) -> Optional[DeviceInfo]:
         """Get device information for a specific serial number."""
         if not self.data or "devices" not in self.data:
             return None
@@ -1089,7 +1087,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             if parallel_group_serial:
                 device_info["via_device"] = (DOMAIN, parallel_group_serial)
 
-        return device_info
+        # Return as Dict (compatible with DeviceInfo type)
+        # TypedDict compatibility: dict[str, Any] is structurally compatible with DeviceInfo
+        return device_info  # type: ignore[return-value]
 
     def _get_parallel_group_for_device(self, device_serial: str) -> Optional[str]:
         """Get the parallel group serial that contains this device."""
@@ -1125,7 +1125,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
 
     def get_battery_device_info(
         self, serial: str, battery_key: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[DeviceInfo]:
         """Get device information for a specific battery."""
         if not self.data or "devices" not in self.data:
             return None
@@ -1150,7 +1150,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }
 
-    def get_station_device_info(self) -> Optional[Dict[str, Any]]:
+    def get_station_device_info(self) -> Optional[DeviceInfo]:
         """Get device information for the station/plant."""
         if not self.data or "station" not in self.data:
             return None

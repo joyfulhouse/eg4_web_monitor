@@ -46,7 +46,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
@@ -304,7 +304,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
             data_schema=reauth_schema,
             errors=errors,
             description_placeholders={
-                "username": self._username,
+                "username": self._username or "",
             },
         )
 
@@ -350,10 +350,15 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
                         return await self.async_step_reconfigure_plant()
                 else:
                     # Same account - keep existing plant
+                    plant_id = entry.data.get(CONF_PLANT_ID)
+                    plant_name = entry.data.get(CONF_PLANT_NAME)
+                    assert plant_id is not None and plant_name is not None, (
+                        "Plant ID and name must be set"
+                    )
                     return await self._update_entry(
                         entry=entry,
-                        plant_id=entry.data.get(CONF_PLANT_ID),
-                        plant_name=entry.data.get(CONF_PLANT_NAME),
+                        plant_id=plant_id,
+                        plant_name=plant_name,
                     )
 
             except EG4AuthError:
@@ -504,9 +509,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
         return self.async_abort(reason="reconfigure_successful")
 
 
-class CannotConnect(HomeAssistantError):  # type: ignore[misc]
+class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuth(HomeAssistantError):  # type: ignore[misc]
+class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""

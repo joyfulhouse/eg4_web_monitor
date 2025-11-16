@@ -12,10 +12,10 @@ from homeassistant.const import (
 )
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.entity import EntityCategory
+    from homeassistant.const import EntityCategory
 else:
     try:
-        from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
+        from homeassistant.const import EntityCategory  # type: ignore[attr-defined]
     except ImportError:
         # Fallback for type checking
         EntityCategory = None  # type: ignore[assignment, misc]

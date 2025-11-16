@@ -195,6 +195,70 @@ Station/Plant (plantId)
 
 ## Testing & Validation
 
+### Local Testing Strategy
+
+**IMPORTANT**: Always test locally in an isolated environment before pushing to GitHub to avoid consuming compute credits.
+
+**Isolated Test Environment Setup**:
+```bash
+# Create isolated virtual environment (one-time setup)
+cd /tmp && python3 -m venv eg4-test
+source /tmp/eg4-test/bin/activate
+pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-cov mypy aiohttp ruff homeassistant
+```
+
+**Running Tests** (run from integration directory):
+```bash
+# Activate the test environment
+source /tmp/eg4-test/bin/activate
+
+# Run all tests from parent directory (custom_components/) with proper PYTHONPATH
+cd /Users/bryanli/Projects/joyfulhouse
+export PYTHONPATH=/Users/bryanli/Projects/joyfulhouse
+pytest custom_components/eg4_web_monitor/tests/ -x --tb=short
+
+# Run with code coverage
+pytest custom_components/eg4_web_monitor/tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+
+# Run single test file
+pytest custom_components/eg4_web_monitor/tests/test_config_flow.py -v
+```
+
+**Pre-Commit Validation Checklist**:
+```bash
+# From integration directory: /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+source /tmp/eg4-test/bin/activate
+
+# 1. Run all unit tests (from parent directory)
+cd /Users/bryanli/Projects/joyfulhouse
+export PYTHONPATH=/Users/bryanli/Projects/joyfulhouse
+pytest custom_components/eg4_web_monitor/tests/ -x
+
+# 2. Run tier validation scripts (from integration directory)
+cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+python3 tests/validate_silver_tier.py
+python3 tests/validate_gold_tier.py
+python3 tests/validate_platinum_tier.py
+
+# 3. Run mypy type checking (from integration directory)
+mypy --config-file mypy.ini \
+  __init__.py button.py config_flow.py const.py coordinator.py \
+  number.py select.py sensor.py switch.py utils.py
+
+# 4. Run ruff linting (from integration directory)
+ruff check . --fix && ruff format .
+
+# 5. Verify all 236 tests pass with no teardown errors
+# 6. Only push to GitHub after all local validations pass
+```
+
+**Why This Approach?**:
+- Tests run from parent directory (`custom_components/`) to properly resolve imports
+- PYTHONPATH set to parent directory enables `from custom_components.eg4_web_monitor.*` imports
+- Mypy runs only on specific files to avoid "Source file found twice" errors
+- Isolated virtual environment prevents system package interference
+- Saves GitHub Actions compute credits by testing locally first
+
 ### Testing Framework
 This integration uses **pytest-homeassistant-custom-component** for Home Assistant-specific testing:
 - **Repository**: https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
