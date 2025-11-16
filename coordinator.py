@@ -134,11 +134,27 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                     lambda t: t.exception() if not t.cancelled() else None
                 )
 
-            # Get comprehensive data for all devices in the plan
+            # Get comprehensive data for all devices in the plant
             data = await self.api.get_all_device_data(self.plant_id)
 
-            # Process and structure the data
+            # Get station/plant configuration data
+            try:
+                station_data = await self.api.get_plant_details(self.plant_id)
+                _LOGGER.debug(
+                    "Retrieved station data for plant %s: %s",
+                    self.plant_id,
+                    station_data.get("name"),
+                )
+            except Exception as e:
+                _LOGGER.warning("Failed to fetch station data: %s", e)
+                station_data = None
+
+            # Process and structure the device data
             processed_data = await self._process_device_data(data)
+
+            # Add station data to processed_data
+            if station_data:
+                processed_data["station"] = station_data
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)
@@ -1132,6 +1148,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             "model": "Battery Module",
             "sw_version": battery_firmware,
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
+        }
+
+    def get_station_device_info(self) -> Optional[Dict[str, Any]]:
+        """Get device information for the station/plant."""
+        if not self.data or "station" not in self.data:
+            return None
+
+        station_data = self.data["station"]
+        station_name = station_data.get("name", f"Station {self.plant_id}")
+
+        return {
+            "identifiers": {(DOMAIN, f"station_{self.plant_id}")},
+            "name": f"Station {station_name}",
+            "manufacturer": "EG4 Electronics",
+            "model": "Station",
+            "configuration_url": f"{self.api.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
 
     def _extract_parallel_group_sensors(

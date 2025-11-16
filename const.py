@@ -1740,3 +1740,42 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_FORCED_DISCHG_EN": "FUNC_FORCED_DISCHG_EN",  # Working mode for forced discharge
     "FUNC_SET_TO_STANDBY": "FUNC_SET_TO_STANDBY",  # Operating mode control
 }
+
+# Station/Plant Configuration Constants
+
+# Add station device type
+DEVICE_TYPE_STATION = "station"
+
+# Timezone options for plant/station configuration
+# Note: Station configuration data (Continent, Region, Country, Timezone) are read-only
+# informational fields from the EG4 API. They are displayed as-is without mapping since
+# they don't need to be used in automations. Only DST (Daylight Saving Time) is controllable.
+
+# Station sensor types - read-only display sensors
+STATION_SENSOR_TYPES = {
+    "station_name": {
+        "name": "Station Name",
+        "icon": "mdi:home-lightning-bolt-outline",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "station_country": {
+        "name": "Country",
+        "icon": "mdi:map-marker",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "station_timezone": {
+        "name": "Timezone",
+        "icon": "mdi:clock-outline",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "station_create_date": {
+        "name": "Created",
+        "icon": "mdi:calendar",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "station_address": {
+        "name": "Address",
+        "icon": "mdi:map-marker-outline",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+}
