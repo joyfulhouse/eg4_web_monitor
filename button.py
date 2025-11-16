@@ -41,11 +41,22 @@ async def async_setup_entry(
 
     entities: List[ButtonEntity] = []
 
-    if not coordinator.data or "devices" not in coordinator.data:
+    if not coordinator.data:
+        _LOGGER.warning("No coordinator data available for button setup")
+        return
+
+    # Create station refresh button if station data is available
+    if "station" in coordinator.data:
+        entities.append(EG4StationRefreshButton(coordinator))
+        _LOGGER.info("✅ Added refresh button for station")
+
+    # Skip device buttons if no device data
+    if "devices" not in coordinator.data:
         _LOGGER.warning(
-            "No device data available for button setup - coordinator.data: %s",
-            coordinator.data,
+            "No device data available for button setup, only creating station buttons"
         )
+        if entities:
+            async_add_entities(entities)
         return
 
     _LOGGER.info(
@@ -199,7 +210,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
         """Handle the button press."""
         try:
             _LOGGER.debug(
-                "Refresh button pressed for device %s - clearing cache and refreshing data",
+                "Refresh button pressed for device %s - clearing cache",
                 self._serial,
             )
 
@@ -264,7 +275,8 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-        # Device info for grouping with battery - must match coordinator.get_battery_device_info()
+        # Device info for grouping with battery
+        # Must match coordinator.get_battery_device_info()
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{parent_serial}_{battery_key}")},
             "name": f"Battery {battery_key}",  # Will be cleaned by coordinator
@@ -349,5 +361,91 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[
         except Exception as e:
             _LOGGER.error(
                 "Failed to refresh data for battery %s: %s", self._battery_key, e
+            )
+            raise
+
+
+class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):  # type: ignore[misc]
+    """Button to refresh station/plant data."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+    ) -> None:
+        """Initialize the station refresh button."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+
+        # Create unique identifiers
+        self._attr_unique_id = f"station_{coordinator.plant_id}_refresh_data"
+        self._attr_entity_id = f"button.station_{coordinator.plant_id}_refresh_data"
+
+        # Set device attributes
+        self._attr_has_entity_name = True
+        self._attr_name = "Refresh Data"
+        self._attr_icon = "mdi:refresh"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+        # Set entity description
+        self.entity_description = ButtonEntityDescription(
+            key=f"station_{coordinator.plant_id}_refresh",
+            name="Refresh Data",
+            icon="mdi:refresh",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        """Return device information."""
+        device_info = self.coordinator.get_station_device_info()
+        return dict(device_info) if device_info else {}
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.data is not None
+            and "station" in self.coordinator.data
+        )
+
+    @property
+    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+        """Return extra state attributes."""
+        attributes = {}
+
+        # Add station/plant ID
+        attributes["plant_id"] = self.coordinator.plant_id
+
+        # Add cache statistics if available
+        if hasattr(self.coordinator.api, "get_cache_stats"):
+            cache_stats = self.coordinator.api.get_cache_stats()
+            if cache_stats:
+                attributes["cache_entries"] = cache_stats.get("total_entries", 0)
+                attributes["cache_hits"] = cache_stats.get("cache_hits", 0)
+                attributes["cache_misses"] = cache_stats.get("cache_misses", 0)
+
+        return attributes if attributes else None
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        try:
+            _LOGGER.info(
+                "Station refresh button pressed for plant %s - refreshing station data",
+                self.coordinator.plant_id,
+            )
+
+            # Force immediate coordinator refresh to fetch fresh station data
+            await self.coordinator.async_request_refresh()
+
+            _LOGGER.info(
+                "Successfully refreshed station data for plant %s",
+                self.coordinator.plant_id,
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to refresh station data for plant %s: %s",
+                self.coordinator.plant_id,
+                e,
             )
             raise
