@@ -508,3 +508,156 @@ class TestCoordinatorCircuitBreaker:
         assert coordinator._circuit_breaker is not None
         assert coordinator._circuit_breaker.failure_threshold == 3
         assert coordinator._circuit_breaker.timeout == 30
+
+
+class TestCoordinatorDeviceInfo:
+    """Test coordinator device info methods."""
+
+    async def test_get_device_info_for_inverter(self, hass, mock_config_entry):
+        """Test get_device_info returns proper DeviceInfo for inverter."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "1234567890": {"type": "inverter", "model": "FlexBOSS21"}
+            },
+            "device_info": {
+                "1234567890": {
+                    "deviceTypeText4APP": "FlexBOSS21",
+                    "firmwareVersion": "1.0.0",
+                }
+            },
+        }
+
+        device_info = coordinator.get_device_info("1234567890")
+
+        assert device_info is not None
+        assert ("eg4_web_monitor", "1234567890") in device_info["identifiers"]
+        assert "FlexBOSS21" in device_info["model"]
+
+    async def test_get_device_info_missing_device(self, hass, mock_config_entry):
+        """Test get_device_info returns None for missing device."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {}}
+
+        device_info = coordinator.get_device_info("nonexistent")
+
+        assert device_info is None
+
+    async def test_get_battery_device_info(self, hass, mock_config_entry):
+        """Test get_battery_device_info returns proper DeviceInfo."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "1234567890": {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "batteries": {
+                        "battery1": {
+                            "batteryName": "Battery Pack 1",
+                            "voltage": 52.0,
+                        }
+                    }
+                }
+            },
+            "device_info": {
+                "1234567890": {
+                    "deviceTypeText4APP": "FlexBOSS21",
+                }
+            },
+        }
+
+        device_info = coordinator.get_battery_device_info("1234567890", "battery1")
+
+        assert device_info is not None
+        assert "battery" in device_info["name"].lower()
+        assert ("eg4_web_monitor", "1234567890_battery1") in device_info["identifiers"]
+
+    async def test_get_station_device_info(self, hass, mock_config_entry):
+        """Test get_station_device_info returns proper DeviceInfo."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "station": {
+                "plantName": "My Station",
+                "plantId": "station123",
+            }
+        }
+
+        device_info = coordinator.get_station_device_info()
+
+        assert device_info is not None
+        assert "Station" in device_info["name"]
+        assert any("station" in str(identifier).lower() for identifier in device_info["identifiers"])
+
+    async def test_get_station_device_info_no_station(self, hass, mock_config_entry):
+        """Test get_station_device_info returns None when no station data."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {}
+
+        device_info = coordinator.get_station_device_info()
+
+        assert device_info is None
+
+
+class TestCoordinatorParameterRefresh:
+    """Test coordinator parameter refresh functionality."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_all_device_parameters_no_devices(self, hass, mock_config_entry):
+        """Test refresh_all_device_parameters handles no devices gracefully."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {}
+
+        # Should not raise an error
+        await coordinator.refresh_all_device_parameters()
+
+        assert coordinator.data == {}
+
+    @pytest.mark.asyncio
+    async def test_refresh_all_device_parameters_with_no_inverters(self, hass, mock_config_entry):
+        """Test refresh_all_device_parameters handles no inverters gracefully."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "gridboss123": {"type": "gridboss"},
+                "parallel1": {"type": "parallel_group"},
+            }
+        }
+
+        # Should not raise an error when there are no inverters
+        await coordinator.refresh_all_device_parameters()
+
+        assert len(coordinator.data["devices"]) == 2
+
+
+class TestCoordinatorParallelGroup:
+    """Test coordinator parallel group methods."""
+
+    async def test_get_parallel_group_for_device(self, hass, mock_config_entry):
+        """Test _get_parallel_group_for_device finds group."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "group1": {"type": "parallel_group"}
+            },
+            "parallel_groups_info": [
+                {
+                    "inverterList": [
+                        {"serialNum": "1234567890"},
+                        {"serialNum": "0987654321"}
+                    ]
+                }
+            ]
+        }
+
+        group_id = coordinator._get_parallel_group_for_device("1234567890")
+
+        assert group_id == "group1"
+
+    async def test_get_parallel_group_for_device_not_found(self, hass, mock_config_entry):
+        """Test _get_parallel_group_for_device returns None when not found."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {}, "parallel_groups_info": []}
+
+        group_id = coordinator._get_parallel_group_for_device("1234567890")
+
+        assert group_id is None
