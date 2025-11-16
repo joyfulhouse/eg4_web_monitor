@@ -77,21 +77,10 @@ class TestAsyncSetup:
         # Add config entry and set it up properly
         mock_config_entry.add_to_hass(hass)
 
-        # Mock coordinator creation and platform forwarding
-        async def mock_forward_setup(entry, platforms):
-            """Mock platform setup that does nothing but succeeds."""
-            return True
-
-        with (
-            patch(
-                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-                return_value=mock_coordinator,
-            ),
-            patch.object(
-                hass.config_entries,
-                "async_forward_entry_setups",
-                side_effect=mock_forward_setup,
-            ),
+        # Mock coordinator creation - let platforms set up normally
+        with patch(
+            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+            return_value=mock_coordinator,
         ):
             await async_setup_entry(hass, mock_config_entry)
 
@@ -170,22 +159,10 @@ class TestAsyncSetup:
         )
         entry2.add_to_hass(hass)
 
-        # Mock platform forwarding
-        async def mock_forward_setup(entry, platforms):
-            """Mock platform setup that does nothing but succeeds."""
-            return True
-
         # Actually load both entries using async_setup_entry
-        with (
-            patch(
-                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-                side_effect=[mock_coord1, mock_coord2],
-            ),
-            patch.object(
-                hass.config_entries,
-                "async_forward_entry_setups",
-                side_effect=mock_forward_setup,
-            ),
+        with patch(
+            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+            side_effect=[mock_coord1, mock_coord2],
         ):
             await async_setup_entry(hass, entry1)
             await async_setup_entry(hass, entry2)
