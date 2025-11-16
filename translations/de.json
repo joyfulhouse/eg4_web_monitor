@@ -127,6 +127,7 @@
       "status_text": {"name": "Status"},
       "grid_power": {"name": "Netzleistung"},
       "load_power": {"name": "Lastleistung"},
+      "consumption_power": {"name": "Verbrauchsleistung"},
       "pv_total_power": {"name": "PV-Gesamtleistung"},
       "pv1_power": {"name": "PV1-Leistung"},
       "pv2_power": {"name": "PV2-Leistung"},

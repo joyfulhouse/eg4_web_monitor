@@ -127,6 +127,7 @@
       "status_text": {"name": "ステータス"},
       "grid_power": {"name": "グリッド電力"},
       "load_power": {"name": "負荷電力"},
+      "consumption_power": {"name": "消費電力"},
       "pv_total_power": {"name": "PV 総電力"},
       "pv1_power": {"name": "PV1 電力"},
       "pv2_power": {"name": "PV2 電力"},

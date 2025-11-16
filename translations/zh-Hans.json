@@ -127,6 +127,7 @@
       "status_text": {"name": "状态"},
       "grid_power": {"name": "电网功率"},
       "load_power": {"name": "负载功率"},
+      "consumption_power": {"name": "消耗功率"},
       "pv_total_power": {"name": "光伏总功率"},
       "pv1_power": {"name": "光伏 1 功率"},
       "pv2_power": {"name": "光伏 2 功率"},

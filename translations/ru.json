@@ -127,6 +127,7 @@
       "status_text": {"name": "Состояние"},
       "grid_power": {"name": "Мощность сети"},
       "load_power": {"name": "Мощность нагрузки"},
+      "consumption_power": {"name": "Мощность потребления"},
       "pv_total_power": {"name": "Общая мощность PV"},
       "pv1_power": {"name": "Мощность PV1"},
       "pv2_power": {"name": "Мощность PV2"},
