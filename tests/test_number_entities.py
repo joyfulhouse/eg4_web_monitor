@@ -43,6 +43,7 @@ class TestNumberPlatformSetup:
         config_entry.runtime_data = mock_coordinator
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -74,6 +75,7 @@ class TestNumberPlatformSetup:
         config_entry.runtime_data = mock_coordinator
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -107,6 +109,7 @@ class TestNumberPlatformSetup:
         config_entry.runtime_data = mock_coordinator
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -500,9 +503,7 @@ class TestNumberEntityAttributes:
 
         coordinator = MagicMock()
         coordinator.data = {
-            "devices": {
-                "1234567890": {"type": "inverter", "model": "FlexBOSS21"}
-            },
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
             "device_info": {
                 "1234567890": {
                     "deviceTypeText4APP": "FlexBOSS21",
@@ -510,11 +511,13 @@ class TestNumberEntityAttributes:
             },
         }
         # Mock get_device_info to return proper DeviceInfo dict
-        coordinator.get_device_info = MagicMock(return_value={
-            "identifiers": {("eg4_web_monitor", "1234567890")},
-            "name": "FlexBOSS21",
-            "manufacturer": "EG4",
-        })
+        coordinator.get_device_info = MagicMock(
+            return_value={
+                "identifiers": {("eg4_web_monitor", "1234567890")},
+                "name": "FlexBOSS21",
+                "manufacturer": "EG4",
+            }
+        )
 
         entity = ACChargePowerNumber(
             coordinator=coordinator,
@@ -530,7 +533,9 @@ class TestNumberEntityAttributes:
         from ..number import ACChargePowerNumber
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.get_device_info = MagicMock(return_value={})
 
         entity = ACChargePowerNumber(
@@ -548,7 +553,9 @@ class TestNumberEntityAttributes:
         from homeassistant.components.number import NumberMode
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.get_device_info = MagicMock(return_value={})
 
         entity = ACChargePowerNumber(
@@ -595,9 +602,7 @@ class TestNumberEntityValueRetrieval:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
-            "parameters": {
-                "1234567890": {}
-            },
+            "parameters": {"1234567890": {}},
         }
         coordinator.get_device_info = MagicMock(return_value={})
 
@@ -643,9 +648,7 @@ class TestNumberEntityValueRetrieval:
         coordinator = MagicMock()
         coordinator.data = {
             "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
-            "parameters": {
-                "1234567890": {}
-            },
+            "parameters": {"1234567890": {}},
         }
         coordinator.get_device_info = MagicMock(return_value={})
 
@@ -671,7 +674,9 @@ class TestNumberEntityErrorHandling:
         from ..number import ACChargePowerNumber
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
         coordinator.api.write_parameter = AsyncMock(side_effect=Exception("API Error"))
         coordinator.get_device_info = MagicMock(return_value={})
@@ -696,7 +701,9 @@ class TestNumberEntityErrorHandling:
         from ..number import ACChargePowerNumber
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
         coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.get_device_info = MagicMock(return_value={})
@@ -728,7 +735,9 @@ class TestNumberEntityErrorHandling:
         from ..number import ACChargePowerNumber
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
         coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.get_device_info = MagicMock(return_value={})
@@ -756,9 +765,13 @@ class TestNumberEntityErrorHandling:
         from ..number import ACChargePowerNumber
 
         coordinator = MagicMock()
-        coordinator.data = {"devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}}
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameter = AsyncMock(return_value={"success": False, "message": "Device offline"})
+        coordinator.api.write_parameter = AsyncMock(
+            return_value={"success": False, "message": "Device offline"}
+        )
         coordinator.get_device_info = MagicMock(return_value={})
 
         entity = ACChargePowerNumber(

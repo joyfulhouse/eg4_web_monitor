@@ -39,6 +39,7 @@ class TestSwitchPlatformSetup:
         config_entry.runtime_data = mock_coordinator
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
@@ -62,6 +63,7 @@ class TestSwitchPlatformSetup:
         config_entry.runtime_data = mock_coordinator
 
         entities = []
+
         def mock_add_entities(new_entities, update_before_add=False):
             entities.extend(new_entities)
 
