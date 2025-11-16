@@ -2,11 +2,10 @@
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -16,6 +15,7 @@ else:
     from homeassistant.components.number import NumberEntity, NumberMode
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import EG4ConfigEntry
+from .const import EntityCategory
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import process_parameter_responses, read_device_parameters_ranges
 
@@ -33,7 +33,7 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor number entities from a config entry."""
     coordinator = config_entry.runtime_data
 
-    entities = []
+    entities: List["NumberEntity"] = []
 
     # Create number entities for each inverter device (not GridBOSS or parallel groups)
     for serial, device_data in coordinator.data.get("devices", {}).items():
@@ -84,7 +84,7 @@ async def async_setup_entry(
         _LOGGER.info("No number entities created")
 
 
-class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
     """Number entity for System Charge SOC Limit control."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -383,7 +383,7 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: igno
             # Leave current_value as None to show as unavailable
 
 
-class ACChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
     """Number entity for AC Charge Power control.
 
     Note: Several assignments have type: ignore[assignment] due to mypy
@@ -653,7 +653,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc
             # Leave current_value as None to show as unavailable
 
 
-class PVChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
     """Number entity for PV Charge Power control.
 
     Note: Several assignments have type: ignore[assignment] due to mypy
@@ -898,7 +898,7 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc
             # Leave current_value as None to show as unavailable
 
 
-class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
     """Number entity for Grid Peak Shaving Power control.
 
     Note: Several assignments have type: ignore[assignment] due to mypy
@@ -1178,7 +1178,7 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):  # type: igno
             # Leave current_value as None to show as unavailable
 
 
-class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
     """Number entity for AC Charge SOC Limit control.
 
     Note: Several assignments have type: ignore[assignment] due to mypy
@@ -1435,7 +1435,7 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):  # type: ignore[m
             _LOGGER.error("Failed to initialize AC charge SOC limit for %s: %s", self.serial, e)
 
 
-class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
     """Number entity for On-Grid SOC Cut-Off control.
 
     Note: Several assignments have type: ignore[assignment] due to mypy
@@ -1688,7 +1688,7 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):  # type: ignore[mi
             _LOGGER.error("Failed to initialize on-grid SOC cutoff for %s: %s", self.serial, e)
 
 
-class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):  # type: ignore[misc]
+class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
     """Number entity for Off-Grid SOC Cut-Off control."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:

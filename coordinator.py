@@ -10,6 +10,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
@@ -111,13 +112,17 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             return await self._fetch_and_process_data()
         except EG4AuthError as e:
-            return self._handle_auth_error(e)
+            self._handle_auth_error(e)
+            return {}  # Unreachable but needed for type checker
         except EG4ConnectionError as e:
-            return self._handle_connection_error(e)
+            self._handle_connection_error(e)
+            return {}  # Unreachable but needed for type checker
         except EG4APIError as e:
-            return self._handle_api_error(e)
+            self._handle_api_error(e)
+            return {}  # Unreachable but needed for type checker
         except Exception as e:
-            return self._handle_unexpected_error(e)
+            self._handle_unexpected_error(e)
+            return {}  # Unreachable but needed for type checker
 
     async def _fetch_and_process_data(self) -> Dict[str, Any]:
         """Fetch and process device data."""
@@ -1192,7 +1197,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Extract binary sensor data from GridBOSS midbox response."""
         return {}
 
-    def get_device_info(self, serial: str) -> Optional[Dict[str, Any]]:
+    def get_device_info(self, serial: str) -> Optional[DeviceInfo]:
         """Get device information for a specific serial number."""
         if not self.data or "devices" not in self.data:
             return None
@@ -1213,7 +1218,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         else:
             device_name = f"{model} {serial}"  # Normal devices include serial number
 
-        device_info = {
+        # Build DeviceInfo object with proper typing
+        base_info: DeviceInfo = {
             "identifiers": {(DOMAIN, serial)},
             "name": device_name,
             "manufacturer": "EG4 Electronics",
@@ -1222,22 +1228,22 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Add firmware version and serial number only for actual devices, not parallel groups
         if device_type != "parallel_group":
-            device_info["serial_number"] = serial
+            base_info["serial_number"] = serial
 
             # Get firmware version for GridBOSS and inverter devices
             sw_version = "1.0.0"  # Default fallback
             if device_type in ["gridboss", "inverter"]:
                 sw_version = device_data.get("firmware_version", "1.0.0")
-            device_info["sw_version"] = sw_version
+            base_info["sw_version"] = sw_version
 
         # Add via_device for proper device hierarchy
         if device_type in ["inverter", "gridboss"]:
             # Check if this device belongs to a parallel group
             parallel_group_serial = self._get_parallel_group_for_device(serial)
             if parallel_group_serial:
-                device_info["via_device"] = (DOMAIN, parallel_group_serial)
+                base_info["via_device"] = (DOMAIN, parallel_group_serial)
 
-        return device_info
+        return base_info
 
     def _get_parallel_group_for_device(self, device_serial: str) -> Optional[str]:
         """Get the parallel group serial that contains this device."""
@@ -1269,7 +1275,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return None
 
-    def get_battery_device_info(self, serial: str, battery_key: str) -> Optional[Dict[str, Any]]:
+    def get_battery_device_info(self, serial: str, battery_key: str) -> Optional[DeviceInfo]:
         """Get device information for a specific battery."""
         if not self.data or "devices" not in self.data:
             return None
@@ -1285,14 +1291,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Use cleaned battery name for display
         clean_battery_name = clean_battery_display_name(battery_key, serial)
 
-        return {
-            "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
-            "name": f"Battery {clean_battery_name}",
-            "manufacturer": "EG4 Electronics",
-            "model": "Battery Module",
-            "sw_version": battery_firmware,
-            "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{serial}_{battery_key}")},
+            name=f"Battery {clean_battery_name}",
+            manufacturer="EG4 Electronics",
+            model="Battery Module",
+            sw_version=battery_firmware,
+            via_device=(DOMAIN, serial),  # Link battery to its parent inverter
+        )
 
     def _extract_parallel_group_sensors(self, parallel_energy: Dict[str, Any]) -> Dict[str, Any]:
         """Extract sensor data from parallel group energy response."""

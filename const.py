@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING
 
+__all__ = ["EntityCategory"]
+
 from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
@@ -12,7 +14,7 @@ from homeassistant.const import (
 )
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.entity import EntityCategory
+    from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
 else:
     try:
         from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]

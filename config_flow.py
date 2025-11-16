@@ -46,7 +46,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
@@ -294,7 +294,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
             data_schema=reauth_schema,
             errors=errors,
             description_placeholders={
-                "username": self._username,
+                "username": self._username or "",
             },
         )
 
@@ -338,11 +338,16 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
                         return await self.async_step_reconfigure_plant()
                 else:
                     # Same account - keep existing plant
-                    return await self._update_entry(
-                        entry=entry,
-                        plant_id=entry.data.get(CONF_PLANT_ID),
-                        plant_name=entry.data.get(CONF_PLANT_NAME),
-                    )
+                    plant_id = entry.data.get(CONF_PLANT_ID)
+                    plant_name = entry.data.get(CONF_PLANT_NAME)
+                    if not isinstance(plant_id, str) or not isinstance(plant_name, str):
+                        errors["base"] = "invalid_plant_data"
+                    else:
+                        return await self._update_entry(
+                            entry=entry,
+                            plant_id=plant_id,
+                            plant_name=plant_name,
+                        )
 
             except EG4AuthError:
                 errors["base"] = "invalid_auth"

@@ -96,7 +96,7 @@ async def async_setup_entry(
         _LOGGER.info("No select entities to add")
 
 
-class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[misc]
+class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
     """Select to control operating mode (Normal/Standby)."""
 
     def __init__(

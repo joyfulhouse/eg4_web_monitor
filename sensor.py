@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ else:
     from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
-from .const import DOMAIN, SENSOR_TYPES
+from .const import DOMAIN, SENSOR_TYPES, EntityCategory
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
 ) -> List[SensorEntity]:
     """Create sensor entities for an inverter device."""
-    entities = []
+    entities: List[SensorEntity] = []
 
     # Create main inverter sensors
     for sensor_key in device_data.get("sensors", {}):
@@ -119,7 +119,7 @@ def _create_gridboss_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
 ) -> List[SensorEntity]:
     """Create sensor entities for a GridBOSS device."""
-    entities = []
+    entities: List[SensorEntity] = []
 
     # Create GridBOSS sensors
     for sensor_key in device_data.get("sensors", {}):
@@ -140,7 +140,7 @@ def _create_parallel_group_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
 ) -> List[SensorEntity]:
     """Create sensor entities for a Parallel Group device."""
-    entities = []
+    entities: List[SensorEntity] = []
 
     # Create Parallel Group sensors
     for sensor_key in device_data.get("sensors", {}):
@@ -157,7 +157,7 @@ def _create_parallel_group_sensors(
     return entities
 
 
-class EG4InverterSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
+class EG4InverterSensor(CoordinatorEntity, SensorEntity):
     """Representation of an EG4 Web Monitor sensor."""
 
     def __init__(
@@ -176,7 +176,7 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
         self._device_type = device_type
 
         # Get sensor configuration
-        self._sensor_config = SENSOR_TYPES.get(sensor_key, {})
+        self._sensor_config: Dict[str, Any] = SENSOR_TYPES.get(sensor_key, {})  # type: ignore[assignment]
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
@@ -220,10 +220,9 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> Optional[DeviceInfo]:
         """Return device information."""
-        device_info = self.coordinator.get_device_info(self._serial)
-        return dict(device_info) if device_info else {}
+        return self.coordinator.get_device_info(self._serial)
 
     @property
     def native_value(self) -> Any:
@@ -250,7 +249,7 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
         )
 
 
-class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
+class EG4BatterySensor(CoordinatorEntity, SensorEntity):
     """Representation of an EG4 Battery sensor."""
 
     def __init__(
@@ -269,7 +268,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
         self._sensor_key = sensor_key
 
         # Get sensor configuration
-        self._sensor_config = SENSOR_TYPES.get(sensor_key, {})
+        self._sensor_config: Dict[str, Any] = SENSOR_TYPES.get(sensor_key, {})  # type: ignore[assignment]
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
@@ -316,10 +315,9 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> Optional[DeviceInfo]:
         """Return device information."""
-        device_info = self.coordinator.get_battery_device_info(self._serial, self._battery_key)
-        return dict(device_info) if device_info else {}
+        return self.coordinator.get_battery_device_info(self._serial, self._battery_key)
 
     @property
     def native_value(self) -> Any:
@@ -351,7 +349,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
         return battery_exists
 
 
-class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
+class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
     """Representation of an EG4 Battery Cell Voltage Delta sensor."""
 
     def __init__(

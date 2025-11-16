@@ -122,7 +122,7 @@ async def async_setup_entry(
         _LOGGER.info("No switch entities to add")
 
 
-class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
     """Switch to control quick charge functionality."""
 
     def __init__(
@@ -266,7 +266,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[mis
             raise
 
 
-class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
     """Switch to control battery backup (EPS) functionality."""
 
     def __init__(
@@ -423,7 +423,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[m
             raise
 
 
-class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):  # type: ignore[misc]
+class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
     """Switch for controlling EG4 working modes."""
 
     def __init__(

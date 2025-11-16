@@ -235,7 +235,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
                 # Request was successful
                 self._handle_request_success()
-                return cast(Dict[str, Any], result)
+                return result
 
         except EG4AuthError as e:
             return await self._handle_auth_error_with_retry(method, endpoint, data, authenticated, retry_count, e)
@@ -273,11 +273,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             Parsed response dictionary
         """
         if response.content_type == "application/json":
-            return await response.json()
+            return cast(Dict[str, Any], await response.json())
 
         text = await response.text()
         try:
-            return json.loads(text)
+            return cast(Dict[str, Any], json.loads(text))
         except json.JSONDecodeError:
             return {"text": text}
 
@@ -554,9 +554,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         # Get fresh login data to access device information
         login_data = await self.login()
 
-        serial_numbers = set()
-        gridboss_serials = set()
-        device_info = {}
+        serial_numbers: set[str] = set()
+        gridboss_serials: set[str] = set()
+        device_info: Dict[str, Any] = {}
         parallel_groups = []
 
         # Extract devices from login response plants array
@@ -582,8 +582,8 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
     def _extract_plant_devices(
         self,
         plant: Dict[str, Any],
-        serial_numbers: set,
-        gridboss_serials: set,
+        serial_numbers: set[str],
+        gridboss_serials: set[str],
         device_info: Dict[str, Any],
     ) -> None:
         """Extract device information from plant data.
@@ -605,7 +605,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 if "gridboss" in model or "grid boss" in model:
                     gridboss_serials.add(serial)
 
-    async def _fetch_all_device_data(self, serial_numbers: set, gridboss_serials: set) -> List[Any]:
+    async def _fetch_all_device_data(self, serial_numbers: set[str], gridboss_serials: set[str]) -> List[Any]:
         """Fetch data for all devices concurrently.
 
         Args:
@@ -628,7 +628,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         # Execute all tasks concurrently
         return list(await asyncio.gather(*tasks, return_exceptions=True))
 
-    async def _fetch_parallel_energy_data(self, serial_numbers: set) -> Optional[Dict[str, Any]]:
+    async def _fetch_parallel_energy_data(self, serial_numbers: set[str]) -> Optional[Dict[str, Any]]:
         """Fetch parallel group energy data if applicable.
 
         Args:
@@ -654,7 +654,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
     def _organize_device_results(
         self,
-        serial_numbers: set,
+        serial_numbers: set[str],
         device_data: List[Any],
         parallel_groups: List[Dict[str, Any]],
         parallel_energy_data: Optional[Dict[str, Any]],
@@ -672,20 +672,22 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         Returns:
             Organized result dictionary
         """
-        result = {
-            "parallel_groups_info": parallel_groups,  # From login response
-            "parallel_energy": parallel_energy_data,
-            "device_info": device_info,  # Include device info from login
-            "devices": {},
-        }
+        devices: Dict[str, Any] = {}
 
         for i, serial in enumerate(serial_numbers):
             data = device_data[i]
             if isinstance(data, Exception):
                 _LOGGER.error("Failed to get data for device %s: %s", serial, data)
-                result["devices"][serial] = {"error": str(data)}
+                devices[serial] = {"error": str(data)}
             else:
-                result["devices"][serial] = data
+                devices[serial] = data
+
+        result: Dict[str, Any] = {
+            "parallel_groups_info": parallel_groups,  # From login response
+            "parallel_energy": parallel_energy_data,
+            "device_info": device_info,  # Include device info from login
+            "devices": devices,
+        }
 
         return result
 

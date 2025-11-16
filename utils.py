@@ -14,6 +14,8 @@ from typing import (
     Tuple,
 )
 
+from homeassistant.helpers.device_registry import DeviceInfo
+
 from .const import (
     CURRENT_SENSORS,
     DOMAIN,
@@ -321,7 +323,7 @@ def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
 
 def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract sensor data for individual battery with conditional creation."""
-    sensors = {}
+    sensors: Dict[str, Any] = {}
 
     # Core battery sensors - always create if available
     core_sensors = {
@@ -514,7 +516,7 @@ def clean_model_name(model: str) -> str:
     return model.lower().replace(" ", "").replace("-", "")
 
 
-def create_device_info(serial: str, model: str, device_type: str = "inverter") -> Dict[str, Any]:  # pylint: disable=unused-argument
+def create_device_info(serial: str, model: str, device_type: str = "inverter") -> DeviceInfo:  # pylint: disable=unused-argument
     """Create standardized device info dictionary for Home Assistant entities.
 
     Args:
@@ -525,14 +527,14 @@ def create_device_info(serial: str, model: str, device_type: str = "inverter") -
     Returns:
         Device info dictionary for Home Assistant
     """
-    return {
-        "identifiers": {(DOMAIN, serial)},
-        "name": f"{model} {serial}",
-        "manufacturer": "EG4 Electronics",
-        "model": model,
-        "serial_number": serial,
-        "sw_version": "1.0.0",  # Default version, can be updated from API
-    }
+    return DeviceInfo(
+        identifiers={(DOMAIN, serial)},
+        name=f"{model} {serial}",
+        manufacturer="EG4 Electronics",
+        model=model,
+        serial_number=serial,
+        sw_version="1.0.0",  # Default version, can be updated from API
+    )
 
 
 def generate_entity_id(
