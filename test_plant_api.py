@@ -49,7 +49,7 @@ async def main():
 
         async with session.post(url, headers=headers, data=data_str) as response:
             plant_details = await response.json()
-            print(f"\n=== Plant Details Response ===")
+            print("\n=== Plant Details Response ===")
             print(json.dumps(plant_details, indent=2))
 
             with open("samples/plant_details.json", "w") as f:
@@ -66,7 +66,7 @@ async def main():
 
         async with session.get(url, headers=headers) as response:
             html_content = await response.text()
-            print(f"\n=== Plant Edit Page (first 1000 chars) ===")
+            print("\n=== Plant Edit Page (first 1000 chars) ===")
             print(html_content[:1000])
 
             with open("samples/plant_edit_page.html", "w") as f:
@@ -76,7 +76,7 @@ async def main():
         # Test 3: Parse the plant details to extract editable fields
         if plant_details.get("rows"):
             plant_data = plant_details["rows"][0]
-            print(f"\n=== Editable Plant Fields ===")
+            print("\n=== Editable Plant Fields ===")
             print(f"Plant ID: {plant_data.get('plantId')}")
             print(f"Name: {plant_data.get('name')}")
             print(f"Nominal Power: {plant_data.get('nominalPower')} W")

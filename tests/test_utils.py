@@ -1,7 +1,7 @@
 """Tests for utility functions in EG4 Web Monitor integration."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import asyncio
 
 from custom_components.eg4_web_monitor.utils import (
@@ -23,9 +23,6 @@ from custom_components.eg4_web_monitor.utils import (
     CircuitBreaker,
     read_device_parameters_ranges,
     process_parameter_responses,
-    DIVIDE_BY_10_SENSORS,
-    DIVIDE_BY_100_SENSORS,
-    ESSENTIAL_SENSORS,
 )
 
 

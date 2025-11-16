@@ -1,14 +1,10 @@
 """Tests for all platform entities in EG4 Web Monitor integration."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import timedelta
+from unittest.mock import AsyncMock, patch
 
-from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
