@@ -195,6 +195,42 @@ Station/Plant (plantId)
 
 ## Testing & Validation
 
+### Local Testing Strategy
+
+**IMPORTANT**: Always test locally in an isolated environment before pushing to GitHub to avoid consuming compute credits.
+
+**Isolated Test Environment Setup**:
+```bash
+# Create isolated virtual environment (one-time setup)
+cd /tmp && python3 -m venv eg4-test
+source /tmp/eg4-test/bin/activate
+pip install pytest pytest-asyncio pytest-homeassistant-custom-component mypy aiohttp ruff
+
+# Create isolated test directory with symlink to avoid naming conflicts
+mkdir -p /tmp/test-isolated
+cd /tmp/test-isolated
+ln -s /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor custom_components/eg4_web_monitor
+
+# Run tests from isolated environment
+cd /tmp/test-isolated
+export PYTHONPATH=/tmp/test-isolated
+python -m pytest custom_components/eg4_web_monitor/tests/ -x --tb=short
+```
+
+**Pre-Commit Validation Checklist**:
+1. Run all unit tests: `pytest tests/ -x`
+2. Run tier validation scripts: `python3 tests/validate_*.py`
+3. Run mypy type checking: `mypy --config-file mypy.ini *.py`
+4. Run ruff linting: `ruff check . --fix && ruff format .`
+5. Verify all 236 tests pass with no teardown errors
+6. Only push to GitHub after all local validations pass
+
+**Why Isolated Environment?**:
+- Avoids naming conflicts with Python's built-in modules (e.g., `select.py`)
+- Prevents system package interference
+- Ensures clean test runs matching CI environment
+- Saves GitHub Actions compute credits
+
 ### Testing Framework
 This integration uses **pytest-homeassistant-custom-component** for Home Assistant-specific testing:
 - **Repository**: https://github.com/MatthewFlamm/pytest-homeassistant-custom-component

@@ -14,6 +14,8 @@ from typing import (
     TYPE_CHECKING,
 )
 
+from homeassistant.helpers.device_registry import DeviceInfo
+
 from .const import (
     DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
     GRIDBOSS_ENERGY_SENSORS,
@@ -510,7 +512,7 @@ def clean_model_name(model: str) -> str:
 
 def create_device_info(
     serial: str, model: str, device_type: str = "inverter"
-) -> Dict[str, Any]:  # pylint: disable=unused-argument
+) -> DeviceInfo:  # pylint: disable=unused-argument
     """Create standardized device info dictionary for Home Assistant entities.
 
     Args:
@@ -521,14 +523,15 @@ def create_device_info(
     Returns:
         Device info dictionary for Home Assistant
     """
-    return {
-        "identifiers": {(DOMAIN, serial)},
-        "name": f"{model} {serial}",
-        "manufacturer": "EG4 Electronics",
-        "model": model,
-        "serial_number": serial,
-        "sw_version": "1.0.0",  # Default version, can be updated from API
-    }
+    # Cast to DeviceInfo type to satisfy mypy
+    return DeviceInfo(
+        identifiers={(DOMAIN, serial)},
+        name=f"{model} {serial}",
+        manufacturer="EG4 Electronics",
+        model=model,
+        serial_number=serial,
+        sw_version="1.0.0",  # Default version, can be updated from API
+    )
 
 
 def generate_entity_id(
