@@ -83,8 +83,9 @@ class TestAsyncSetup:
                 "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
                 return_value=mock_coordinator,
             ),
-            patch(
-                "custom_components.eg4_web_monitor.async_forward_entry_setups",
+            patch.object(
+                hass.config_entries,
+                "async_forward_entry_setups",
                 new=AsyncMock(),
             ),
         ):
@@ -171,8 +172,9 @@ class TestAsyncSetup:
                 "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
                 side_effect=[mock_coord1, mock_coord2],
             ),
-            patch(
-                "custom_components.eg4_web_monitor.async_forward_entry_setups",
+            patch.object(
+                hass.config_entries,
+                "async_forward_entry_setups",
                 new=AsyncMock(),
             ),
         ):

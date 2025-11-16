@@ -104,7 +104,7 @@ class TestEG4QuickChargeSwitch:
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
-        coordinator.api.enable_quick_charge = AsyncMock()
+        coordinator.api.start_quick_charge = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
@@ -115,11 +115,11 @@ class TestEG4QuickChargeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
-        coordinator.api.enable_quick_charge.assert_called_once_with("1234567890")
+        coordinator.api.start_quick_charge.assert_called_once_with("1234567890")
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
@@ -142,7 +142,7 @@ class TestEG4QuickChargeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 
@@ -223,8 +223,8 @@ class TestEG4BatteryBackupSwitch:
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
-        coordinator.async_request_refresh = AsyncMock()
+        coordinator.api.enable_battery_backup = AsyncMock(return_value=True)
+        coordinator.async_refresh_device_parameters = AsyncMock()
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
@@ -234,12 +234,12 @@ class TestEG4BatteryBackupSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.enable_battery_backup.assert_called_once()
+        coordinator.async_refresh_device_parameters.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_turn_off(self):
@@ -250,8 +250,8 @@ class TestEG4BatteryBackupSwitch:
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
         }
         coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
-        coordinator.async_request_refresh = AsyncMock()
+        coordinator.api.disable_battery_backup = AsyncMock(return_value=True)
+        coordinator.async_refresh_device_parameters = AsyncMock()
         device_data = {"type": "inverter", "model": "FlexBOSS21"}
 
         entity = EG4BatteryBackupSwitch(
@@ -261,12 +261,12 @@ class TestEG4BatteryBackupSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.api.disable_battery_backup.assert_called_once()
+        coordinator.async_refresh_device_parameters.assert_called_once()
 
 
 class TestEG4WorkingModeSwitch:
@@ -360,9 +360,7 @@ class TestEG4WorkingModeSwitch:
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
             "parameters": {"1234567890": {}},
         }
-        coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock(return_value=True)
-        coordinator.async_request_refresh = AsyncMock()
+        coordinator.set_working_mode = AsyncMock(return_value=True)
         device_info = {"deviceTypeText4APP": "FlexBOSS21"}
         mode_config = {
             "name": "Selling First",
@@ -379,12 +377,12 @@ class TestEG4WorkingModeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_on()
 
-        coordinator.api.write_parameters.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        coordinator.set_working_mode.assert_called_once()
+
 
     @pytest.mark.asyncio
     async def test_async_turn_off_does_nothing(self):
@@ -395,8 +393,7 @@ class TestEG4WorkingModeSwitch:
             "device_info": {"1234567890": {"deviceTypeText4APP": "FlexBOSS21"}},
             "parameters": {"1234567890": {}},
         }
-        coordinator.api = MagicMock()
-        coordinator.api.write_parameters = AsyncMock()
+        coordinator.set_working_mode = AsyncMock()
         device_info = {"deviceTypeText4APP": "FlexBOSS21"}
         mode_config = {
             "name": "Self Use",
@@ -413,9 +410,9 @@ class TestEG4WorkingModeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = AsyncMock()
+        entity.async_write_ha_state = MagicMock()
 
         await entity.async_turn_off()
 
-        # Should not call write_parameters
-        coordinator.api.write_parameters.assert_not_called()
+        # Should call set_working_mode with False
+        coordinator.set_working_mode.assert_called_once()
