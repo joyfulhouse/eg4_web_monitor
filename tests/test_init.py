@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.core import HomeAssistant
@@ -83,10 +84,12 @@ class TestAsyncSetup:
         # Add config entry and set it up properly
         mock_config_entry.add_to_hass(hass)
 
-        # Mock coordinator creation - let platforms set up normally
+        # Mock coordinator creation and prevent platform setup
         with patch(
             "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
             return_value=mock_coordinator,
+        ), patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
         ):
             # Use HA's setup mechanism to properly manage entry state
             assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -145,6 +148,8 @@ class TestAsyncSetup:
         mock_coord1.async_request_refresh = AsyncMock()
         mock_coord1.async_config_entry_first_refresh = AsyncMock()
         mock_coord1.data = {"devices": {}, "device_info": {}, "parameters": {}}
+        mock_coord1.api = MagicMock()
+        mock_coord1.api.close = AsyncMock()
 
         mock_coord2 = MagicMock()
         mock_coord2.entry = MagicMock()
@@ -152,6 +157,8 @@ class TestAsyncSetup:
         mock_coord2.async_request_refresh = AsyncMock()
         mock_coord2.async_config_entry_first_refresh = AsyncMock()
         mock_coord2.data = {"devices": {}, "device_info": {}, "parameters": {}}
+        mock_coord2.api = MagicMock()
+        mock_coord2.api.close = AsyncMock()
 
         # Create config entries
         entry1 = MockConfigEntry(
@@ -168,13 +175,19 @@ class TestAsyncSetup:
         )
         entry2.add_to_hass(hass)
 
-        # Actually load both entries using HA's setup mechanism
+        # Set up both entries using direct function calls to avoid state conflicts
         with patch(
             "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
             side_effect=[mock_coord1, mock_coord2],
+        ), patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
         ):
-            assert await hass.config_entries.async_setup(entry1.entry_id)
-            assert await hass.config_entries.async_setup(entry2.entry_id)
+            # Directly call async_setup_entry for each entry
+            assert await async_setup_entry(hass, entry1)
+            object.__setattr__(entry1, "state", ConfigEntryState.LOADED)
+
+            assert await async_setup_entry(hass, entry2)
+            object.__setattr__(entry2, "state", ConfigEntryState.LOADED)
 
         # Call service without entry_id
         await hass.services.async_call(
