@@ -46,11 +46,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
     """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
-    DOMAIN = DOMAIN
 
     def __init__(self) -> None:
         """Initialize the config flow."""
