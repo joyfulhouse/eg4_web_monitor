@@ -1082,7 +1082,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         session = await self._get_session()
         url = f"{self.base_url}/WManage/web/config/plant/edit/{plant_id}"
 
-        headers = {"Cookie": f"JSESSIONID={self._session_id}"} if self._session_id else {}
+        headers = (
+            {"Cookie": f"JSESSIONID={self._session_id}"} if self._session_id else {}
+        )
 
         async with session.get(url, headers=headers) as response:
             html = await response.text()
@@ -1097,7 +1099,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
         power_match = re.search(r'name="nominalPower".*?value="([^"]*)"', html)
         if power_match:
-            config["nominalPower"] = int(power_match.group(1)) if power_match.group(1) else 0
+            config["nominalPower"] = (
+                int(power_match.group(1)) if power_match.group(1) else 0
+            )
 
         date_match = re.search(r'name="createDate".*?value="([^"]*)"', html)
         if date_match:
@@ -1113,22 +1117,30 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
         # Extract selected options (enum values)
         # Continent
-        continent_match = re.search(r'name="continent".*?<option value="(\w+)" selected', html, re.DOTALL)
+        continent_match = re.search(
+            r'name="continent".*?<option value="(\w+)" selected', html, re.DOTALL
+        )
         if continent_match:
             config["continent"] = continent_match.group(1)
 
         # Region
-        region_match = re.search(r'name="region".*?<option value="(\w+)" selected', html, re.DOTALL)
+        region_match = re.search(
+            r'name="region".*?<option value="(\w+)" selected', html, re.DOTALL
+        )
         if region_match:
             config["region"] = region_match.group(1)
 
         # Country
-        country_match = re.search(r'name="country".*?<option value="([\w_]+)" selected', html, re.DOTALL)
+        country_match = re.search(
+            r'name="country".*?<option value="([\w_]+)" selected', html, re.DOTALL
+        )
         if country_match:
             config["country"] = country_match.group(1)
 
         # Timezone
-        timezone_match = re.search(r'name="timezone".*?<option value="([\w_]+)" selected', html, re.DOTALL)
+        timezone_match = re.search(
+            r'name="timezone".*?<option value="([\w_]+)" selected', html, re.DOTALL
+        )
         if timezone_match:
             config["timezone"] = timezone_match.group(1)
 
@@ -1136,18 +1148,18 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         dst_match = re.search(r'name="daylightSavingTime" value="true" checked', html)
         config["daylightSavingTime"] = bool(dst_match)
 
-        _LOGGER.info("✅ Parsed HTML form for plant %s - extracted enum values: continent=%s, region=%s, country=%s, timezone=%s, dst=%s",
-                     plant_id,
-                     config.get("continent"),
-                     config.get("region"),
-                     config.get("country"),
-                     config.get("timezone"),
-                     config.get("daylightSavingTime"))
+        _LOGGER.info(
+            "✅ Parsed HTML form for plant %s - extracted enum values: continent=%s, region=%s, country=%s, timezone=%s, dst=%s",
+            plant_id,
+            config.get("continent"),
+            config.get("region"),
+            config.get("country"),
+            config.get("timezone"),
+            config.get("daylightSavingTime"),
+        )
         return config
 
-    async def update_plant_config(
-        self, plant_id: str, **kwargs: Any
-    ) -> Dict[str, Any]:
+    async def update_plant_config(self, plant_id: str, **kwargs: Any) -> Dict[str, Any]:
         """Update plant/station configuration.
 
         This method fetches the current configuration and merges it with
@@ -1178,7 +1190,9 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             )
         """
         # Get current configuration from HTML form (has enum values)
-        _LOGGER.info("🔍 Fetching HTML form to extract enum values for plant %s", plant_id)
+        _LOGGER.info(
+            "🔍 Fetching HTML form to extract enum values for plant %s", plant_id
+        )
         current = await self._get_plant_form_config(plant_id)
 
         # Merge current config with updates
@@ -1204,12 +1218,14 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             plant_id,
             {k: v for k, v in kwargs.items()},
         )
-        _LOGGER.debug("📤 Sending to API - timezone=%s, country=%s, continent=%s, region=%s, dst=%s",
-                     data.get("timezone"),
-                     data.get("country"),
-                     data.get("continent"),
-                     data.get("region"),
-                     data.get("daylightSavingTime"))
+        _LOGGER.debug(
+            "📤 Sending to API - timezone=%s, country=%s, continent=%s, region=%s, dst=%s",
+            data.get("timezone"),
+            data.get("country"),
+            data.get("continent"),
+            data.get("region"),
+            data.get("daylightSavingTime"),
+        )
 
         response = await self._make_request(
             "POST", "/WManage/web/config/plant/edit", data=data, skip_backoff=True

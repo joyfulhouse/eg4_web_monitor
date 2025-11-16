@@ -50,11 +50,16 @@ async def async_setup_entry(
     # Create station sensors if station data is available
     if "station" in coordinator.data:
         entities.extend(_create_station_sensors(coordinator))
-        _LOGGER.info("Created %d station sensors", len([e for e in entities if isinstance(e, EG4StationSensor)]))
+        _LOGGER.info(
+            "Created %d station sensors",
+            len([e for e in entities if isinstance(e, EG4StationSensor)]),
+        )
 
     # Skip device sensors if no devices data
     if "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for sensor setup, only creating station sensors")
+        _LOGGER.warning(
+            "No device data available for sensor setup, only creating station sensors"
+        )
         if entities:
             async_add_entities(entities, True)
         return
