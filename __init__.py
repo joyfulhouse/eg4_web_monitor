@@ -34,6 +34,9 @@ REFRESH_DATA_SCHEMA = vol.Schema(
     }
 )
 
+# Config entry only - no YAML configuration supported
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 
 async def async_setup(hass: HomeAssistant, config: Dict[str, Any]) -> bool:
     """Set up the EG4 Web Monitor component."""
