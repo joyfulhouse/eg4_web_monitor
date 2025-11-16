@@ -115,7 +115,7 @@ class TestEG4QuickChargeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_on()
 
@@ -142,7 +142,7 @@ class TestEG4QuickChargeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_off()
 
@@ -234,7 +234,7 @@ class TestEG4BatteryBackupSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_on()
 
@@ -261,7 +261,7 @@ class TestEG4BatteryBackupSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_off()
 
@@ -379,7 +379,7 @@ class TestEG4WorkingModeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_on()
 
@@ -413,7 +413,7 @@ class TestEG4WorkingModeSwitch:
         )
 
         # Mock async_write_ha_state to avoid needing Home Assistant instance
-        entity.async_write_ha_state = MagicMock()
+        entity.async_write_ha_state = AsyncMock()
 
         await entity.async_turn_off()
 
