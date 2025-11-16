@@ -160,9 +160,7 @@ def validate_documentation():
         "for example",
     ]
 
-    found_indicators = sum(
-        1 for indicator in user_friendly_indicators if indicator in content.lower()
-    )
+    found_indicators = sum(1 for indicator in user_friendly_indicators if indicator in content.lower())
 
     if found_indicators < 3:
         print("  ⚠️  Documentation may not be user-friendly enough")

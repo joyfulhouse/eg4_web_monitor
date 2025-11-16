@@ -71,9 +71,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self.api = EG4InverterAPI(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
-            base_url=entry.data.get(
-                CONF_BASE_URL, "https://monitor.eg4electronics.com"
-            ),
+            base_url=entry.data.get(CONF_BASE_URL, "https://monitor.eg4electronics.com"),
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
             session=aiohttp_client.async_get_clientsession(hass),
         )
@@ -84,9 +82,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Parameter refresh tracking
         self._last_parameter_refresh: Optional[datetime] = None
-        self._parameter_refresh_interval = timedelta(
-            hours=1
-        )  # Hourly parameter refresh
+        self._parameter_refresh_interval = timedelta(hours=1)  # Hourly parameter refresh
 
         # Cache invalidation tracking
         self._last_cache_invalidation: Optional[datetime] = None
@@ -266,9 +262,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return processed
 
-    async def _process_individual_devices(
-        self, raw_data: Dict[str, Any], processed: Dict[str, Any]
-    ) -> None:
+    async def _process_individual_devices(self, raw_data: Dict[str, Any], processed: Dict[str, Any]) -> None:
         """Process each individual device by type.
 
         Args:
@@ -291,21 +285,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             device_type = device_data.get("type", "unknown")
 
             if device_type == "inverter":
-                processed["devices"][serial] = await self._process_inverter_data(
-                    serial, device_data
-                )
+                processed["devices"][serial] = await self._process_inverter_data(serial, device_data)
             elif device_type == "gridboss":
-                processed["devices"][serial] = await self._process_gridboss_data(
-                    serial, device_data
-                )
+                processed["devices"][serial] = await self._process_gridboss_data(serial, device_data)
             else:
-                _LOGGER.warning(
-                    "Unknown device type '%s' for device %s", device_type, serial
-                )
+                _LOGGER.warning("Unknown device type '%s' for device %s", device_type, serial)
 
-    async def _process_parallel_group_if_available(
-        self, raw_data: Dict[str, Any], processed: Dict[str, Any]
-    ) -> None:
+    async def _process_parallel_group_if_available(self, raw_data: Dict[str, Any], processed: Dict[str, Any]) -> None:
         """Process parallel group energy data if available.
 
         Args:
@@ -323,15 +309,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Only create parallel group if the API indicates parallel groups exist
         if parallel_energy and parallel_energy.get("success"):
             _LOGGER.debug("Processing parallel group energy data")
-            processed["devices"][
-                "parallel_group"
-            ] = await self._process_parallel_group_data(
+            processed["devices"]["parallel_group"] = await self._process_parallel_group_data(
                 parallel_energy, parallel_groups_info
             )
 
-    async def _process_energy_batch_if_pending(
-        self, processed: Dict[str, Any]
-    ) -> None:
+    async def _process_energy_batch_if_pending(self, processed: Dict[str, Any]) -> None:
         """Process individual inverter energy data in batches if pending.
 
         Args:
@@ -360,8 +342,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         inverters_needing_params = [
             serial
             for serial, device_data in processed["devices"].items()
-            if device_data.get("type") == "inverter"
-            and serial not in processed["parameters"]
+            if device_data.get("type") == "inverter" and serial not in processed["parameters"]
         ]
 
         # Refresh parameters for new inverters asynchronously
@@ -372,15 +353,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 inverters_needing_params,
             )
             # Don't await this to avoid blocking the data update
-            self.hass.async_create_task(
-                self._refresh_missing_parameters(inverters_needing_params, processed)
-            )
+            self.hass.async_create_task(self._refresh_missing_parameters(inverters_needing_params, processed))
 
         # Log availability of working mode parameters
         inverter_serials = [
-            serial
-            for serial, device_data in processed["devices"].items()
-            if device_data.get("type") == "inverter"
+            serial for serial, device_data in processed["devices"].items() if device_data.get("type") == "inverter"
         ]
         if inverter_serials:
             _LOGGER.info(
@@ -389,9 +366,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 len(inverter_serials),
             )
 
-    async def _process_inverter_data(
-        self, serial: str, device_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def _process_inverter_data(self, serial: str, device_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process inverter device data."""
         runtime = device_data.get("runtime", {})
         energy = device_data.get("energy", {})
@@ -411,9 +386,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Process runtime data
         if runtime and isinstance(runtime, dict):
             processed["sensors"].update(self._extract_runtime_sensors(runtime))
-            processed["binary_sensors"].update(
-                self._extract_runtime_binary_sensors(runtime)
-            )
+            processed["binary_sensors"].update(self._extract_runtime_binary_sensors(runtime))
 
         # Process energy data
         if energy and isinstance(energy, dict):
@@ -435,9 +408,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return processed
 
-    def _process_battery_data(
-        self, serial: str, battery: Dict[str, Any], processed: Dict[str, Any]
-    ) -> None:
+    def _process_battery_data(self, serial: str, battery: Dict[str, Any], processed: Dict[str, Any]) -> None:
         """Process battery data including individual battery array.
 
         Args:
@@ -447,9 +418,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """
         # Non-array battery data (inverter-level)
         processed["sensors"].update(self._extract_battery_sensors(battery))
-        processed["binary_sensors"].update(
-            self._extract_battery_binary_sensors(battery)
-        )
+        processed["binary_sensors"].update(self._extract_battery_binary_sensors(battery))
 
         # Individual batteries from batteryArray
         battery_array = battery.get("batteryArray", [])
@@ -467,15 +436,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         list(bat_data.keys()),
                     )
                     raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
-                    battery_key = clean_battery_display_name(
-                        raw_battery_key, serial
-                    )
+                    battery_key = clean_battery_display_name(raw_battery_key, serial)
                     battery_sensors = extract_individual_battery_sensors(bat_data)
                     processed["batteries"][battery_key] = battery_sensors
 
-    async def _process_quick_charge_status(
-        self, serial: str, processed: Dict[str, Any]
-    ) -> None:
+    async def _process_quick_charge_status(self, serial: str, processed: Dict[str, Any]) -> None:
         """Process quick charge status for inverter.
 
         Args:
@@ -487,15 +452,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             processed["quick_charge_status"] = quick_charge_status
             _LOGGER.debug("Retrieved quick charge status for device %s", serial)
         except Exception as e:
-            _LOGGER.debug(
-                "Failed to get quick charge status for device %s: %s", serial, e
-            )
+            _LOGGER.debug("Failed to get quick charge status for device %s: %s", serial, e)
             # Don't fail the entire update if quick charge status fails
             processed["quick_charge_status"] = {"status": False, "error": str(e)}
 
-    async def _process_battery_backup_status(
-        self, serial: str, processed: Dict[str, Any]
-    ) -> None:
+    async def _process_battery_backup_status(self, serial: str, processed: Dict[str, Any]) -> None:
         """Process battery backup status by reading FUNC_EPS_EN parameter.
 
         Args:
@@ -522,15 +483,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     serial,
                 )
         except Exception as e:
-            _LOGGER.debug(
-                "Failed to get battery backup status for device %s: %s", serial, e
-            )
+            _LOGGER.debug("Failed to get battery backup status for device %s: %s", serial, e)
             # Don't fail the entire update if battery backup status fails
             processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
 
-    def _handle_battery_backup_parameter(
-        self, serial: str, func_eps_en: Any, processed: Dict[str, Any]
-    ) -> None:
+    def _handle_battery_backup_parameter(self, serial: str, func_eps_en: Any, processed: Dict[str, Any]) -> None:
         """Handle battery backup parameter conversion and storage.
 
         Args:
@@ -606,6 +563,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Process in batches to avoid API overload
         from .const import API_BATCH_DELAY, API_BATCH_SIZE
+
         batch_size = API_BATCH_SIZE
         delay_between_batches = API_BATCH_DELAY
 
@@ -624,9 +582,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Apply results to processed data
                 for serial, result in zip(batch, results, strict=True):
                     if isinstance(result, Exception):
-                        _LOGGER.debug(
-                            "Failed to get individual energy for %s: %s", serial, result
-                        )
+                        _LOGGER.debug("Failed to get individual energy for %s: %s", serial, result)
                         continue
 
                     # Note: asyncio.gather with return_exceptions=True returns Union[T, BaseException]
@@ -655,8 +611,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         )
                     else:
                         _LOGGER.warning(
-                            "Invalid individual energy response for %s: success=%s, "
-                            "serial_in_devices=%s",
+                            "Invalid individual energy response for %s: success=%s, serial_in_devices=%s",
                             serial,
                             result.get("success") if result else "None",  # type: ignore[union-attr]
                             serial in processed["devices"],
@@ -681,9 +636,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.debug("Failed to fetch individual energy for %s: %s", serial, e)
             return None
 
-    async def _process_gridboss_data(
-        self, serial: str, device_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def _process_gridboss_data(self, serial: str, device_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process GridBOSS device data."""
         midbox = device_data.get("midbox", {})
 
@@ -691,18 +644,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "serial": serial,
             "type": "gridboss",
             "model": self._extract_model_from_overview(serial),
-            "firmware_version": midbox.get(
-                "fwCode", "1.0.0"
-            ),  # Extract firmware from midbox response
+            "firmware_version": midbox.get("fwCode", "1.0.0"),  # Extract firmware from midbox response
             "sensors": {},
             "binary_sensors": {},
         }
 
         # Process midbox data
         if midbox and isinstance(midbox, dict):
-            _LOGGER.debug(
-                "Raw midbox response structure for %s: %s", serial, list(midbox.keys())
-            )
+            _LOGGER.debug("Raw midbox response structure for %s: %s", serial, list(midbox.keys()))
             midbox_data = midbox.get("midboxData", {})
             if isinstance(midbox_data, dict):
                 _LOGGER.debug(
@@ -751,9 +700,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 group_name = f"Parallel Group {group_letter}"
                 _LOGGER.debug("Set parallel group name to: %s", group_name)
             else:
-                _LOGGER.debug(
-                    "No group letter found, using default name: %s", group_name
-                )
+                _LOGGER.debug("No group letter found, using default name: %s", group_name)
 
         processed: Dict[str, Any] = {
             "serial": "parallel_group",
@@ -765,12 +712,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Extract parallel group energy sensors if available
         if parallel_energy:
-            processed["sensors"].update(
-                self._extract_parallel_group_sensors(parallel_energy)
-            )
-            processed["binary_sensors"].update(
-                self._extract_parallel_group_binary_sensors(parallel_energy)
-            )
+            processed["sensors"].update(self._extract_parallel_group_sensors(parallel_energy))
+            processed["binary_sensors"].update(self._extract_parallel_group_binary_sensors(parallel_energy))
 
         return processed
 
@@ -809,9 +752,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if api_field in runtime:
                 value = runtime[api_field]
                 if value is not None:
-                    processed_value = self._process_runtime_field_value(
-                        api_field, sensor_type, value
-                    )
+                    processed_value = self._process_runtime_field_value(api_field, sensor_type, value)
                     if processed_value is not None:
                         sensors[sensor_type] = processed_value
 
@@ -820,9 +761,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return sensors
 
-    def _process_runtime_field_value(
-        self, api_field: str, sensor_type: str, value: Any
-    ) -> Optional[Any]:
+    def _process_runtime_field_value(self, api_field: str, sensor_type: str, value: Any) -> Optional[Any]:
         """Process a single runtime field value with appropriate scaling.
 
         Args:
@@ -869,9 +808,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return value
 
-    def _calculate_grid_power(
-        self, runtime: Dict[str, Any], sensors: Dict[str, Any]
-    ) -> None:
+    def _calculate_grid_power(self, runtime: Dict[str, Any], sensors: Dict[str, Any]) -> None:
         """Calculate net grid power from import and export values.
 
         Args:
@@ -901,9 +838,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     e,
                 )
 
-    def _extract_runtime_binary_sensors(
-        self, runtime: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _extract_runtime_binary_sensors(self, runtime: Dict[str, Any]) -> Dict[str, Any]:
         """Extract binary sensor data from runtime response.
 
         FUTURE IMPLEMENTATION: This method is reserved for future binary sensor support.
@@ -980,9 +915,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return sensors
 
-    def _extract_battery_binary_sensors(
-        self, battery: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _extract_battery_binary_sensors(self, battery: Dict[str, Any]) -> Dict[str, Any]:
         """Extract binary sensor data from battery response.
 
         FUTURE IMPLEMENTATION: This method is reserved for future binary sensor support.
@@ -1028,9 +961,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         Returns:
             Dictionary mapping sensor types to their values with appropriate scaling
         """
-        _LOGGER.debug(
-            "GridBOSS midbox data fields available: %s", list(midbox_data.keys())
-        )
+        _LOGGER.debug("GridBOSS midbox data fields available: %s", list(midbox_data.keys()))
         sensors = {}
 
         # Use field mapping from const.py to avoid duplication
@@ -1046,9 +977,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 value = midbox_data[api_field]
                 if value is not None:
                     # Smart Port Status needs text conversion BEFORE filtering and scaling
-                    if sensor_type.startswith("smart_port") and sensor_type.endswith(
-                        "_status"
-                    ):
+                    if sensor_type.startswith("smart_port") and sensor_type.endswith("_status"):
                         _LOGGER.debug(
                             "Converting Smart Port status %s: raw_value=%s, type=%s",
                             sensor_type,
@@ -1069,9 +998,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         continue
 
                     # Use sensor lists from const.py to avoid duplication
-                    gridboss_divide_by_10_sensors = (
-                        GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
-                    )
+                    gridboss_divide_by_10_sensors = GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
 
                     # GridBOSS frequency sensors need division by 100
                     # Use frequency sensors from const.py to avoid duplication
@@ -1082,8 +1009,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             value = float(value) / 10.0
                         except (ValueError, TypeError):
                             _LOGGER.warning(
-                                "Could not convert GridBOSS %s value %s to float for "
-                                "division by 10",
+                                "Could not convert GridBOSS %s value %s to float for division by 10",
                                 sensor_type,
                                 value,
                             )
@@ -1093,8 +1019,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             value = float(value) / 100.0
                         except (ValueError, TypeError):
                             _LOGGER.warning(
-                                "Could not convert GridBOSS %s value %s to float for "
-                                "division by 100",
+                                "Could not convert GridBOSS %s value %s to float for division by 100",
                                 sensor_type,
                                 value,
                             )
@@ -1182,9 +1107,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         for port in range(1, 5):
             self._calculate_ac_couple_port_aggregate(sensors, port, "total")
 
-    def _calculate_ac_couple_port_aggregate(
-        self, sensors: Dict[str, Any], port: int, metric_type: str
-    ) -> None:
+    def _calculate_ac_couple_port_aggregate(self, sensors: Dict[str, Any], port: int, metric_type: str) -> None:
         """Calculate AC Couple aggregate for a specific port and metric type.
 
         Args:
@@ -1216,9 +1139,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         except (ValueError, TypeError):
             return 0.0
 
-    def _filter_unused_smart_port_sensors(
-        self, sensors: Dict[str, Any], midbox_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _filter_unused_smart_port_sensors(self, sensors: Dict[str, Any], midbox_data: Dict[str, Any]) -> Dict[str, Any]:
         """Filter out sensors for unused Smart Ports (status = 0)."""
         # Get Smart Port status values from raw midbox data
         smart_port_statuses = {}
@@ -1233,9 +1154,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():
             if status == 0:  # Unused Smart Por
-                _LOGGER.debug(
-                    "Smart Port %d is unused (status=0), removing related sensors", port
-                )
+                _LOGGER.debug("Smart Port %d is unused (status=0), removing related sensors", port)
                 # Remove Smart Load power sensors
                 sensors_to_remove.extend(
                     [
@@ -1269,9 +1188,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         _LOGGER.debug("Filtered %d unused Smart Port sensors", len(sensors_to_remove))
         return filtered_sensors
 
-    def _extract_gridboss_binary_sensors(
-        self, _midbox_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _extract_gridboss_binary_sensors(self, _midbox_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract binary sensor data from GridBOSS midbox response."""
         return {}
 
@@ -1339,9 +1256,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         # Find the actual parallel group device serial in our devices
                         for serial, device_data in self.data["devices"].items():
                             if device_data.get("type") == "parallel_group":
-                                return str(
-                                    serial
-                                )  # Return the actual parallel group device serial
+                                return str(serial)  # Return the actual parallel group device serial
                         # If no parallel group device found, don't set via_device
                         return None
 
@@ -1354,9 +1269,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         return None
 
-    def get_battery_device_info(
-        self, serial: str, battery_key: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_battery_device_info(self, serial: str, battery_key: str) -> Optional[Dict[str, Any]]:
         """Get device information for a specific battery."""
         if not self.data or "devices" not in self.data:
             return None
@@ -1381,9 +1294,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "via_device": (DOMAIN, serial),  # Link battery to its parent inverter
         }
 
-    def _extract_parallel_group_sensors(
-        self, parallel_energy: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _extract_parallel_group_sensors(self, parallel_energy: Dict[str, Any]) -> Dict[str, Any]:
         """Extract sensor data from parallel group energy response."""
         _LOGGER.debug(
             "Parallel group energy data fields available: %s",
@@ -1426,16 +1337,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
         try:
-            _LOGGER.info(
-                "Refreshing parameters for all inverter devices due to parameter change"
-            )
+            _LOGGER.info("Refreshing parameters for all inverter devices due to parameter change")
 
             # Get all inverter devices from current data
             if not self.data or "devices" not in self.data:
-                _LOGGER.debug(
-                    "No device data available for parameter refresh - "
-                    "integration may still be initializing"
-                )
+                _LOGGER.debug("No device data available for parameter refresh - integration may still be initializing")
                 return
 
             inverter_serials = []
@@ -1462,9 +1368,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             for i, result in enumerate(results):
                 serial = inverter_serials[i]
                 if isinstance(result, Exception):
-                    _LOGGER.error(
-                        "Failed to refresh parameters for %s: %s", serial, result
-                    )
+                    _LOGGER.error("Failed to refresh parameters for %s: %s", serial, result)
                 else:
                     success_count += 1
 
@@ -1504,9 +1408,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             # Process responses to update device parameter cache
             parameter_data = {}
-            for _, response, _ in process_parameter_responses(
-                responses, serial, _LOGGER
-            ):
+            for _, response, _ in process_parameter_responses(responses, serial, _LOGGER):
                 if response and response.get("success", False):
                     # Merge parameter data from this range
                     for key, value in response.items():
@@ -1520,35 +1422,23 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     self.data["parameters"] = {}
                 self.data["parameters"][serial] = parameter_data
 
-            _LOGGER.debug(
-                "Refreshed %d parameters for device %s", len(parameter_data), serial
-            )
+            _LOGGER.debug("Refreshed %d parameters for device %s", len(parameter_data), serial)
 
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
             raise
 
-    async def _refresh_missing_parameters(
-        self, inverter_serials: List[str], processed_data: Dict[str, Any]
-    ) -> None:
+    async def _refresh_missing_parameters(self, inverter_serials: List[str], processed_data: Dict[str, Any]) -> None:
         """Refresh parameters for inverters that don't have them yet."""
         try:
             for serial in inverter_serials:
                 try:
                     await self._refresh_device_parameters(serial)
                     # Update the processed data with new parameter data
-                    if (
-                        self.data
-                        and "parameters" in self.data
-                        and serial in self.data["parameters"]
-                    ):
-                        processed_data["parameters"][serial] = self.data["parameters"][
-                            serial
-                        ]
+                    if self.data and "parameters" in self.data and serial in self.data["parameters"]:
+                        processed_data["parameters"][serial] = self.data["parameters"][serial]
                 except Exception as e:
-                    _LOGGER.error(
-                        "Failed to refresh missing parameters for %s: %s", serial, e
-                    )
+                    _LOGGER.error("Failed to refresh missing parameters for %s: %s", serial, e)
 
             # Request a coordinator refresh to update entities with new parameter data
             await self.async_request_refresh()
@@ -1572,9 +1462,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         time_since_refresh = dt_util.utcnow() - self._last_parameter_refresh
         return bool(time_since_refresh >= self._parameter_refresh_interval)
 
-    async def set_working_mode(
-        self, serial_number: str, function_param: str, enable: bool
-    ) -> bool:
+    async def set_working_mode(self, serial_number: str, function_param: str, enable: bool) -> bool:
         """Set working mode for inverter."""
         try:
             _LOGGER.debug(
@@ -1683,9 +1571,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
                 # Log available parameters if the expected one is missing
                 if param_key not in parameter_data:
-                    available_params = [
-                        k for k in parameter_data.keys() if "FUNC_" in k
-                    ]
+                    available_params = [k for k in parameter_data.keys() if "FUNC_" in k]
                     _LOGGER.debug(
                         "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
                         param_key,
@@ -1699,9 +1585,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             return False
 
         except Exception as err:
-            _LOGGER.error(
-                "Error getting working mode state for %s: %s", serial_number, err
-            )
+            _LOGGER.error("Error getting working mode state for %s: %s", serial_number, err)
             return False
 
     def _should_invalidate_cache(self) -> bool:

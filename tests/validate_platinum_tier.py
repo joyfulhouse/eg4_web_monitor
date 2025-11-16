@@ -132,9 +132,7 @@ def check_strict_typing() -> bool:
 
     Platinum requirement: strict-typing
     """
-    print_requirement(
-        3, "Strict Typing", "Verify that strict typing is configured with mypy"
-    )
+    print_requirement(3, "Strict Typing", "Verify that strict typing is configured with mypy")
 
     # Check for mypy.ini
     mypy_config_path = Path(__file__).parent.parent / "mypy.ini"
@@ -205,9 +203,7 @@ def main() -> int:
     """Run all Platinum tier validations."""
     print_header("Home Assistant Integration Quality Scale: Platinum Tier Validation")
     print("Integration: EG4 Web Monitor")
-    print(
-        "Documentation: https://developers.home-assistant.io/docs/core/integration-quality-scale/#-platinum"
-    )
+    print("Documentation: https://developers.home-assistant.io/docs/core/integration-quality-scale/#-platinum")
 
     results = []
 
@@ -229,12 +225,8 @@ def main() -> int:
     if all_passed:
         print("🎉 All Platinum tier requirements validated successfully!")
         print()
-        print(
-            "Note: This integration also meets all Bronze, Silver, and Gold tier requirements."
-        )
-        print(
-            "      Run validate_bronze_tier.py, validate_silver_tier.py, and validate_gold_tier.py"
-        )
+        print("Note: This integration also meets all Bronze, Silver, and Gold tier requirements.")
+        print("      Run validate_bronze_tier.py, validate_silver_tier.py, and validate_gold_tier.py")
         print("      to verify lower tier compliance.")
         return 0
     else:

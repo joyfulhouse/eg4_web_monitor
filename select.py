@@ -61,8 +61,7 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             _LOGGER.info(
-                "Evaluating select compatibility for device %s: "
-                "model='%s' (original), model_lower='%s'",
+                "Evaluating select compatibility for device %s: model='%s' (original), model_lower='%s'",
                 serial,
                 model,
                 model_lower,
@@ -74,9 +73,7 @@ async def async_setup_entry(
 
             if any(supported in model_lower for supported in supported_models):
                 # Add operating mode select
-                entities.append(
-                    EG4OperatingModeSelect(coordinator, serial, device_data)
-                )
+                entities.append(EG4OperatingModeSelect(coordinator, serial, device_data))
                 _LOGGER.info(
                     "✅ Added operating mode select for compatible device %s (%s)",
                     serial,
@@ -84,16 +81,13 @@ async def async_setup_entry(
                 )
             else:
                 _LOGGER.warning(
-                    "❌ Skipping select for device %s (%s) - "
-                    "model not in supported list %s",
+                    "❌ Skipping select for device %s (%s) - model not in supported list %s",
                     serial,
                     model,
                     supported_models,
                 )
         else:
-            _LOGGER.debug(
-                "Skipping device %s - not an inverter (type: %s)", serial, device_type
-            )
+            _LOGGER.debug("Skipping device %s - not an inverter (type: %s)", serial, device_type)
 
     if entities:
         _LOGGER.info("Adding %d select entities (operating mode)", len(entities))
@@ -127,9 +121,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[m
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "operating_mode")
-        self._attr_entity_id = generate_entity_id(
-            "select", self._model, serial, "operating_mode"
-        )
+        self._attr_entity_id = generate_entity_id("select", self._model, serial, "operating_mode")
 
         # Set device attributes
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -200,9 +192,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):  # type: ignore[m
             return
 
         try:
-            _LOGGER.debug(
-                "Setting operating mode to %s for device %s", option, self._serial
-            )
+            _LOGGER.debug("Setting operating mode to %s for device %s", option, self._serial)
 
             # Set optimistic state immediately for UI responsiveness
             self._optimistic_state = option

@@ -27,18 +27,14 @@ def mock_setup_entry():
     errors during test teardown. Mocking prevents thread creation while still allowing
     tests to validate reconfiguration logic.
     """
-    with patch(
-        "custom_components.eg4_web_monitor.async_setup_entry", return_value=True
-    ):
+    with patch("custom_components.eg4_web_monitor.async_setup_entry", return_value=True):
         yield
 
 
 @pytest.fixture
 def mock_api():
     """Mock EG4InverterAPI."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api_class:
+    with patch("custom_components.eg4_web_monitor.config_flow.EG4InverterAPI") as mock_api_class:
         mock_instance = AsyncMock()
         mock_instance.login = AsyncMock()
         mock_instance.get_plants = AsyncMock(
@@ -204,9 +200,7 @@ async def test_reconfigure_plant_selection(hass, mock_api, mock_config_entry):
 async def test_reconfigure_single_plant_account(hass, mock_api, mock_config_entry):
     """Test reconfiguring to account with only one plant (auto-select)."""
     # Mock API to return only one plant
-    mock_api.get_plants = AsyncMock(
-        return_value=[{"plantId": "single_plant", "name": "Only Station"}]
-    )
+    mock_api.get_plants = AsyncMock(return_value=[{"plantId": "single_plant", "name": "Only Station"}])
 
     mock_config_entry.add_to_hass(hass)
 
@@ -397,9 +391,7 @@ async def test_reconfigure_to_already_configured_account(hass, mock_api):
     assert result["reason"] == "already_configured"
 
 
-async def test_reconfigure_current_plant_no_longer_exists(
-    hass, mock_api, mock_config_entry
-):
+async def test_reconfigure_current_plant_no_longer_exists(hass, mock_api, mock_config_entry):
     """Test reconfiguring when current plant no longer exists in the account."""
     mock_config_entry.add_to_hass(hass)
 

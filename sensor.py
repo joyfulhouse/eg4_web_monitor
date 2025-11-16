@@ -56,13 +56,9 @@ async def async_setup_entry(
         elif device_type == "gridboss":
             entities.extend(_create_gridboss_sensors(coordinator, serial, device_data))
         elif device_type == "parallel_group":
-            entities.extend(
-                _create_parallel_group_sensors(coordinator, serial, device_data)
-            )
+            entities.extend(_create_parallel_group_sensors(coordinator, serial, device_data))
         else:
-            _LOGGER.warning(
-                "Unknown device type '%s' for device %s", device_type, serial
-            )
+            _LOGGER.warning("Unknown device type '%s' for device %s", device_type, serial)
 
     if entities:
         async_add_entities(entities, True)
@@ -291,9 +287,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
 
         # Keep entity_id for backwards compatibility
         model_clean = model.lower().replace(" ", "_")
-        self._attr_entity_id = (
-            f"sensor.eg4_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
-        )
+        self._attr_entity_id = f"sensor.eg4_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
 
         # Set sensor properties from configuration
         self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
@@ -324,9 +318,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     @property
     def device_info(self) -> Dict[str, Any]:
         """Return device information."""
-        device_info = self.coordinator.get_battery_device_info(
-            self._serial, self._battery_key
-        )
+        device_info = self.coordinator.get_battery_device_info(self._serial, self._battery_key)
         return dict(device_info) if device_info else {}
 
     @property
@@ -353,9 +345,9 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
             and self._serial in self.coordinator.data["devices"]
             and "error" not in self.coordinator.data["devices"][self._serial]
         )
-        battery_exists = device_exists and self._battery_key in self.coordinator.data[
-            "devices"
-        ][self._serial].get("batteries", {})
+        battery_exists = device_exists and self._battery_key in self.coordinator.data["devices"][self._serial].get(
+            "batteries", {}
+        )
         return battery_exists
 
 
@@ -384,9 +376,7 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):  # type
         self._attr_name = "Cell Voltage Delta"
         self._attr_unique_id = f"{serial}_{battery_key}_cell_voltage_delta"
         serial_clean = serial.lower()
-        self._attr_entity_id = (
-            f"sensor.battery_{serial_clean}_{clean_battery_id}_cell_voltage_delta"
-        )
+        self._attr_entity_id = f"sensor.battery_{serial_clean}_{clean_battery_id}_cell_voltage_delta"
 
         # Sensor configuration
         self._attr_native_unit_of_measurement = "V"
@@ -430,7 +420,7 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):  # type
             and self._serial in self.coordinator.data["devices"]
             and "error" not in self.coordinator.data["devices"][self._serial]
         )
-        battery_exists = device_exists and self._battery_key in self.coordinator.data[
-            "devices"
-        ][self._serial].get("batteries", {})
+        battery_exists = device_exists and self._battery_key in self.coordinator.data["devices"][self._serial].get(
+            "batteries", {}
+        )
         return battery_exists

@@ -66,9 +66,7 @@ class SilverTierValidator:
 
         # Check for ServiceValidationError usage
         if "ServiceValidationError" not in content:
-            self.errors.append(
-                "Service actions must raise ServiceValidationError on failure"
-            )
+            self.errors.append("Service actions must raise ServiceValidationError on failure")
             return
 
         # Check for proper exception raising in service handler
@@ -167,16 +165,12 @@ class SilverTierValidator:
             if file_path.exists():
                 content = file_path.read_text()
                 # Check for availability property with proper operator precedence
-                if ("def available" in content) or (
-                    "@property" in content and "available" in content
-                ):
+                if ("def available" in content) or ("@property" in content and "available" in content):
                     availability_found = True
                     break
 
         if not availability_found:
-            self.warnings.append(
-                "Entity availability property not found (check if needed)"
-            )
+            self.warnings.append("Entity availability property not found (check if needed)")
         else:
             self.checks_passed += 1
             print("   ✅ Entity availability implemented\n")
@@ -253,9 +247,7 @@ class SilverTierValidator:
                     missing_platforms.append(platform_file)
 
         if missing_platforms:
-            self.errors.append(
-                f"MAX_PARALLEL_UPDATES not specified in: {', '.join(missing_platforms)}"
-            )
+            self.errors.append(f"MAX_PARALLEL_UPDATES not specified in: {', '.join(missing_platforms)}")
             return
 
         self.checks_passed += 1
@@ -288,9 +280,7 @@ class SilverTierValidator:
         if coordinator.exists():
             coord_content = coordinator.read_text()
             if "ConfigEntryAuthFailed" not in coord_content:
-                self.warnings.append(
-                    "Coordinator may not trigger reauthentication on auth failure"
-                )
+                self.warnings.append("Coordinator may not trigger reauthentication on auth failure")
 
         self.checks_passed += 1
         print("   ✅ Reauthentication flow implemented\n")

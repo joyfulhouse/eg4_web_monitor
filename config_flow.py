@@ -61,9 +61,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
         self._verify_ssl: Optional[bool] = None
         self._plants: Optional[List[Dict[str, Any]]] = None
 
-    async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
         """Handle the initial step - user credentials."""
         errors: Dict[str, str] = {}
 
@@ -81,9 +79,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
                 # If only one plant, auto-select and finish
                 if self._plants and len(self._plants) == 1:
                     plant = self._plants[0]
-                    return await self._create_entry(
-                        plant_id=plant["plantId"], plant_name=plant["name"]
-                    )
+                    return await self._create_entry(plant_id=plant["plantId"], plant_name=plant["name"])
 
                 # Multiple plants - show selection step
                 return await self.async_step_plant()
@@ -108,9 +104,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
             },
         )
 
-    async def async_step_plant(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
+    async def async_step_plant(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
         """Handle plant selection step."""
         errors: Dict[str, str] = {}
 
@@ -142,9 +136,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
                 errors["base"] = "unknown"
 
         # Build plant selection schema
-        plant_options = {
-            plant["plantId"]: plant["name"] for plant in self._plants or []
-        }
+        plant_options = {plant["plantId"]: plant["name"] for plant in self._plants or []}
 
         plant_schema = vol.Schema(
             {
@@ -235,9 +227,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
 
         return await self.async_step_reauth_confirm()
 
-    async def async_step_reauth_confirm(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
+    async def async_step_reauth_confirm(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
         """Handle reauthentication confirmation.
 
         Silver tier requirement: Reauthentication available through UI.
@@ -309,9 +299,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
             },
         )
 
-    async def async_step_reconfigure(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
+    async def async_step_reconfigure(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
         """Handle reconfiguration flow.
 
         Gold tier requirement: Reconfiguration available through UI.
@@ -377,9 +365,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
                     CONF_BASE_URL,
                     default=entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL),
                 ): str,
-                vol.Optional(
-                    CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)
-                ): bool,
+                vol.Optional(CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)): bool,
             }
         )
 
@@ -392,9 +378,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
             },
         )
 
-    async def async_step_reconfigure_plant(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
+    async def async_step_reconfigure_plant(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
         """Handle plant selection during reconfiguration.
 
         Gold tier requirement: Reconfiguration available through UI.
@@ -436,15 +420,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
                 errors["base"] = "unknown"
 
         # Build plant selection schema
-        plant_options = {
-            plant["plantId"]: plant["name"] for plant in self._plants or []
-        }
+        plant_options = {plant["plantId"]: plant["name"] for plant in self._plants or []}
 
         plant_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_PLANT_ID, default=entry.data.get(CONF_PLANT_ID)
-                ): vol.In(plant_options),
+                vol.Required(CONF_PLANT_ID, default=entry.data.get(CONF_PLANT_ID)): vol.In(plant_options),
             }
         )
 

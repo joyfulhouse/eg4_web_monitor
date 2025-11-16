@@ -82,14 +82,10 @@ async def async_setup(hass: HomeAssistant, config: Dict[str, Any]) -> bool:
 
         # Refresh all coordinators
         for coordinator in coordinators_to_refresh:
-            _LOGGER.info(
-                "Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id
-            )
+            _LOGGER.info("Refreshing EG4 data for coordinator %s", coordinator.entry.entry_id)
             await coordinator.async_request_refresh()
 
-        _LOGGER.info(
-            "Refresh completed for %d coordinator(s)", len(coordinators_to_refresh)
-        )
+        _LOGGER.info("Refresh completed for %d coordinator(s)", len(coordinators_to_refresh))
 
     # Register service in async_setup to remain available for validation
     hass.services.async_register(

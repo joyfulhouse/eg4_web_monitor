@@ -55,9 +55,7 @@ DIVIDE_BY_10_SENSORS: Set[str] = {
 DIVIDE_BY_100_SENSORS: Set[str] = CONST_DIVIDE_BY_100_SENSORS
 
 # GridBOSS specific scaling sets - using const.py to avoid duplication
-GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = (
-    GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
-)
+GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
 
 # Power and energy sensors that should be filtered when zero (except essential ones)
 POWER_ENERGY_SENSORS: Set[str] = (
@@ -103,9 +101,7 @@ ESSENTIAL_SENSORS: Set[str] = {
 }
 
 
-def validate_api_response(
-    data: Dict[str, Any], required_fields: Optional[List[str]] = None
-) -> bool:
+def validate_api_response(data: Dict[str, Any], required_fields: Optional[List[str]] = None) -> bool:
     """Validate API response data structure."""
     # No runtime check needed - type hint guarantees data is dict
     # Mypy ensures this at compile time
@@ -113,9 +109,7 @@ def validate_api_response(
     if required_fields:
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
-            _LOGGER.warning(
-                "Missing required fields in API response: %s", missing_fields
-            )
+            _LOGGER.warning("Missing required fields in API response: %s", missing_fields)
             return False
 
     return True
@@ -128,10 +122,7 @@ def validate_sensor_value(value: Any, sensor_type: str) -> Any:
         return None
 
     # Handle numeric sensors that need type conversion
-    if (
-        sensor_type
-        in DIVIDE_BY_10_SENSORS | DIVIDE_BY_100_SENSORS | GRIDBOSS_DIVIDE_BY_10_SENSORS
-    ):
+    if sensor_type in DIVIDE_BY_10_SENSORS | DIVIDE_BY_100_SENSORS | GRIDBOSS_DIVIDE_BY_10_SENSORS:
         try:
             return float(value)
         except (ValueError, TypeError):
@@ -175,9 +166,7 @@ def safe_division(value: Any, divisor: float, sensor_type: str) -> Any:
         return None
 
 
-def apply_sensor_scaling(
-    sensor_type: str, value: Any, device_type: str = "inverter"
-) -> Any:
+def apply_sensor_scaling(sensor_type: str, value: Any, device_type: str = "inverter") -> Any:
     """Apply appropriate scaling to sensor values based on sensor type and device type."""
     # Early return for None values
     if value is None:
@@ -211,9 +200,7 @@ def apply_sensor_scaling(
 
     # Apply scaling if needed, otherwise return validated value
     return (
-        safe_division(validated_value, scaling_factor, sensor_type)
-        if scaling_factor is not None
-        else validated_value
+        safe_division(validated_value, scaling_factor, sensor_type) if scaling_factor is not None else validated_value
     )
 
 
@@ -372,9 +359,7 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
 
     # Process all sensor types
     _process_core_battery_sensors(bat_data, core_sensors, sensors)
-    _process_conditional_numeric_sensors(
-        bat_data, temperature_sensors, sensors, "temperature"
-    )
+    _process_conditional_numeric_sensors(bat_data, temperature_sensors, sensors, "temperature")
     _process_conditional_numeric_sensors(bat_data, voltage_sensors, sensors, "voltage")
     _process_cell_number_sensors(bat_data, cell_number_sensors, sensors)
 
@@ -402,9 +387,7 @@ def _process_core_battery_sensors(
         if api_field in bat_data:
             value = bat_data[api_field]
             if value is not None and value != "" and value != "N/A":
-                sensors[sensor_type] = _process_sensor_value(
-                    api_field, value, sensor_type
-                )
+                sensors[sensor_type] = _process_sensor_value(api_field, value, sensor_type)
 
 
 def _process_conditional_numeric_sensors(
@@ -424,15 +407,8 @@ def _process_conditional_numeric_sensors(
     for api_field, sensor_type in sensor_mapping.items():
         if api_field in bat_data:
             value = bat_data[api_field]
-            if (
-                value is not None
-                and value != ""
-                and value != "N/A"
-                and _is_valid_numeric(value)
-            ):
-                sensors[sensor_type] = _process_sensor_value(
-                    api_field, value, sensor_type
-                )
+            if value is not None and value != "" and value != "N/A" and _is_valid_numeric(value):
+                sensors[sensor_type] = _process_sensor_value(api_field, value, sensor_type)
                 _LOGGER.debug(
                     "Created %s sensor %s with value %s",
                     sensor_category,
@@ -468,14 +444,10 @@ def _process_cell_number_sensors(
                         value,
                     )
                 except (ValueError, TypeError):
-                    _LOGGER.debug(
-                        "Skipping invalid cell number for %s: %s", sensor_type, value
-                    )
+                    _LOGGER.debug("Skipping invalid cell number for %s: %s", sensor_type, value)
 
 
-async def read_device_parameters_ranges(
-    api_client: "EG4InverterAPI", inverter_sn: str
-) -> List[Any]:
+async def read_device_parameters_ranges(api_client: "EG4InverterAPI", inverter_sn: str) -> List[Any]:
     """Shared function to read all parameter ranges for a device.
 
     Consolidates the duplicate register reading logic used in coordinator.py and number.py.
@@ -542,9 +514,7 @@ def clean_model_name(model: str) -> str:
     return model.lower().replace(" ", "").replace("-", "")
 
 
-def create_device_info(
-    serial: str, model: str, device_type: str = "inverter"
-) -> Dict[str, Any]:  # pylint: disable=unused-argument
+def create_device_info(serial: str, model: str, device_type: str = "inverter") -> Dict[str, Any]:  # pylint: disable=unused-argument
     """Create standardized device info dictionary for Home Assistant entities.
 
     Args:
@@ -593,9 +563,7 @@ def generate_entity_id(
     return base_id
 
 
-def generate_unique_id(
-    serial: str, entity_type: str, suffix: Optional[str] = None
-) -> str:
+def generate_unique_id(serial: str, entity_type: str, suffix: Optional[str] = None) -> str:
     """Generate standardized unique IDs for entity registry.
 
     Args:
@@ -628,9 +596,7 @@ def create_entity_name(model: str, serial: str, entity_name: str) -> str:
     return f"{model} {serial} {entity_name}"
 
 
-def safe_get_nested_value(
-    data: Dict[str, Any], keys: List[str], default: Any = None
-) -> Any:
+def safe_get_nested_value(data: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
     """Safely get nested dictionary values with fallback.
 
     Args:
@@ -650,9 +616,7 @@ def safe_get_nested_value(
         return default
 
 
-def validate_device_data(
-    device_data: Dict[str, Any], required_fields: List[str]
-) -> bool:
+def validate_device_data(device_data: Dict[str, Any], required_fields: List[str]) -> bool:
     """Validate device data contains required fields.
 
     Args:
@@ -701,9 +665,7 @@ class CircuitBreaker:
             Function result or raises exception
         """
         if self.state == "open":
-            if self.last_failure_time and (
-                asyncio.get_event_loop().time() - self.last_failure_time > self.timeout
-            ):
+            if self.last_failure_time and (asyncio.get_event_loop().time() - self.last_failure_time > self.timeout):
                 self.state = "half-open"
             else:
                 raise RuntimeError("Circuit breaker is open")

@@ -22,11 +22,7 @@ def pytest_configure(config):
     def filtered_enumerate():
         """Return all threads except asyncio shutdown thread."""
         threads = original_enumerate()
-        return [
-            thread
-            for thread in threads
-            if not (thread.name and "_run_safe_shutdown_loop" in thread.name)
-        ]
+        return [thread for thread in threads if not (thread.name and "_run_safe_shutdown_loop" in thread.name)]
 
     # Monkey-patch threading.enumerate globally
     threading.enumerate = filtered_enumerate

@@ -74,9 +74,7 @@ def mock_hass():
 class TestServiceExceptionHandling:
     """Test that service actions raise appropriate exceptions."""
 
-    async def test_refresh_service_raises_validation_error_for_invalid_entry(
-        self, hass, mock_config_entry
-    ):
+    async def test_refresh_service_raises_validation_error_for_invalid_entry(self, hass, mock_config_entry):
         """Test refresh service raises ServiceValidationError for invalid entry_id."""
         from custom_components.eg4_web_monitor import async_setup
         from homeassistant.exceptions import ServiceValidationError
@@ -95,9 +93,7 @@ class TestServiceExceptionHandling:
 
         assert "not found" in str(exc_info.value).lower()
 
-    async def test_refresh_service_raises_validation_error_for_unloaded_entry(
-        self, hass
-    ):
+    async def test_refresh_service_raises_validation_error_for_unloaded_entry(self, hass):
         """Test refresh service raises ServiceValidationError for unloaded entry."""
         from custom_components.eg4_web_monitor import async_setup
         from homeassistant.exceptions import ServiceValidationError
@@ -159,9 +155,7 @@ class TestConfigEntryUnload:
         assert result is True
         mock_coordinator.api.close.assert_called_once()
 
-    async def test_async_unload_entry_cleanup_on_failure(
-        self, mock_hass, mock_config_entry
-    ):
+    async def test_async_unload_entry_cleanup_on_failure(self, mock_hass, mock_config_entry):
         """Test cleanup still happens even if unload fails."""
         from custom_components.eg4_web_monitor import async_unload_entry
 
@@ -241,18 +235,14 @@ class TestUnavailabilityLogging:
     """Test unavailability and reconnection logging."""
 
     @patch("custom_components.eg4_web_monitor.coordinator._LOGGER")
-    async def test_logs_when_service_becomes_unavailable(
-        self, mock_logger, mock_hass, mock_config_entry
-    ):
+    async def test_logs_when_service_becomes_unavailable(self, mock_logger, mock_hass, mock_config_entry):
         """Test logging when service becomes unavailable."""
         coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
         coordinator._last_available_state = True
 
         # Mock API to raise auth error
         coordinator.api = MagicMock()
-        coordinator.api.get_all_device_data = AsyncMock(
-            side_effect=EG4AuthError("Auth failed")
-        )
+        coordinator.api.get_all_device_data = AsyncMock(side_effect=EG4AuthError("Auth failed"))
 
         # Mock async_create_task to prevent background task warnings
         with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
@@ -266,24 +256,18 @@ class TestUnavailabilityLogging:
         assert "authentication error" in warning_call.lower()
 
     @patch("custom_components.eg4_web_monitor.coordinator._LOGGER")
-    async def test_logs_when_service_reconnects(
-        self, mock_logger, mock_hass, mock_config_entry
-    ):
+    async def test_logs_when_service_reconnects(self, mock_logger, mock_hass, mock_config_entry):
         """Test logging when service reconnects."""
         coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
         coordinator._last_available_state = False
 
         # Mock successful API call
         coordinator.api = MagicMock()
-        coordinator.api.get_all_device_data = AsyncMock(
-            return_value={"devices": {}, "device_info": {}}
-        )
+        coordinator.api.get_all_device_data = AsyncMock(return_value={"devices": {}, "device_info": {}})
 
         # Mock async_create_task to prevent background task warnings
         with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
-            with patch.object(
-                coordinator, "_process_device_data", return_value={"devices": {}}
-            ):
+            with patch.object(coordinator, "_process_device_data", return_value={"devices": {}}):
                 await coordinator._async_update_data()
 
         # Verify reconnection logging
@@ -292,17 +276,13 @@ class TestUnavailabilityLogging:
         assert "reconnected" in warning_call.lower()
 
     @patch("custom_components.eg4_web_monitor.coordinator._LOGGER")
-    async def test_logs_connection_errors(
-        self, mock_logger, mock_hass, mock_config_entry
-    ):
+    async def test_logs_connection_errors(self, mock_logger, mock_hass, mock_config_entry):
         """Test logging for connection errors."""
         coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
         coordinator._last_available_state = True
 
         coordinator.api = MagicMock()
-        coordinator.api.get_all_device_data = AsyncMock(
-            side_effect=EG4ConnectionError("Connection failed")
-        )
+        coordinator.api.get_all_device_data = AsyncMock(side_effect=EG4ConnectionError("Connection failed"))
 
         # Mock async_create_task to prevent background task warnings
         with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
@@ -321,9 +301,7 @@ class TestUnavailabilityLogging:
         coordinator._last_available_state = True
 
         coordinator.api = MagicMock()
-        coordinator.api.get_all_device_data = AsyncMock(
-            side_effect=EG4APIError("API error")
-        )
+        coordinator.api.get_all_device_data = AsyncMock(side_effect=EG4APIError("API error"))
 
         # Mock async_create_task to prevent background task warnings
         with patch.object(mock_hass, "async_create_task", return_value=MagicMock()):
@@ -419,9 +397,7 @@ class TestReauthentication:
         flow._verify_ssl = True
 
         # Mock successful login
-        with patch(
-            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-        ) as mock_api_class:
+        with patch("custom_components.eg4_web_monitor.config_flow.EG4InverterAPI") as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock()
             mock_api.close = AsyncMock()
@@ -438,9 +414,7 @@ class TestReauthentication:
             hass.config_entries.async_update_entry = MagicMock()
             hass.config_entries.async_reload = AsyncMock()
 
-            result = await flow.async_step_reauth_confirm(
-                {CONF_PASSWORD: "new_password"}
-            )
+            result = await flow.async_step_reauth_confirm({CONF_PASSWORD: "new_password"})
 
             assert result["type"] == "abort"
             assert result["reason"] == "reauth_successful"
@@ -461,32 +435,24 @@ class TestReauthentication:
         flow._verify_ssl = True
 
         # Mock failed login
-        with patch(
-            "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-        ) as mock_api_class:
+        with patch("custom_components.eg4_web_monitor.config_flow.EG4InverterAPI") as mock_api_class:
             mock_api = AsyncMock()
             mock_api.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
             mock_api.close = AsyncMock()
             mock_api_class.return_value = mock_api
 
-            result = await flow.async_step_reauth_confirm(
-                {CONF_PASSWORD: "wrong_password"}
-            )
+            result = await flow.async_step_reauth_confirm({CONF_PASSWORD: "wrong_password"})
 
             assert result["type"] == "form"
             assert result["errors"]["base"] == "invalid_auth"
 
-    async def test_coordinator_triggers_reauth_on_auth_error(
-        self, mock_hass, mock_config_entry
-    ):
+    async def test_coordinator_triggers_reauth_on_auth_error(self, mock_hass, mock_config_entry):
         """Test coordinator triggers reauthentication on authentication error."""
         coordinator = EG4DataUpdateCoordinator(mock_hass, mock_config_entry)
 
         # Mock API to raise auth error
         coordinator.api = MagicMock()
-        coordinator.api.get_all_device_data = AsyncMock(
-            side_effect=EG4AuthError("Authentication failed")
-        )
+        coordinator.api.get_all_device_data = AsyncMock(side_effect=EG4AuthError("Authentication failed"))
 
         # Mock async_create_task to prevent background task warnings
         # Should raise ConfigEntryAuthFailed which triggers reauth

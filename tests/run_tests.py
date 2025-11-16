@@ -24,9 +24,7 @@ def install_test_requirements() -> None:
         print("⚠️  Test requirements file not found")
 
 
-def run_tests(
-    coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None
-) -> int:
+def run_tests(coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None) -> int:
     """Run the test suite."""
     # Now run_tests.py is in the tests directory
     tests_dir = Path(__file__).parent
@@ -123,21 +121,13 @@ def run_linting() -> int:
 
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Test runner for EG4 Inverter integration"
-    )
-    parser.add_argument(
-        "--install", action="store_true", help="Install test requirements"
-    )
-    parser.add_argument(
-        "--coverage", action="store_true", help="Generate coverage report"
-    )
+    parser = argparse.ArgumentParser(description="Test runner for EG4 Inverter integration")
+    parser.add_argument("--install", action="store_true", help="Install test requirements")
+    parser.add_argument("--coverage", action="store_true", help="Generate coverage report")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--filter", "-k", help="Filter tests by pattern")
     parser.add_argument("--lint", action="store_true", help="Run code linting")
-    parser.add_argument(
-        "--all", action="store_true", help="Run all checks (tests, coverage, linting)"
-    )
+    parser.add_argument("--all", action="store_true", help="Run all checks (tests, coverage, linting)")
 
     args = parser.parse_args()
 
@@ -156,9 +146,7 @@ def main() -> int:
 
     if not any([args.install, args.lint]) or args.all:
         # Run tests by default
-        test_result = run_tests(
-            coverage=args.coverage, verbose=args.verbose, test_filter=args.filter
-        )
+        test_result = run_tests(coverage=args.coverage, verbose=args.verbose, test_filter=args.filter)
         exit_code = max(exit_code, test_result)
 
     if args.lint or args.all:
