@@ -262,23 +262,30 @@ class TestNumberPlatform:
         # Should create number entities for parameters
         assert len(entities) >= 0  # May be 0 if no parameters exposed
 
-    async def test_number_set_value(self, hass, mock_coordinator):
-        """Test number entity set value - uses specific number class."""
-        from custom_components.eg4_web_monitor.number import SystemChargeSOCLimitNumber
-
+    async def test_number_set_value(self, hass, mock_config_entry, mock_coordinator):
+        """Test number entity set value through service call."""
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
-
-        number = SystemChargeSOCLimitNumber(
-            coordinator=mock_coordinator,
-            serial="1234567890",
+        mock_coordinator.api.read_device_parameters_ranges = AsyncMock(
+            return_value=[{"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 85}]
         )
-        number.hass = hass
 
-        await number.async_set_native_value(85)
+        # Set up the integration properly
+        mock_config_entry.runtime_data = mock_coordinator
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Use the service to set the value (proper HA testing pattern)
+        entity_id = "number.eg4_flexboss21_1234567890_system_charge_soc_limit"
+        await hass.services.async_call(
+            "number",
+            "set_value",
+            {"entity_id": entity_id, "value": 85},
+            blocking=True,
+        )
 
         # Verify API was called
-        mock_coordinator.api.write_parameters.assert_called_once()
+        mock_coordinator.api.write_parameters.assert_called()
 
 
 class TestSwitchPlatform:
@@ -315,47 +322,51 @@ class TestSwitchPlatform:
         # Should create switch entities
         assert len(entities) >= 0  # May be 0 if no switches exposed
 
-    async def test_switch_turn_on(self, hass, mock_coordinator):
-        """Test switch turn on."""
-        from custom_components.eg4_web_monitor.switch import EG4BatteryBackupSwitch
-
+    async def test_switch_turn_on(self, hass, mock_config_entry, mock_coordinator):
+        """Test switch turn on through service call."""
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
+        mock_coordinator.api.read_device_parameters_ranges = AsyncMock(return_value=[])
 
-        device_data = {"type": "inverter", "model": "FlexBOSS21"}
+        # Set up the integration properly
+        mock_config_entry.runtime_data = mock_coordinator
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-        switch = EG4BatteryBackupSwitch(
-            coordinator=mock_coordinator,
-            serial="1234567890",
-            device_data=device_data,
+        # Use the service to turn on (proper HA testing pattern)
+        entity_id = "switch.eg4_flexboss21_1234567890_eps_battery_backup"
+        await hass.services.async_call(
+            "switch",
+            "turn_on",
+            {"entity_id": entity_id},
+            blocking=True,
         )
-        switch.hass = hass
-
-        await switch.async_turn_on()
 
         # Verify API was called
-        mock_coordinator.api.write_parameters.assert_called_once()
+        mock_coordinator.api.write_parameters.assert_called()
 
-    async def test_switch_turn_off(self, hass, mock_coordinator):
-        """Test switch turn off."""
-        from custom_components.eg4_web_monitor.switch import EG4BatteryBackupSwitch
-
+    async def test_switch_turn_off(self, hass, mock_config_entry, mock_coordinator):
+        """Test switch turn off through service call."""
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
+        mock_coordinator.api.read_device_parameters_ranges = AsyncMock(return_value=[])
 
-        device_data = {"type": "inverter", "model": "FlexBOSS21"}
+        # Set up the integration properly
+        mock_config_entry.runtime_data = mock_coordinator
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-        switch = EG4BatteryBackupSwitch(
-            coordinator=mock_coordinator,
-            serial="1234567890",
-            device_data=device_data,
+        # Use the service to turn off (proper HA testing pattern)
+        entity_id = "switch.eg4_flexboss21_1234567890_eps_battery_backup"
+        await hass.services.async_call(
+            "switch",
+            "turn_off",
+            {"entity_id": entity_id},
+            blocking=True,
         )
-        switch.hass = hass
-
-        await switch.async_turn_off()
 
         # Verify API was called
-        mock_coordinator.api.write_parameters.assert_called_once()
+        mock_coordinator.api.write_parameters.assert_called()
 
 
 class TestSelectPlatform:
@@ -391,28 +402,30 @@ class TestSelectPlatform:
         # Should create select entities
         assert len(entities) >= 0  # May be 0 if no selects exposed
 
-    async def test_select_option(self, hass, mock_coordinator):
-        """Test select entity option change."""
-        from custom_components.eg4_web_monitor.select import EG4OperatingModeSelect
-
+    async def test_select_option(self, hass, mock_config_entry, mock_coordinator):
+        """Test select entity option change through service call."""
         # Mock API write
         mock_coordinator.api.write_parameters = AsyncMock(return_value=True)
-
-        device_data = {"type": "inverter", "model": "FlexBOSS21"}
-
-        select = EG4OperatingModeSelect(
-            coordinator=mock_coordinator,
-            serial="1234567890",
-            device_data=device_data,
+        mock_coordinator.api.read_device_parameters_ranges = AsyncMock(
+            return_value=[{"HOLD_WORK_MODE": 0}]
         )
-        select.hass = hass
 
-        # Assuming options are "Normal" and "Standby"
-        if "Normal" in select.options:
-            await select.async_select_option("Normal")
+        # Set up the integration properly
+        mock_config_entry.runtime_data = mock_coordinator
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-            # Verify API was called
-            mock_coordinator.api.write_parameters.assert_called_once()
+        # Use the service to select option (proper HA testing pattern)
+        entity_id = "select.eg4_flexboss21_1234567890_operating_mode"
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": entity_id, "option": "Normal"},
+            blocking=True,
+        )
+
+        # Verify API was called
+        mock_coordinator.api.write_parameters.assert_called()
 
 
 class TestEntityAvailability:
@@ -473,26 +486,28 @@ class TestEntityAvailability:
 class TestEntityUpdates:
     """Test entity state updates."""
 
-    async def test_sensor_updates_on_coordinator_refresh(self, hass, mock_coordinator):
-        """Test sensor updates when coordinator refreshes."""
-        from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+    async def test_sensor_updates_on_coordinator_refresh(
+        self, hass, mock_config_entry, mock_coordinator
+    ):
+        """Test sensor updates when coordinator refreshes - use hass.states."""
+        # Set up the integration properly
+        mock_config_entry.runtime_data = mock_coordinator
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-        sensor = EG4InverterSensor(
-            coordinator=mock_coordinator,
-            serial="1234567890",
-            sensor_key="ac_power",
-            device_type="inverter",
-        )
-        sensor.hass = hass
-
-        # Initial value
-        assert sensor.native_value == 5000
+        # Check initial state through hass.states (proper HA testing pattern)
+        entity_id = "sensor.eg4_flexboss21_1234567890_ac_power"
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "5000"
 
         # Update coordinator data
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["ac_power"] = 6000
 
-        # Manually trigger update (calls private method)
-        sensor._handle_coordinator_update()
+        # Trigger coordinator update
+        await mock_coordinator.async_request_refresh()
+        await hass.async_block_till_done()
 
-        # Value should update
-        assert sensor.native_value == 6000
+        # Check updated state through hass.states
+        state = hass.states.get(entity_id)
+        assert state.state == "6000"
