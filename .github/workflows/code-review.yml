@@ -1,0 +1,98 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+  workflow_run:
+    workflows: ["Quality Tier Validation"]
+    types:
+      - completed
+
+jobs:
+  # Wait for validation to complete successfully before reviewing
+  check-validation:
+    name: Check Validation Status
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    outputs:
+      should_review: ${{ steps.check.outputs.should_review }}
+    steps:
+      - name: Check if validation passed
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_run" ]; then
+            # Triggered by workflow_run - validation already completed
+            echo "should_review=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            # Triggered by PR event - wait for validation
+            echo "should_review=wait" >> $GITHUB_OUTPUT
+          else
+            echo "should_review=false" >> $GITHUB_OUTPUT
+          fi
+
+  claude-code-review:
+    name: 🤖 Claude Code Review
+    runs-on: ubuntu-latest
+    needs: check-validation
+    if: needs.check-validation.outputs.should_review == 'true' || needs.check-validation.outputs.should_review == 'wait'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Wait for validation workflow to complete if triggered by PR event
+      - name: Wait for validation workflow
+        if: needs.check-validation.outputs.should_review == 'wait'
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-name: '🏆 Platinum Tier Summary'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+          allowed-conclusions: success
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          use_sticky_comment: true
+          additional_permissions: |
+            actions: read
+          prompt: |
+            Review this pull request for code quality, Home Assistant best practices,
+            and adherence to Platinum tier quality standards. Focus on:
+
+            **Code Quality**:
+            - Code structure and organization
+            - Error handling and edge cases
+            - Documentation completeness
+            - Performance considerations
+
+            **Home Assistant Best Practices**:
+            - Integration patterns
+            - Entity lifecycle management
+            - Config flow implementation
+            - Coordinator patterns
+
+            **Platinum Tier Requirements**:
+            - Websession injection implementation
+            - Type safety and strict typing (mypy)
+            - Async/await patterns
+            - Resource lifecycle management
+            - Comprehensive test coverage
+
+            **API Integration**:
+            - Proper use of aiohttp
+            - Session management
+            - Error handling and retries
+            - Data validation
+
+            Provide actionable feedback and suggestions for improvement.
