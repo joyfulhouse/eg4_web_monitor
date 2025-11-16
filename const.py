@@ -60,6 +60,13 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:home-lightning-bolt",
     },
+    "consumption_power": {
+        "name": "Consumption Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
     "grid_power": {
         "name": "Grid Power",
         "unit": UnitOfPower.WATT,
@@ -1319,6 +1326,7 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "pDisCharge": "battery_discharge_power",
     "batPower": "battery_power",
     "batStatus": "battery_status",
+    "consumptionPower": "consumption_power",
     # Note: grid_power calculated from pToUser - pToGrid in coordinator
     # Voltage sensors
     "acVoltage": "ac_voltage",
