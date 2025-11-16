@@ -505,9 +505,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow):
         return self.async_abort(reason="reconfigure_successful")
 
 
-class CannotConnect(HomeAssistantError):  # type: ignore[misc]
+class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuth(HomeAssistantError):  # type: ignore[misc]
+class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""

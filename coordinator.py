@@ -55,7 +55,7 @@ from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4Connectio
 _LOGGER = logging.getLogger(__name__)
 
 
-class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: ignore[misc]
+class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     """Class to manage fetching EG4 Web Monitor data from the API.
 
     Note: type: ignore[misc] - DataUpdateCoordinator base class lacks proper type stubs in some HA versions.
