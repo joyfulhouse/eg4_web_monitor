@@ -203,7 +203,52 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
     async def _process_device_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process and structure device data for Home Assistant."""
+        """Process and structure device data for Home Assistant.
+
+        This orchestrates the entire device data processing pipeline:
+        1. Initialize processed data structure
+        2. Process individual devices by type
+        3. Process parallel group data
+        4. Handle parameter refresh for new devices
+
+        Args:
+            raw_data: Raw device data from API
+
+        Returns:
+            Processed data structure ready for Home Assistant
+        """
+        # Initialize processed data structure
+        processed = self._initialize_processed_data(raw_data)
+
+        # Store device info temporarily for model extraction
+        self._temp_device_info = raw_data.get("device_info", {})
+
+        # Process individual devices
+        await self._process_individual_devices(raw_data, processed)
+
+        # Process parallel group data
+        await self._process_parallel_group_if_available(raw_data, processed)
+
+        # Process individual energy batch with rate limiting
+        await self._process_energy_batch_if_pending(processed)
+
+        # Clean up temporary device info
+        self._cleanup_temp_device_info()
+
+        # Handle parameter refresh for new inverters
+        await self._handle_parameter_refresh(processed)
+
+        return processed
+
+    def _initialize_processed_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Initialize the processed data structure.
+
+        Args:
+            raw_data: Raw device data from API
+
+        Returns:
+            Initialized processed data dictionary
+        """
         processed = {
             "plant_id": self.plant_id,
             "devices": {},
@@ -215,15 +260,21 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
         if self.data and "parameters" in self.data:
             processed["parameters"] = self.data["parameters"]
 
-        # Store device info temporarily for model extraction
-        self._temp_device_info = raw_data.get("device_info", {})
+        return processed
 
-        # Process each device
+    async def _process_individual_devices(
+        self, raw_data: Dict[str, Any], processed: Dict[str, Any]
+    ) -> None:
+        """Process each individual device by type.
+
+        Args:
+            raw_data: Raw device data from API
+            processed: Processed data dictionary to populate
+        """
         for serial, device_data in raw_data.get("devices", {}).items():
             if "error" in device_data:
                 _LOGGER.error("Error in device %s: %s", serial, device_data["error"])
                 # Keep device in data but mark it as having an error
-                # This prevents sensors from becoming completely unavailable
                 processed["devices"][serial] = {
                     "type": "unknown",
                     "model": "Unknown",
@@ -248,7 +299,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                     "Unknown device type '%s' for device %s", device_type, serial
                 )
 
-        # Process parallel group energy data if available
+    async def _process_parallel_group_if_available(
+        self, raw_data: Dict[str, Any], processed: Dict[str, Any]
+    ) -> None:
+        """Process parallel group energy data if available.
+
+        Args:
+            raw_data: Raw device data from API
+            processed: Processed data dictionary to populate
+        """
         parallel_energy = raw_data.get("parallel_energy")
         parallel_groups_info = raw_data.get("parallel_groups_info", [])
         _LOGGER.debug(
@@ -256,7 +315,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             parallel_energy.get("success") if parallel_energy else None,
             parallel_groups_info,
         )
-        # Only create parallel group if the API indicates parallel groups exis
+
+        # Only create parallel group if the API indicates parallel groups exist
         if parallel_energy and parallel_energy.get("success"):
             _LOGGER.debug("Processing parallel group energy data")
             processed["devices"][
@@ -265,28 +325,42 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                 parallel_energy, parallel_groups_info
             )
 
-        # Process individual inverter energy data in batches with rate limiting
+    async def _process_energy_batch_if_pending(
+        self, processed: Dict[str, Any]
+    ) -> None:
+        """Process individual inverter energy data in batches if pending.
+
+        Args:
+            processed: Processed data dictionary to populate
+        """
         if self._pending_individual_energy_serials:
             await self._process_individual_energy_batch(processed)
             self._pending_individual_energy_serials.clear()
 
-        # Clear temporary device info
+    def _cleanup_temp_device_info(self) -> None:
+        """Clean up temporary device info storage."""
         if hasattr(self, "_temp_device_info"):
             delattr(self, "_temp_device_info")
 
-        # Check if we need to refresh parameters for any inverters that don't have them
+    async def _handle_parameter_refresh(self, processed: Dict[str, Any]) -> None:
+        """Handle parameter refresh for inverters that don't have parameters.
+
+        Args:
+            processed: Processed data dictionary to check and update
+        """
+        # Ensure parameters dict exists
         if "parameters" not in processed:
             processed["parameters"] = {}
 
-        inverters_needing_params = []
-        for serial, device_data in processed["devices"].items():
-            if (
-                device_data.get("type") == "inverter"
-                and serial not in processed["parameters"]
-            ):
-                inverters_needing_params.append(serial)
+        # Find inverters needing parameter refresh
+        inverters_needing_params = [
+            serial
+            for serial, device_data in processed["devices"].items()
+            if device_data.get("type") == "inverter"
+            and serial not in processed["parameters"]
+        ]
 
-        # If there are inverters without parameters, refresh them
+        # Refresh parameters for new inverters asynchronously
         if inverters_needing_params:
             _LOGGER.info(
                 "Refreshing parameters for %d new inverters: %s",
@@ -297,8 +371,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             self.hass.async_create_task(
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
-        # Working mode parameters are already available from the standard parameter refresh above
-        # No need for separate working mode parameter reading - they're included in cache
+
+        # Log availability of working mode parameters
         inverter_serials = [
             serial
             for serial, device_data in processed["devices"].items()
@@ -310,8 +384,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
                 "Peak Shaving, Battery Backup) available from parameter cache for %d inverters",
                 len(inverter_serials),
             )
-
-        return processed
 
     async def _process_inverter_data(
         self, serial: str, device_data: Dict[str, Any]
@@ -469,9 +541,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
             len(serials),
         )
 
-        # Process in batches of 3 with 1 second delay between batches to avoid API overload
-        batch_size = 3
-        delay_between_batches = 1.0
+        # Process in batches to avoid API overload
+        from .const import API_BATCH_SIZE, API_BATCH_DELAY
+        batch_size = API_BATCH_SIZE
+        delay_between_batches = API_BATCH_DELAY
 
         for i in range(0, len(serials), batch_size):
             batch = serials[i : i + batch_size]
@@ -736,9 +809,21 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
     def _extract_runtime_binary_sensors(
         self, runtime: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Extract binary sensor data from runtime response."""
-        # Currently no binary sensors are extracted from runtime data
-        # This method is reserved for future binary sensor implementations
+        """Extract binary sensor data from runtime response.
+
+        FUTURE IMPLEMENTATION: This method is reserved for future binary sensor support.
+        Potential binary sensors include:
+        - Grid connection status
+        - Battery charging/discharging state
+        - Fault/warning indicators
+        - Operating mode status flags
+
+        Args:
+            runtime: Runtime data dictionary from API
+
+        Returns:
+            Empty dict (no binary sensors currently implemented)
+        """
         _ = runtime  # Explicitly mark parameter as unused but preserved for interface
         return {}
 
@@ -803,14 +888,51 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):  # type: 
     def _extract_battery_binary_sensors(
         self, battery: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Extract binary sensor data from battery response."""
-        # Currently no binary sensors are extracted from battery data
-        # This method is reserved for future binary sensor implementations
+        """Extract binary sensor data from battery response.
+
+        FUTURE IMPLEMENTATION: This method is reserved for future binary sensor support.
+        Potential binary sensors include:
+        - Battery charging status
+        - Battery health warnings
+        - Cell imbalance alerts
+        - Temperature warnings
+        - Cycle count thresholds
+
+        Args:
+            battery: Battery data dictionary from API
+
+        Returns:
+            Empty dict (no binary sensors currently implemented)
+        """
         _ = battery  # Explicitly mark parameter as unused but preserved for interface
         return {}
 
     def _extract_gridboss_sensors(self, midbox_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract sensor data from GridBOSS midbox response."""
+        """Extract sensor data from GridBOSS midbox response.
+
+        GridBOSS (MID device) provides grid management and interconnection data.
+        This includes grid power flow, UPS functionality, load management,
+        smart load ports, AC coupling, and generator integration.
+
+        Example data extraction:
+            >>> midbox_data = {
+            ...     "gridPower": 1500.0,
+            ...     "hybridPower": 500.0,
+            ...     "smartLoadPower": 200.0,
+            ...     "gridFrequency": 6000  # 60.00 Hz (÷100)
+            ... }
+            >>> sensors = coordinator._extract_gridboss_sensors(midbox_data)
+            >>> sensors["grid_power"]
+            1500.0
+            >>> sensors["grid_frequency"]
+            60.0
+
+        Args:
+            midbox_data: GridBOSS midbox runtime data dictionary from API
+
+        Returns:
+            Dictionary mapping sensor types to their values with appropriate scaling
+        """
         _LOGGER.debug(
             "GridBOSS midbox data fields available: %s", list(midbox_data.keys())
         )

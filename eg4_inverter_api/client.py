@@ -62,6 +62,11 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         )  # Cache device info for 15 minutes
 
         # Response cache for API endpoints with TTL
+        # Cache Strategy:
+        # - Differentiated TTL by data volatility
+        # - Pre-hour boundary cache invalidation for date rollover protection
+        # - LRU-style cache cleanup when exceeding size limits
+        # - Rate-limited cache invalidation (10-minute minimum interval)
         self._response_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_ttl_config = {
             # Static data - cache longer
@@ -319,11 +324,10 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 "POST", "/WManage/api/login", data=data, authenticated=False
             )
 
-            # Extract session ID from cookies
+            # Extract session ID from cookies using public API
             session = await self._get_session()
-            # pylint: disable=protected-access
-            if hasattr(session, "_cookie_jar") and session._cookie_jar:
-                for cookie in session._cookie_jar:
+            if hasattr(session, "cookie_jar") and session.cookie_jar:
+                for cookie in session.cookie_jar:
                     if cookie.key == "JSESSIONID":
                         self._session_id = cookie.value
                         break
@@ -973,11 +977,13 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         )
 
         # Count valid vs expired entries in response cache
+        # Pre-split cache keys for faster lookups
         valid_entries = 0
         expired_entries = 0
 
         for cache_key in self._response_cache:
-            endpoint_key = cache_key.split(":")[0]
+            # Extract endpoint key once and reuse
+            endpoint_key = cache_key.split(":", 1)[0]
             if self._is_cache_valid(cache_key, endpoint_key):
                 valid_entries += 1
             else:

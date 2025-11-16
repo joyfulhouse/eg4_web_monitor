@@ -437,3 +437,217 @@ async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_pl
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_BASE_URL] == "https://custom.eg4.com"
     assert result["data"][CONF_VERIFY_SSL] is False
+
+
+# Reconfigure Flow Tests (Gold Tier Requirement)
+
+
+async def test_reconfigure_flow_success(hass: HomeAssistant, mock_api_single_plant):
+    """Test successful credential reconfiguration."""
+    # Create existing config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "old@example.com",
+            CONF_PASSWORD: "oldpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test Plant",
+        },
+        unique_id="old@example.com_12345",
+    )
+    entry.add_to_hass(hass)
+
+    # Start reconfigure flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    # Submit new credentials
+    with patch(
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+    ) as mock_client:
+        mock_client.return_value.authenticate = AsyncMock(return_value=True)
+        mock_client.return_value.get_plants_list = AsyncMock(
+            return_value=[
+                {
+                    "plantId": "12345",
+                    "plantName": "Test Plant",
+                }
+            ]
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "new@example.com",
+                CONF_PASSWORD: "newpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_USERNAME] == "new@example.com"
+    assert entry.data[CONF_PASSWORD] == "newpassword"
+
+
+async def test_reconfigure_flow_auth_failure(hass: HomeAssistant):
+    """Test reconfigure flow with authentication failure."""
+    # Create existing config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "old@example.com",
+            CONF_PASSWORD: "oldpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test Plant",
+        },
+        unique_id="old@example.com_12345",
+    )
+    entry.add_to_hass(hass)
+
+    # Start reconfigure flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+
+    # Submit invalid credentials
+    with patch(
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+    ) as mock_client:
+        mock_client.return_value.authenticate = AsyncMock(
+            side_effect=EG4AuthError("Invalid credentials")
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "new@example.com",
+                CONF_PASSWORD: "wrongpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_reconfigure_plant_flow_success(hass: HomeAssistant):
+    """Test successful plant reconfiguration."""
+    # Create existing config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Old Plant",
+        },
+        unique_id="test@example.com_12345",
+    )
+    entry.add_to_hass(hass)
+
+    # Start reconfigure_plant flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": "reconfigure_plant",
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_plant"
+
+    # Submit new plant selection
+    with patch(
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+    ) as mock_client:
+        mock_client.return_value.authenticate = AsyncMock(return_value=True)
+        mock_client.return_value.get_plants_list = AsyncMock(
+            return_value=[
+                {"plantId": "12345", "plantName": "Old Plant"},
+                {"plantId": "67890", "plantName": "New Plant"},
+            ]
+        )
+        mock_client.return_value.get_parallel_group_details = AsyncMock(
+            return_value={"success": True, "data": []}
+        )
+        mock_client.return_value.get_inverter_overview = AsyncMock(
+            return_value={"success": True, "data": []}
+        )
+
+        # First configure to get plant list
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {},
+        )
+
+        # Then select new plant
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_PLANT_ID: "67890",
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PLANT_ID] == "67890"
+    assert entry.data[CONF_PLANT_NAME] == "New Plant"
+
+
+async def test_reconfigure_plant_flow_connection_error(hass: HomeAssistant):
+    """Test reconfigure plant flow with connection error."""
+    # Create existing config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test Plant",
+        },
+        unique_id="test@example.com_12345",
+    )
+    entry.add_to_hass(hass)
+
+    # Start reconfigure_plant flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": "reconfigure_plant",
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    # Simulate connection error
+    with patch(
+        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
+    ) as mock_client:
+        mock_client.return_value.authenticate = AsyncMock(
+            side_effect=EG4ConnectionError("Connection failed")
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}

@@ -25,6 +25,12 @@ DOMAIN = "eg4_web_monitor"
 DEFAULT_UPDATE_INTERVAL = 30  # seconds
 DEFAULT_BASE_URL = "https://monitor.eg4electronics.com"
 
+# API rate limiting constants
+# Batch size limits the number of concurrent API calls to prevent server overload
+API_BATCH_SIZE = 3
+# Delay between batches in seconds to comply with rate limiting
+API_BATCH_DELAY = 1.0
+
 # Configuration keys
 CONF_BASE_URL = "base_url"
 CONF_VERIFY_SSL = "verify_ssl"
