@@ -23,7 +23,7 @@ else:
     from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
-from .const import DOMAIN, SENSOR_TYPES
+from .const import DOMAIN, SENSOR_TYPES, STATION_SENSOR_TYPES
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,8 +43,20 @@ async def async_setup_entry(
 
     entities: List[SensorEntity] = []
 
-    if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for sensor setup")
+    if not coordinator.data:
+        _LOGGER.warning("No coordinator data available for sensor setup")
+        return
+
+    # Create station sensors if station data is available
+    if "station" in coordinator.data:
+        entities.extend(_create_station_sensors(coordinator))
+        _LOGGER.info("Created %d station sensors", len([e for e in entities if isinstance(e, EG4StationSensor)]))
+
+    # Skip device sensors if no devices data
+    if "devices" not in coordinator.data:
+        _LOGGER.warning("No device data available for sensor setup, only creating station sensors")
+        if entities:
+            async_add_entities(entities, True)
         return
 
     # Create sensor entities for each device
@@ -434,3 +446,85 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):  # type
             "devices"
         ][self._serial].get("batteries", {})
         return battery_exists
+
+
+def _create_station_sensors(
+    coordinator: EG4DataUpdateCoordinator,
+) -> List[SensorEntity]:
+    """Create sensor entities for station/plant configuration."""
+    entities = []
+
+    for sensor_key in STATION_SENSOR_TYPES:
+        entities.append(
+            EG4StationSensor(
+                coordinator=coordinator,
+                sensor_key=sensor_key,
+            )
+        )
+
+    _LOGGER.debug("Created %d station sensors", len(entities))
+    return entities
+
+
+class EG4StationSensor(CoordinatorEntity[EG4DataUpdateCoordinator], SensorEntity):  # type: ignore[misc]
+    """Sensor entity for station/plant configuration data."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        sensor_key: str,
+    ) -> None:
+        """Initialize the station sensor."""
+        super().__init__(coordinator)
+        self._sensor_key = sensor_key
+        self._attr_has_entity_name = True
+
+        # Get sensor configuration
+        sensor_config = STATION_SENSOR_TYPES[sensor_key]
+        self._attr_name = sensor_config["name"]
+        self._attr_icon = sensor_config.get("icon")
+        self._attr_entity_category = sensor_config.get("entity_category")
+
+        if "device_class" in sensor_config:
+            self._attr_device_class = sensor_config["device_class"]
+
+        # Build unique ID
+        self._attr_unique_id = f"station_{coordinator.plant_id}_{sensor_key}"
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        """Return device information."""
+        device_info = self.coordinator.get_station_device_info()
+        return dict(device_info) if device_info else {}
+
+    @property
+    def native_value(self) -> Any:
+        """Return the state of the sensor."""
+        if not self.coordinator.data or "station" not in self.coordinator.data:
+            return None
+
+        station_data = self.coordinator.data["station"]
+
+        # Map sensor keys to station data fields
+        if self._sensor_key == "station_name":
+            return station_data.get("name")
+        elif self._sensor_key == "station_country":
+            return station_data.get("country")
+        elif self._sensor_key == "station_timezone":
+            # The API returns display text like "GMT -8"
+            return station_data.get("timezone")
+        elif self._sensor_key == "station_create_date":
+            return station_data.get("createDate")
+        elif self._sensor_key == "station_address":
+            return station_data.get("address")
+
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            self.coordinator.last_update_success
+            and self.coordinator.data is not None
+            and "station" in self.coordinator.data
+        )
