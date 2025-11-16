@@ -31,6 +31,12 @@ def mock_coordinator():
     coordinator.async_request_refresh = AsyncMock()
     coordinator.api = MagicMock()
     coordinator.api.close = AsyncMock()
+    # Add minimal data structure for platforms to work with
+    coordinator.data = {
+        "devices": {},
+        "device_info": {},
+        "parameters": {},
+    }
     return coordinator
 
 
@@ -137,12 +143,14 @@ class TestAsyncSetup:
         mock_coord1.entry.entry_id = "entry_1"
         mock_coord1.async_request_refresh = AsyncMock()
         mock_coord1.async_config_entry_first_refresh = AsyncMock()
+        mock_coord1.data = {"devices": {}, "device_info": {}, "parameters": {}}
 
         mock_coord2 = MagicMock()
         mock_coord2.entry = MagicMock()
         mock_coord2.entry.entry_id = "entry_2"
         mock_coord2.async_request_refresh = AsyncMock()
         mock_coord2.async_config_entry_first_refresh = AsyncMock()
+        mock_coord2.data = {"devices": {}, "device_info": {}, "parameters": {}}
 
         # Create config entries
         entry1 = MockConfigEntry(
