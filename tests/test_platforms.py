@@ -188,6 +188,30 @@ class TestSensorPlatform:
         assert "1234567890" in sensor.unique_id
         assert "ac_power" in sensor.unique_id
 
+    async def test_async_setup_entry_with_no_coordinator_data(
+        self, hass, mock_config_entry
+    ):
+        """Test sensor setup handles empty coordinator data gracefully."""
+        from unittest.mock import AsyncMock
+        from custom_components.eg4_web_monitor.sensor import async_setup_entry
+
+        # Create coordinator with no data
+        mock_coordinator = AsyncMock()
+        mock_coordinator.data = None
+
+        mock_config_entry.runtime_data = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        # Should handle gracefully without creating entities
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # No entities should be created when no data
+        assert len(entities) == 0
+
 
 class TestButtonPlatform:
     """Test button platform."""
@@ -237,6 +261,30 @@ class TestButtonPlatform:
 
         # Verify refresh was called
         mock_coordinator.async_request_refresh.assert_called_once()
+
+    async def test_async_setup_entry_with_no_coordinator_data(
+        self, hass, mock_config_entry
+    ):
+        """Test button setup handles empty coordinator data gracefully."""
+        from unittest.mock import AsyncMock
+        from custom_components.eg4_web_monitor.button import async_setup_entry
+
+        # Create coordinator with no data
+        mock_coordinator = AsyncMock()
+        mock_coordinator.data = None
+
+        mock_config_entry.runtime_data = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        # Should handle gracefully without creating entities
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # No entities should be created when no data
+        assert len(entities) == 0
 
 
 class TestNumberPlatform:
@@ -404,6 +452,30 @@ class TestSwitchPlatform:
         switches = [e for e in entities if hasattr(e, "async_turn_off")]
         assert len(switches) > 0
 
+    async def test_async_setup_entry_with_no_coordinator_data(
+        self, hass, mock_config_entry
+    ):
+        """Test switch setup handles empty coordinator data gracefully."""
+        from unittest.mock import AsyncMock
+        from custom_components.eg4_web_monitor.switch import async_setup_entry
+
+        # Create coordinator with no data
+        mock_coordinator = AsyncMock()
+        mock_coordinator.data = None
+
+        mock_config_entry.runtime_data = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        # Should handle gracefully without creating entities
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # No entities should be created when no data
+        assert len(entities) == 0
+
 
 class TestSelectPlatform:
     """Test select platform."""
@@ -462,6 +534,30 @@ class TestSelectPlatform:
         # Verify we have select entities with select_option method
         selects = [e for e in entities if hasattr(e, "async_select_option")]
         assert len(selects) > 0
+
+    async def test_async_setup_entry_with_no_coordinator_data(
+        self, hass, mock_config_entry
+    ):
+        """Test select setup handles empty coordinator data gracefully."""
+        from unittest.mock import AsyncMock
+        from custom_components.eg4_web_monitor.select import async_setup_entry
+
+        # Create coordinator with no data
+        mock_coordinator = AsyncMock()
+        mock_coordinator.data = None
+
+        mock_config_entry.runtime_data = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities, update_before_add=False):
+            entities.extend(new_entities)
+
+        # Should handle gracefully without creating entities
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # No entities should be created when no data
+        assert len(entities) == 0
 
 
 class TestEntityAvailability:
