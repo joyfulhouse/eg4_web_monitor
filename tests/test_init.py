@@ -88,7 +88,8 @@ class TestAsyncSetup:
             "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
             return_value=mock_coordinator,
         ):
-            await async_setup_entry(hass, mock_config_entry)
+            # Use HA's setup mechanism to properly manage entry state
+            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
         # Call service
         await hass.services.async_call(
@@ -167,13 +168,13 @@ class TestAsyncSetup:
         )
         entry2.add_to_hass(hass)
 
-        # Actually load both entries using async_setup_entry
+        # Actually load both entries using HA's setup mechanism
         with patch(
             "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
             side_effect=[mock_coord1, mock_coord2],
         ):
-            await async_setup_entry(hass, entry1)
-            await async_setup_entry(hass, entry2)
+            assert await hass.config_entries.async_setup(entry1.entry_id)
+            assert await hass.config_entries.async_setup(entry2.entry_id)
 
         # Call service without entry_id
         await hass.services.async_call(
