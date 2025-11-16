@@ -1,10 +1,9 @@
 """Unit tests for number entity logic without HA instance."""
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
 from custom_components.eg4_web_monitor.number import (
-    SystemChargeSOCLimitNumber,
     ACChargePowerNumber,
     PVChargePowerNumber,
     GridPeakShavingPowerNumber,

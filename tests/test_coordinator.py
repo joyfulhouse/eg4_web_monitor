@@ -96,7 +96,7 @@ class TestCoordinatorInitialization:
         with patch(
             "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
         ) as mock_api_class:
-            coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+            _ = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
             # Verify API was created with correct parameters
             mock_api_class.assert_called_once()
@@ -121,7 +121,7 @@ class TestCoordinatorInitialization:
         with patch(
             "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
         ) as mock_api_class:
-            coordinator = EG4DataUpdateCoordinator(hass, entry)
+            _ = EG4DataUpdateCoordinator(hass, entry)
 
             call_kwargs = mock_api_class.call_args[1]
             assert call_kwargs["base_url"] == "https://monitor.eg4electronics.com"
