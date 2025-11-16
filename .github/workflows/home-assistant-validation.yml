@@ -26,21 +26,21 @@ jobs:
         with:
           path: repository
 
-      - name: Create hassfest structure
+      - name: Create custom_components structure
         run: |
-          # Create the expected directory structure for hassfest
-          mkdir -p hassfest_temp/eg4_web_monitor
+          # Create the standard Home Assistant custom_components directory structure
+          mkdir -p custom_components/eg4_web_monitor
           # Copy integration files to the domain-named directory
-          cp -r repository/* hassfest_temp/eg4_web_monitor/ || true
+          cp -r repository/* custom_components/eg4_web_monitor/ || true
           # Remove .git and .github from the integration directory
-          rm -rf hassfest_temp/eg4_web_monitor/.git
-          rm -rf hassfest_temp/eg4_web_monitor/.github
-          ls -la hassfest_temp/eg4_web_monitor/
+          rm -rf custom_components/eg4_web_monitor/.git
+          rm -rf custom_components/eg4_web_monitor/.github
+          ls -la custom_components/eg4_web_monitor/
 
       - name: Run Hassfest
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}/hassfest_temp:/github/workspace \
+            -v ${{ github.workspace }}/custom_components:/github/workspace \
             ghcr.io/home-assistant/hassfest
 
   # ========================================
