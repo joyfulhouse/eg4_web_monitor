@@ -544,11 +544,16 @@ class TestEntityUpdates:
         assert sensor.coordinator == mock_coordinator
 
         # Update coordinator data and verify sensor reflects changes
-        original_ac_power = mock_coordinator.data["devices"]["1234567890"]["sensors"]["ac_power"]
+        original_ac_power = mock_coordinator.data["devices"]["1234567890"]["sensors"][
+            "ac_power"
+        ]
         assert original_ac_power == 5000
 
         # Change the data
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["ac_power"] = 6000
 
         # Verify entity would see the updated data (entities pull from coordinator.data)
-        assert mock_coordinator.data["devices"]["1234567890"]["sensors"]["ac_power"] == 6000
+        assert (
+            mock_coordinator.data["devices"]["1234567890"]["sensors"]["ac_power"]
+            == 6000
+        )

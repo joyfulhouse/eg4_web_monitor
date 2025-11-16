@@ -85,11 +85,14 @@ class TestAsyncSetup:
         mock_config_entry.add_to_hass(hass)
 
         # Mock coordinator creation and prevent platform setup
-        with patch(
-            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-            return_value=mock_coordinator,
-        ), patch.object(
-            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
         ):
             # Use HA's setup mechanism to properly manage entry state
             assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -176,11 +179,14 @@ class TestAsyncSetup:
         entry2.add_to_hass(hass)
 
         # Set up both entries using direct function calls to avoid state conflicts
-        with patch(
-            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
-            side_effect=[mock_coord1, mock_coord2],
-        ), patch.object(
-            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                side_effect=[mock_coord1, mock_coord2],
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
         ):
             # Directly call async_setup_entry for each entry
             assert await async_setup_entry(hass, entry1)
