@@ -85,6 +85,11 @@ jobs:
             - Resource lifecycle management
             - Comprehensive test coverage
 
+            **Translation Quality** (if applicable):
+            - Translation file structure and completeness
+            - Consistency across languages
+            - Proper JSON formatting
+
             **API Integration**:
             - Proper use of aiohttp
             - Session management
@@ -92,3 +97,4 @@ jobs:
             - Data validation
 
             Provide actionable feedback and suggestions for improvement.
+            If the code looks good, provide a brief summary of what was reviewed.
