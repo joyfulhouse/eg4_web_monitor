@@ -3,23 +3,25 @@
 import asyncio
 import logging
 from typing import (
-    Dict,
-    Any,
-    Set,
-    Optional,
-    List,
-    Callable,
-    Tuple,
-    Iterator,
     TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
 )
 
 from .const import (
-    DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
-    GRIDBOSS_ENERGY_SENSORS,
-    VOLTAGE_SENSORS,
     CURRENT_SENSORS,
     DOMAIN,
+    GRIDBOSS_ENERGY_SENSORS,
+    VOLTAGE_SENSORS,
+)
+from .const import (
+    DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
 )
 
 if TYPE_CHECKING:
@@ -368,7 +370,34 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
         "batMinCellNumVolt": "battery_min_cell_voltage_num",
     }
 
-    # Process core sensors
+    # Process all sensor types
+    _process_core_battery_sensors(bat_data, core_sensors, sensors)
+    _process_conditional_numeric_sensors(
+        bat_data, temperature_sensors, sensors, "temperature"
+    )
+    _process_conditional_numeric_sensors(bat_data, voltage_sensors, sensors, "voltage")
+    _process_cell_number_sensors(bat_data, cell_number_sensors, sensors)
+
+    _LOGGER.debug(
+        "Extracted %d battery sensors for battery: %s",
+        len(sensors),
+        list(sensors.keys()),
+    )
+    return sensors
+
+
+def _process_core_battery_sensors(
+    bat_data: Dict[str, Any],
+    core_sensors: Dict[str, str],
+    sensors: Dict[str, Any],
+) -> None:
+    """Process core battery sensors that are always created if available.
+
+    Args:
+        bat_data: Raw battery data
+        core_sensors: Mapping of API fields to sensor types
+        sensors: Dictionary to populate with processed sensors
+    """
     for api_field, sensor_type in core_sensors.items():
         if api_field in bat_data:
             value = bat_data[api_field]
@@ -377,8 +406,22 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
                     api_field, value, sensor_type
                 )
 
-    # Process conditional temperature sensors - only if data exists and not empty
-    for api_field, sensor_type in temperature_sensors.items():
+
+def _process_conditional_numeric_sensors(
+    bat_data: Dict[str, Any],
+    sensor_mapping: Dict[str, str],
+    sensors: Dict[str, Any],
+    sensor_category: str,
+) -> None:
+    """Process conditional numeric sensors (temperature/voltage).
+
+    Args:
+        bat_data: Raw battery data
+        sensor_mapping: Mapping of API fields to sensor types
+        sensors: Dictionary to populate with processed sensors
+        sensor_category: Category name for logging
+    """
+    for api_field, sensor_type in sensor_mapping.items():
         if api_field in bat_data:
             value = bat_data[api_field]
             if (
@@ -391,27 +434,25 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
                     api_field, value, sensor_type
                 )
                 _LOGGER.debug(
-                    "Created temperature sensor %s with value %s", sensor_type, value
+                    "Created %s sensor %s with value %s",
+                    sensor_category,
+                    sensor_type,
+                    value,
                 )
 
-    # Process conditional voltage sensors - only if data exists and not empty
-    for api_field, sensor_type in voltage_sensors.items():
-        if api_field in bat_data:
-            value = bat_data[api_field]
-            if (
-                value is not None
-                and value != ""
-                and value != "N/A"
-                and _is_valid_numeric(value)
-            ):
-                sensors[sensor_type] = _process_sensor_value(
-                    api_field, value, sensor_type
-                )
-                _LOGGER.debug(
-                    "Created voltage sensor %s with value %s", sensor_type, value
-                )
 
-    # Process conditional cell number sensors - only if data exists
+def _process_cell_number_sensors(
+    bat_data: Dict[str, Any],
+    cell_number_sensors: Dict[str, str],
+    sensors: Dict[str, Any],
+) -> None:
+    """Process cell number sensors with integer conversion.
+
+    Args:
+        bat_data: Raw battery data
+        cell_number_sensors: Mapping of API fields to sensor types
+        sensors: Dictionary to populate with processed sensors
+    """
     for api_field, sensor_type in cell_number_sensors.items():
         if api_field in bat_data:
             value = bat_data[api_field]
@@ -430,13 +471,6 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
                     _LOGGER.debug(
                         "Skipping invalid cell number for %s: %s", sensor_type, value
                     )
-
-    _LOGGER.debug(
-        "Extracted %d battery sensors for battery: %s",
-        len(sensors),
-        list(sensors.keys()),
-    )
-    return sensors
 
 
 async def read_device_parameters_ranges(

@@ -5,9 +5,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.exceptions import HomeAssistantError
 
 if TYPE_CHECKING:
     from homeassistant.components.number import NumberEntity, NumberMode
@@ -17,7 +17,7 @@ else:
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import EG4ConfigEntry
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import read_device_parameters_ranges, process_parameter_responses
+from .utils import process_parameter_responses, read_device_parameters_ranges
 
 _LOGGER = logging.getLogger(__name__)
 

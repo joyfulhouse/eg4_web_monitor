@@ -11,9 +11,7 @@ select = [
     "C",  # flake8-comprehensions
     "B",  # flake8-bugbear
 ]
-ignore = [
-    "E501",  # Line too long (handled by formatter)
-]
+ignore = []
 
 [tool.mypy]
 python_version = "3.11"

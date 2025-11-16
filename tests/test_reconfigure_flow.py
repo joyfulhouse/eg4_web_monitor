@@ -1,14 +1,9 @@
 """Tests for EG4 Web Monitor reconfiguration flow."""
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from homeassistant import config_entries
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
+import pytest
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
@@ -17,6 +12,10 @@ from custom_components.eg4_web_monitor.const import (
     DEFAULT_BASE_URL,
     DOMAIN,
 )
+from homeassistant import config_entries
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 @pytest.fixture(autouse=True)

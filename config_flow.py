@@ -1,7 +1,7 @@
 """Config flow for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import voluptuous as vol
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -10,12 +10,12 @@ from homeassistant.helpers import aiohttp_client
 if TYPE_CHECKING:
     from homeassistant import config_entries
     from homeassistant.config_entries import ConfigFlowResult
-    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.data_entry_flow import AbortFlow
+    from homeassistant.exceptions import HomeAssistantError
 else:
     from homeassistant import config_entries  # type: ignore[assignment]
-    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.data_entry_flow import AbortFlow
+    from homeassistant.exceptions import HomeAssistantError
 
     # At runtime, ConfigFlowResult might not exist, use FlowResult
     try:

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Test runner for EG4 Inverter integration."""
 
-import sys
-import subprocess
-from pathlib import Path
 import argparse
+import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
 

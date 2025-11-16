@@ -14,7 +14,7 @@ else:
     from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
 
 from . import EG4ConfigEntry
-from .const import WORKING_MODES, FUNCTION_PARAM_MAPPING
+from .const import FUNCTION_PARAM_MAPPING, WORKING_MODES
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,

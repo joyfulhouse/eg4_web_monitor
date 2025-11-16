@@ -2,13 +2,13 @@
 
 import logging
 from typing import Any, Dict, TypeAlias
-import voluptuous as vol
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
-import homeassistant.helpers.config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator

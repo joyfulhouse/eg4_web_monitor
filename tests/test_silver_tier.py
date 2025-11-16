@@ -1,12 +1,8 @@
 """Tests for Silver tier compliance of EG4 Web Monitor integration."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
+import pytest
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
@@ -16,10 +12,14 @@ from custom_components.eg4_web_monitor.const import (
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
+    EG4APIError,
     EG4AuthError,
     EG4ConnectionError,
-    EG4APIError,
 )
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 
 @pytest.fixture(autouse=True)
@@ -78,8 +78,8 @@ class TestServiceExceptionHandling:
         self, hass, mock_config_entry
     ):
         """Test refresh service raises ServiceValidationError for invalid entry_id."""
-        from homeassistant.exceptions import ServiceValidationError
         from custom_components.eg4_web_monitor import async_setup
+        from homeassistant.exceptions import ServiceValidationError
 
         # Set up the integration
         await async_setup(hass, {})
@@ -99,8 +99,8 @@ class TestServiceExceptionHandling:
         self, hass
     ):
         """Test refresh service raises ServiceValidationError for unloaded entry."""
-        from homeassistant.exceptions import ServiceValidationError
         from custom_components.eg4_web_monitor import async_setup
+        from homeassistant.exceptions import ServiceValidationError
         from pytest_homeassistant_custom_component.common import MockConfigEntry
 
         # Set up the integration

@@ -27,30 +27,30 @@ from .const import (
     CONF_BASE_URL,
     CONF_PLANT_ID,
     CONF_VERIFY_SSL,
+    CURRENT_SENSORS,
     DEFAULT_UPDATE_INTERVAL,
-    DOMAIN,
-    INVERTER_RUNTIME_FIELD_MAPPING,
-    INVERTER_ENERGY_FIELD_MAPPING,
-    PARALLEL_GROUP_FIELD_MAPPING,
-    GRIDBOSS_FIELD_MAPPING,
     DIVIDE_BY_10_SENSORS,
     DIVIDE_BY_100_SENSORS,
-    GRIDBOSS_ENERGY_SENSORS,
-    VOLTAGE_SENSORS,
-    CURRENT_SENSORS,
+    DOMAIN,
     FUNCTION_PARAM_MAPPING,
+    GRIDBOSS_ENERGY_SENSORS,
+    GRIDBOSS_FIELD_MAPPING,
+    INVERTER_ENERGY_FIELD_MAPPING,
+    INVERTER_RUNTIME_FIELD_MAPPING,
+    PARALLEL_GROUP_FIELD_MAPPING,
+    VOLTAGE_SENSORS,
 )
 from .eg4_inverter_api import EG4InverterAPI
+from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
 from .utils import (
     CircuitBreaker,
-    extract_individual_battery_sensors,
-    clean_battery_display_name,
-    read_device_parameters_ranges,
-    process_parameter_responses,
     apply_sensor_scaling,
+    clean_battery_display_name,
+    extract_individual_battery_sensors,
+    process_parameter_responses,
+    read_device_parameters_ranges,
     to_camel_case,
 )
-from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -113,94 +113,98 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from API endpoint."""
         try:
-            _LOGGER.debug("Fetching data for plant %s", self.plant_id)
-
-            # Check if cache invalidation is needed before top of hour
-            if self._should_invalidate_cache():
-                _LOGGER.info(
-                    "Cache invalidation needed before top of hour, clearing all caches"
-                )
-                self._invalidate_all_caches()
-
-            # Check if hourly parameter refresh is due
-            if self._should_refresh_parameters():
-                _LOGGER.info(
-                    "Hourly parameter refresh is due, refreshing all device parameters"
-                )
-                # Don't await this to avoid blocking the main data update
-                # Create task and store reference to avoid RuntimeWarning
-                task = self.hass.async_create_task(self._hourly_parameter_refresh())
-                task.add_done_callback(
-                    lambda t: t.exception() if not t.cancelled() else None
-                )
-
-            # Get comprehensive data for all devices in the plan
-            data = await self.api.get_all_device_data(self.plant_id)
-
-            # Process and structure the data
-            processed_data = await self._process_device_data(data)
-
-            device_count = len(processed_data.get("devices", {}))
-            _LOGGER.debug("Successfully updated data for %d devices", device_count)
-
-            # Silver tier requirement: Log when service becomes available again
-            if not self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Web Monitor service reconnected successfully for plant %s",
-                    self.plant_id,
-                )
-                self._last_available_state = True
-
-            return processed_data
-
+            return await self._fetch_and_process_data()
         except EG4AuthError as e:
-            # Silver tier requirement: Log when service becomes unavailable
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Web Monitor service unavailable due to authentication error for plant %s: %s",
-                    self.plant_id,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.error("Authentication error: %s", e)
-            # Silver tier requirement: Trigger reauthentication flow on auth failure
-            raise ConfigEntryAuthFailed(f"Authentication failed: {e}") from e
-
+            return self._handle_auth_error(e)
         except EG4ConnectionError as e:
-            # Silver tier requirement: Log when service becomes unavailable
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Web Monitor service unavailable due to connection error for plant %s: %s",
-                    self.plant_id,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.error("Connection error: %s", e)
-            raise UpdateFailed(f"Connection failed: {e}") from e
-
+            return self._handle_connection_error(e)
         except EG4APIError as e:
-            # Silver tier requirement: Log when service becomes unavailable
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Web Monitor service unavailable due to API error for plant %s: %s",
-                    self.plant_id,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.error("API error: %s", e)
-            raise UpdateFailed(f"API error: {e}") from e
-
+            return self._handle_api_error(e)
         except Exception as e:
-            # Silver tier requirement: Log when service becomes unavailable
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Web Monitor service unavailable due to unexpected error for plant %s: %s",
-                    self.plant_id,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.exception("Unexpected error updating data: %s", e)
-            raise UpdateFailed(f"Unexpected error: {e}") from e
+            return self._handle_unexpected_error(e)
+
+    async def _fetch_and_process_data(self) -> Dict[str, Any]:
+        """Fetch and process device data."""
+        _LOGGER.debug("Fetching data for plant %s", self.plant_id)
+
+        # Check if cache invalidation is needed before top of hour
+        if self._should_invalidate_cache():
+            _LOGGER.info("Cache invalidation needed before top of hour, clearing all caches")
+            self._invalidate_all_caches()
+
+        # Check if hourly parameter refresh is due
+        if self._should_refresh_parameters():
+            _LOGGER.info("Hourly parameter refresh is due, refreshing all device parameters")
+            # Don't await this to avoid blocking the main data update
+            task = self.hass.async_create_task(self._hourly_parameter_refresh())
+            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+        # Get comprehensive data for all devices in the plan
+        data = await self.api.get_all_device_data(self.plant_id)
+
+        # Process and structure the data
+        processed_data = await self._process_device_data(data)
+
+        device_count = len(processed_data.get("devices", {}))
+        _LOGGER.debug("Successfully updated data for %d devices", device_count)
+
+        # Silver tier requirement: Log when service becomes available again
+        if not self._last_available_state:
+            _LOGGER.warning(
+                "EG4 Web Monitor service reconnected successfully for plant %s",
+                self.plant_id,
+            )
+            self._last_available_state = True
+
+        return processed_data
+
+    def _handle_auth_error(self, error: EG4AuthError) -> None:
+        """Handle authentication errors."""
+        if self._last_available_state:
+            _LOGGER.warning(
+                "EG4 Web Monitor service unavailable due to authentication error for plant %s: %s",
+                self.plant_id,
+                error,
+            )
+            self._last_available_state = False
+        _LOGGER.error("Authentication error: %s", error)
+        raise ConfigEntryAuthFailed(f"Authentication failed: {error}") from error
+
+    def _handle_connection_error(self, error: EG4ConnectionError) -> None:
+        """Handle connection errors."""
+        if self._last_available_state:
+            _LOGGER.warning(
+                "EG4 Web Monitor service unavailable due to connection error for plant %s: %s",
+                self.plant_id,
+                error,
+            )
+            self._last_available_state = False
+        _LOGGER.error("Connection error: %s", error)
+        raise UpdateFailed(f"Connection failed: {error}") from error
+
+    def _handle_api_error(self, error: EG4APIError) -> None:
+        """Handle API errors."""
+        if self._last_available_state:
+            _LOGGER.warning(
+                "EG4 Web Monitor service unavailable due to API error for plant %s: %s",
+                self.plant_id,
+                error,
+            )
+            self._last_available_state = False
+        _LOGGER.error("API error: %s", error)
+        raise UpdateFailed(f"API error: {error}") from error
+
+    def _handle_unexpected_error(self, error: Exception) -> None:
+        """Handle unexpected errors."""
+        if self._last_available_state:
+            _LOGGER.warning(
+                "EG4 Web Monitor service unavailable due to unexpected error for plant %s: %s",
+                self.plant_id,
+                error,
+            )
+            self._last_available_state = False
+        _LOGGER.exception("Unexpected error updating data: %s", error)
+        raise UpdateFailed(f"Unexpected error: {error}") from error
 
     async def _process_device_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process and structure device data for Home Assistant.
@@ -421,35 +425,63 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Process battery data
         if battery and isinstance(battery, dict):
-            # Non-array battery data (inverter-level)
-            processed["sensors"].update(self._extract_battery_sensors(battery))
-            processed["binary_sensors"].update(
-                self._extract_battery_binary_sensors(battery)
-            )
-
-            # Individual batteries from batteryArray
-            battery_array = battery.get("batteryArray", [])
-            if isinstance(battery_array, list):
-                _LOGGER.debug(
-                    "Found batteryArray with %d batteries for device %s",
-                    len(battery_array),
-                    serial,
-                )
-                for i, bat_data in enumerate(battery_array):
-                    if isinstance(bat_data, dict):
-                        _LOGGER.debug(
-                            "Battery %d data fields available: %s",
-                            i + 1,
-                            list(bat_data.keys()),
-                        )
-                        raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
-                        battery_key = clean_battery_display_name(
-                            raw_battery_key, serial
-                        )
-                        battery_sensors = extract_individual_battery_sensors(bat_data)
-                        processed["batteries"][battery_key] = battery_sensors
+            self._process_battery_data(serial, battery, processed)
 
         # Process quick charge status
+        await self._process_quick_charge_status(serial, processed)
+
+        # Process battery backup status
+        await self._process_battery_backup_status(serial, processed)
+
+        return processed
+
+    def _process_battery_data(
+        self, serial: str, battery: Dict[str, Any], processed: Dict[str, Any]
+    ) -> None:
+        """Process battery data including individual battery array.
+
+        Args:
+            serial: Inverter serial number
+            battery: Battery data dictionary
+            processed: Processed data dictionary to update
+        """
+        # Non-array battery data (inverter-level)
+        processed["sensors"].update(self._extract_battery_sensors(battery))
+        processed["binary_sensors"].update(
+            self._extract_battery_binary_sensors(battery)
+        )
+
+        # Individual batteries from batteryArray
+        battery_array = battery.get("batteryArray", [])
+        if isinstance(battery_array, list):
+            _LOGGER.debug(
+                "Found batteryArray with %d batteries for device %s",
+                len(battery_array),
+                serial,
+            )
+            for i, bat_data in enumerate(battery_array):
+                if isinstance(bat_data, dict):
+                    _LOGGER.debug(
+                        "Battery %d data fields available: %s",
+                        i + 1,
+                        list(bat_data.keys()),
+                    )
+                    raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
+                    battery_key = clean_battery_display_name(
+                        raw_battery_key, serial
+                    )
+                    battery_sensors = extract_individual_battery_sensors(bat_data)
+                    processed["batteries"][battery_key] = battery_sensors
+
+    async def _process_quick_charge_status(
+        self, serial: str, processed: Dict[str, Any]
+    ) -> None:
+        """Process quick charge status for inverter.
+
+        Args:
+            serial: Inverter serial number
+            processed: Processed data dictionary to update
+        """
         try:
             quick_charge_status = await self.api.get_quick_charge_status(serial)
             processed["quick_charge_status"] = quick_charge_status
@@ -461,7 +493,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Don't fail the entire update if quick charge status fails
             processed["quick_charge_status"] = {"status": False, "error": str(e)}
 
-        # Process battery backup status by reading FUNC_EPS_EN parameter from base parameters
+    async def _process_battery_backup_status(
+        self, serial: str, processed: Dict[str, Any]
+    ) -> None:
+        """Process battery backup status by reading FUNC_EPS_EN parameter.
+
+        Args:
+            serial: Inverter serial number
+            processed: Processed data dictionary to update
+        """
         try:
             # Read base parameters (0-127) where FUNC_EPS_EN is likely located
             # (cached with 2-minute TTL)
@@ -471,47 +511,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
 
             if func_eps_en is not None:
-                # Enhanced debugging to understand the actual API response
-                _LOGGER.info(
-                    "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)",
-                    serial,
-                    func_eps_en,
-                    type(func_eps_en).__name__,
-                )
-                # Convert to boolean with explicit handling of different value types
-                if func_eps_en is None:
-                    enabled = False
-                elif isinstance(func_eps_en, str):
-                    # Handle string values like "1", "0", "true", "false"
-                    enabled = func_eps_en.lower() not in (
-                        "0",
-                        "false",
-                        "off",
-                        "disabled",
-                        "",
-                    )
-                elif isinstance(func_eps_en, (int, float)):
-                    # Handle numeric values where 0 = disabled, non-zero = enabled
-                    enabled = bool(func_eps_en != 0)
-                else:
-                    # Default boolean conversion
-                    enabled = bool(func_eps_en)
-                processed["battery_backup_status"] = {
-                    "FUNC_EPS_EN": func_eps_en,
-                    "enabled": enabled,
-                }
-                _LOGGER.info(
-                    "Battery backup status for %s: raw=%r, enabled=%s",
-                    serial,
-                    func_eps_en,
-                    enabled,
-                )
-                # Update the coordinator's parameter cache with this fresh data
-                if "parameters" not in processed:
-                    processed["parameters"] = {}
-                if serial not in processed["parameters"]:
-                    processed["parameters"][serial] = {}
-                processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
+                self._handle_battery_backup_parameter(serial, func_eps_en, processed)
             else:
                 processed["battery_backup_status"] = {
                     "enabled": False,
@@ -528,7 +528,70 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Don't fail the entire update if battery backup status fails
             processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
 
-        return processed
+    def _handle_battery_backup_parameter(
+        self, serial: str, func_eps_en: Any, processed: Dict[str, Any]
+    ) -> None:
+        """Handle battery backup parameter conversion and storage.
+
+        Args:
+            serial: Inverter serial number
+            func_eps_en: Raw FUNC_EPS_EN parameter value
+            processed: Processed data dictionary to update
+        """
+        # Enhanced debugging to understand the actual API response
+        _LOGGER.info(
+            "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)",
+            serial,
+            func_eps_en,
+            type(func_eps_en).__name__,
+        )
+
+        # Convert to boolean with explicit handling of different value types
+        enabled = self._convert_func_eps_en_to_bool(func_eps_en)
+
+        processed["battery_backup_status"] = {
+            "FUNC_EPS_EN": func_eps_en,
+            "enabled": enabled,
+        }
+        _LOGGER.info(
+            "Battery backup status for %s: raw=%r, enabled=%s",
+            serial,
+            func_eps_en,
+            enabled,
+        )
+
+        # Update the coordinator's parameter cache with this fresh data
+        if "parameters" not in processed:
+            processed["parameters"] = {}
+        if serial not in processed["parameters"]:
+            processed["parameters"][serial] = {}
+        processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
+
+    def _convert_func_eps_en_to_bool(self, func_eps_en: Any) -> bool:
+        """Convert FUNC_EPS_EN parameter value to boolean.
+
+        Args:
+            func_eps_en: Raw parameter value
+
+        Returns:
+            Boolean representation of the parameter value
+        """
+        if func_eps_en is None:
+            return False
+        if isinstance(func_eps_en, str):
+            # Handle string values like "1", "0", "true", "false"
+            return func_eps_en.lower() not in (
+                "0",
+                "false",
+                "off",
+                "disabled",
+                "",
+            )
+        if isinstance(func_eps_en, (int, float)):
+            # Handle numeric values where 0 = disabled, non-zero = enabled
+            return bool(func_eps_en != 0)
+        # Default boolean conversion
+        return bool(func_eps_en)
 
     async def _process_individual_energy_batch(self, processed: Dict[str, Any]) -> None:
         """Process individual inverter energy data in batches with rate limiting."""
@@ -542,7 +605,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
 
         # Process in batches to avoid API overload
-        from .const import API_BATCH_SIZE, API_BATCH_DELAY
+        from .const import API_BATCH_DELAY, API_BATCH_SIZE
         batch_size = API_BATCH_SIZE
         delay_between_batches = API_BATCH_DELAY
 
@@ -559,7 +622,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Apply results to processed data
-                for serial, result in zip(batch, results):
+                for serial, result in zip(batch, results, strict=True):
                     if isinstance(result, Exception):
                         _LOGGER.debug(
                             "Failed to get individual energy for %s: %s", serial, result
@@ -741,46 +804,80 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Use shared field mapping from const.py to reduce duplication
         field_mapping = INVERTER_RUNTIME_FIELD_MAPPING
 
+        # Process each field mapping
+        for api_field, sensor_type in field_mapping.items():
+            if api_field in runtime:
+                value = runtime[api_field]
+                if value is not None:
+                    processed_value = self._process_runtime_field_value(
+                        api_field, sensor_type, value
+                    )
+                    if processed_value is not None:
+                        sensors[sensor_type] = processed_value
+
+        # Calculate net grid power for standard inverters
+        self._calculate_grid_power(runtime, sensors)
+
+        return sensors
+
+    def _process_runtime_field_value(
+        self, api_field: str, sensor_type: str, value: Any
+    ) -> Optional[Any]:
+        """Process a single runtime field value with appropriate scaling.
+
+        Args:
+            api_field: API field name
+            sensor_type: Sensor type identifier
+            value: Raw field value
+
+        Returns:
+            Processed value or None if processing failed
+        """
         # Use shared sensor list from const.py to reduce duplication
         divide_by_10_sensors = DIVIDE_BY_10_SENSORS
 
         # Voltage fields that need division by 10
         divide_voltage_by_10_fields = {"vacr", "vpv1", "vpv2", "vpv3", "vBat"}
 
-        for api_field, sensor_type in field_mapping.items():
-            if api_field in runtime:
-                value = runtime[api_field]
-                if value is not None:
-                    # Apply division by 10 for today/daily energy sensors
-                    if sensor_type in divide_by_10_sensors:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for division",
-                                sensor_type,
-                                value,
-                            )
-                            continue
+        # Apply division by 10 for today/daily energy sensors
+        if sensor_type in divide_by_10_sensors:
+            try:
+                return float(value) / 10.0
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "Could not convert %s value %s to float for division",
+                    sensor_type,
+                    value,
+                )
+                return None
 
-                    # Apply division by 10 for voltage sensors (vacr field)
-                    if api_field in divide_voltage_by_10_fields:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for voltage division",
-                                api_field,
-                                value,
-                            )
-                            continue
+        # Apply division by 10 for voltage sensors (vacr field)
+        if api_field in divide_voltage_by_10_fields:
+            try:
+                return float(value) / 10.0
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "Could not convert %s value %s to float for voltage division",
+                    api_field,
+                    value,
+                )
+                return None
 
-                    # Apply camel casing for status tex
-                    if sensor_type == "status_text" and isinstance(value, str):
-                        value = to_camel_case(value)
+        # Apply camel casing for status text
+        if sensor_type == "status_text" and isinstance(value, str):
+            return to_camel_case(value)
 
-                    sensors[sensor_type] = value
+        return value
 
+    def _calculate_grid_power(
+        self, runtime: Dict[str, Any], sensors: Dict[str, Any]
+    ) -> None:
+        """Calculate net grid power from import and export values.
+
+        Args:
+            runtime: Runtime data dictionary
+            sensors: Sensors dictionary to update
+        """
         # Calculate net grid power for standard inverters
         # pToUser = import from grid (positive when importing)
         # pToGrid = export to grid (positive when exporting)
@@ -803,8 +900,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     runtime.get("pToGrid"),
                     e,
                 )
-
-        return sensors
 
     def _extract_runtime_binary_sensors(
         self, runtime: Dict[str, Any]
@@ -1023,24 +1118,28 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     def _calculate_gridboss_aggregates(self, sensors: Dict[str, Any]) -> None:
         """Calculate aggregate sensor values from individual L1/L2 values."""
-
-        def _safe_numeric(value: Any) -> float:
-            """Safely convert value to numeric, defaulting to 0."""
-            if value is None:
-                return 0.0
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return 0.0
-
         # Calculate Smart Load aggregate power from individual ports
+        self._calculate_smart_load_aggregates(sensors)
+
+        # Calculate total power values from L1/L2 components
+        self._calculate_dual_leg_power_aggregates(sensors)
+
+        # Calculate AC Couple aggregate values for each port
+        self._calculate_ac_couple_aggregates(sensors)
+
+    def _calculate_smart_load_aggregates(self, sensors: Dict[str, Any]) -> None:
+        """Calculate Smart Load aggregate power from individual ports.
+
+        Args:
+            sensors: Sensors dictionary to update
+        """
         smart_load_powers = []
         for port in range(1, 5):
             l1_key = f"smart_load{port}_power_l1"
             l2_key = f"smart_load{port}_power_l2"
             if l1_key in sensors and l2_key in sensors:
-                l1_power = _safe_numeric(sensors[l1_key])
-                l2_power = _safe_numeric(sensors[l2_key])
+                l1_power = self._safe_numeric(sensors[l1_key])
+                l2_power = self._safe_numeric(sensors[l2_key])
                 port_power = l1_power + l2_power
                 sensors[f"smart_load{port}_power"] = port_power
                 smart_load_powers.append(port_power)
@@ -1049,47 +1148,73 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if smart_load_powers:
             sensors["smart_load_power"] = sum(smart_load_powers)
 
-        # Calculate total grid power from L1/L2
-        if "grid_power_l1" in sensors and "grid_power_l2" in sensors:
-            grid_l1 = _safe_numeric(sensors["grid_power_l1"])
-            grid_l2 = _safe_numeric(sensors["grid_power_l2"])
-            sensors["grid_power"] = grid_l1 + grid_l2
+    def _calculate_dual_leg_power_aggregates(self, sensors: Dict[str, Any]) -> None:
+        """Calculate total power values from L1/L2 components.
 
-        # Calculate total UPS power from L1/L2
-        if "ups_power_l1" in sensors and "ups_power_l2" in sensors:
-            ups_l1 = _safe_numeric(sensors["ups_power_l1"])
-            ups_l2 = _safe_numeric(sensors["ups_power_l2"])
-            sensors["ups_power"] = ups_l1 + ups_l2
+        Args:
+            sensors: Sensors dictionary to update
+        """
+        # Define power pairs to aggregate
+        power_pairs = [
+            ("grid_power_l1", "grid_power_l2", "grid_power"),
+            ("ups_power_l1", "ups_power_l2", "ups_power"),
+            ("load_power_l1", "load_power_l2", "load_power"),
+            ("generator_power_l1", "generator_power_l2", "generator_power"),
+        ]
 
-        # Calculate total load power from L1/L2
-        if "load_power_l1" in sensors and "load_power_l2" in sensors:
-            load_l1 = _safe_numeric(sensors["load_power_l1"])
-            load_l2 = _safe_numeric(sensors["load_power_l2"])
-            sensors["load_power"] = load_l1 + load_l2
-
-        # Calculate total generator power from L1/L2
-        if "generator_power_l1" in sensors and "generator_power_l2" in sensors:
-            gen_l1 = _safe_numeric(sensors["generator_power_l1"])
-            gen_l2 = _safe_numeric(sensors["generator_power_l2"])
-            sensors["generator_power"] = gen_l1 + gen_l2
-
-        # Calculate AC Couple aggregate today values for each por
-        for port in range(1, 5):
-            l1_key = f"ac_couple{port}_today_l1"
-            l2_key = f"ac_couple{port}_today_l2"
+        for l1_key, l2_key, total_key in power_pairs:
             if l1_key in sensors and l2_key in sensors:
-                l1_val = _safe_numeric(sensors[l1_key])
-                l2_val = _safe_numeric(sensors[l2_key])
-                sensors[f"ac_couple{port}_today"] = l1_val + l2_val
+                l1_value = self._safe_numeric(sensors[l1_key])
+                l2_value = self._safe_numeric(sensors[l2_key])
+                sensors[total_key] = l1_value + l2_value
 
-        # Calculate AC Couple aggregate total values for each por
+    def _calculate_ac_couple_aggregates(self, sensors: Dict[str, Any]) -> None:
+        """Calculate AC Couple aggregate values for each port.
+
+        Args:
+            sensors: Sensors dictionary to update
+        """
+        # Calculate AC Couple aggregate today values for each port
         for port in range(1, 5):
-            l1_key = f"ac_couple{port}_total_l1"
-            l2_key = f"ac_couple{port}_total_l2"
-            if l1_key in sensors and l2_key in sensors:
-                l1_val = _safe_numeric(sensors[l1_key])
-                l2_val = _safe_numeric(sensors[l2_key])
-                sensors[f"ac_couple{port}_total"] = l1_val + l2_val
+            self._calculate_ac_couple_port_aggregate(sensors, port, "today")
+
+        # Calculate AC Couple aggregate total values for each port
+        for port in range(1, 5):
+            self._calculate_ac_couple_port_aggregate(sensors, port, "total")
+
+    def _calculate_ac_couple_port_aggregate(
+        self, sensors: Dict[str, Any], port: int, metric_type: str
+    ) -> None:
+        """Calculate AC Couple aggregate for a specific port and metric type.
+
+        Args:
+            sensors: Sensors dictionary to update
+            port: Port number (1-4)
+            metric_type: Type of metric ("today" or "total")
+        """
+        l1_key = f"ac_couple{port}_{metric_type}_l1"
+        l2_key = f"ac_couple{port}_{metric_type}_l2"
+        if l1_key in sensors and l2_key in sensors:
+            l1_val = self._safe_numeric(sensors[l1_key])
+            l2_val = self._safe_numeric(sensors[l2_key])
+            sensors[f"ac_couple{port}_{metric_type}"] = l1_val + l2_val
+
+    @staticmethod
+    def _safe_numeric(value: Any) -> float:
+        """Safely convert value to numeric, defaulting to 0.
+
+        Args:
+            value: Value to convert
+
+        Returns:
+            Numeric value or 0.0 if conversion fails
+        """
+        if value is None:
+            return 0.0
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
 
     def _filter_unused_smart_port_sensors(
         self, sensors: Dict[str, Any], midbox_data: Dict[str, Any]

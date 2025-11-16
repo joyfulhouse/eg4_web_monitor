@@ -6,7 +6,7 @@ import logging
 import random
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, cast
-from urllib.parse import urljoin, urlencode
+from urllib.parse import urlencode, urljoin
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -240,14 +240,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         session = await self._get_session()
         url = urljoin(self.base_url, endpoint)
 
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (compatible; EG4InverterAPI/1.0)",
-        }
-
-        if authenticated and self._session_id:
-            headers["Cookie"] = f"JSESSIONID={self._session_id}"
+        headers = self._build_request_headers(authenticated)
 
         # URL-encode the data for form submission
         encoded_data = None
@@ -259,58 +252,135 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             async with session.request(
                 method, url, headers=headers, data=encoded_data
             ) as response:
-                if response.content_type == "application/json":
-                    result = await response.json()
-                else:
-                    text = await response.text()
-                    try:
-                        result = json.loads(text)
-                    except json.JSONDecodeError:
-                        result = {"text": text}
-
-                # Handle authentication errors
-                if response.status == 401:
-                    raise EG4AuthError("Authentication failed")
-
-                # Handle API errors
-                if not response.ok:
-                    self._handle_request_error()  # Track error for backoff
-                    raise EG4ConnectionError(f"HTTP {response.status}: {result}")
-
-                # Check for API error responses
-                if isinstance(result, dict) and result.get("success") is False:
-                    error_msg = result.get("message", "Unknown API error")
-                    # Add more context for debugging
-                    detailed_error = f"{error_msg} (Response: {result})"
-                    if "login" in error_msg.lower() or "auth" in error_msg.lower():
-                        raise EG4AuthError(detailed_error)
-                    self._handle_request_error()  # Track error for backoff
-                    raise EG4APIError(detailed_error)
+                result = await self._parse_response(response)
+                self._validate_response(response, result)
 
                 # Request was successful
                 self._handle_request_success()
                 return cast(Dict[str, Any], result)
 
         except EG4AuthError as e:
-            # If authentication failed and we haven't retried yet, try re-authenticating
-            if authenticated and retry_count == 0:
-                _LOGGER.warning(
-                    "Authentication failed, attempting re-authentication: %s", e
-                )
-                # Clear current session and force re-authentication
-                self._session_id = None
-                self._session_expires = None
-                # Retry the request once with fresh authentication
-                return await self._make_request(
-                    method, endpoint, data, authenticated, retry_count + 1
-                )
-            # Re-authentication failed or this was already a retry
-            self._handle_request_error()  # Track error for backoff
-            _LOGGER.error("Re-authentication failed: %s", e)
-            raise
+            return await self._handle_auth_error_with_retry(
+                method, endpoint, data, authenticated, retry_count, e
+            )
         except aiohttp.ClientError as e:
             self._handle_request_error()  # Track error for backoff
             raise EG4ConnectionError(f"Connection error: {e}") from e
+
+    def _build_request_headers(self, authenticated: bool) -> Dict[str, str]:
+        """Build HTTP headers for API request.
+
+        Args:
+            authenticated: Whether to include authentication headers
+
+        Returns:
+            Dictionary of HTTP headers
+        """
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; EG4InverterAPI/1.0)",
+        }
+
+        if authenticated and self._session_id:
+            headers["Cookie"] = f"JSESSIONID={self._session_id}"
+
+        return headers
+
+    async def _parse_response(
+        self, response: aiohttp.ClientResponse
+    ) -> Dict[str, Any]:
+        """Parse HTTP response content.
+
+        Args:
+            response: aiohttp response object
+
+        Returns:
+            Parsed response dictionary
+        """
+        if response.content_type == "application/json":
+            return await response.json()
+
+        text = await response.text()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"text": text}
+
+    def _validate_response(
+        self, response: aiohttp.ClientResponse, result: Dict[str, Any]
+    ) -> None:
+        """Validate HTTP response and raise appropriate exceptions.
+
+        Args:
+            response: aiohttp response object
+            result: Parsed response data
+
+        Raises:
+            EG4AuthError: For authentication failures
+            EG4ConnectionError: For HTTP errors
+            EG4APIError: For API-level errors
+        """
+        # Handle authentication errors
+        if response.status == 401:
+            raise EG4AuthError("Authentication failed")
+
+        # Handle API errors
+        if not response.ok:
+            self._handle_request_error()  # Track error for backoff
+            raise EG4ConnectionError(f"HTTP {response.status}: {result}")
+
+        # Check for API error responses
+        if isinstance(result, dict) and result.get("success") is False:
+            error_msg = result.get("message", "Unknown API error")
+            # Add more context for debugging
+            detailed_error = f"{error_msg} (Response: {result})"
+            if "login" in error_msg.lower() or "auth" in error_msg.lower():
+                raise EG4AuthError(detailed_error)
+            self._handle_request_error()  # Track error for backoff
+            raise EG4APIError(detailed_error)
+
+    async def _handle_auth_error_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[Dict[str, Any]],
+        authenticated: bool,
+        retry_count: int,
+        error: EG4AuthError,
+    ) -> Dict[str, Any]:
+        """Handle authentication error with optional retry.
+
+        Args:
+            method: HTTP method
+            endpoint: API endpoint
+            data: Request data
+            authenticated: Whether request requires authentication
+            retry_count: Current retry count
+            error: Authentication error
+
+        Returns:
+            Response dictionary if retry succeeds
+
+        Raises:
+            EG4AuthError: If retry fails or not applicable
+        """
+        # If authentication failed and we haven't retried yet, try re-authenticating
+        if authenticated and retry_count == 0:
+            _LOGGER.warning(
+                "Authentication failed, attempting re-authentication: %s", error
+            )
+            # Clear current session and force re-authentication
+            self._session_id = None
+            self._session_expires = None
+            # Retry the request once with fresh authentication
+            return await self._make_request(
+                method, endpoint, data, authenticated, retry_count + 1
+            )
+        # Re-authentication failed or this was already a retry
+        self._handle_request_error()  # Track error for backoff
+        _LOGGER.error("Re-authentication failed: %s", error)
+        raise error
 
     async def login(self) -> Dict[str, Any]:
         """Authenticate with the EG4 API."""
@@ -459,60 +529,13 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
 
     async def get_all_device_data(self, plant_id: str) -> Dict[str, Any]:
         """Get comprehensive data for all devices in a plant."""
-        # Check if we have cached device discovery data
-        cache_key = f"plant_{plant_id}"
-        now = datetime.now()
+        # Get device discovery information (cached or fresh)
+        device_discovery = await self._get_device_discovery_data(plant_id)
 
-        if (
-            cache_key in self._device_cache
-            and self._device_cache_expires
-            and now < self._device_cache_expires
-        ):
-            _LOGGER.debug("Using cached device discovery data for plant %s", plant_id)
-            cached_data = self._device_cache[cache_key]
-            serial_numbers = cached_data["serial_numbers"]
-            gridboss_serials = cached_data["gridboss_serials"]
-            device_info = cached_data["device_info"]
-            parallel_groups = cached_data["parallel_groups"]
-        else:
-            _LOGGER.debug("Refreshing device discovery data for plant %s", plant_id)
-            # Get fresh login data to access device information
-            login_data = await self.login()
-
-            serial_numbers = set()
-            gridboss_serials = set()
-            device_info = {}
-            parallel_groups = []
-
-            # Extract devices from login response plants array
-            for plant in login_data.get("plants", []):
-                if str(plant.get("plantId")) == str(plant_id):
-                    for device in plant.get("inverters", []):
-                        serial = device.get("serialNum")
-                        if serial:
-                            serial_numbers.add(serial)
-                            device_info[serial] = device
-
-                            # Check if this is a GridBOSS device
-                            model = device.get("deviceTypeText4APP", "").lower()
-                            if "gridboss" in model or "grid boss" in model:
-                                gridboss_serials.add(serial)
-
-                    # Also extract parallel group information
-                    parallel_groups = plant.get("parallelGroups", [])
-                    break
-
-            # Cache the device discovery data
-            self._device_cache[cache_key] = {
-                "serial_numbers": serial_numbers,
-                "gridboss_serials": gridboss_serials,
-                "device_info": device_info,
-                "parallel_groups": parallel_groups,
-            }
-            self._device_cache_expires = now + self._device_cache_ttl
-            _LOGGER.debug(
-                "Cached device discovery data for %d devices", len(serial_numbers)
-            )
+        serial_numbers = device_discovery["serial_numbers"]
+        gridboss_serials = device_discovery["gridboss_serials"]
+        device_info = device_discovery["device_info"]
+        parallel_groups = device_discovery["parallel_groups"]
 
         _LOGGER.info(
             "Found %d devices for plant %s: %s",
@@ -529,6 +552,128 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
         )
 
         # Fetch data for all devices concurrently
+        device_data = await self._fetch_all_device_data(
+            serial_numbers, gridboss_serials
+        )
+
+        # Try to get parallel group energy data
+        parallel_energy_data = await self._fetch_parallel_energy_data(serial_numbers)
+
+        # Organize results
+        return self._organize_device_results(
+            serial_numbers,
+            device_data,
+            parallel_groups,
+            parallel_energy_data,
+            device_info,
+        )
+
+    async def _get_device_discovery_data(self, plant_id: str) -> Dict[str, Any]:
+        """Get device discovery data from cache or API.
+
+        Args:
+            plant_id: Plant ID to get devices for
+
+        Returns:
+            Dictionary containing device discovery data
+        """
+        cache_key = f"plant_{plant_id}"
+        now = datetime.now()
+
+        if (
+            cache_key in self._device_cache
+            and self._device_cache_expires
+            and now < self._device_cache_expires
+        ):
+            _LOGGER.debug("Using cached device discovery data for plant %s", plant_id)
+            return self._device_cache[cache_key]
+
+        _LOGGER.debug("Refreshing device discovery data for plant %s", plant_id)
+        return await self._refresh_device_discovery(plant_id, cache_key, now)
+
+    async def _refresh_device_discovery(
+        self, plant_id: str, cache_key: str, now: datetime
+    ) -> Dict[str, Any]:
+        """Refresh device discovery data from API.
+
+        Args:
+            plant_id: Plant ID to get devices for
+            cache_key: Cache key for storing data
+            now: Current timestamp
+
+        Returns:
+            Dictionary containing device discovery data
+        """
+        # Get fresh login data to access device information
+        login_data = await self.login()
+
+        serial_numbers = set()
+        gridboss_serials = set()
+        device_info = {}
+        parallel_groups = []
+
+        # Extract devices from login response plants array
+        for plant in login_data.get("plants", []):
+            if str(plant.get("plantId")) == str(plant_id):
+                self._extract_plant_devices(
+                    plant, serial_numbers, gridboss_serials, device_info
+                )
+                parallel_groups = plant.get("parallelGroups", [])
+                break
+
+        # Cache the device discovery data
+        discovery_data = {
+            "serial_numbers": serial_numbers,
+            "gridboss_serials": gridboss_serials,
+            "device_info": device_info,
+            "parallel_groups": parallel_groups,
+        }
+        self._device_cache[cache_key] = discovery_data
+        self._device_cache_expires = now + self._device_cache_ttl
+        _LOGGER.debug(
+            "Cached device discovery data for %d devices", len(serial_numbers)
+        )
+
+        return discovery_data
+
+    def _extract_plant_devices(
+        self,
+        plant: Dict[str, Any],
+        serial_numbers: set,
+        gridboss_serials: set,
+        device_info: Dict[str, Any],
+    ) -> None:
+        """Extract device information from plant data.
+
+        Args:
+            plant: Plant data dictionary
+            serial_numbers: Set to populate with serial numbers
+            gridboss_serials: Set to populate with GridBOSS serials
+            device_info: Dictionary to populate with device info
+        """
+        for device in plant.get("inverters", []):
+            serial = device.get("serialNum")
+            if serial:
+                serial_numbers.add(serial)
+                device_info[serial] = device
+
+                # Check if this is a GridBOSS device
+                model = device.get("deviceTypeText4APP", "").lower()
+                if "gridboss" in model or "grid boss" in model:
+                    gridboss_serials.add(serial)
+
+    async def _fetch_all_device_data(
+        self, serial_numbers: set, gridboss_serials: set
+    ) -> List[Any]:
+        """Fetch data for all devices concurrently.
+
+        Args:
+            serial_numbers: Set of all device serial numbers
+            gridboss_serials: Set of GridBOSS device serial numbers
+
+        Returns:
+            List of device data or exceptions
+        """
         tasks = []
 
         for serial in serial_numbers:
@@ -540,25 +685,56 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 tasks.append(self._get_inverter_data(serial))
 
         # Execute all tasks concurrently
-        device_data = await asyncio.gather(*tasks, return_exceptions=True)
+        return list(await asyncio.gather(*tasks, return_exceptions=True))
 
-        # Try to get parallel group energy data using any available serial
+    async def _fetch_parallel_energy_data(
+        self, serial_numbers: set
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch parallel group energy data if applicable.
+
+        Args:
+            serial_numbers: Set of device serial numbers
+
+        Returns:
+            Parallel energy data or None
+        """
         # Only fetch if we have multiple devices (indicating a parallel group)
-        parallel_energy_data = None
-        if len(serial_numbers) > 1:
-            try:
-                # Use the first available serial number to get parallel group energy data
-                first_serial = next(iter(serial_numbers))
-                parallel_energy_data = await self.get_inverter_energy_info_parallel(
-                    first_serial
-                )
-                _LOGGER.debug("Successfully retrieved parallel group energy data")
-            except Exception as e:
-                _LOGGER.warning("Failed to get parallel group energy data: %s", e)
-        else:
+        if len(serial_numbers) <= 1:
             _LOGGER.debug("Single device setup, skipping parallel group energy data")
+            return None
 
-        # Organize results
+        try:
+            # Use the first available serial number to get parallel group energy data
+            first_serial = next(iter(serial_numbers))
+            parallel_energy_data = await self.get_inverter_energy_info_parallel(
+                first_serial
+            )
+            _LOGGER.debug("Successfully retrieved parallel group energy data")
+            return parallel_energy_data
+        except Exception as e:
+            _LOGGER.warning("Failed to get parallel group energy data: %s", e)
+            return None
+
+    def _organize_device_results(
+        self,
+        serial_numbers: set,
+        device_data: List[Any],
+        parallel_groups: List[Dict[str, Any]],
+        parallel_energy_data: Optional[Dict[str, Any]],
+        device_info: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Organize device data into result structure.
+
+        Args:
+            serial_numbers: Set of device serial numbers
+            device_data: List of device data or exceptions
+            parallel_groups: Parallel group information
+            parallel_energy_data: Parallel energy data
+            device_info: Device information dictionary
+
+        Returns:
+            Organized result dictionary
+        """
         result = {
             "parallel_groups_info": parallel_groups,  # From login response
             "parallel_energy": parallel_energy_data,
