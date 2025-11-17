@@ -90,7 +90,8 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._last_cache_invalidation: Optional[datetime] = None
 
         # Solution 4: Background session maintenance tracking
-        self._last_session_maintenance: Optional[datetime] = None
+        #  Initialize to current time to prevent immediate trigger on first update
+        self._last_session_maintenance: Optional[datetime] = dt_util.utcnow()
         self._session_maintenance_interval = timedelta(
             minutes=90
         )  # Session keepalive every 90 minutes (before 2-hour expiry)
