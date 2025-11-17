@@ -1624,7 +1624,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if not task.done():
                 task.cancel()
 
-        _LOGGER.debug("Cancelled %d background tasks", len(self._background_tasks))
+        # Wait for all tasks to complete cancellation to ensure clean shutdown
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
+        _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
         """Clean up background tasks and event listeners on shutdown."""
