@@ -30,7 +30,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest tests/ --ignore=tests/test_plant_api.py -v --tb=short --cov=custom_components/eg4_web_monitor --cov-report=term-missing --cov-report=xml
+          pytest tests/ --ignore=tests/test_plant_api.py -v --tb=short -c tests/pytest.ini --cov=custom_components/eg4_web_monitor --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -84,8 +84,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install mypy and dependencies
-        run: |
-          pip install mypy aiohttp homeassistant
+        run: pip install mypy aiohttp homeassistant
 
       - name: Run Platinum tier validation
         run: python3 tests/validate_platinum_tier.py
@@ -127,7 +126,7 @@ jobs:
         run: pip install mypy aiohttp homeassistant
 
       - name: Run mypy
-        run: mypy --config-file mypy.ini custom_components/eg4_web_monitor/
+        run: mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 
   security-scan:
     name: Security Scan (Bandit)

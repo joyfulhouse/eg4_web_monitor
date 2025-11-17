@@ -160,7 +160,7 @@ Station/Plant (plantId)
 - UTC-based timing for consistency
 
 ### v1.4.0 - September 2025: Production Optimization
-- Pylint score 10.00/10 - zero technical debt
+- Code quality validation with ruff (zero linting errors)
 - Circuit breaker pattern with exponential backoff
 - 9 consolidated utility functions (70% code reduction)
 - Enhanced parameter reading error handling
@@ -174,7 +174,7 @@ Station/Plant (plantId)
 - Parallel group naming improvements
 
 ### v1.2.4 - September 2025: Code Quality
-- Pylint score improved to 9.39/10
+- Code quality improvements with automated linting
 - Consolidated field mappings in const.py
 - Missing sensor resolution (PV power, SOC, radiator temps)
 - Entity count: 231 sensors
@@ -242,7 +242,7 @@ python3 tests/validate_gold_tier.py
 python3 tests/validate_platinum_tier.py
 
 # 3. Run mypy type checking on integration files
-mypy --config-file mypy.ini custom_components/eg4_web_monitor/
+mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 
 # 4. Run ruff linting on integration files
 ruff check custom_components/ --fix && ruff format custom_components/
