@@ -149,9 +149,7 @@ class TestEnhancedSessionCleanup:
         )
 
         # Mock the _make_request to avoid actual API call
-        with patch.object(
-            api, "_make_request", new_callable=AsyncMock
-        ) as mock_request:
+        with patch.object(api, "_make_request", new_callable=AsyncMock) as mock_request:
             mock_request.return_value = {"success": True}
 
             # Call login
@@ -160,9 +158,7 @@ class TestEnhancedSessionCleanup:
             # Verify _make_request was called
             mock_request.assert_called_once()
 
-    async def test_cookie_jar_cleared_during_reauth(
-        self, hass: HomeAssistant
-    ) -> None:
+    async def test_cookie_jar_cleared_during_reauth(self, hass: HomeAssistant) -> None:
         """Test that cookie jar is cleared during re-authentication."""
         session = aiohttp_client.async_get_clientsession(hass)
         api = EG4InverterAPI(
@@ -430,13 +426,17 @@ class TestIntegrationReauthenticationFlow:
         coordinator._last_session_maintenance = dt_util.utcnow() - timedelta(minutes=91)
 
         # Mock API methods
-        with patch.object(
-            coordinator.api, "get_all_device_data", new_callable=AsyncMock
-        ) as mock_data, patch.object(
-            coordinator.api, "get_plant_details", new_callable=AsyncMock
-        ) as mock_plant, patch.object(
-            coordinator, "_process_device_data", new_callable=AsyncMock
-        ) as mock_process:
+        with (
+            patch.object(
+                coordinator.api, "get_all_device_data", new_callable=AsyncMock
+            ) as mock_data,
+            patch.object(
+                coordinator.api, "get_plant_details", new_callable=AsyncMock
+            ) as mock_plant,
+            patch.object(
+                coordinator, "_process_device_data", new_callable=AsyncMock
+            ) as mock_process,
+        ):
             mock_data.return_value = {"devices": {}}
             mock_plant.return_value = {"name": "Test Plant"}
             mock_process.return_value = {"devices": {}, "plant_id": "12345"}
