@@ -242,7 +242,9 @@ class TestBackgroundSessionMaintenance:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         # Verify maintenance tracking is initialized
-        assert coordinator._last_session_maintenance is not None  # Initialized to current time
+        assert (
+            coordinator._last_session_maintenance is not None
+        )  # Initialized to current time
         assert coordinator._session_maintenance_interval == timedelta(minutes=90)
 
     async def test_should_perform_session_maintenance_when_never_performed(
