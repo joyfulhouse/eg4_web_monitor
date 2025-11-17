@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -95,6 +95,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             minutes=90
         )  # Session keepalive every 90 minutes (before 2-hour expiry)
 
+        # Background task tracking for proper cleanup
+        self._background_tasks: Set[asyncio.Task[Any]] = set()
+
         # Circuit breaker for API resilience
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
 
@@ -127,6 +130,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 )
                 # Don't await this to avoid blocking the main data update
                 task = self.hass.async_create_task(self._perform_session_maintenance())
+                # Track task for cleanup and remove from set when done
+                self._background_tasks.add(task)
+                task.add_done_callback(lambda t: self._background_tasks.discard(t))
                 task.add_done_callback(
                     lambda t: t.exception() if not t.cancelled() else None
                 )
@@ -146,6 +152,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Don't await this to avoid blocking the main data update
                 # Create task and store reference to avoid RuntimeWarning
                 task = self.hass.async_create_task(self._hourly_parameter_refresh())
+                # Track task for cleanup and remove from set when done
+                self._background_tasks.add(task)
+                task.add_done_callback(lambda t: self._background_tasks.discard(t))
                 task.add_done_callback(
                     lambda t: t.exception() if not t.cancelled() else None
                 )
@@ -1596,3 +1605,17 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "Session maintenance keepalive failed (session will be refreshed on next request): %s",
                 e,
             )
+
+    async def async_shutdown(self) -> None:
+        """Clean up background tasks on shutdown."""
+        # Cancel all background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete cancellation
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
+        _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")

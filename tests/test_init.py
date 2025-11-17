@@ -30,6 +30,7 @@ def mock_coordinator():
     coordinator.entry = MagicMock()
     coordinator.entry.entry_id = "test_entry_id"
     coordinator.async_request_refresh = AsyncMock()
+    coordinator.async_shutdown = AsyncMock()
     coordinator.api = MagicMock()
     coordinator.api.close = AsyncMock()
     # Add minimal data structure for platforms to work with
@@ -303,6 +304,7 @@ class TestAsyncUnloadEntry:
 
             assert result is True
             mock_unload.assert_called_once()
+            mock_coordinator.async_shutdown.assert_called_once()
             mock_coordinator.api.close.assert_called_once()
 
     async def test_unload_entry_failure(
