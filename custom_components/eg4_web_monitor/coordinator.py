@@ -1622,7 +1622,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         # Cancel any pending refresh operations (including debounced refreshes)
         if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
-            await self._debounced_refresh.async_cancel()
+            self._debounced_refresh.async_cancel()
             _LOGGER.debug("Cancelled debounced refresh")
 
         # Cancel all background tasks
