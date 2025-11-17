@@ -1,0 +1,79 @@
+# EG4 Web Monitor - Battery Management Automations
+#
+# These automations help manage battery health and optimize charging/discharging
+
+# Alert when battery SOC is critically low
+- alias: "EG4 - Battery Low Alert"
+  description: "Notify when battery state of charge drops below 20%"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+      below: 20
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Battery Low"
+        message: "EG4 battery is at {{ states('sensor.eg4_flexboss21_1234567890_battery_soc') }}%"
+        data:
+          priority: high
+
+# Alert when battery temperature is too high
+- alias: "EG4 - Battery Temperature Alert"
+  description: "Notify when battery temperature exceeds safe threshold"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_1_temperature
+      above: 45
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Battery Temperature High"
+        message: "Battery temperature is {{ states('sensor.eg4_flexboss21_1234567890_battery_1_temperature') }}°C"
+        data:
+          priority: high
+
+# Monitor battery cell voltage imbalance
+- alias: "EG4 - Battery Cell Imbalance Alert"
+  description: "Notify when battery cell voltage delta exceeds threshold"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta
+      above: 0.05  # 50mV difference
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Battery Cell Imbalance"
+        message: "Battery cell voltage delta is {{ states('sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta') }}V"
+
+# Daily battery health report
+- alias: "EG4 - Daily Battery Report"
+  description: "Send daily battery health summary"
+  trigger:
+    - platform: time
+      at: "08:00:00"
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Daily Battery Report"
+        message: |
+          Battery SOC: {{ states('sensor.eg4_flexboss21_1234567890_battery_soc') }}%
+          Battery SOH: {{ states('sensor.eg4_flexboss21_1234567890_battery_1_soh') }}%
+          Cycle Count: {{ states('sensor.eg4_flexboss21_1234567890_battery_1_cycle_count') }}
+          Temperature: {{ states('sensor.eg4_flexboss21_1234567890_battery_1_temperature') }}°C
+
+# Auto-adjust AC charge current based on grid conditions
+- alias: "EG4 - Dynamic AC Charge Control"
+  description: "Adjust AC charging current based on electricity rates"
+  trigger:
+    - platform: time_pattern
+      hours: "/1"  # Check every hour
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.electricity_rate  # Your electricity rate sensor
+      below: 0.15  # Low rate threshold
+  action:
+    - service: number.set_value
+      target:
+        entity_id: number.eg4_flexboss21_1234567890_ac_charge_power
+      data:
+        value: 3000  # Max charge at 3000W during low rates

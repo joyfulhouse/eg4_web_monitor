@@ -1,0 +1,176 @@
+# EG4 Web Monitor - Load Management Automations
+#
+# These automations help manage home loads and optimize power consumption
+
+# High load consumption alert
+- alias: "EG4 - High Load Alert"
+  description: "Notify when home load exceeds threshold"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_load_power
+      above: 8000  # 8kW threshold
+      for:
+        minutes: 5
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "High Load Consumption"
+        message: "Home load is {{ states('sensor.eg4_flexboss21_1234567890_load_power') }}W - check for unexpected usage"
+        data:
+          priority: high
+
+# Smart load management during grid outage
+- alias: "EG4 - Grid Outage Load Shedding"
+  description: "Reduce non-essential loads during grid outage"
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.eg4_flexboss21_1234567890_grid_status
+      to: "off"  # Grid lost
+  action:
+    # Turn off non-essential loads
+    - service: switch.turn_off
+      target:
+        entity_id:
+          - switch.water_heater
+          - switch.pool_pump
+          - switch.ev_charger
+    - service: climate.set_temperature
+      target:
+        entity_id: climate.hvac
+      data:
+        temperature: 72  # Reduce HVAC load
+    - service: notify.mobile_app
+      data:
+        title: "Grid Outage - Load Shedding Active"
+        message: "Non-essential loads disabled to preserve battery"
+
+# Restore loads when grid returns
+- alias: "EG4 - Grid Restored Load Recovery"
+  description: "Restore loads when grid power returns"
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.eg4_flexboss21_1234567890_grid_status
+      to: "on"  # Grid restored
+      for:
+        minutes: 5  # Wait for stability
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Grid Power Restored"
+        message: "Grid is back online. Restoring normal operations."
+    # Restore loads gradually
+    - delay:
+        seconds: 30
+    - service: switch.turn_on
+      target:
+        entity_id: switch.water_heater
+    - delay:
+        seconds: 30
+    - service: switch.turn_on
+      target:
+        entity_id: switch.pool_pump
+
+# EV charging optimization
+- alias: "EG4 - Smart EV Charging"
+  description: "Charge EV only when excess solar is available"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      above: 6000  # Excess solar for EV charging
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      below: 2000  # Solar insufficient for EV
+  condition:
+    - condition: state
+      entity_id: device_tracker.ev
+      state: "home"
+  action:
+    - choose:
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+              above: 6000
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              above: 70
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id: switch.ev_charger
+            - service: notify.mobile_app
+              data:
+                title: "EV Charging Started"
+                message: "Excess solar available: {{ states('sensor.eg4_flexboss21_1234567890_pv_power') }}W"
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+              below: 2000
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: switch.ev_charger
+
+# Load balancing for smart load ports (GridBOSS)
+- alias: "EG4 - GridBOSS Smart Load Control"
+  description: "Control smart load ports based on battery SOC"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+  action:
+    - choose:
+        # High battery - enable all smart loads
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              above: 80
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id:
+                  - switch.eg4_gridboss_1234567890_smart_load_port_1
+                  - switch.eg4_gridboss_1234567890_smart_load_port_2
+        # Medium battery - disable non-critical loads
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              below: 40
+              above: 20
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: switch.eg4_gridboss_1234567890_smart_load_port_2
+        # Low battery - disable all smart loads
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              below: 20
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id:
+                  - switch.eg4_gridboss_1234567890_smart_load_port_1
+                  - switch.eg4_gridboss_1234567890_smart_load_port_2
+            - service: notify.mobile_app
+              data:
+                title: "Low Battery - Smart Loads Disabled"
+                message: "Battery at {{ states('sensor.eg4_flexboss21_1234567890_battery_soc') }}%"
+
+# Weekly load consumption report
+- alias: "EG4 - Weekly Load Report"
+  description: "Send weekly load consumption summary"
+  trigger:
+    - platform: time
+      at: "18:00:00"
+  condition:
+    - condition: time
+      weekday:
+        - sun
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Weekly Load Summary"
+        message: |
+          This Week's Consumption:
+          Total Load: {{ states('sensor.eg4_flexboss21_1234567890_weekly_load_consumption') }} kWh
+          Peak Load: {{ state_attr('sensor.eg4_flexboss21_1234567890_load_power', 'max_value') }} W
+          Average Load: {{ state_attr('sensor.eg4_flexboss21_1234567890_load_power', 'average') }} W

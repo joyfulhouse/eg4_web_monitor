@@ -1,0 +1,145 @@
+# EG4 Web Monitor - Solar Optimization Automations
+#
+# These automations help maximize solar production and usage
+
+# Morning solar production alert
+- alias: "EG4 - Solar Production Started"
+  description: "Notify when solar production begins for the day"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      above: 100  # 100W threshold
+  condition:
+    - condition: time
+      after: "05:00:00"
+      before: "10:00:00"
+    - condition: template
+      value_template: >
+        {{ (as_timestamp(now()) - as_timestamp(states.sensor.eg4_flexboss21_1234567890_pv_power.last_changed)) > 3600 }}
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Solar Production Active"
+        message: "Solar panels producing {{ states('sensor.eg4_flexboss21_1234567890_pv_power') }}W"
+
+# Low solar production alert (cloudy day)
+- alias: "EG4 - Low Solar Production Alert"
+  description: "Alert when solar production is lower than expected"
+  trigger:
+    - platform: time
+      at: "12:00:00"  # Check at solar noon
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      below: 1000  # Expected midday production
+    - condition: sun
+      after: sunrise
+      before: sunset
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Low Solar Production"
+        message: "PV power at noon is only {{ states('sensor.eg4_flexboss21_1234567890_pv_power') }}W. Check panels for shading or issues."
+
+# Maximize self-consumption during high solar
+- alias: "EG4 - High Solar Self-Consumption"
+  description: "Run high-power loads during peak solar production"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      above: 4000
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+      above: 50
+  action:
+    # Example: Turn on water heater, pool pump, etc.
+    - service: switch.turn_on
+      target:
+        entity_id: switch.water_heater
+    - service: notify.mobile_app
+      data:
+        title: "Excess Solar Available"
+        message: "PV generating {{ states('sensor.eg4_flexboss21_1234567890_pv_power') }}W - running high-power loads"
+
+# Evening solar production ended
+- alias: "EG4 - Solar Production Ended"
+  description: "Daily solar production summary when sun sets"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      below: 50
+      for:
+        minutes: 30
+  condition:
+    - condition: sun
+      after: sunset
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Solar Production Complete"
+        message: |
+          Today's Solar Production:
+          Total: {{ states('sensor.eg4_flexboss21_1234567890_daily_pv_generation') }} kWh
+          Battery SOC: {{ states('sensor.eg4_flexboss21_1234567890_battery_soc') }}%
+
+# Adjust battery limits based on weather forecast
+- alias: "EG4 - Weather-Based Battery Management"
+  description: "Adjust SOC limits based on tomorrow's solar forecast"
+  trigger:
+    - platform: time
+      at: "18:00:00"
+  action:
+    - choose:
+        - conditions:
+            # Good weather forecast - allow deeper discharge
+            - condition: numeric_state
+              entity_id: sensor.tomorrow_solar_forecast  # Your solar forecast sensor
+              above: 20  # 20+ kWh expected
+          sequence:
+            - service: number.set_value
+              target:
+                entity_id: number.eg4_flexboss21_1234567890_battery_low_soc_limit
+              data:
+                value: 10  # Allow discharge to 10%
+        - conditions:
+            # Poor weather forecast - preserve battery
+            - condition: numeric_state
+              entity_id: sensor.tomorrow_solar_forecast
+              below: 10  # Less than 10 kWh expected
+          sequence:
+            - service: number.set_value
+              target:
+                entity_id: number.eg4_flexboss21_1234567890_battery_low_soc_limit
+              data:
+                value: 30  # Keep battery above 30%
+
+# Monitor PV string performance
+- alias: "EG4 - PV String Performance Alert"
+  description: "Alert if PV strings have significant power imbalance"
+  trigger:
+    - platform: time_pattern
+      hours: "/1"  # Check hourly during daylight
+  condition:
+    - condition: sun
+      after: sunrise
+      before: sunset
+    - condition: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_pv_power
+      above: 500  # Only check when producing
+  action:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: >
+                {% set pv1 = states('sensor.eg4_flexboss21_1234567890_pv1_power') | float(0) %}
+                {% set pv2 = states('sensor.eg4_flexboss21_1234567890_pv2_power') | float(0) %}
+                {{ (pv1 - pv2) | abs > 500 and pv1 > 100 and pv2 > 100 }}
+          sequence:
+            - service: notify.mobile_app
+              data:
+                title: "PV String Imbalance"
+                message: |
+                  PV1: {{ states('sensor.eg4_flexboss21_1234567890_pv1_power') }}W
+                  PV2: {{ states('sensor.eg4_flexboss21_1234567890_pv2_power') }}W
+                  Check for shading or panel issues.
