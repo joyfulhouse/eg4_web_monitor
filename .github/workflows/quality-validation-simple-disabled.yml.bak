@@ -1,0 +1,171 @@
+name: Quality Tier Validation
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  # Run all tests from repository root with proper structure
+  test-suite:
+    name: Test Suite (301 tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "tests/requirements-test.txt" ]; then
+            pip install -r tests/requirements-test.txt
+          fi
+
+      - name: Run pytest
+        run: |
+          pytest tests/ --ignore=tests/test_plant_api.py -v --tb=short -c tests/pytest.ini --cov=custom_components/eg4_web_monitor --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  silver-tier:
+    name: 🥈 Silver Tier Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Silver tier validation
+        run: python3 tests/validate_silver_tier.py
+
+  gold-tier:
+    name: 🏆 Gold Tier Validation
+    runs-on: ubuntu-latest
+    needs: silver-tier
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Gold tier validation
+        run: python3 tests/validate_gold_tier.py
+
+  platinum-tier:
+    name: 💎 Platinum Tier Validation
+    runs-on: ubuntu-latest
+    needs: gold-tier
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mypy and dependencies
+        run: pip install mypy aiohttp homeassistant
+
+      - name: Run Platinum tier validation
+        run: python3 tests/validate_platinum_tier.py
+
+  code-quality:
+    name: Code Quality (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff linter
+        run: ruff check custom_components/ --output-format=github
+
+      - name: Run ruff formatter check
+        run: ruff format --check custom_components/
+
+  type-checking:
+    name: Type Checking (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mypy and dependencies
+        run: pip install mypy aiohttp homeassistant
+
+      - name: Run mypy
+        run: mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+
+  security-scan:
+    name: Security Scan (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Bandit security scan
+        uses: tj-actions/bandit@v5.1
+        with:
+          targets: custom_components/
+          options: "-r -ll -i"
+
+  validation-summary:
+    name: ✅ Validation Summary
+    runs-on: ubuntu-latest
+    needs: [test-suite, silver-tier, gold-tier, platinum-tier, code-quality, type-checking, security-scan]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Display summary
+        run: |
+          echo "=========================================="
+          echo "   QUALITY VALIDATION COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "✅ 301 tests passing"
+          echo "✅ Silver Tier: 10/10 checks"
+          echo "✅ Gold Tier: 6/6 checks"
+          echo "✅ Platinum Tier: 3/3 checks"
+          echo "✅ Code quality (Ruff)"
+          echo "✅ Type checking (mypy)"
+          echo "✅ Security scan (Bandit)"
+          echo ""
+          VERSION=$(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)
+          DOMAIN=$(grep -o '"domain": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)
+          echo "Version: $VERSION"
+          echo "Domain: $DOMAIN"
+          echo ""
+          echo "🏆 ALL VALIDATIONS PASSED! 🏆"
