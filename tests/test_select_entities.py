@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ..select import EG4OperatingModeSelect
+from custom_components.eg4_web_monitor.select import EG4OperatingModeSelect
 
 
 class TestEG4OperatingModeSelect:

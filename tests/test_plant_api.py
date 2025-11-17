@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from eg4_inverter_api.client import EG4InverterAPI
+from custom_components.eg4_web_monitor.eg4_inverter_api.client import EG4InverterAPI
 from secrets import EG4_USERNAME, EG4_PASSWORD, EG4_BASE_URL
 
 logging.basicConfig(level=logging.DEBUG)

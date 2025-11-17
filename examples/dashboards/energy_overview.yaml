@@ -1,0 +1,146 @@
+# EG4 Web Monitor - Energy Overview Dashboard
+#
+# A comprehensive energy monitoring dashboard showing real-time power flow,
+# battery status, and daily energy statistics
+#
+# To use: Copy this configuration to your Lovelace dashboard
+# Adjust entity IDs to match your inverter serial numbers
+
+type: vertical-stack
+cards:
+  # Power Flow Card
+  - type: custom:power-flow-card-plus
+    title: Energy Flow
+    entities:
+      grid:
+        entity: sensor.eg4_flexboss21_1234567890_grid_power
+        name: Grid
+      solar:
+        entity: sensor.eg4_flexboss21_1234567890_pv_power
+        name: Solar
+      battery:
+        entity: sensor.eg4_flexboss21_1234567890_battery_power
+        state_of_charge: sensor.eg4_flexboss21_1234567890_battery_soc
+        name: Battery
+      home:
+        entity: sensor.eg4_flexboss21_1234567890_load_power
+        name: Home
+
+  # Real-Time Power Metrics
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_pv_power
+        name: Solar Production
+        icon: mdi:solar-power
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_grid_power
+        name: Grid Power
+        icon: mdi:transmission-tower
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_load_power
+        name: Load Consumption
+        icon: mdi:home-lightning-bolt
+
+  # Battery Status
+  - type: horizontal-stack
+    cards:
+      - type: gauge
+        entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        name: Battery SOC
+        min: 0
+        max: 100
+        severity:
+          green: 60
+          yellow: 30
+          red: 0
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_battery_power
+        name: Battery Power
+        icon: mdi:battery-charging
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_battery_voltage
+        name: Battery Voltage
+        icon: mdi:lightning-bolt
+
+  # Daily Energy Statistics
+  - type: horizontal-stack
+    cards:
+      - type: statistic
+        entity: sensor.eg4_flexboss21_1234567890_daily_pv_generation
+        name: Solar Generated Today
+        icon: mdi:solar-power
+        stat_type: change
+      - type: statistic
+        entity: sensor.eg4_flexboss21_1234567890_daily_load_consumption
+        name: Consumed Today
+        icon: mdi:home-import-outline
+        stat_type: change
+      - type: statistic
+        entity: sensor.eg4_flexboss21_1234567890_daily_grid_import
+        name: Grid Import Today
+        icon: mdi:transmission-tower-import
+        stat_type: change
+
+  # Historical Charts
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Power Flow (24h)
+    graph_span: 24h
+    series:
+      - entity: sensor.eg4_flexboss21_1234567890_pv_power
+        name: Solar
+        color: orange
+      - entity: sensor.eg4_flexboss21_1234567890_grid_power
+        name: Grid
+        color: blue
+      - entity: sensor.eg4_flexboss21_1234567890_load_power
+        name: Load
+        color: red
+      - entity: sensor.eg4_flexboss21_1234567890_battery_power
+        name: Battery
+        color: green
+
+  # Battery SOC History
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Battery SOC (7 days)
+    graph_span: 7d
+    series:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        name: Battery %
+        color: green
+
+  # Grid Status and Frequency
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: binary_sensor.eg4_flexboss21_1234567890_grid_status
+        name: Grid Connection
+        icon: mdi:power-plug
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_grid_frequency
+        name: Grid Frequency
+        icon: mdi:sine-wave
+      - type: entity
+        entity: sensor.eg4_flexboss21_1234567890_grid_voltage
+        name: Grid Voltage
+        icon: mdi:lightning-bolt
+
+  # System Controls
+  - type: entities
+    title: System Controls
+    show_header_toggle: false
+    entities:
+      - entity: select.eg4_flexboss21_1234567890_operating_mode
+        name: Operating Mode
+      - entity: switch.eg4_flexboss21_1234567890_grid_charge
+        name: Grid Charging
+      - entity: switch.eg4_flexboss21_1234567890_feed_in_grid
+        name: Grid Export
+      - entity: number.eg4_flexboss21_1234567890_ac_charge_power
+        name: AC Charge Power
+      - entity: button.eg4_flexboss21_1234567890_refresh_data
+        name: Refresh Data

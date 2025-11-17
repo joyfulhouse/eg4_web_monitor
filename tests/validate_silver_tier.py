@@ -104,7 +104,8 @@ class SilverTierValidator:
         self.checks_total += 1
         print("3️⃣  Checking documentation completeness...")
 
-        readme = self.base_path / "README.md"
+        # README.md is at repo root
+        readme = Path("README.md")
         if not readme.exists():
             self.errors.append("README.md not found")
             return
@@ -134,7 +135,8 @@ class SilverTierValidator:
         self.checks_total += 1
         print("4️⃣  Checking installation documentation...")
 
-        readme = self.base_path / "README.md"
+        # README.md is at repo root
+        readme = Path("README.md")
         content = readme.read_text().lower()
 
         if "installation" not in content:
@@ -300,7 +302,8 @@ class SilverTierValidator:
         self.checks_total += 1
         print("🔟 Checking test coverage requirement...")
 
-        tests_dir = self.base_path / "tests"
+        # Tests are at repo root
+        tests_dir = Path("tests")
         if not tests_dir.exists():
             self.errors.append("tests directory not found")
             return
@@ -345,11 +348,15 @@ class SilverTierValidator:
 
 def main():
     """Main validation entry point."""
-    # Determine base path (integration root)
-    script_path = Path(__file__).resolve()
-    base_path = script_path.parent.parent
+    # Expect to run from repo root, integration at custom_components/eg4_web_monitor
+    integration_path = Path("custom_components/eg4_web_monitor")
 
-    validator = SilverTierValidator(base_path)
+    if not integration_path.exists():
+        print("❌ Error: Must run from repository root")
+        print(f"   Expected integration at: {integration_path}")
+        sys.exit(1)
+
+    validator = SilverTierValidator(integration_path)
     success = validator.validate_all()
 
     sys.exit(0 if success else 1)

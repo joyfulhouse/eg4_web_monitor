@@ -26,7 +26,7 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          python -m compileall -q __init__.py config_flow.py coordinator.py sensor.py number.py switch.py button.py select.py utils.py const.py
+          python -m compileall -q custom_components/eg4_web_monitor/__init__.py custom_components/eg4_web_monitor/config_flow.py custom_components/eg4_web_monitor/coordinator.py custom_components/eg4_web_monitor/sensor.py custom_components/eg4_web_monitor/number.py custom_components/eg4_web_monitor/switch.py custom_components/eg4_web_monitor/button.py custom_components/eg4_web_monitor/select.py custom_components/eg4_web_monitor/utils.py custom_components/eg4_web_monitor/const.py
           if [ $? -eq 0 ]; then
             echo "✅ All Python files have valid syntax"
           else
@@ -61,7 +61,7 @@ jobs:
         run: |
           python3 -c "
           import json
-          with open('manifest.json', 'r') as f:
+          with open('custom_components/eg4_web_monitor/manifest.json', 'r') as f:
               manifest = json.load(f)
 
           required_fields = ['domain', 'name', 'documentation', 'issue_tracker', 'version', 'config_flow', 'requirements']
@@ -109,11 +109,11 @@ jobs:
 
       - name: Check for typed ConfigEntry
         run: |
-          if ! grep -qE "(type.*ConfigEntry\[|TypeAlias.*=.*ConfigEntry\[)" __init__.py; then
+          if ! grep -qE "(type.*ConfigEntry\[|TypeAlias.*=.*ConfigEntry\[)" custom_components/eg4_web_monitor/__init__.py; then
             echo "❌ Typed ConfigEntry not found"
             exit 1
           fi
-          if ! grep -q "entry.runtime_data" __init__.py; then
+          if ! grep -q "entry.runtime_data" custom_components/eg4_web_monitor/__init__.py; then
             echo "❌ entry.runtime_data not used"
             exit 1
           fi
@@ -128,11 +128,11 @@ jobs:
 
       - name: Check async_setup exists
         run: |
-          if ! grep -q "async def async_setup" __init__.py; then
+          if ! grep -q "async def async_setup" custom_components/eg4_web_monitor/__init__.py; then
             echo "❌ async_setup function not found"
             exit 1
           fi
-          if ! grep -q "hass.services.async_register" __init__.py; then
+          if ! grep -q "hass.services.async_register" custom_components/eg4_web_monitor/__init__.py; then
             echo "❌ Service registration not found"
             exit 1
           fi
@@ -147,7 +147,7 @@ jobs:
 
       - name: Check has_entity_name
         run: |
-          for file in sensor.py number.py switch.py button.py select.py; do
+          for file in custom_components/eg4_web_monitor/sensor.py custom_components/eg4_web_monitor/number.py custom_components/eg4_web_monitor/switch.py custom_components/eg4_web_monitor/button.py custom_components/eg4_web_monitor/select.py; do
             if [ -f "$file" ]; then
               if ! grep -q "_attr_has_entity_name.*=.*True" "$file"; then
                 echo "⚠️  $file may not use has_entity_name = True"
@@ -166,7 +166,7 @@ jobs:
 
       - name: Check unique_id assignment
         run: |
-          for file in sensor.py number.py switch.py button.py select.py; do
+          for file in custom_components/eg4_web_monitor/sensor.py custom_components/eg4_web_monitor/number.py custom_components/eg4_web_monitor/switch.py custom_components/eg4_web_monitor/button.py custom_components/eg4_web_monitor/select.py; do
             if [ -f "$file" ]; then
               if ! grep -q "_attr_unique_id" "$file"; then
                 echo "❌ $file does not assign _attr_unique_id"
@@ -176,7 +176,7 @@ jobs:
             fi
           done
 
-          if ! grep -q "async_set_unique_id" config_flow.py; then
+          if ! grep -q "async_set_unique_id" custom_components/eg4_web_monitor/config_flow.py; then
             echo "❌ Config flow does not set unique_id"
             exit 1
           fi
@@ -255,8 +255,8 @@ jobs:
           echo ""
           echo "✅ **All 18 Bronze Tier Requirements Met**"
           echo ""
-          echo "Version: $(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)"
-          echo "Domain: $(grep -o '"domain": "[^"]*"' manifest.json | cut -d'"' -f4)"
+          echo "Version: $(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
+          echo "Domain: $(grep -o '"domain": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
 
   # ========================================
   # SILVER TIER VALIDATION
@@ -273,7 +273,7 @@ jobs:
       - name: Validate service exception handling
         run: |
           python3 -c "
-          with open('__init__.py', 'r') as f:
+          with open('custom_components/eg4_web_monitor/__init__.py', 'r') as f:
               content = f.read()
 
           if 'ServiceValidationError' not in content:
@@ -298,7 +298,7 @@ jobs:
       - name: Validate config entry unload
         run: |
           python3 -c "
-          with open('__init__.py', 'r') as f:
+          with open('custom_components/eg4_web_monitor/__init__.py', 'r') as f:
               content = f.read()
 
           if 'async def async_unload_entry' not in content:
@@ -343,7 +343,7 @@ jobs:
       - name: Check entity availability
         run: |
           found=0
-          for file in sensor.py switch.py number.py button.py select.py; do
+          for file in custom_components/eg4_web_monitor/sensor.py custom_components/eg4_web_monitor/switch.py custom_components/eg4_web_monitor/number.py custom_components/eg4_web_monitor/button.py custom_components/eg4_web_monitor/select.py; do
             if [ -f "$file" ]; then
               if grep -q "def available" "$file"; then
                 found=1
@@ -368,7 +368,7 @@ jobs:
         run: |
           python3 -c "
           import json
-          with open('manifest.json', 'r') as f:
+          with open('custom_components/eg4_web_monitor/manifest.json', 'r') as f:
               manifest = json.load(f)
 
           if 'codeowners' not in manifest or not manifest['codeowners']:
@@ -389,7 +389,7 @@ jobs:
       - name: Validate unavailability logging
         run: |
           python3 -c "
-          with open('coordinator.py', 'r') as f:
+          with open('custom_components/eg4_web_monitor/coordinator.py', 'r') as f:
               content = f.read()
 
           if '_last_available_state' not in content:
@@ -418,7 +418,7 @@ jobs:
       - name: Validate MAX_PARALLEL_UPDATES
         run: |
           missing=""
-          for file in sensor.py number.py switch.py button.py select.py; do
+          for file in custom_components/eg4_web_monitor/sensor.py number.py switch.py button.py select.py; do
             if [ -f "$file" ]; then
               if ! grep -q "MAX_PARALLEL_UPDATES" "$file"; then
                 missing="$missing $file"
@@ -444,7 +444,7 @@ jobs:
       - name: Validate reauthentication flow
         run: |
           python3 -c "
-          with open('config_flow.py', 'r') as f:
+          with open('custom_components/eg4_web_monitor/config_flow.py', 'r') as f:
               flow_content = f.read()
 
           if 'async_step_reauth' not in flow_content:
@@ -499,7 +499,7 @@ jobs:
           echo "✅ **All 10 Silver Tier Requirements Met**"
           echo "✅ All 18 Bronze Tier Requirements Met (inherited)"
           echo ""
-          echo "Version: $(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)"
+          echo "Version: $(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
 
   # ========================================
   # GOLD TIER VALIDATION
@@ -515,14 +515,14 @@ jobs:
 
       - name: Validate strings.json
         run: |
-          if [ ! -f "strings.json" ]; then
+          if [ ! -f "custom_components/eg4_web_monitor/strings.json" ]; then
             echo "❌ strings.json not found"
             exit 1
           fi
 
           python3 -c "
           import json
-          with open('strings.json', 'r') as f:
+          with open('custom_components/eg4_web_monitor/strings.json', 'r') as f:
               data = json.load(f)
 
           required_sections = ['config', 'options', 'entity', 'services']
@@ -541,11 +541,11 @@ jobs:
 
       - name: Validate translations directory
         run: |
-          if [ ! -d "translations" ]; then
+          if [ ! -d "custom_components/eg4_web_monitor/translations" ]; then
             echo "❌ translations/ directory not found"
             exit 1
           fi
-          if [ ! -f "translations/en.json" ]; then
+          if [ ! -f "custom_components/eg4_web_monitor/translations/en.json" ]; then
             echo "❌ translations/en.json not found"
             exit 1
           fi
@@ -562,7 +562,7 @@ jobs:
       - name: Validate reconfiguration implementation
         run: |
           python3 -c "
-          with open('config_flow.py', 'r') as f:
+          with open('custom_components/eg4_web_monitor/config_flow.py', 'r') as f:
               content = f.read()
 
           if 'async def async_step_reconfigure' not in content:
@@ -641,16 +641,9 @@ jobs:
           fi
           echo "✅ Test infrastructure in place ($test_files test files)"
 
-      - name: Set up test environment
-        run: |
-          mkdir -p ../custom_components
-          ln -s $(pwd) ../custom_components/eg4_web_monitor
-          echo "PYTHONPATH=$(pwd)/.." >> $GITHUB_ENV
-
       - name: Run tests with coverage
         run: |
-          export PYTHONPATH=$PYTHONPATH:$(pwd)/..
-          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
+          pytest tests/ --ignore=tests/test_plant_api.py -v --tb=short -c tests/pytest.ini --cov=custom_components/eg4_web_monitor --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -704,7 +697,7 @@ jobs:
           echo "- ✅ Comprehensive test coverage"
           echo "- ✅ Professional code quality"
           echo ""
-          echo "Version: $(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)"
+          echo "Version: $(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
           echo ""
           echo "🎉 All quality tier validations passed!"
 
@@ -730,21 +723,21 @@ jobs:
           echo "Checking API client for websession injection support..."
 
           # Check API client __init__ signature
-          if ! grep -q "session:\s*Optional\[aiohttp.ClientSession\]\s*=\s*None" eg4_inverter_api/client.py; then
+          if ! grep -q "session:\s*Optional\[aiohttp.ClientSession\]\s*=\s*None" custom_components/eg4_web_monitor/eg4_inverter_api/client.py; then
             echo "❌ API client does not support session injection"
             exit 1
           fi
           echo "✅ API client supports session parameter"
 
           # Check coordinator uses injection
-          if ! grep -q "async_get_clientsession" coordinator.py; then
+          if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/coordinator.py; then
             echo "❌ Coordinator does not inject session"
             exit 1
           fi
           echo "✅ Coordinator injects Home Assistant session"
 
           # Check config flow uses injection
-          if ! grep -q "async_get_clientsession" config_flow.py; then
+          if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/config_flow.py; then
             echo "❌ Config flow does not inject session"
             exit 1
           fi
@@ -772,27 +765,27 @@ jobs:
           echo "Checking mypy configuration..."
 
           # Check mypy.ini exists
-          if [ ! -f "mypy.ini" ]; then
+          if [ ! -f "tests/mypy.ini" ]; then
             echo "❌ mypy.ini not found"
             exit 1
           fi
           echo "✅ mypy.ini exists"
 
           # Check strict mode enabled
-          if ! grep -q "strict = True" mypy.ini; then
+          if ! grep -q "strict = True" tests/mypy.ini; then
             echo "❌ mypy strict mode not enabled"
             exit 1
           fi
           echo "✅ mypy strict mode enabled"
 
           # Check py.typed markers
-          if [ ! -f "py.typed" ]; then
+          if [ ! -f "custom_components/eg4_web_monitor/py.typed" ]; then
             echo "❌ py.typed marker missing (main package)"
             exit 1
           fi
           echo "✅ py.typed marker exists (main package)"
 
-          if [ ! -f "eg4_inverter_api/py.typed" ]; then
+          if [ ! -f "custom_components/eg4_web_monitor/eg4_inverter_api/py.typed" ]; then
             echo "❌ py.typed marker missing (API package)"
             exit 1
           fi
@@ -803,9 +796,7 @@ jobs:
           echo "Running mypy type checking..."
           # Check integration package files, excluding test/development files
           # The eg4_inverter_api package is checked via relative imports from main files
-          mypy --config-file mypy.ini \
-            __init__.py button.py config_flow.py const.py coordinator.py \
-            number.py select.py sensor.py switch.py utils.py
+          mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
           if [ $? -ne 0 ]; then
             echo "❌ Type errors found - must be fixed for Platinum tier"
             exit 1
@@ -827,8 +818,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          if [ -f "requirements-test.txt" ]; then
-            pip install -r requirements-test.txt
+          if [ -f "tests/requirements-test.txt" ]; then
+            pip install -r tests/requirements-test.txt
           fi
           pip install pytest pytest-asyncio pytest-cov aiohttp homeassistant pytest-homeassistant-custom-component
 
@@ -905,6 +896,6 @@ jobs:
           echo ""
           echo "Total Requirements Met: 36/36"
           echo ""
-          echo "Version: $(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)"
+          echo "Version: $(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
           echo ""
           echo "🏆 PLATINUM TIER QUALITY ACHIEVED! 🏆"

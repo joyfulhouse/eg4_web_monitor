@@ -1,0 +1,22 @@
+# CODEOWNERS file for EG4 Web Monitor integration
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repository
+* @btli @joyfulhouse
+
+# Integration code
+/custom_components/eg4_web_monitor/ @btli @joyfulhouse
+
+# Tests
+/tests/ @btli @joyfulhouse
+
+# Documentation
+/README.md @btli @joyfulhouse
+/CLAUDE.md @btli @joyfulhouse
+/examples/ @btli @joyfulhouse
+
+# CI/CD
+/.github/ @btli @joyfulhouse
+
+# Configuration files
+/hacs.json @btli @joyfulhouse

@@ -160,7 +160,7 @@ Station/Plant (plantId)
 - UTC-based timing for consistency
 
 ### v1.4.0 - September 2025: Production Optimization
-- Pylint score 10.00/10 - zero technical debt
+- Code quality validation with ruff (zero linting errors)
 - Circuit breaker pattern with exponential backoff
 - 9 consolidated utility functions (70% code reduction)
 - Enhanced parameter reading error handling
@@ -174,7 +174,7 @@ Station/Plant (plantId)
 - Parallel group naming improvements
 
 ### v1.2.4 - September 2025: Code Quality
-- Pylint score improved to 9.39/10
+- Code quality improvements with automated linting
 - Consolidated field mappings in const.py
 - Missing sensor resolution (PV power, SOC, radiator temps)
 - Entity count: 231 sensors
@@ -207,55 +207,54 @@ source /tmp/eg4-test/bin/activate
 pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-cov mypy aiohttp ruff homeassistant
 ```
 
-**Running Tests** (run from integration directory):
+**Running Tests** (run from repository root):
 ```bash
 # Activate the test environment
 source /tmp/eg4-test/bin/activate
 
-# Run all tests from parent directory (custom_components/) with proper PYTHONPATH
-cd /Users/bryanli/Projects/joyfulhouse
-export PYTHONPATH=/Users/bryanli/Projects/joyfulhouse
-pytest custom_components/eg4_web_monitor/tests/ -x --tb=short
+# Navigate to repository root
+cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+
+# Run all tests
+pytest tests/ -x --tb=short
 
 # Run with code coverage
-pytest custom_components/eg4_web_monitor/tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 
 # Run single test file
-pytest custom_components/eg4_web_monitor/tests/test_config_flow.py -v
+pytest tests/test_config_flow.py -v
 ```
 
-**Pre-Commit Validation Checklist**:
+**Pre-Commit Validation Checklist** (all commands run from repository root):
 ```bash
-# From integration directory: /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+# Navigate to repository root
+cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+
+# Activate test environment
 source /tmp/eg4-test/bin/activate
 
-# 1. Run all unit tests (from parent directory)
-cd /Users/bryanli/Projects/joyfulhouse
-export PYTHONPATH=/Users/bryanli/Projects/joyfulhouse
-pytest custom_components/eg4_web_monitor/tests/ -x
+# 1. Run all unit tests
+pytest tests/ -x
 
-# 2. Run tier validation scripts (from integration directory)
-cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+# 2. Run tier validation scripts (validates repository structure)
 python3 tests/validate_silver_tier.py
 python3 tests/validate_gold_tier.py
 python3 tests/validate_platinum_tier.py
 
-# 3. Run mypy type checking (from integration directory)
-mypy --config-file mypy.ini \
-  __init__.py button.py config_flow.py const.py coordinator.py \
-  number.py select.py sensor.py switch.py utils.py
+# 3. Run mypy type checking on integration files
+mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 
-# 4. Run ruff linting (from integration directory)
-ruff check . --fix && ruff format .
+# 4. Run ruff linting on integration files
+ruff check custom_components/ --fix && ruff format custom_components/
 
-# 5. Verify all 236 tests pass with no teardown errors
+# 5. Verify all 301 tests pass with no teardown errors
 # 6. Only push to GitHub after all local validations pass
 ```
 
 **Why This Approach?**:
-- Tests run from parent directory (`custom_components/`) to properly resolve imports
-- PYTHONPATH set to parent directory enables `from custom_components.eg4_web_monitor.*` imports
-- Mypy runs only on specific files to avoid "Source file found twice" errors
+- Repository structure follows HACS best practices with integration in `custom_components/` subdirectory
+- No PYTHONPATH hacks needed - pytest-homeassistant-custom-component handles directory structure
+- Tests automatically discover the integration via the `custom_components/` directory
 - Isolated virtual environment prevents system package interference
 - Saves GitHub Actions compute credits by testing locally first
 
@@ -297,11 +296,11 @@ homeassistant>=2024.1.0
 
 **Running Tests**:
 ```bash
-# Install test dependencies
-pip install -r requirements-test.txt
+# Install test dependencies (from repository root)
+pip install -r tests/requirements-test.txt
 
 # Run all tests with coverage
-pytest tests/ --cov=. --cov-report=term-missing --cov-config=.coveragerc
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 
 # Run specific test file
 pytest tests/test_config_flow.py -v

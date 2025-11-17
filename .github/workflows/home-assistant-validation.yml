@@ -23,42 +23,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: repository
-
-      - name: Create custom_components structure
-        run: |
-          # Create the standard Home Assistant custom_components directory structure
-          mkdir -p custom_components/eg4_web_monitor
-
-          # Copy integration files excluding gitignored items
-          rsync -av \
-            --exclude='venv' \
-            --exclude='.venv' \
-            --exclude='*.pyc' \
-            --exclude='__pycache__' \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='test_env' \
-            --exclude='eg4_test_env' \
-            --exclude='samples' \
-            --exclude='eg4_inverter_api/samples' \
-            --exclude='secrets.py' \
-            --exclude='.claude' \
-            --exclude='claude' \
-            --exclude='.mypy_cache' \
-            --exclude='.pytest_cache' \
-            --exclude='.coverage' \
-            --exclude='*.egg-info' \
-            repository/ custom_components/eg4_web_monitor/
-
-          ls -la custom_components/eg4_web_monitor/
 
       - name: Run Hassfest
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/custom_components:/github/workspace \
-            ghcr.io/home-assistant/hassfest
+        uses: home-assistant/actions/hassfest@master
 
   # ========================================
   # HACS VALIDATION
@@ -99,7 +66,7 @@ jobs:
           echo "✅ Hassfest validation passed"
           echo "✅ HACS validation passed"
           echo ""
-          echo "Version: $(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)"
-          echo "Domain: $(grep -o '"domain": "[^"]*"' manifest.json | cut -d'"' -f4)"
+          echo "Version: $(grep -o '"version": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
+          echo "Domain: $(grep -o '"domain": "[^"]*"' custom_components/eg4_web_monitor/manifest.json | cut -d'"' -f4)"
           echo ""
           echo "Integration is ready for Home Assistant and HACS!"

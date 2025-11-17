@@ -1,0 +1,166 @@
+# EG4 Web Monitor - Battery Details Dashboard
+#
+# Detailed battery monitoring including individual battery cells,
+# temperatures, voltages, and health metrics
+#
+# To use: Copy this configuration to your Lovelace dashboard
+# Adjust entity IDs to match your inverter serial numbers
+
+type: vertical-stack
+cards:
+  # Battery Overview
+  - type: horizontal-stack
+    cards:
+      - type: gauge
+        entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        name: State of Charge
+        min: 0
+        max: 100
+        needle: true
+        severity:
+          green: 60
+          yellow: 30
+          red: 0
+      - type: gauge
+        entity: sensor.eg4_flexboss21_1234567890_battery_1_soh
+        name: State of Health
+        min: 0
+        max: 100
+        needle: true
+        severity:
+          green: 80
+          yellow: 60
+          red: 0
+
+  # Battery Metrics
+  - type: entities
+    title: Battery System
+    show_header_toggle: false
+    entities:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_power
+        name: Power
+        icon: mdi:battery-charging
+      - entity: sensor.eg4_flexboss21_1234567890_battery_voltage
+        name: Voltage
+        icon: mdi:lightning-bolt
+      - entity: sensor.eg4_flexboss21_1234567890_battery_current
+        name: Current
+        icon: mdi:current-dc
+      - type: divider
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_temperature
+        name: Temperature
+        icon: mdi:thermometer
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cycle_count
+        name: Cycle Count
+        icon: mdi:counter
+
+  # Individual Battery 1 Details
+  - type: entities
+    title: Battery 1 - Cell Details
+    show_header_toggle: false
+    entities:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_voltage
+        name: Pack Voltage
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_current
+        name: Pack Current
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_power
+        name: Pack Power
+      - type: divider
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta
+        name: Cell Imbalance
+        icon: mdi:delta
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_1_voltage
+        name: Cell 1
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_2_voltage
+        name: Cell 2
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_3_voltage
+        name: Cell 3
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_4_voltage
+        name: Cell 4
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_5_voltage
+        name: Cell 5
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_6_voltage
+        name: Cell 6
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_7_voltage
+        name: Cell 7
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_8_voltage
+        name: Cell 8
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_9_voltage
+        name: Cell 9
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_10_voltage
+        name: Cell 10
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_11_voltage
+        name: Cell 11
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_12_voltage
+        name: Cell 12
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_13_voltage
+        name: Cell 13
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_14_voltage
+        name: Cell 14
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_15_voltage
+        name: Cell 15
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_16_voltage
+        name: Cell 16
+
+  # Cell Voltage Chart
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Cell Voltage Balance
+    graph_span: 6h
+    series:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_1_voltage
+        name: Cell 1
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_8_voltage
+        name: Cell 8
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_16_voltage
+        name: Cell 16
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta
+        name: Delta
+        color: red
+
+  # Battery Temperature History
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Battery Temperature (24h)
+    graph_span: 24h
+    series:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_temperature
+        name: Temperature
+
+  # Battery Power/SOC Chart
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Battery Power & SOC (7 days)
+    graph_span: 7d
+    series:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_power
+        name: Power (W)
+        yaxis_id: power
+      - entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        name: SOC (%)
+        yaxis_id: soc
+    yaxis:
+      - id: power
+        min: -5000
+        max: 5000
+      - id: soc
+        opposite: true
+        min: 0
+        max: 100
+
+  # Battery Controls
+  - type: entities
+    title: Battery Configuration
+    show_header_toggle: false
+    entities:
+      - entity: number.eg4_flexboss21_1234567890_battery_low_soc_limit
+        name: Low SOC Limit
+      - entity: number.eg4_flexboss21_1234567890_battery_high_soc_limit
+        name: High SOC Limit
+      - entity: switch.eg4_flexboss21_1234567890_battery_equalization
+        name: Battery Equalization
+      - entity: button.eg4_flexboss21_1234567890_battery_1_refresh_data
+        name: Refresh Battery Data

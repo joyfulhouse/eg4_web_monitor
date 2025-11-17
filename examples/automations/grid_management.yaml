@@ -1,0 +1,104 @@
+# EG4 Web Monitor - Grid Management Automations
+#
+# These automations help manage grid interaction and optimize energy usage
+
+# Alert when grid power import is high
+- alias: "EG4 - High Grid Import Alert"
+  description: "Notify when importing excessive power from grid"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_grid_power
+      above: 5000  # 5kW threshold
+      for:
+        minutes: 5
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "High Grid Import"
+        message: "Importing {{ states('sensor.eg4_flexboss21_1234567890_grid_power') }}W from grid"
+
+# Enable/disable grid charging based on electricity rates
+- alias: "EG4 - Smart Grid Charging"
+  description: "Control grid charging based on time-of-use rates"
+  trigger:
+    - platform: time
+      at:
+        - "02:00:00"  # Off-peak starts
+        - "06:00:00"  # Off-peak ends
+  action:
+    - choose:
+        - conditions:
+            - condition: time
+              after: "02:00:00"
+              before: "06:00:00"
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id: switch.eg4_flexboss21_1234567890_grid_charge
+        - conditions:
+            - condition: time
+              after: "06:00:00"
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: switch.eg4_flexboss21_1234567890_grid_charge
+
+# Monitor grid frequency for stability
+- alias: "EG4 - Grid Frequency Alert"
+  description: "Alert when grid frequency is outside normal range"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_grid_frequency
+      below: 59.5
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_grid_frequency
+      above: 60.5
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Grid Frequency Alert"
+        message: "Grid frequency is {{ states('sensor.eg4_flexboss21_1234567890_grid_frequency') }}Hz"
+        data:
+          priority: high
+
+# Export control based on battery SOC
+- alias: "EG4 - Smart Grid Export"
+  description: "Enable grid export only when battery is sufficiently charged"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+  action:
+    - choose:
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              above: 80
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id: switch.eg4_flexboss21_1234567890_feed_in_grid
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.eg4_flexboss21_1234567890_battery_soc
+              below: 30
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: switch.eg4_flexboss21_1234567890_feed_in_grid
+
+# Daily energy summary
+- alias: "EG4 - Daily Energy Summary"
+  description: "Send daily energy production and consumption report"
+  trigger:
+    - platform: time
+      at: "20:00:00"
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "Daily Energy Summary"
+        message: |
+          Today's Energy:
+          Grid Import: {{ states('sensor.eg4_flexboss21_1234567890_daily_grid_import') }} kWh
+          Grid Export: {{ states('sensor.eg4_flexboss21_1234567890_daily_grid_export') }} kWh
+          PV Generation: {{ states('sensor.eg4_flexboss21_1234567890_daily_pv_generation') }} kWh
+          Load Consumption: {{ states('sensor.eg4_flexboss21_1234567890_daily_load_consumption') }} kWh

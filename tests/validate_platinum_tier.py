@@ -43,7 +43,7 @@ def check_async_dependency() -> bool:
     )
 
     # Check manifest.json for aiohttp requirement
-    manifest_path = Path(__file__).parent.parent / "manifest.json"
+    manifest_path = Path("custom_components/eg4_web_monitor") / "manifest.json"
     if not manifest_path.exists():
         print("  ❌ manifest.json not found")
         return False
@@ -76,7 +76,9 @@ def check_websession_injection() -> bool:
     )
 
     # Check API client for session parameter in __init__
-    client_path = Path(__file__).parent.parent / "eg4_inverter_api" / "client.py"
+    client_path = (
+        Path("custom_components/eg4_web_monitor") / "eg4_inverter_api" / "client.py"
+    )
     if not client_path.exists():
         print("  ❌ API client file not found")
         return False
@@ -93,7 +95,7 @@ def check_websession_injection() -> bool:
             return False
 
         # Check for session injection in coordinator
-        coordinator_path = Path(__file__).parent.parent / "coordinator.py"
+        coordinator_path = Path("custom_components/eg4_web_monitor") / "coordinator.py"
         if not coordinator_path.exists():
             print("  ❌ Coordinator file not found")
             return False
@@ -109,7 +111,7 @@ def check_websession_injection() -> bool:
                 return False
 
         # Check for session injection in config_flow
-        config_flow_path = Path(__file__).parent.parent / "config_flow.py"
+        config_flow_path = Path("custom_components/eg4_web_monitor") / "config_flow.py"
         if not config_flow_path.exists():
             print("  ❌ Config flow file not found")
             return False
@@ -137,9 +139,9 @@ def check_strict_typing() -> bool:
     )
 
     # Check for mypy.ini
-    mypy_config_path = Path(__file__).parent.parent / "mypy.ini"
+    mypy_config_path = Path("tests/mypy.ini")
     if not mypy_config_path.exists():
-        print("  ❌ mypy.ini not found")
+        print("  ❌ tests/mypy.ini not found")
         return False
 
     with open(mypy_config_path, "r", encoding="utf-8") as f:
@@ -153,8 +155,8 @@ def check_strict_typing() -> bool:
             return False
 
     # Check for py.typed marker files
-    py_typed_main = Path(__file__).parent.parent / "py.typed"
-    py_typed_api = Path(__file__).parent.parent / "eg4_inverter_api" / "py.typed"
+    py_typed_main = Path("custom_components/eg4_web_monitor/py.typed")
+    py_typed_api = Path("custom_components/eg4_web_monitor/eg4_inverter_api/py.typed")
 
     if py_typed_main.exists():
         print("  ✅ py.typed marker file exists (main package)")
@@ -171,12 +173,12 @@ def check_strict_typing() -> bool:
     # Try to run mypy
     try:
         print("  🔍 Running mypy type checking...")
-        integration_dir = Path(__file__).parent.parent
+        # Running from repo root
+        integration_dir = Path("custom_components/eg4_web_monitor")
         result = subprocess.run(
             ["mypy", "--config-file", str(mypy_config_path), str(integration_dir)],
             capture_output=True,
             text=True,
-            cwd=integration_dir,
             check=False,
         )
 
