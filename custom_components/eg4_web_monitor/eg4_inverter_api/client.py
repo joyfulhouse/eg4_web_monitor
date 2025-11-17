@@ -209,12 +209,30 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 del self._response_cache[old_key]
 
     async def _ensure_authenticated(self) -> None:
-        """Ensure we have a valid authenticated session."""
+        """Ensure we have a valid authenticated session.
+
+        Solution 1: Proactive session refresh before expiry.
+        Refreshes session when < 5 minutes remaining to prevent authentication failures.
+        """
+        now = datetime.now()
+
+        # Check if session is missing or expired
         if (
             self._session_id is None
             or self._session_expires is None
-            or datetime.now() >= self._session_expires
+            or now >= self._session_expires
         ):
+            _LOGGER.info("Session expired or missing, re-authenticating")
+            await self.login()
+            return
+
+        # Solution 1: Proactive refresh when < 5 minutes remaining
+        time_until_expiry = self._session_expires - now
+        if time_until_expiry < timedelta(minutes=5):
+            _LOGGER.info(
+                "Session expiring in %s, proactively refreshing to prevent downtime",
+                time_until_expiry,
+            )
             await self.login()
 
     async def _make_request(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -294,31 +312,84 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
                 _LOGGER.warning(
                     "Authentication failed, attempting re-authentication: %s", e
                 )
-                # Clear current session and force re-authentication
+
+                # Solution 2: Enhanced session cleanup before re-authentication
+                # Clear current session state
                 self._session_id = None
                 self._session_expires = None
+
+                # Solution 2: Clear cookie jar to prevent conflicts
+                session = await self._get_session()
+                # pylint: disable=protected-access
+                if hasattr(session, "_cookie_jar") and session._cookie_jar:
+                    cookie_count = len(session._cookie_jar)
+                    session._cookie_jar.clear()
+                    _LOGGER.debug(
+                        "Cleared %d cookies during re-authentication", cookie_count
+                    )
+
+                # Solution 5: Enhanced debug logging for re-authentication
+                _LOGGER.info(
+                    "Re-authentication triggered for %s %s (retry_count=%d)",
+                    method,
+                    endpoint,
+                    retry_count,
+                )
+
                 # Retry the request once with fresh authentication
                 return await self._make_request(
                     method, endpoint, data, authenticated, retry_count + 1
                 )
             # Re-authentication failed or this was already a retry
             self._handle_request_error()  # Track error for backoff
-            _LOGGER.error("Re-authentication failed: %s", e)
+
+            # Solution 5: Enhanced debug logging for failed re-authentication
+            _LOGGER.error(
+                "Re-authentication failed: %s (retry_count=%d, consecutive_errors=%d)",
+                e,
+                retry_count,
+                self._consecutive_errors,
+            )
             raise
         except aiohttp.ClientError as e:
             self._handle_request_error()  # Track error for backoff
             raise EG4ConnectionError(f"Connection error: {e}") from e
 
     async def login(self) -> Dict[str, Any]:
-        """Authenticate with the EG4 API."""
+        """Authenticate with the EG4 API.
+
+        Solution 2: Enhanced session cleanup with cookie jar clearing.
+        Clears old session data before re-authentication to prevent conflicts.
+        """
+        # Solution 2: Clear old session data before re-authentication
+        session = await self._get_session()
+        # pylint: disable=protected-access
+        if hasattr(session, "_cookie_jar") and session._cookie_jar:
+            old_cookie_count = len(session._cookie_jar)
+            session._cookie_jar.clear()
+            _LOGGER.debug(
+                "Cleared %d old cookies from session before login", old_cookie_count
+            )
+
         data = {
             "account": self.username,
             "password": self.password,
         }
 
         try:
+            # Solution 5: Enhanced debug logging - log session state before login
+            _LOGGER.debug(
+                "Login attempt: session_id=%s, expires=%s",
+                self._session_id,
+                self._session_expires,
+            )
+
             result = await self._make_request(
-                "POST", "/WManage/api/login", data=data, authenticated=False
+                "POST",
+                "/WManage/api/login",
+                data=data,
+                authenticated=False,
+                skip_backoff=True,  # Solution 3: Skip backoff for login to bypass circuit breaker
             )
 
             # Extract session ID from cookies
@@ -333,7 +404,7 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             if not self._session_id:
                 # Try to extract from response headers if available
                 # This is a fallback method
-                pass
+                _LOGGER.warning("No JSESSIONID found in cookies after login")
 
             # Set session expiry (2 hours as per documentation)
             self._session_expires = datetime.now() + timedelta(hours=2)
@@ -341,7 +412,16 @@ class EG4InverterAPI:  # pylint: disable=too-many-public-methods
             # Clear parameter cache on new login to ensure fresh data
             self._clear_parameter_cache()
 
-            _LOGGER.info("Successfully authenticated with EG4 API")
+            # Solution 5: Enhanced debug logging - log successful login
+            _LOGGER.info(
+                "Successfully authenticated with EG4 API - session_id=%s, expires=%s",
+                self._session_id[:8] + "..." if self._session_id else None,
+                self._session_expires,
+            )
+
+            # Solution 3: Reset circuit breaker on successful login
+            self._handle_request_success()
+
             return result
 
         except Exception as e:
