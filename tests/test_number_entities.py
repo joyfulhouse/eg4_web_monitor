@@ -160,7 +160,7 @@ class TestACChargePowerNumber:
             serial="1234567890",
         )
 
-        assert entity.native_value == 5
+        assert entity.native_value == 5.0
 
     def test_native_value_missing_data(self):
         """Test getting value when data is missing."""
@@ -661,7 +661,7 @@ class TestNumberEntityValueRetrieval:
         entity._current_value = 8.0
 
         # native_value should return cached value
-        assert entity.native_value == 8
+        assert entity.native_value == 8.0
 
 
 class TestNumberEntityErrorHandling:
@@ -717,8 +717,8 @@ class TestNumberEntityErrorHandling:
         entity.hass.async_create_task = MagicMock()
         entity.async_write_ha_state = MagicMock()
 
-        # Value outside range (0-15 kW) should raise error
-        with pytest.raises(HomeAssistantError, match="must be between 0-15 kW"):
+        # Value outside range (0.0-15.0 kW) should raise error
+        with pytest.raises(HomeAssistantError, match="must be between 0.0-15.0 kW"):
             await entity.async_set_native_value(20.0)
 
         # API should not be called for out-of-range value
@@ -729,9 +729,8 @@ class TestNumberEntityErrorHandling:
         coordinator.api.write_parameter.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_value_non_integer(self):
-        """Test setting non-integer value raises error."""
-        from homeassistant.exceptions import HomeAssistantError
+    async def test_set_value_decimal(self):
+        """Test setting decimal value works correctly."""
         from custom_components.eg4_web_monitor.number import ACChargePowerNumber
 
         coordinator = MagicMock()
@@ -751,12 +750,13 @@ class TestNumberEntityErrorHandling:
         entity.hass.async_create_task = MagicMock()
         entity.async_write_ha_state = MagicMock()
 
-        # Non-integer value (5.7) should raise error
-        with pytest.raises(HomeAssistantError, match="must be an integer value"):
-            await entity.async_set_native_value(5.7)
+        # Decimal value (0.5) should work correctly
+        await entity.async_set_native_value(0.5)
 
-        # API should not be called
-        coordinator.api.write_parameter.assert_not_called()
+        # API should be called with the decimal value
+        coordinator.api.write_parameter.assert_called_once()
+        call_args = coordinator.api.write_parameter.call_args[1]
+        assert call_args["value_text"] == "0.5"
 
     @pytest.mark.asyncio
     async def test_set_value_api_write_failure(self):

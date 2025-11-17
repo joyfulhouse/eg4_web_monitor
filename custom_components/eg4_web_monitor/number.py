@@ -447,13 +447,14 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         )
 
         # Number configuration for AC Charge Power (0-15 kW)
+        # Supports decimal values (0.1 kW step) to match EG4 web interface
         self._attr_native_min_value = 0
         self._attr_native_max_value = 15
-        self._attr_native_step = 1
+        self._attr_native_step = 0.1
         self._attr_native_unit_of_measurement = "kW"
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-charging-medium"
-        self._attr_native_precision = 0
+        self._attr_native_precision = 1
         self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
@@ -470,18 +471,18 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         return bool(self.coordinator.last_update_success)
 
     @property
-    def native_value(self) -> Optional[int]:
-        """Return the current AC charge power value as integer."""
+    def native_value(self) -> Optional[float]:
+        """Return the current AC charge power value."""
         # First check if we have fresh data from coordinator's parameter cache
         coordinator_value = self._get_value_from_coordinator()
         if coordinator_value is not None:
             # Update our cached value and return it
             self._current_value = coordinator_value
-            return int(round(coordinator_value))
+            return round(coordinator_value, 1)
 
         # Fall back to cached value if available
         if hasattr(self, "_current_value") and self._current_value is not None:
-            return int(round(self._current_value))
+            return round(self._current_value, 1)
 
         # Return None to indicate unknown value
         return None
@@ -489,28 +490,21 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge power value."""
         try:
-            # Convert to integer and validate range
-            int_value = int(round(value))
-            if int_value < 0 or int_value > 15:
+            # Validate range (0.0-15.0 kW)
+            if value < 0.0 or value > 15.0:
                 raise ValueError(
-                    f"AC charge power must be between 0-15 kW, got {int_value}"
-                )
-
-            # Validate that the input is actually an integer
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"AC charge power must be an integer value, got {value}"
+                    f"AC charge power must be between 0.0-15.0 kW, got {value}"
                 )
 
             _LOGGER.info(
-                "Setting AC Charge Power for %s to %d kW", self.serial, int_value
+                "Setting AC Charge Power for %s to %.1f kW", self.serial, value
             )
 
             # Use the API client to write the parameter
             response = await self.coordinator.api.write_parameter(
                 inverter_sn=self.serial,
                 hold_param="HOLD_AC_CHARGE_POWER_CMD",
-                value_text=str(int_value),
+                value_text=str(value),
             )
 
             _LOGGER.debug(
@@ -532,9 +526,9 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
                 self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
                 _LOGGER.info(
-                    "Successfully set AC Charge Power for %s to %d kW",
+                    "Successfully set AC Charge Power for %s to %.1f kW",
                     self.serial,
-                    int_value,
+                    value,
                 )
             else:
                 error_msg = response.get("message", "Unknown error")
@@ -629,7 +623,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
 
     def _extract_ac_charge_power(
         self, response: Dict[str, Any], start_register: int
-    ) -> Optional[int]:
+    ) -> Optional[float]:
         """Extract HOLD_AC_CHARGE_POWER_CMD from parameter response."""
         if (
             "HOLD_AC_CHARGE_POWER_CMD" in response
@@ -637,22 +631,21 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         ):
             try:
                 raw_value = float(response["HOLD_AC_CHARGE_POWER_CMD"])
-                int_value = int(round(raw_value))
 
-                if 0 <= int_value <= 15:  # Validate range
+                if 0.0 <= raw_value <= 15.0:  # Validate range
                     _LOGGER.info(
-                        "Found HOLD_AC_CHARGE_POWER_CMD for %s (reg %d): %d kW",
+                        "Found HOLD_AC_CHARGE_POWER_CMD for %s (reg %d): %.1f kW",
                         self.serial,
                         start_register,
-                        int_value,
+                        raw_value,
                     )
-                    return int_value
+                    return raw_value
 
                 _LOGGER.warning(
-                    "HOLD_AC_CHARGE_POWER_CMD for %s (reg %d) out of range: %d kW",
+                    "HOLD_AC_CHARGE_POWER_CMD for %s (reg %d) out of range: %.1f kW",
                     self.serial,
                     start_register,
-                    int_value,
+                    raw_value,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
@@ -675,7 +668,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
                     raw_value = parameter_data["HOLD_AC_CHARGE_POWER_CMD"]
                     if raw_value is not None:
                         value = float(raw_value)
-                        if 0 <= value <= 15:  # Validate range
+                        if 0.0 <= value <= 15.0:  # Validate range
                             return value
         except (ValueError, TypeError, KeyError):
             pass
