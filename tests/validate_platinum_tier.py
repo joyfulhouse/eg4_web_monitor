@@ -76,7 +76,9 @@ def check_websession_injection() -> bool:
     )
 
     # Check API client for session parameter in __init__
-    client_path = Path("custom_components/eg4_web_monitor") / "eg4_inverter_api" / "client.py"
+    client_path = (
+        Path("custom_components/eg4_web_monitor") / "eg4_inverter_api" / "client.py"
+    )
     if not client_path.exists():
         print("  ❌ API client file not found")
         return False
