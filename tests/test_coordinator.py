@@ -1,6 +1,5 @@
 """Tests for EG4 Data Update Coordinator."""
 
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
