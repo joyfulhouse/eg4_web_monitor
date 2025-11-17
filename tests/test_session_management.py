@@ -1,11 +1,8 @@
 """Tests for session management and re-authentication features (v2.2.2)."""
 
-import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import aiohttp
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -151,23 +148,17 @@ class TestEnhancedSessionCleanup:
             session=session,
         )
 
-        # Add a fake cookie to the jar
-        # pylint: disable=protected-access
-        if hasattr(session, "_cookie_jar"):
-            # Verify we can clear cookies
-            initial_count = len(session._cookie_jar)
+        # Mock the _make_request to avoid actual API call
+        with patch.object(
+            api, "_make_request", new_callable=AsyncMock
+        ) as mock_request:
+            mock_request.return_value = {"success": True}
 
-            # Mock the _make_request to avoid actual API call
-            with patch.object(
-                api, "_make_request", new_callable=AsyncMock
-            ) as mock_request:
-                mock_request.return_value = {"success": True}
+            # Call login
+            await api.login()
 
-                # Call login
-                await api.login()
-
-                # Verify _make_request was called
-                mock_request.assert_called_once()
+            # Verify _make_request was called
+            mock_request.assert_called_once()
 
     async def test_cookie_jar_cleared_during_reauth(
         self, hass: HomeAssistant
