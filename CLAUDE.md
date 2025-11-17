@@ -145,7 +145,51 @@ Station/Plant (plantId)
 - Parallel updates with `MAX_PARALLEL_UPDATES` limits
 - Different update intervals for different data types
 
+## Release Process
+
+### Important Notes for All Releases Until v3.0
+**CRITICAL**: All release notes from v2.2.1 through v2.x.x must include the following HACS upgrade notice for users coming from versions prior to v2.2.1:
+
+```markdown
+## Upgrade Notes
+
+**⚠️ Important for users upgrading from versions prior to v2.2.1:**
+
+If you installed a version **before v2.2.1**, you may need to **re-add this repository to HACS** due to the repository restructuring that occurred in v2.2.1:
+
+1. In HACS, remove the EG4 Web Monitor integration
+2. Click the three dots menu (⋮) in HACS
+3. Select "Custom repositories"
+4. Add: `https://github.com/joyfulhouse/eg4_web_monitor`
+5. Category: Integration
+6. Click "Add"
+7. Install EG4 Web Monitor from HACS
+8. Restart Home Assistant
+
+Your configuration will be preserved during this process.
+```
+
+This notice can be removed starting with v3.0.0, as sufficient time will have passed for users to upgrade.
+
 ## Recent Release History
+
+### v2.2.4 - November 2025: AC Charge Power Decimal Support
+- AC Charge Power number entity supports decimal values (0.1 kW increments)
+- Updated precision to 1 decimal place
+- Removed integer-only validation
+- Fixes issue #37
+
+### v2.2.3 - November 2025: Background Task Cleanup
+- Proper background task cleanup and test teardown fixes
+- Enhanced session management
+
+### v2.2.2 - November 2025: Session Management
+- Comprehensive session management and re-authentication fixes
+
+### v2.2.1 - November 2025: Repository Restructuring
+- Repository restructured for HACS compliance
+- Integration moved to `custom_components/` subdirectory
+- **Note**: Users upgrading from pre-v2.2.1 may need to re-add repository to HACS
 
 ### v1.4.5 - January 2025: Operating Mode Control
 - Operating Mode select entity (Normal/Standby) with real-time parameter sync
