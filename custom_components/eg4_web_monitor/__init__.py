@@ -129,6 +129,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
+        # Clean up coordinator background tasks
+        await entry.runtime_data.async_shutdown()
+
         # Clean up coordinator API connection
         await entry.runtime_data.api.close()
 

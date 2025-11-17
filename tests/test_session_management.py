@@ -242,17 +242,19 @@ class TestBackgroundSessionMaintenance:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         # Verify maintenance tracking is initialized
-        assert coordinator._last_session_maintenance is None
+        assert (
+            coordinator._last_session_maintenance is not None
+        )  # Initialized to current time
         assert coordinator._session_maintenance_interval == timedelta(minutes=90)
 
     async def test_should_perform_session_maintenance_when_never_performed(
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
     ) -> None:
-        """Test that maintenance is needed when never performed."""
+        """Test that maintenance is NOT needed when coordinator just initialized."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        # First time should return True
-        assert coordinator._should_perform_session_maintenance() is True
+        # Just initialized - should return False (initialized to current time)
+        assert coordinator._should_perform_session_maintenance() is False
 
     async def test_should_perform_session_maintenance_when_due(
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
@@ -312,14 +314,16 @@ class TestBackgroundSessionMaintenance:
         ) as mock_api:
             mock_api.return_value = {"name": "Test Plant"}
 
-            # Initial state
-            assert coordinator._last_session_maintenance is None
+            # Initial state - initialized to current time
+            initial_maintenance_time = coordinator._last_session_maintenance
+            assert initial_maintenance_time is not None
 
             # Perform session maintenance
             await coordinator._perform_session_maintenance()
 
-            # Verify timestamp was updated
+            # Verify timestamp was updated (should be later than initial)
             assert coordinator._last_session_maintenance is not None
+            assert coordinator._last_session_maintenance != initial_maintenance_time
 
     async def test_perform_session_maintenance_handles_errors(
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry

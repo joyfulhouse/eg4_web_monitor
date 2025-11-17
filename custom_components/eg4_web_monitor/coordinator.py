@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -90,10 +90,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._last_cache_invalidation: Optional[datetime] = None
 
         # Solution 4: Background session maintenance tracking
-        self._last_session_maintenance: Optional[datetime] = None
+        #  Initialize to current time to prevent immediate trigger on first update
+        self._last_session_maintenance: Optional[datetime] = dt_util.utcnow()
         self._session_maintenance_interval = timedelta(
             minutes=90
         )  # Session keepalive every 90 minutes (before 2-hour expiry)
+
+        # Background task tracking for proper cleanup
+        self._background_tasks: Set[asyncio.Task[Any]] = set()
 
         # Circuit breaker for API resilience
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
@@ -114,6 +118,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
 
+        # Register shutdown listener to cancel background tasks on Home Assistant stop
+        self._shutdown_listener_remove = hass.bus.async_listen_once(
+            "homeassistant_stop", self._async_handle_shutdown
+        )
+
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from API endpoint."""
         try:
@@ -127,6 +136,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 )
                 # Don't await this to avoid blocking the main data update
                 task = self.hass.async_create_task(self._perform_session_maintenance())
+                # Track task for cleanup and remove from set when done
+                self._background_tasks.add(task)
+                task.add_done_callback(lambda t: self._background_tasks.discard(t))
                 task.add_done_callback(
                     lambda t: t.exception() if not t.cancelled() else None
                 )
@@ -146,6 +158,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 # Don't await this to avoid blocking the main data update
                 # Create task and store reference to avoid RuntimeWarning
                 task = self.hass.async_create_task(self._hourly_parameter_refresh())
+                # Track task for cleanup and remove from set when done
+                self._background_tasks.add(task)
+                task.add_done_callback(lambda t: self._background_tasks.discard(t))
                 task.add_done_callback(
                     lambda t: t.exception() if not t.cancelled() else None
                 )
@@ -1596,3 +1611,49 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "Session maintenance keepalive failed (session will be refreshed on next request): %s",
                 e,
             )
+
+    async def _async_handle_shutdown(self, event: Any) -> None:
+        """Handle Home Assistant stop event to cancel background tasks.
+
+        This ensures background tasks are cancelled before the final write stage,
+        preventing warnings about tasks still running after shutdown.
+        """
+        _LOGGER.debug("Handling Home Assistant stop event, cancelling background tasks")
+
+        # Cancel any pending refresh operations (including debounced refreshes)
+        if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
+            self._debounced_refresh.async_cancel()
+            # Give the event loop a chance to process the cancellation
+            await asyncio.sleep(0)
+            _LOGGER.debug("Cancelled debounced refresh")
+
+        # Cancel all background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete cancellation to ensure clean shutdown
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
+        _LOGGER.debug("All background tasks cancelled and cleaned up")
+
+    async def async_shutdown(self) -> None:
+        """Clean up background tasks and event listeners on shutdown."""
+        # Remove the shutdown listener if it exists
+        if hasattr(self, "_shutdown_listener_remove"):
+            self._shutdown_listener_remove()
+            _LOGGER.debug("Removed homeassistant_stop event listener")
+
+        # Cancel all background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete cancellation
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
+        _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")

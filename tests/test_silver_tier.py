@@ -147,6 +147,7 @@ class TestConfigEntryUnload:
 
         # Create mock coordinator with API
         mock_coordinator = MagicMock()
+        mock_coordinator.async_shutdown = AsyncMock()
         mock_coordinator.api = MagicMock()
         mock_coordinator.api.close = AsyncMock()
         mock_config_entry.runtime_data = mock_coordinator
@@ -157,6 +158,7 @@ class TestConfigEntryUnload:
         result = await async_unload_entry(mock_hass, mock_config_entry)
 
         assert result is True
+        mock_coordinator.async_shutdown.assert_called_once()
         mock_coordinator.api.close.assert_called_once()
 
     async def test_async_unload_entry_cleanup_on_failure(
