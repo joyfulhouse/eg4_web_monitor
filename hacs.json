@@ -1,5 +1,5 @@
 {
   "name": "EG4 Web Monitor",
-  "homeassistant": "2023.9.0",
-  "content_in_root": false
+  "content_in_root": false,
+  "homeassistant": "2023.9.0"
 }
