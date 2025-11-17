@@ -723,7 +723,7 @@ jobs:
           echo "Checking API client for websession injection support..."
 
           # Check API client __init__ signature
-          if ! grep -q "session:\s*Optional\[aiohttp.ClientSession\]\s*=\s*None" eg4_inverter_api/client.py; then
+          if ! grep -q "session:\s*Optional\[aiohttp.ClientSession\]\s*=\s*None" custom_components/eg4_web_monitor/eg4_inverter_api/client.py; then
             echo "❌ API client does not support session injection"
             exit 1
           fi
