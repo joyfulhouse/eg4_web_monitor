@@ -89,6 +89,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Cache invalidation tracking
         self._last_cache_invalidation: Optional[datetime] = None
 
+        # Solution 4: Background session maintenance tracking
+        self._last_session_maintenance: Optional[datetime] = None
+        self._session_maintenance_interval = timedelta(
+            minutes=90
+        )  # Session keepalive every 90 minutes (before 2-hour expiry)
+
         # Circuit breaker for API resilience
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
 
@@ -112,6 +118,18 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Fetch data from API endpoint."""
         try:
             _LOGGER.debug("Fetching data for plant %s", self.plant_id)
+
+            # Solution 4: Background session maintenance
+            # Perform session keepalive every 90 minutes to prevent expiry
+            if self._should_perform_session_maintenance():
+                _LOGGER.info(
+                    "Session maintenance is due, performing keepalive to prevent expiry"
+                )
+                # Don't await this to avoid blocking the main data update
+                task = self.hass.async_create_task(self._perform_session_maintenance())
+                task.add_done_callback(
+                    lambda t: t.exception() if not t.cancelled() else None
+                )
 
             # Check if cache invalidation is needed before top of hour
             if self._should_invalidate_cache():
@@ -1538,3 +1556,43 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         except Exception as e:
             _LOGGER.error("Error invalidating caches: %s", e)
+
+    def _should_perform_session_maintenance(self) -> bool:
+        """Check if session maintenance (keepalive) is due.
+
+        Solution 4: Background session maintenance.
+        Returns True if 90+ minutes have passed since last maintenance.
+        """
+        if self._last_session_maintenance is None:
+            return True
+
+        time_since_maintenance = dt_util.utcnow() - self._last_session_maintenance
+        return bool(time_since_maintenance >= self._session_maintenance_interval)
+
+    async def _perform_session_maintenance(self) -> None:
+        """Perform session maintenance to keep session alive.
+
+        Solution 4: Background session maintenance.
+        Makes a lightweight API call to prevent session expiry.
+        """
+        try:
+            _LOGGER.debug("Starting session maintenance keepalive")
+
+            # Make a lightweight API call to keep session alive
+            # Using get_plant_details as it's a simple, low-cost endpoint
+            await self.api.get_plant_details(self.plant_id)
+
+            # Update last maintenance time
+            self._last_session_maintenance = dt_util.utcnow()
+
+            _LOGGER.info(
+                "Session maintenance keepalive successful at %s (next in %s)",
+                self._last_session_maintenance.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                self._session_maintenance_interval,
+            )
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Session maintenance keepalive failed (session will be refreshed on next request): %s",
+                e,
+            )
