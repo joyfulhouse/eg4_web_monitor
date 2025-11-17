@@ -117,6 +117,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
 
+        # Register shutdown listener to cancel background tasks on Home Assistant stop
+        self._shutdown_listener_remove = hass.bus.async_listen_once(
+            "homeassistant_stop", self._async_handle_shutdown
+        )
+
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from API endpoint."""
         try:
@@ -1606,8 +1611,28 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 e,
             )
 
+    async def _async_handle_shutdown(self, event: Any) -> None:
+        """Handle Home Assistant stop event to cancel background tasks.
+
+        This ensures background tasks are cancelled before the final write stage,
+        preventing warnings about tasks still running after shutdown.
+        """
+        _LOGGER.debug("Handling Home Assistant stop event, cancelling background tasks")
+
+        # Cancel all background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        _LOGGER.debug("Cancelled %d background tasks", len(self._background_tasks))
+
     async def async_shutdown(self) -> None:
-        """Clean up background tasks on shutdown."""
+        """Clean up background tasks and event listeners on shutdown."""
+        # Remove the shutdown listener if it exists
+        if hasattr(self, "_shutdown_listener_remove"):
+            self._shutdown_listener_remove()
+            _LOGGER.debug("Removed homeassistant_stop event listener")
+
         # Cancel all background tasks
         for task in self._background_tasks:
             if not task.done():
