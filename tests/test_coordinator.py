@@ -1,5 +1,6 @@
 """Tests for EG4 Data Update Coordinator."""
 
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
@@ -415,8 +416,12 @@ class TestCoordinatorDeviceData:
         assert "1234567890" in result["devices"]
 
         # Clean up coordinator to prevent lingering timers
+        # Need extra time for debouncer cancellation to complete in CI
         await hass.async_block_till_done()
         await coordinator.async_shutdown()
+        await hass.async_block_till_done()
+        # Give debouncer extra time to fully cancel (CI timing issue)
+        await asyncio.sleep(0.1)
         await hass.async_block_till_done()
 
     async def test_process_device_data_handles_gridboss(self, hass, mock_config_entry):
