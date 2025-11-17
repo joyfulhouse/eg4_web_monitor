@@ -137,9 +137,9 @@ def check_strict_typing() -> bool:
     )
 
     # Check for mypy.ini
-    mypy_config_path = Path("mypy.ini")
+    mypy_config_path = Path("tests/mypy.ini")
     if not mypy_config_path.exists():
-        print("  ❌ mypy.ini not found")
+        print("  ❌ tests/mypy.ini not found")
         return False
 
     with open(mypy_config_path, "r", encoding="utf-8") as f:
