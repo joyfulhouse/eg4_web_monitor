@@ -410,18 +410,18 @@ class TestCoordinatorDeviceData:
         )
         coordinator.api.get_battery_info = AsyncMock(return_value={"batteryArray": []})
 
-        result = await coordinator._process_device_data(device_data)
+        # Mock parameter refresh to prevent debouncer creation
+        with patch.object(
+            coordinator, "refresh_all_device_parameters", new=AsyncMock()
+        ):
+            result = await coordinator._process_device_data(device_data)
 
-        assert "devices" in result
-        assert "1234567890" in result["devices"]
+            assert "devices" in result
+            assert "1234567890" in result["devices"]
 
         # Clean up coordinator to prevent lingering timers
-        # Need extra time for debouncer cancellation to complete in CI
         await hass.async_block_till_done()
         await coordinator.async_shutdown()
-        await hass.async_block_till_done()
-        # Give debouncer extra time to fully cancel (CI timing issue - needs longer delay)
-        await asyncio.sleep(0.5)
         await hass.async_block_till_done()
 
     async def test_process_device_data_handles_gridboss(self, hass, mock_config_entry):
