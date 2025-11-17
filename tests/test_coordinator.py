@@ -420,8 +420,8 @@ class TestCoordinatorDeviceData:
         await hass.async_block_till_done()
         await coordinator.async_shutdown()
         await hass.async_block_till_done()
-        # Give debouncer extra time to fully cancel (CI timing issue)
-        await asyncio.sleep(0.1)
+        # Give debouncer extra time to fully cancel (CI timing issue - needs longer delay)
+        await asyncio.sleep(0.5)
         await hass.async_block_till_done()
 
     async def test_process_device_data_handles_gridboss(self, hass, mock_config_entry):
