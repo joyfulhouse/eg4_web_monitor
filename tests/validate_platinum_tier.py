@@ -153,8 +153,8 @@ def check_strict_typing() -> bool:
             return False
 
     # Check for py.typed marker files
-    py_typed_main = Path("py.typed")
-    py_typed_api = Path("custom_components/eg4_web_monitor") / "eg4_inverter_api" / "py.typed"
+    py_typed_main = Path("custom_components/eg4_web_monitor/py.typed")
+    py_typed_api = Path("custom_components/eg4_web_monitor/eg4_inverter_api/py.typed")
 
     if py_typed_main.exists():
         print("  ✅ py.typed marker file exists (main package)")
