@@ -1,7 +1,9 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
@@ -32,6 +34,50 @@ _LOGGER = logging.getLogger(__name__)
 # Silver tier requirement: Specify parallel update count
 # Limit concurrent sensor updates to prevent overwhelming the coordinator
 MAX_PARALLEL_UPDATES = 5
+
+# Sensors that should never decrease (lifetime values)
+# All other total_increasing sensors can reset at date boundaries
+LIFETIME_SENSORS = {
+    "total_energy",
+    "yield_lifetime",
+    "discharging_lifetime",
+    "charging_lifetime",
+    "consumption_lifetime",
+    "grid_export_lifetime",
+    "grid_import_lifetime",
+    "cycle_count",  # Battery cycle count is lifetime
+}
+
+
+def _get_current_date(coordinator: EG4DataUpdateCoordinator) -> Optional[str]:
+    """Get current date in station's timezone as YYYY-MM-DD string.
+
+    Returns None if timezone cannot be determined, falling back to allowing resets.
+    """
+    try:
+        # Try to get timezone from station data
+        if coordinator.data and "station" in coordinator.data:
+            tz_str = coordinator.data["station"].get("timezone")
+            if tz_str:
+                # Parse timezone string like "GMT -8" or "GMT+8"
+                # Extract offset hours
+                if "GMT" in tz_str:
+                    offset_str = tz_str.replace("GMT", "").strip()
+                    if offset_str:
+                        # Parse offset (e.g., "-8" or "+8")
+                        offset_hours = int(offset_str)
+                        # Create timezone with offset
+                        from datetime import timezone, timedelta
+
+                        tz = timezone(timedelta(hours=offset_hours))
+                        return datetime.now(tz).strftime("%Y-%m-%d")
+
+        # Fallback to UTC if timezone not available
+        return datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
+    except Exception as e:
+        _LOGGER.debug("Error getting current date in timezone: %s", e)
+        # Return None to allow resets when we can't determine date
+        return None
 
 
 async def async_setup_entry(
@@ -204,6 +250,9 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
 
         # Monotonic state tracking for total_increasing sensors
         self._last_valid_state: Optional[float] = None
+        self._last_update_date: Optional[str] = (
+            None  # Track date for daily reset detection
+        )
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
@@ -269,22 +318,61 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         if self._attr_state_class == "total_increasing" and raw_value is not None:
             try:
                 current_value = float(raw_value)
+                current_date = _get_current_date(self.coordinator)
 
-                # If we have a previous valid state, ensure we never decrease
+                # Check if this is a lifetime sensor (never resets)
+                is_lifetime = self._sensor_key in LIFETIME_SENSORS
+
+                # Detect date boundary crossing for non-lifetime sensors
+                date_changed = False
+                if not is_lifetime and current_date and self._last_update_date:
+                    date_changed = current_date != self._last_update_date
+
+                # If date changed, force reset to 0 for non-lifetime sensors
+                # This prevents API stale data anomalies at date boundary
+                if date_changed:
+                    _LOGGER.info(
+                        "Sensor %s: Date boundary crossed from %s to %s, "
+                        "forcing reset from %.2f to 0.0 (API reported %.2f)",
+                        self._attr_unique_id,
+                        self._last_update_date,
+                        current_date,
+                        self._last_valid_state if self._last_valid_state else 0,
+                        current_value,
+                    )
+                    self._last_valid_state = 0.0
+                    self._last_update_date = current_date
+                    return 0.0
+
+                # If we have a previous valid state, ensure we never decrease (for lifetime)
+                # or only decrease if value went to 0 (likely a reset)
                 if self._last_valid_state is not None:
                     if current_value < self._last_valid_state:
+                        # Allow reset to 0 for non-lifetime sensors (manual/API reset)
+                        if not is_lifetime and current_value == 0:
+                            _LOGGER.info(
+                                "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
+                                self._attr_unique_id,
+                            )
+                            self._last_valid_state = current_value
+                            self._last_update_date = current_date
+                            return current_value
+
+                        # Prevent decrease for lifetime sensors or non-zero decreases
                         _LOGGER.debug(
                             "Sensor %s: Preventing state decrease from %.2f to %.2f, "
-                            "maintaining %.2f",
+                            "maintaining %.2f (lifetime=%s)",
                             self._attr_unique_id,
                             self._last_valid_state,
                             current_value,
                             self._last_valid_state,
+                            is_lifetime,
                         )
                         return self._last_valid_state
 
-                # Update last valid state and return current value
+                # Update last valid state and date, return current value
                 self._last_valid_state = current_value
+                self._last_update_date = current_date
                 return current_value
             except (ValueError, TypeError):
                 # If conversion fails, return raw value
@@ -329,6 +417,9 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
 
         # Monotonic state tracking for total_increasing sensors
         self._last_valid_state: Optional[float] = None
+        self._last_update_date: Optional[str] = (
+            None  # Track date for daily reset detection
+        )
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
@@ -402,22 +493,61 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         if self._attr_state_class == "total_increasing" and raw_value is not None:
             try:
                 current_value = float(raw_value)
+                current_date = _get_current_date(self.coordinator)
 
-                # If we have a previous valid state, ensure we never decrease
+                # Check if this is a lifetime sensor (never resets)
+                is_lifetime = self._sensor_key in LIFETIME_SENSORS
+
+                # Detect date boundary crossing for non-lifetime sensors
+                date_changed = False
+                if not is_lifetime and current_date and self._last_update_date:
+                    date_changed = current_date != self._last_update_date
+
+                # If date changed, force reset to 0 for non-lifetime sensors
+                # This prevents API stale data anomalies at date boundary
+                if date_changed:
+                    _LOGGER.info(
+                        "Sensor %s: Date boundary crossed from %s to %s, "
+                        "forcing reset from %.2f to 0.0 (API reported %.2f)",
+                        self._attr_unique_id,
+                        self._last_update_date,
+                        current_date,
+                        self._last_valid_state if self._last_valid_state else 0,
+                        current_value,
+                    )
+                    self._last_valid_state = 0.0
+                    self._last_update_date = current_date
+                    return 0.0
+
+                # If we have a previous valid state, ensure we never decrease (for lifetime)
+                # or only decrease if value went to 0 (likely a reset)
                 if self._last_valid_state is not None:
                     if current_value < self._last_valid_state:
+                        # Allow reset to 0 for non-lifetime sensors (manual/API reset)
+                        if not is_lifetime and current_value == 0:
+                            _LOGGER.info(
+                                "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
+                                self._attr_unique_id,
+                            )
+                            self._last_valid_state = current_value
+                            self._last_update_date = current_date
+                            return current_value
+
+                        # Prevent decrease for lifetime sensors or non-zero decreases
                         _LOGGER.debug(
                             "Sensor %s: Preventing state decrease from %.2f to %.2f, "
-                            "maintaining %.2f",
+                            "maintaining %.2f (lifetime=%s)",
                             self._attr_unique_id,
                             self._last_valid_state,
                             current_value,
                             self._last_valid_state,
+                            is_lifetime,
                         )
                         return self._last_valid_state
 
-                # Update last valid state and return current value
+                # Update last valid state and date, return current value
                 self._last_valid_state = current_value
+                self._last_update_date = current_date
                 return current_value
             except (ValueError, TypeError):
                 # If conversion fails, return raw value
