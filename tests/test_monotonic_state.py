@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from datetime import datetime, timezone, timedelta
 
 from custom_components.eg4_web_monitor.sensor import (
     EG4InverterSensor,
@@ -40,7 +39,7 @@ def mock_coordinator():
                     }
                 },
             }
-        }
+        },
     }
     coordinator.last_update_success = True
     return coordinator
@@ -506,7 +505,9 @@ class TestDateBoundaryReset:
         )
 
         # Initial value on day 1
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 10.0
@@ -514,14 +515,18 @@ class TestDateBoundaryReset:
             assert sensor._last_update_date == "2025-01-19"
 
             # Value increases during day 1
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 15.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 15.0
             value = sensor.native_value
             assert value == 15.0
             assert sensor._last_valid_state == 15.0
 
             # Date changes to day 2 - forces reset to 0 even if API returns old value
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 15.0  # API stale data
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 15.0  # API stale data
             value = sensor.native_value
             assert value == 0.0  # Should force reset to 0 at date boundary
             assert sensor._last_valid_state == 0.0
@@ -537,7 +542,9 @@ class TestDateBoundaryReset:
         )
 
         # Initial value on day 1
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 25.0
@@ -550,7 +557,9 @@ class TestDateBoundaryReset:
 
             # Date changes to day 2, forces reset to 0 (even if API says 50.0)
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["yield"] = 50.0  # API stale
+            mock_coordinator.data["devices"]["1234567890"]["sensors"]["yield"] = (
+                50.0  # API stale
+            )
             value = sensor.native_value
             assert value == 0.0  # Should force reset to 0 at date boundary
             assert sensor._last_valid_state == 0.0
@@ -571,20 +580,26 @@ class TestDateBoundaryReset:
         )
 
         # Initial value on day 1
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 5000.0
             assert sensor._last_valid_state == 5000.0
 
             # Value increases during day 1
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption_lifetime"] = 5100.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "consumption_lifetime"
+            ] = 5100.0
             value = sensor.native_value
             assert value == 5100.0
 
             # Date changes to day 2, but lifetime value tries to decrease
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption_lifetime"] = 5050.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "consumption_lifetime"
+            ] = 5050.0
             value = sensor.native_value
             assert value == 5100.0  # Should NOT allow reset for lifetime sensors
             assert sensor._last_valid_state == 5100.0
@@ -599,14 +614,18 @@ class TestDateBoundaryReset:
         )
 
         # Initial value
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 10.0
             assert sensor._last_valid_state == 10.0
 
             # Manual reset to 0 (same day)
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 0.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 0.0
             value = sensor.native_value
             assert value == 0.0  # Should allow reset to 0 for non-lifetime
             assert sensor._last_valid_state == 0.0
@@ -621,14 +640,18 @@ class TestDateBoundaryReset:
         )
 
         # Initial value
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 10.0
             assert sensor._last_valid_state == 10.0
 
             # Attempt non-zero decrease on same day (should be rejected)
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 8.5
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 8.5
             value = sensor.native_value
             assert value == 10.0  # Should maintain previous value
             assert sensor._last_valid_state == 10.0
@@ -643,20 +666,26 @@ class TestDateBoundaryReset:
         )
 
         # Initial value on day 1
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             mock_date.return_value = "2025-01-19"
             value = sensor.native_value
             assert value == 50.0
             assert sensor._last_valid_state == 50.0
 
             # Increase during day 1
-            mock_coordinator.data["devices"]["1234567890"]["batteries"]["battery_1"]["cycle_count"] = 55.0
+            mock_coordinator.data["devices"]["1234567890"]["batteries"]["battery_1"][
+                "cycle_count"
+            ] = 55.0
             value = sensor.native_value
             assert value == 55.0
 
             # Date changes to day 2, cycle count tries to decrease
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["batteries"]["battery_1"]["cycle_count"] = 52.0
+            mock_coordinator.data["devices"]["1234567890"]["batteries"]["battery_1"][
+                "cycle_count"
+            ] = 52.0
             value = sensor.native_value
             assert value == 55.0  # Should NOT allow reset for cycle count
             assert sensor._last_valid_state == 55.0
@@ -670,28 +699,40 @@ class TestDateBoundaryReset:
             device_type="inverter",
         )
 
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             # Day 1: Initial value
             mock_date.return_value = "2025-01-19"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 10.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 10.0
             assert sensor.native_value == 10.0
 
             # Day 1: Increases
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 20.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 20.0
             assert sensor.native_value == 20.0
 
             # Day 2: Reset to 0
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 20.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 20.0
             assert sensor.native_value == 0.0
 
             # Day 2: New accumulation
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 5.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 5.0
             assert sensor.native_value == 5.0
 
             # Day 3: Reset to 0 again
             mock_date.return_value = "2025-01-21"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 5.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 5.0
             assert sensor.native_value == 0.0
 
     def test_date_boundary_with_api_already_reset(self, mock_coordinator):
@@ -703,15 +744,21 @@ class TestDateBoundaryReset:
             device_type="inverter",
         )
 
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             # Day 1
             mock_date.return_value = "2025-01-19"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 10.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 10.0
             assert sensor.native_value == 10.0
 
             # Day 2: API already sent 0
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 0.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 0.0
             assert sensor.native_value == 0.0  # Should still work correctly
 
     def test_first_reading_after_date_boundary(self, mock_coordinator):
@@ -723,27 +770,39 @@ class TestDateBoundaryReset:
             device_type="inverter",
         )
 
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             # Day 1: Build up value
             mock_date.return_value = "2025-01-19"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 25.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 25.0
             assert sensor.native_value == 25.0
 
             # Day 2: First reading at 00:01 - forced to 0
             mock_date.return_value = "2025-01-20"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 25.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 25.0
             assert sensor.native_value == 0.0
 
             # Day 2: Reading at 06:00 - API has accumulated 3.0
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 3.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 3.0
             assert sensor.native_value == 3.0
 
             # Day 2: Reading at 12:00 - API has accumulated 12.5
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 12.5
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 12.5
             assert sensor.native_value == 12.5
 
             # Day 2: Reading at 18:00 - API has accumulated 18.0
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 18.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 18.0
             assert sensor.native_value == 18.0
 
     def test_timezone_changes_dont_trigger_reset(self, mock_coordinator):
@@ -755,18 +814,26 @@ class TestDateBoundaryReset:
             device_type="inverter",
         )
 
-        with patch("custom_components.eg4_web_monitor.sensor._get_current_date") as mock_date:
+        with patch(
+            "custom_components.eg4_web_monitor.sensor._get_current_date"
+        ) as mock_date:
             # Normal operation with timezone
             mock_date.return_value = "2025-01-19"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 10.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 10.0
             assert sensor.native_value == 10.0
 
             # Timezone info temporarily unavailable (returns None)
             mock_date.return_value = None
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 15.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 15.0
             assert sensor.native_value == 15.0  # Should still accept increases
 
             # Timezone info back
             mock_date.return_value = "2025-01-19"
-            mock_coordinator.data["devices"]["1234567890"]["sensors"]["daily_energy"] = 20.0
+            mock_coordinator.data["devices"]["1234567890"]["sensors"][
+                "daily_energy"
+            ] = 20.0
             assert sensor.native_value == 20.0  # Should continue normally
