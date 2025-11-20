@@ -2230,7 +2230,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
         """Set the battery charge current value."""
         try:
             int_value = int(round(value))
-            if int_value < 0 or int_value > 200:
+            if int_value < 0 or int_value > 250:
                 raise ValueError(
                     f"Battery charge current must be between 0-250 A, got {int_value}"
                 )
@@ -2517,7 +2517,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
         """Set the battery discharge current value."""
         try:
             int_value = int(round(value))
-            if int_value < 0 or int_value > 200:
+            if int_value < 0 or int_value > 250:
                 raise ValueError(
                     f"Battery discharge current must be between 0-250 A, got {int_value}"
                 )

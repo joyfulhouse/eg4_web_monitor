@@ -875,11 +875,11 @@ class TestBatteryChargeCurrentNumber:
         entity.hass.async_create_task = MagicMock()
         entity.async_write_ha_state = MagicMock()
 
-        # Value outside range (0-200 A) should raise error
+        # Value outside range (0-250 A) should raise error
         with pytest.raises(
             HomeAssistantError, match="must be between 0-250 A"
         ):
-            await entity.async_set_native_value(250)
+            await entity.async_set_native_value(251)
 
         # API should not be called for out-of-range value
         coordinator.api.write_parameter.assert_not_called()
@@ -967,11 +967,11 @@ class TestBatteryDischargeCurrentNumber:
         entity.hass.async_create_task = MagicMock()
         entity.async_write_ha_state = MagicMock()
 
-        # Value outside range (0-200 A) should raise error
+        # Value outside range (0-250 A) should raise error
         with pytest.raises(
             HomeAssistantError, match="must be between 0-250 A"
         ):
-            await entity.async_set_native_value(250)
+            await entity.async_set_native_value(251)
 
         # API should not be called for out-of-range value
         coordinator.api.write_parameter.assert_not_called()
