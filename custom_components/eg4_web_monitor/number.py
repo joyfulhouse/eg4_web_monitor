@@ -2173,10 +2173,10 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
             self._attr_unique_id,
         )
 
-        # Number configuration for Battery Charge Current (0-200 A)
+        # Number configuration for Battery Charge Current (0-250 A)
         # Based on typical battery charge current ranges for EG4 inverters
         self._attr_native_min_value = 0
-        self._attr_native_max_value = 200
+        self._attr_native_max_value = 250
         self._attr_native_step = 1
         self._attr_native_unit_of_measurement = "A"
         self._attr_mode = NumberMode.BOX
@@ -2220,7 +2220,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
                     raw_value = parameter_data["HOLD_LEAD_ACID_CHARGE_RATE"]
                     if raw_value is not None:
                         value = float(raw_value)
-                        if 0 <= value <= 200:  # Validate range
+                        if 0 <= value <= 250:  # Validate range
                             return value
         except (ValueError, TypeError, KeyError):
             pass
@@ -2232,7 +2232,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
             int_value = int(round(value))
             if int_value < 0 or int_value > 200:
                 raise ValueError(
-                    f"Battery charge current must be between 0-200 A, got {int_value}"
+                    f"Battery charge current must be between 0-250 A, got {int_value}"
                 )
 
             if abs(value - int_value) > 0.01:
@@ -2376,7 +2376,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
                 raw_value = float(response["HOLD_LEAD_ACID_CHARGE_RATE"])
                 int_value = int(round(raw_value))
 
-                if 0 <= int_value <= 200:  # Validate range
+                if 0 <= int_value <= 250:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_LEAD_ACID_CHARGE_RATE for %s (reg %d): %d A",
                         self.serial,
@@ -2460,10 +2460,10 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
             self._attr_unique_id,
         )
 
-        # Number configuration for Battery Discharge Current (0-200 A)
+        # Number configuration for Battery Discharge Current (0-250 A)
         # Based on typical battery discharge current ranges for EG4 inverters
         self._attr_native_min_value = 0
-        self._attr_native_max_value = 200
+        self._attr_native_max_value = 250
         self._attr_native_step = 1
         self._attr_native_unit_of_measurement = "A"
         self._attr_mode = NumberMode.BOX
@@ -2507,7 +2507,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
                     raw_value = parameter_data["HOLD_LEAD_ACID_DISCHARGE_RATE"]
                     if raw_value is not None:
                         value = float(raw_value)
-                        if 0 <= value <= 200:  # Validate range
+                        if 0 <= value <= 250:  # Validate range
                             return value
         except (ValueError, TypeError, KeyError):
             pass
@@ -2519,7 +2519,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
             int_value = int(round(value))
             if int_value < 0 or int_value > 200:
                 raise ValueError(
-                    f"Battery discharge current must be between 0-200 A, got {int_value}"
+                    f"Battery discharge current must be between 0-250 A, got {int_value}"
                 )
 
             if abs(value - int_value) > 0.01:
@@ -2665,7 +2665,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
                 raw_value = float(response["HOLD_LEAD_ACID_DISCHARGE_RATE"])
                 int_value = int(round(raw_value))
 
-                if 0 <= int_value <= 200:  # Validate range
+                if 0 <= int_value <= 250:  # Validate range
                     _LOGGER.info(
                         "Found HOLD_LEAD_ACID_DISCHARGE_RATE for %s (reg %d): %d A",
                         self.serial,

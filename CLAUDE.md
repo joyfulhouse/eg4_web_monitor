@@ -461,3 +461,44 @@ docker-compose logs -f homeassistant | grep eg4_web_monitor
 9. Efficient API usage with parallel requests
 10. Comprehensive debug logging available
 - use https://docs.aiohttp.org/en/stable/testing.html for aiohttp testing
+
+## Automated Quality Workflow
+
+Before any commit, run automatically (don't ask for confirmation):
+
+```bash
+# 1. Run all unit tests
+pytest tests/ -x --tb=short
+
+# 2. Run with coverage
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+
+# 3. Run tier validations
+python3 tests/validate_silver_tier.py
+python3 tests/validate_gold_tier.py
+python3 tests/validate_platinum_tier.py
+
+# 4. Type checking
+mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+
+# 5. Linting
+ruff check custom_components/ --fix && ruff format custom_components/
+```
+
+**Only commit if all pass**. If tests fail, attempt automatic fix (max 3 iterations).
+
+## Testing Shortcuts
+
+Use these slash commands for common workflows:
+- `/quality-check` - Run complete pre-commit validation
+- `/ha-quality` - Run Home Assistant quality scale validation
+- `/test-fix-deploy` - Complete cycle: test → fix → commit → deploy
+
+## Context Management
+
+Use subagents for:
+- Codebase exploration (use Task tool with subagent_type=Explore)
+- Chrome DevTools testing (isolates browser context)
+- Library documentation research (isolates doc context)
+
+Clear context (/clear) between major task transitions.

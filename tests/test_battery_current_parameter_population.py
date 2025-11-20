@@ -145,7 +145,7 @@ class TestBatteryCurrentParameterPopulation:
             "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
             "parameters": {
                 "1234567890": {
-                    "HOLD_LEAD_ACID_CHARGE_RATE": 250,  # Out of range (max 200)
+                    "HOLD_LEAD_ACID_CHARGE_RATE": 300,  # Out of range (max 250)
                 }
             },
         }

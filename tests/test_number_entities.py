@@ -814,7 +814,7 @@ class TestBatteryChargeCurrentNumber:
         # Check entity properties
         assert entity._attr_name == "Battery Charge Current"
         assert entity._attr_native_min_value == 0
-        assert entity._attr_native_max_value == 200
+        assert entity._attr_native_max_value == 250
         assert entity._attr_native_step == 1
         assert entity._attr_native_unit_of_measurement == "A"
         assert entity._attr_icon == "mdi:battery-charging-high"
@@ -877,7 +877,7 @@ class TestBatteryChargeCurrentNumber:
 
         # Value outside range (0-200 A) should raise error
         with pytest.raises(
-            HomeAssistantError, match="must be between 0-200 A"
+            HomeAssistantError, match="must be between 0-250 A"
         ):
             await entity.async_set_native_value(250)
 
@@ -906,7 +906,7 @@ class TestBatteryDischargeCurrentNumber:
         # Check entity properties
         assert entity._attr_name == "Battery Discharge Current"
         assert entity._attr_native_min_value == 0
-        assert entity._attr_native_max_value == 200
+        assert entity._attr_native_max_value == 250
         assert entity._attr_native_step == 1
         assert entity._attr_native_unit_of_measurement == "A"
         assert entity._attr_icon == "mdi:battery-minus"
@@ -969,7 +969,7 @@ class TestBatteryDischargeCurrentNumber:
 
         # Value outside range (0-200 A) should raise error
         with pytest.raises(
-            HomeAssistantError, match="must be between 0-200 A"
+            HomeAssistantError, match="must be between 0-250 A"
         ):
             await entity.async_set_native_value(250)
 
