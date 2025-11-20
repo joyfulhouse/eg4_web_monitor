@@ -10,6 +10,8 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeSOCLimitNumber,
     OnGridSOCCutoffNumber,
     OffGridSOCCutoffNumber,
+    BatteryChargeCurrentNumber,
+    BatteryDischargeCurrentNumber,
 )
 
 
@@ -789,3 +791,187 @@ class TestNumberEntityErrorHandling:
 
         # API should have been called
         coordinator.api.write_parameter.assert_called_once()
+
+
+class TestBatteryChargeCurrentNumber:
+    """Test BatteryChargeCurrentNumber entity."""
+
+    @pytest.mark.asyncio
+    async def test_battery_charge_current_entity_creation(self):
+        """Test battery charge current entity can be created."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.last_update_success = True
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryChargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Check entity properties
+        assert entity._attr_name == "Battery Charge Current"
+        assert entity._attr_native_min_value == 0
+        assert entity._attr_native_max_value == 200
+        assert entity._attr_native_step == 1
+        assert entity._attr_native_unit_of_measurement == "A"
+        assert entity._attr_icon == "mdi:battery-charging-high"
+
+    @pytest.mark.asyncio
+    async def test_battery_charge_current_set_value(self):
+        """Test setting battery charge current value."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryChargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Set value to 100A
+        await entity.async_set_native_value(100)
+
+        # Verify API was called with correct parameters
+        coordinator.api.write_parameter.assert_called_once_with(
+            inverter_sn="1234567890",
+            hold_param="HOLD_LEAD_ACID_CHARGE_RATE",
+            value_text="100",
+        )
+
+        # Verify state was updated
+        assert entity._current_value == 100
+        entity.async_write_ha_state.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_battery_charge_current_out_of_range(self):
+        """Test setting battery charge current outside allowed range."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryChargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Value outside range (0-200 A) should raise error
+        with pytest.raises(
+            HomeAssistantError, match="must be between 0-200 A"
+        ):
+            await entity.async_set_native_value(250)
+
+        # API should not be called for out-of-range value
+        coordinator.api.write_parameter.assert_not_called()
+
+
+class TestBatteryDischargeCurrentNumber:
+    """Test BatteryDischargeCurrentNumber entity."""
+
+    @pytest.mark.asyncio
+    async def test_battery_discharge_current_entity_creation(self):
+        """Test battery discharge current entity can be created."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.last_update_success = True
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryDischargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Check entity properties
+        assert entity._attr_name == "Battery Discharge Current"
+        assert entity._attr_native_min_value == 0
+        assert entity._attr_native_max_value == 200
+        assert entity._attr_native_step == 1
+        assert entity._attr_native_unit_of_measurement == "A"
+        assert entity._attr_icon == "mdi:battery-minus"
+
+    @pytest.mark.asyncio
+    async def test_battery_discharge_current_set_value(self):
+        """Test setting battery discharge current value."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryDischargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Set value to 150A
+        await entity.async_set_native_value(150)
+
+        # Verify API was called with correct parameters
+        coordinator.api.write_parameter.assert_called_once_with(
+            inverter_sn="1234567890",
+            hold_param="HOLD_LEAD_ACID_DISCHARGE_RATE",
+            value_text="150",
+        )
+
+        # Verify state was updated
+        assert entity._current_value == 150
+        entity.async_write_ha_state.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_battery_discharge_current_out_of_range(self):
+        """Test setting battery discharge current outside allowed range."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
+        }
+        coordinator.api = MagicMock()
+        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
+        coordinator.get_device_info = MagicMock(return_value={})
+
+        entity = BatteryDischargeCurrentNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        # Value outside range (0-200 A) should raise error
+        with pytest.raises(
+            HomeAssistantError, match="must be between 0-200 A"
+        ):
+            await entity.async_set_native_value(250)
+
+        # API should not be called for out-of-range value
+        coordinator.api.write_parameter.assert_not_called()

@@ -66,6 +66,9 @@ async def async_setup_entry(
                 entities.append(ACChargeSOCLimitNumber(coordinator, serial))
                 entities.append(OnGridSOCCutoffNumber(coordinator, serial))
                 entities.append(OffGridSOCCutoffNumber(coordinator, serial))
+                # Add battery charge/discharge current control entities
+                entities.append(BatteryChargeCurrentNumber(coordinator, serial))
+                entities.append(BatteryDischargeCurrentNumber(coordinator, serial))
                 _LOGGER.info(
                     "✅ Added number entities for compatible device %s (%s)",
                     serial,
@@ -2137,4 +2140,580 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         except Exception as e:
             _LOGGER.error(
                 "Failed to initialize off-grid SOC cutoff for %s: %s", self.serial, e
+            )
+
+
+class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for Battery Charge Current control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        self.serial = serial
+
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Entity configuration
+        clean_model = model.lower().replace(" ", "_").replace("-", "_")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Battery Charge Current"
+        self._attr_unique_id = f"{clean_model}_{serial.lower()}_battery_charge_current"
+
+        _LOGGER.debug(
+            "Creating Battery Charge Current entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
+        )
+
+        # Number configuration for Battery Charge Current (0-200 A)
+        # Based on typical battery charge current ranges for EG4 inverters
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = 200
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "A"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 0
+
+        # Device info
+        self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
+
+        # Current value
+        self._current_value: Optional[float] = None
+
+        _LOGGER.debug("Created Battery Charge Current number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current battery charge current value as integer."""
+        coordinator_value = self._get_value_from_coordinator()
+        if coordinator_value is not None:
+            self._current_value = coordinator_value
+            return int(round(coordinator_value))
+
+        if hasattr(self, "_current_value") and self._current_value is not None:
+            return int(round(self._current_value))
+
+        return None
+
+    def _get_value_from_coordinator(self) -> Optional[float]:
+        """Get the current value from coordinator's parameter data."""
+        try:
+            if "parameters" in self.coordinator.data:
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
+                if "HOLD_LEAD_ACID_CHARGE_RATE" in parameter_data:
+                    raw_value = parameter_data["HOLD_LEAD_ACID_CHARGE_RATE"]
+                    if raw_value is not None:
+                        value = float(raw_value)
+                        if 0 <= value <= 200:  # Validate range
+                            return value
+        except (ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the battery charge current value."""
+        try:
+            int_value = int(round(value))
+            if int_value < 0 or int_value > 200:
+                raise ValueError(
+                    f"Battery charge current must be between 0-200 A, got {int_value}"
+                )
+
+            if abs(value - int_value) > 0.01:
+                raise ValueError(
+                    f"Battery charge current must be an integer value, got {value}"
+                )
+
+            _LOGGER.info(
+                "Setting Battery Charge Current for %s to %d A", self.serial, int_value
+            )
+
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_LEAD_ACID_CHARGE_RATE",
+                value_text=str(int_value),
+            )
+
+            _LOGGER.debug(
+                "Battery Charge Current write response for %s: %s",
+                self.serial,
+                response,
+            )
+
+            if response.get("success", False):
+                self._current_value = value
+                self.async_write_ha_state()
+
+                _LOGGER.info(
+                    "Battery Charge Current changed for %s, refreshing parameters for all inverters",
+                    self.serial,
+                )
+
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+                _LOGGER.info(
+                    "Successfully set Battery Charge Current for %s to %d A",
+                    self.serial,
+                    int_value,
+                )
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(
+                    f"Failed to set battery charge current: {error_msg}"
+                )
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set Battery Charge Current for %s: %s", self.serial, e
+            )
+            raise HomeAssistantError(
+                f"Failed to set battery charge current: {e}"
+            ) from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all current limit entities."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+
+            platform = self.platform
+            if platform is not None:
+                current_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(
+                        entity,
+                        (BatteryChargeCurrentNumber, BatteryDischargeCurrentNumber),
+                    )
+                ]
+
+                _LOGGER.info(
+                    "Updating %d current limit entities after parameter refresh",
+                    len(current_entities),
+                )
+
+                update_tasks = []
+                for entity in current_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        try:
+            current_value = await self._read_current_battery_charge_current()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug(
+                    "Battery charge current for %s updated from %s A to %s A",
+                    self.serial,
+                    self._current_value,
+                    current_value,
+                )
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to update battery charge current for %s: %s", self.serial, e
+            )
+
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_battery_charge_current(self) -> Optional[float]:
+        """Read the current battery charge current from the device."""
+        try:
+            responses = await read_device_parameters_ranges(
+                self.coordinator.api, self.serial
+            )
+
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
+                if response and response.get("success", False):
+                    battery_charge_current = self._extract_battery_charge_current(
+                        response, start_register
+                    )
+                    if battery_charge_current is not None:
+                        return battery_charge_current
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to read battery charge current for %s due to: %s. "
+                "Will retry automatically.",
+                self.serial,
+                e,
+            )
+
+        return None
+
+    def _extract_battery_charge_current(
+        self, response: Dict[str, Any], start_register: int
+    ) -> Optional[int]:
+        """Extract HOLD_LEAD_ACID_CHARGE_RATE from parameter response."""
+        if (
+            "HOLD_LEAD_ACID_CHARGE_RATE" in response
+            and response["HOLD_LEAD_ACID_CHARGE_RATE"] is not None
+        ):
+            try:
+                raw_value = float(response["HOLD_LEAD_ACID_CHARGE_RATE"])
+                int_value = int(round(raw_value))
+
+                if 0 <= int_value <= 200:  # Validate range
+                    _LOGGER.info(
+                        "Found HOLD_LEAD_ACID_CHARGE_RATE for %s (reg %d): %d A",
+                        self.serial,
+                        start_register,
+                        int_value,
+                    )
+                    return int_value
+
+                _LOGGER.warning(
+                    "HOLD_LEAD_ACID_CHARGE_RATE for %s (reg %d) out of range: %d A",
+                    self.serial,
+                    start_register,
+                    int_value,
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Failed to parse HOLD_LEAD_ACID_CHARGE_RATE for %s (reg %d): %s",
+                    self.serial,
+                    start_register,
+                    e,
+                )
+
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+        try:
+            current_value = await self._read_current_battery_charge_current()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Loaded battery charge current for %s: %s A",
+                    self.serial,
+                    current_value,
+                )
+            else:
+                _LOGGER.debug(
+                    "Could not read battery charge current for %s, will show as unavailable",
+                    self.serial,
+                )
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to initialize battery charge current for %s: %s", self.serial, e
+            )
+
+
+class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for Battery Discharge Current control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        self.serial = serial
+
+        # Get device info
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Entity configuration
+        clean_model = model.lower().replace(" ", "_").replace("-", "_")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = "Battery Discharge Current"
+        self._attr_unique_id = (
+            f"{clean_model}_{serial.lower()}_battery_discharge_current"
+        )
+
+        _LOGGER.debug(
+            "Creating Battery Discharge Current entity - Model: %s, Clean: %s, Serial: %s, Name: %s, Unique ID: %s",
+            model,
+            clean_model,
+            serial,
+            self._attr_name,
+            self._attr_unique_id,
+        )
+
+        # Number configuration for Battery Discharge Current (0-200 A)
+        # Based on typical battery discharge current ranges for EG4 inverters
+        self._attr_native_min_value = 0
+        self._attr_native_max_value = 200
+        self._attr_native_step = 1
+        self._attr_native_unit_of_measurement = "A"
+        self._attr_mode = NumberMode.BOX
+        self._attr_icon = "mdi:battery-minus"
+        self._attr_native_precision = 0
+
+        # Device info
+        self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
+
+        # Current value
+        self._current_value: Optional[float] = None
+
+        _LOGGER.debug("Created Battery Discharge Current number entity for %s", serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    @property
+    def native_value(self) -> Optional[int]:
+        """Return the current battery discharge current value as integer."""
+        coordinator_value = self._get_value_from_coordinator()
+        if coordinator_value is not None:
+            self._current_value = coordinator_value
+            return int(round(coordinator_value))
+
+        if hasattr(self, "_current_value") and self._current_value is not None:
+            return int(round(self._current_value))
+
+        return None
+
+    def _get_value_from_coordinator(self) -> Optional[float]:
+        """Get the current value from coordinator's parameter data."""
+        try:
+            if "parameters" in self.coordinator.data:
+                parameter_data = self.coordinator.data["parameters"].get(
+                    self.serial, {}
+                )
+                if "HOLD_LEAD_ACID_DISCHARGE_RATE" in parameter_data:
+                    raw_value = parameter_data["HOLD_LEAD_ACID_DISCHARGE_RATE"]
+                    if raw_value is not None:
+                        value = float(raw_value)
+                        if 0 <= value <= 200:  # Validate range
+                            return value
+        except (ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the battery discharge current value."""
+        try:
+            int_value = int(round(value))
+            if int_value < 0 or int_value > 200:
+                raise ValueError(
+                    f"Battery discharge current must be between 0-200 A, got {int_value}"
+                )
+
+            if abs(value - int_value) > 0.01:
+                raise ValueError(
+                    f"Battery discharge current must be an integer value, got {value}"
+                )
+
+            _LOGGER.info(
+                "Setting Battery Discharge Current for %s to %d A",
+                self.serial,
+                int_value,
+            )
+
+            response = await self.coordinator.api.write_parameter(
+                inverter_sn=self.serial,
+                hold_param="HOLD_LEAD_ACID_DISCHARGE_RATE",
+                value_text=str(int_value),
+            )
+
+            _LOGGER.debug(
+                "Battery Discharge Current write response for %s: %s",
+                self.serial,
+                response,
+            )
+
+            if response.get("success", False):
+                self._current_value = value
+                self.async_write_ha_state()
+
+                _LOGGER.info(
+                    "Battery Discharge Current changed for %s, refreshing parameters for all inverters",
+                    self.serial,
+                )
+
+                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+                _LOGGER.info(
+                    "Successfully set Battery Discharge Current for %s to %d A",
+                    self.serial,
+                    int_value,
+                )
+            else:
+                error_msg = response.get("message", "Unknown error")
+                raise HomeAssistantError(
+                    f"Failed to set battery discharge current: {error_msg}"
+                )
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set Battery Discharge Current for %s: %s", self.serial, e
+            )
+            raise HomeAssistantError(
+                f"Failed to set battery discharge current: {e}"
+            ) from e
+
+    async def _refresh_all_parameters_and_entities(self) -> None:
+        """Refresh parameters for all inverters and update all current limit entities."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+
+            platform = self.platform
+            if platform is not None:
+                current_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(
+                        entity,
+                        (BatteryChargeCurrentNumber, BatteryDischargeCurrentNumber),
+                    )
+                ]
+
+                _LOGGER.info(
+                    "Updating %d current limit entities after parameter refresh",
+                    len(current_entities),
+                )
+
+                update_tasks = []
+                for entity in current_entities:
+                    task = entity.async_update()
+                    update_tasks.append(task)
+
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        try:
+            current_value = await self._read_current_battery_discharge_current()
+            if current_value is not None and current_value != self._current_value:
+                _LOGGER.debug(
+                    "Battery discharge current for %s updated from %s A to %s A",
+                    self.serial,
+                    self._current_value,
+                    current_value,
+                )
+                self._current_value = current_value
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to update battery discharge current for %s: %s", self.serial, e
+            )
+
+        await self.coordinator.async_request_refresh()
+
+    async def _read_current_battery_discharge_current(self) -> Optional[float]:
+        """Read the current battery discharge current from the device."""
+        try:
+            responses = await read_device_parameters_ranges(
+                self.coordinator.api, self.serial
+            )
+
+            for _, response, start_register in process_parameter_responses(
+                responses, self.serial, _LOGGER
+            ):
+                if response and response.get("success", False):
+                    battery_discharge_current = self._extract_battery_discharge_current(
+                        response, start_register
+                    )
+                    if battery_discharge_current is not None:
+                        return battery_discharge_current
+
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to read battery discharge current for %s due to: %s. "
+                "Will retry automatically.",
+                self.serial,
+                e,
+            )
+
+        return None
+
+    def _extract_battery_discharge_current(
+        self, response: Dict[str, Any], start_register: int
+    ) -> Optional[int]:
+        """Extract HOLD_LEAD_ACID_DISCHARGE_RATE from parameter response."""
+        if (
+            "HOLD_LEAD_ACID_DISCHARGE_RATE" in response
+            and response["HOLD_LEAD_ACID_DISCHARGE_RATE"] is not None
+        ):
+            try:
+                raw_value = float(response["HOLD_LEAD_ACID_DISCHARGE_RATE"])
+                int_value = int(round(raw_value))
+
+                if 0 <= int_value <= 200:  # Validate range
+                    _LOGGER.info(
+                        "Found HOLD_LEAD_ACID_DISCHARGE_RATE for %s (reg %d): %d A",
+                        self.serial,
+                        start_register,
+                        int_value,
+                    )
+                    return int_value
+
+                _LOGGER.warning(
+                    "HOLD_LEAD_ACID_DISCHARGE_RATE for %s (reg %d) out of range: %d A",
+                    self.serial,
+                    start_register,
+                    int_value,
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Failed to parse HOLD_LEAD_ACID_DISCHARGE_RATE for %s (reg %d): %s",
+                    self.serial,
+                    start_register,
+                    e,
+                )
+
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+        try:
+            current_value = await self._read_current_battery_discharge_current()
+            if current_value is not None:
+                self._current_value = current_value
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Loaded battery discharge current for %s: %s A",
+                    self.serial,
+                    current_value,
+                )
+            else:
+                _LOGGER.debug(
+                    "Could not read battery discharge current for %s, will show as unavailable",
+                    self.serial,
+                )
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to initialize battery discharge current for %s: %s",
+                self.serial,
+                e,
             )

@@ -1,0 +1,277 @@
+# Battery Charge/Discharge Current Control based on Weather Forecast
+#
+# This automation adjusts battery charge and discharge current limits based on
+# the upcoming weather forecast to optimize solar energy storage.
+#
+# Use Case (@rxaaron's scenario from issue #42):
+# - When sunny weather is forecast, increase charge rate to 200A to quickly store excess solar
+# - When cloudy/rainy weather is forecast, reduce charge rate to conserve energy
+# - Automatically adjust discharge rate based on grid export conditions
+#
+# Requirements:
+# - EG4 Web Monitor integration configured
+# - Weather integration (e.g., OpenWeatherMap, Met.no, AccuWeather)
+# - Replace INVERTER_SERIAL with your actual inverter serial number
+# - Replace weather.home with your weather entity_id
+
+automation:
+  # Automation 1: Increase charge rate when sunny weather forecast
+  - id: battery_charge_sunny_weather
+    alias: "Battery: Set High Charge Rate for Sunny Weather"
+    description: "Increase battery charge current to 200A when sunny weather is forecast"
+
+    trigger:
+      # Trigger when weather forecast changes
+      - platform: state
+        entity_id: weather.home
+
+      # Also check every hour to catch forecast updates
+      - platform: time_pattern
+        hours: "/1"
+
+    condition:
+      # Only run during daylight hours (adjust times for your location)
+      - condition: time
+        after: "06:00:00"
+        before: "18:00:00"
+
+      # Check if weather is sunny or clear
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: weather.home
+            state: "sunny"
+          - condition: state
+            entity_id: weather.home
+            state: "clear"
+          - condition: state
+            entity_id: weather.home
+            state: "partlycloudy"
+
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_charge_current
+        data:
+          value: 200
+
+      - service: notify.persistent_notification
+        data:
+          title: "Battery Charge Rate Increased"
+          message: "Sunny weather forecast detected. Battery charge rate set to 200A to maximize solar storage."
+
+  # Automation 2: Reduce charge rate when cloudy/rainy weather forecast
+  - id: battery_charge_cloudy_weather
+    alias: "Battery: Set Low Charge Rate for Cloudy Weather"
+    description: "Reduce battery charge current to 50A when cloudy/rainy weather is forecast"
+
+    trigger:
+      # Trigger when weather forecast changes
+      - platform: state
+        entity_id: weather.home
+
+      # Also check every hour to catch forecast updates
+      - platform: time_pattern
+        hours: "/1"
+
+    condition:
+      # Only run during daylight hours
+      - condition: time
+        after: "06:00:00"
+        before: "18:00:00"
+
+      # Check if weather is cloudy or rainy
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: weather.home
+            state: "cloudy"
+          - condition: state
+            entity_id: weather.home
+            state: "rainy"
+          - condition: state
+            entity_id: weather.home
+            state: "pouring"
+          - condition: state
+            entity_id: weather.home
+            state: "snowy"
+
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_charge_current
+        data:
+          value: 50
+
+      - service: notify.persistent_notification
+        data:
+          title: "Battery Charge Rate Reduced"
+          message: "Cloudy/rainy weather forecast detected. Battery charge rate set to 50A to conserve energy."
+
+  # Automation 3: Dynamic discharge rate based on grid export
+  - id: battery_discharge_grid_export
+    alias: "Battery: Adjust Discharge Rate for Grid Export"
+    description: "Increase battery discharge current when grid export is enabled and SOC is high"
+
+    trigger:
+      # Trigger when battery SOC changes
+      - platform: state
+        entity_id: sensor.eg4_flexboss_INVERTER_SERIAL_state_of_charge
+
+      # Also check every 30 minutes
+      - platform: time_pattern
+        minutes: "/30"
+
+    condition:
+      # Only run if battery SOC is above 80%
+      - condition: numeric_state
+        entity_id: sensor.eg4_flexboss_INVERTER_SERIAL_state_of_charge
+        above: 80
+
+      # Only during off-peak hours (adjust times for your utility rate schedule)
+      - condition: or
+        conditions:
+          - condition: time
+            after: "09:00:00"
+            before: "15:00:00"  # Mid-day peak solar production
+          - condition: time
+            after: "19:00:00"
+            before: "21:00:00"  # Evening peak rate hours
+
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_discharge_current
+        data:
+          value: 150
+
+      - service: notify.persistent_notification
+        data:
+          title: "Battery Discharge Rate Increased"
+          message: "Battery SOC above 80%. Discharge rate set to 150A for grid export."
+
+  # Automation 4: Conservative discharge rate overnight
+  - id: battery_discharge_overnight
+    alias: "Battery: Set Conservative Discharge Rate Overnight"
+    description: "Reduce battery discharge current overnight to extend battery life"
+
+    trigger:
+      # Trigger at sunset
+      - platform: sun
+        event: sunset
+        offset: "+01:00:00"  # 1 hour after sunset
+
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_discharge_current
+        data:
+          value: 75
+
+      - service: notify.persistent_notification
+        data:
+          title: "Battery Discharge Rate Reduced"
+          message: "Overnight mode: Battery discharge rate set to 75A for extended battery life."
+
+  # Automation 5: Advanced - Weather-based discharge planning
+  - id: battery_discharge_weather_planning
+    alias: "Battery: Weather-Based Discharge Planning"
+    description: "Adjust discharge rate based on next day's weather forecast"
+
+    trigger:
+      # Run every evening at 9 PM to plan for next day
+      - platform: time
+        at: "21:00:00"
+
+    action:
+      - choose:
+          # If tomorrow will be sunny, discharge more today
+          - conditions:
+              - condition: state
+                entity_id: weather.home
+                attribute: forecast
+                state: "sunny"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_discharge_current
+                data:
+                  value: 150
+
+              - service: notify.persistent_notification
+                data:
+                  title: "Battery: Tomorrow Sunny - Discharge More Today"
+                  message: "Sunny weather forecast for tomorrow. Increasing discharge to 150A to make room for tomorrow's solar production."
+
+          # If tomorrow will be cloudy, conserve battery today
+          - conditions:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity_id: weather.home
+                    attribute: forecast
+                    state: "cloudy"
+                  - condition: state
+                    entity_id: weather.home
+                    attribute: forecast
+                    state: "rainy"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_discharge_current
+                data:
+                  value: 50
+
+              - service: notify.persistent_notification
+                data:
+                  title: "Battery: Tomorrow Cloudy - Conserve Today"
+                  message: "Cloudy weather forecast for tomorrow. Reducing discharge to 50A to conserve battery."
+
+        # Default action if no conditions match
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_flexboss_INVERTER_SERIAL_battery_discharge_current
+            data:
+              value: 100
+
+          - service: notify.persistent_notification
+            data:
+              title: "Battery: Standard Discharge Rate"
+              message: "Weather forecast unclear. Setting discharge to standard 100A."
+
+# Additional Configuration Notes:
+#
+# 1. Replace INVERTER_SERIAL with your actual inverter serial number
+#    Example: 1234567890 → number.eg4_flexboss_1234567890_battery_charge_current
+#
+# 2. Adjust time ranges based on your location and utility rate schedule
+#    - Peak solar hours: typically 9 AM - 3 PM
+#    - Evening peak rates: varies by utility (often 4 PM - 9 PM)
+#
+# 3. Customize charge/discharge rates based on your battery specifications
+#    - Maximum safe charge rate: Check battery datasheet (typically 100-200A)
+#    - Maximum safe discharge rate: Check battery datasheet (typically 100-200A)
+#    - Conservative rates extend battery life
+#
+# 4. Weather entity states vary by integration:
+#    - Common states: sunny, clear, partlycloudy, cloudy, rainy, pouring, snowy
+#    - Check your weather integration's documentation for exact states
+#
+# 5. Add conditions for your specific setup:
+#    - Grid export permissions
+#    - Utility rate schedules (TOU rates)
+#    - Battery temperature limits
+#    - Grid availability (for off-grid systems)
+#
+# 6. Safety considerations:
+#    - Never exceed battery manufacturer's recommended charge/discharge rates
+#    - Monitor battery temperature when using high current rates
+#    - Consider adding temperature-based rate limiting
+#    - Test with conservative values first
+#
+# 7. Integration with other automations:
+#    - Coordinate with AC charge power settings
+#    - Consider grid import/export limits
+#    - Account for load management systems
+#    - Integrate with time-of-use rate schedules
