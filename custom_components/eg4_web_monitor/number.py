@@ -66,6 +66,9 @@ async def async_setup_entry(
                 entities.append(ACChargeSOCLimitNumber(coordinator, serial))
                 entities.append(OnGridSOCCutoffNumber(coordinator, serial))
                 entities.append(OffGridSOCCutoffNumber(coordinator, serial))
+                # Add battery charge/discharge current control entities
+                entities.append(BatteryChargeCurrentNumber(coordinator, serial))
+                entities.append(BatteryDischargeCurrentNumber(coordinator, serial))
                 _LOGGER.info(
                     "✅ Added number entities for compatible device %s (%s)",
                     serial,
@@ -128,6 +131,7 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
 
         # Set precision to 0 decimal places (integers only)
         self._attr_native_precision = 0
+        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
@@ -1323,6 +1327,7 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 0
+        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
@@ -1612,6 +1617,7 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-alert"
         self._attr_native_precision = 0
+        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
@@ -1894,6 +1900,7 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         self._attr_mode = NumberMode.BOX
         self._attr_icon = "mdi:battery-outline"
         self._attr_native_precision = 0
+        self._attr_entity_category = EntityCategory.CONFIG
 
         # Device info
         self._attr_device_info = cast(DeviceInfo, coordinator.get_device_info(serial))
