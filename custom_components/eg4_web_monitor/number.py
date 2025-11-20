@@ -2184,7 +2184,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
         self._attr_native_step = 1
         self._attr_native_unit_of_measurement = "A"
         self._attr_mode = NumberMode.BOX
-        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_icon = "mdi:battery-plus"
         self._attr_native_precision = 0
         self._attr_entity_category = EntityCategory.CONFIG
 
