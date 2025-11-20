@@ -11,5 +11,5 @@
   "loggers": ["eg4_web_monitor"],
   "quality_scale": "platinum",
   "requirements": ["aiohttp>=3.8.0"],
-  "version": "2.2.5"
+  "version": "2.2.6"
 }
