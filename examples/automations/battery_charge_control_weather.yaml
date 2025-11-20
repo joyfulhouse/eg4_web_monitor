@@ -1,0 +1,403 @@
+# Battery Charge Current Control - Weather-Based Automation
+#
+# This automation optimizes battery charge current based on weather forecasts
+# to maximize solar production and prevent inverter throttling.
+#
+# USE CASE: For systems where PV input exceeds inverter AC output capacity
+# (e.g., 18kPV inverter with >12kW PV array)
+#
+# PROBLEM: When batteries are full and PV exceeds inverter capacity,
+# the system throttles total output to the inverter's max (12kW).
+#
+# SOLUTION: Limit battery charge current during high production to force
+# excess power to grid export instead of throttling.
+#
+# Replace the entity IDs with your actual device serial numbers.
+
+automation:
+  # ============================================================================
+  # Example 1: Basic Weather-Based Charge Rate Control
+  # ============================================================================
+  # Reduces charge current on sunny days to prevent throttling
+  # Increases charge current on cloudy days to maximize battery charging
+  - id: battery_charge_weather_basic
+    alias: "EG4: Battery Charge Rate - Weather Based"
+    description: "Adjust battery charge current based on weather forecast"
+
+    trigger:
+      # Check weather forecast every hour
+      - platform: time_pattern
+        hours: "/1"
+
+      # Also run at sunrise to prepare for the day
+      - platform: sun
+        event: sunrise
+        offset: "-00:30:00"  # 30 minutes before sunrise
+
+    condition:
+      # Only run during potential solar production hours
+      - condition: sun
+        after: sunrise
+        before: sunset
+
+    action:
+      - choose:
+          # SUNNY WEATHER: Reduce charge current to prevent throttling
+          - conditions:
+              - condition: state
+                entity_id: weather.home
+                state: "sunny"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 80  # Limit to 80A (~5kW charge) to allow grid export
+
+              - service: logbook.log
+                data:
+                  name: "EG4 Charge Control"
+                  message: "Sunny weather: Reduced charge current to 80A to maximize grid export"
+
+          # PARTLY CLOUDY: Moderate charge current
+          - conditions:
+              - condition: state
+                entity_id: weather.home
+                state: "partlycloudy"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 150  # Moderate limit
+
+              - service: logbook.log
+                data:
+                  name: "EG4 Charge Control"
+                  message: "Partly cloudy: Set charge current to 150A"
+
+        # CLOUDY/RAINY: Maximum charge current to fully charge batteries
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+            data:
+              value: 200  # Maximum charge rate
+
+          - service: logbook.log
+            data:
+              name: "EG4 Charge Control"
+              message: "Cloudy/rainy weather: Increased charge current to 200A to maximize battery charging"
+
+  # ============================================================================
+  # Example 2: Solar Production-Based Charge Rate Control
+  # ============================================================================
+  # Monitors actual solar production and adjusts charge rate dynamically
+  # This is more responsive than weather-based control
+  - id: battery_charge_solar_production
+    alias: "EG4: Battery Charge Rate - Production Based"
+    description: "Adjust charge current based on actual solar production"
+
+    trigger:
+      # Check every 5 minutes during daylight
+      - platform: time_pattern
+        minutes: "/5"
+
+    condition:
+      # Only during solar production hours
+      - condition: numeric_state
+        entity_id: sensor.eg4_18kpv_1234567890_pv_power
+        above: 1000  # More than 1kW PV production
+
+    action:
+      - choose:
+          # HIGH PRODUCTION (>12kW): Reduce charge to prevent throttling
+          - conditions:
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_pv_power
+                above: 12000  # More than 12kW
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 80  # Limit charge to allow grid export
+
+          # MODERATE PRODUCTION (8-12kW): Balanced charging
+          - conditions:
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_pv_power
+                above: 8000
+                below: 12000
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 150
+
+        # LOW PRODUCTION (<8kW): Maximum charge rate
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+            data:
+              value: 200  # Maximize battery charging
+
+  # ============================================================================
+  # Example 3: Time-of-Use + Weather Optimization
+  # ============================================================================
+  # Combines time-of-use rates with weather forecasts for optimal charging
+  - id: battery_charge_tou_weather
+    alias: "EG4: Battery Charge Rate - TOU + Weather"
+    description: "Optimize charge rate based on TOU rates and weather"
+
+    trigger:
+      # Check at the start of each TOU period
+      - platform: time
+        at:
+          - "07:00:00"  # Start of peak period
+          - "12:00:00"  # Mid-day check
+          - "16:00:00"  # End of peak period
+          - "21:00:00"  # Start of off-peak
+
+    action:
+      - choose:
+          # PEAK HOURS + SUNNY: Minimum charge to maximize export
+          - conditions:
+              - condition: time
+                after: "07:00:00"
+                before: "16:00:00"
+              - condition: state
+                entity_id: weather.home
+                state: "sunny"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 50  # Minimum charge, maximum export during peak rates
+
+              - service: logbook.log
+                data:
+                  name: "EG4 Charge Control"
+                  message: "Peak hours + sunny: Minimized charge (50A) to maximize valuable grid export"
+
+          # PEAK HOURS + CLOUDY: Higher charge to ensure battery ready for evening
+          - conditions:
+              - condition: time
+                after: "07:00:00"
+                before: "16:00:00"
+              - condition: state
+                entity_id: weather.home
+                state: "cloudy"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 200  # Maximum charge to prepare for evening peak usage
+
+        # OFF-PEAK: Don't prioritize export, charge batteries fully
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+            data:
+              value: 200
+
+  # ============================================================================
+  # Example 4: Battery SOC-Based Charge Rate Control
+  # ============================================================================
+  # Prevents throttling when batteries are nearly full on sunny days
+  - id: battery_charge_soc_based
+    alias: "EG4: Battery Charge Rate - SOC Based"
+    description: "Reduce charge rate when batteries are nearly full on sunny days"
+
+    trigger:
+      # Check every 5 minutes
+      - platform: time_pattern
+        minutes: "/5"
+
+      # Also trigger on SOC changes
+      - platform: state
+        entity_id: sensor.eg4_18kpv_1234567890_soc
+
+    condition:
+      # Only during solar production
+      - condition: sun
+        after: sunrise
+        before: sunset
+      - condition: numeric_state
+        entity_id: sensor.eg4_18kpv_1234567890_pv_power
+        above: 5000  # Significant PV production
+
+    action:
+      - choose:
+          # HIGH SOC (>80%) + HIGH PRODUCTION: Reduce charge to prevent throttling
+          - conditions:
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_soc
+                above: 80
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_pv_power
+                above: 12000
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 50  # Minimal charge, maximize export
+
+              - service: logbook.log
+                data:
+                  name: "EG4 Charge Control"
+                  message: "High SOC ({{ states('sensor.eg4_18kpv_1234567890_soc') }}%) + high production: Reduced charge to 50A"
+
+          # MEDIUM SOC (50-80%): Moderate charging
+          - conditions:
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_soc
+                above: 50
+                below: 80
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 150
+
+        # LOW SOC (<50%): Maximum charge rate
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+            data:
+              value: 200  # Prioritize getting batteries charged
+
+  # ============================================================================
+  # Example 5: Advanced Multi-Factor Optimization
+  # ============================================================================
+  # Combines weather, SOC, production, and time for optimal control
+  - id: battery_charge_advanced
+    alias: "EG4: Battery Charge Rate - Advanced Optimization"
+    description: "Multi-factor charge rate optimization for maximum efficiency"
+
+    trigger:
+      - platform: time_pattern
+        minutes: "/10"
+
+    condition:
+      - condition: sun
+        after: sunrise
+        before: sunset
+
+    action:
+      - choose:
+          # SCENARIO 1: Sunny, high production, high SOC
+          # Goal: Minimize throttling by reducing charge and maximizing export
+          - conditions:
+              - condition: state
+                entity_id: weather.home
+                state: "sunny"
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_pv_power
+                above: 12000
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_soc
+                above: 70
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 60
+              - service: logbook.log
+                data:
+                  name: "EG4 Advanced Control"
+                  message: "Optimal conditions for export: Reduced charge to 60A (SOC: {{ states('sensor.eg4_18kpv_1234567890_soc') }}%, PV: {{ states('sensor.eg4_18kpv_1234567890_pv_power') }}W)"
+
+          # SCENARIO 2: Cloudy, any SOC
+          # Goal: Maximize battery charging while sun is available
+          - conditions:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity_id: weather.home
+                    state: "cloudy"
+                  - condition: state
+                    entity_id: weather.home
+                    state: "rainy"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 200
+              - service: logbook.log
+                data:
+                  name: "EG4 Advanced Control"
+                  message: "Limited sun: Maximized charge to 200A to fully charge batteries"
+
+          # SCENARIO 3: Sunny, low production, low SOC
+          # Goal: Charge batteries quickly while maintaining some export
+          - conditions:
+              - condition: state
+                entity_id: weather.home
+                state: "sunny"
+              - condition: numeric_state
+                entity_id: sensor.eg4_18kpv_1234567890_soc
+                below: 50
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                data:
+                  value: 180
+              - service: logbook.log
+                data:
+                  name: "EG4 Advanced Control"
+                  message: "Low battery on sunny day: Increased charge to 180A to build reserves"
+
+        # DEFAULT: Balanced charging
+        default:
+          - service: number.set_value
+            target:
+              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+            data:
+              value: 150
+          - service: logbook.log
+            data:
+              name: "EG4 Advanced Control"
+              message: "Standard conditions: Set balanced charge rate of 150A"
+
+# ============================================================================
+# CONFIGURATION NOTES
+# ============================================================================
+#
+# Entity ID Replacements:
+# - Replace "eg4_18kpv_1234567890" with your actual inverter serial number
+# - Find your entities in Home Assistant under Developer Tools > States
+#
+# Weather Entity:
+# - Replace "weather.home" with your weather integration entity
+# - Supported integrations: Met.no, OpenWeatherMap, Weather.gov, etc.
+#
+# Customization Tips:
+# - Adjust amperage values based on your battery capacity and chemistry
+# - Tune PV power thresholds based on your array size
+# - Modify SOC thresholds based on your usage patterns
+# - Add notification actions to alert you of charge rate changes
+#
+# Safety Considerations:
+# - Never exceed your battery's maximum charge current rating
+# - Consider battery temperature in hot climates
+# - Monitor battery health metrics regularly
+# - Start with conservative values and adjust based on results
+#
+# Testing:
+# - Enable debug logging for the EG4 integration
+# - Monitor the logbook for automation executions
+# - Track daily energy production to validate improvements
+# - Watch for throttling events in inverter logs
+#
