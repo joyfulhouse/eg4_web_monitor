@@ -573,16 +573,38 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             )
             return self._optimistic_state
 
-        state = self._coordinator.get_working_mode_state(
-            self._serial_number, self._mode_config["param"]
-        )
-        _LOGGER.debug(
-            "Working mode switch %s (%s) current state: %s",
-            self._mode_config["param"],
-            self._serial_number,
-            state,
-        )
-        return state
+        # Read state from coordinator parameters
+        try:
+            if self._coordinator.data and "parameters" in self._coordinator.data:
+                parameter_data = self._coordinator.data["parameters"].get(
+                    self._serial_number, {}
+                )
+
+                # Map function parameter to parameter register
+                param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config["param"])
+                if param_key:
+                    param_value = parameter_data.get(param_key, False)
+                    # Handle both bool and int values
+                    if isinstance(param_value, bool):
+                        is_enabled = param_value
+                    else:
+                        is_enabled = param_value == 1
+
+                    _LOGGER.debug(
+                        "Working mode switch %s (%s) current state: %s",
+                        self._mode_config["param"],
+                        self._serial_number,
+                        is_enabled,
+                    )
+                    return is_enabled
+        except Exception as err:
+            _LOGGER.error(
+                "Error reading working mode state for %s: %s",
+                self._mode_config["param"],
+                err,
+            )
+
+        return False
 
     @property
     def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
@@ -614,11 +636,12 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Turn the switch on."""
+        """Turn the switch on using device object method."""
         try:
+            param = self._mode_config["param"]
             _LOGGER.debug(
                 "Enabling working mode %s for device %s",
-                self._mode_config["param"],
+                param,
                 self._serial_number,
             )
 
@@ -626,14 +649,37 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = True
             self.async_write_ha_state()
 
-            await self._coordinator.set_working_mode(
-                self._serial_number, self._mode_config["param"], True
-            )
+            # Get inverter device object
+            inverter = self._coordinator.get_inverter_object(self._serial_number)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial_number} not found")
+
+            # Map parameter to device object method
+            success = False
+            if param == "FUNC_AC_CHARGE":
+                success = await inverter.enable_ac_charge_mode()
+            elif param == "FUNC_FORCED_CHG_EN":
+                success = await inverter.enable_pv_charge_priority()
+            elif param == "FUNC_FORCED_DISCHG_EN":
+                success = await inverter.enable_forced_discharge()
+            elif param == "FUNC_GRID_PEAK_SHAVING":
+                success = await inverter.enable_peak_shaving_mode()
+            elif param == "FUNC_BATTERY_BACKUP_CTRL":
+                success = await inverter.enable_battery_backup()
+            else:
+                raise HomeAssistantError(f"Unknown working mode parameter: {param}")
+
+            if not success:
+                raise HomeAssistantError(f"Failed to enable {param}")
+
             _LOGGER.info(
                 "Successfully enabled working mode %s for device %s",
-                self._mode_config["param"],
+                param,
                 self._serial_number,
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and force entity update
             self._optimistic_state = None
@@ -652,11 +698,12 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Turn the switch off."""
+        """Turn the switch off using device object method."""
         try:
+            param = self._mode_config["param"]
             _LOGGER.debug(
                 "Disabling working mode %s for device %s",
-                self._mode_config["param"],
+                param,
                 self._serial_number,
             )
 
@@ -664,14 +711,37 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = False
             self.async_write_ha_state()
 
-            await self._coordinator.set_working_mode(
-                self._serial_number, self._mode_config["param"], False
-            )
+            # Get inverter device object
+            inverter = self._coordinator.get_inverter_object(self._serial_number)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial_number} not found")
+
+            # Map parameter to device object method
+            success = False
+            if param == "FUNC_AC_CHARGE":
+                success = await inverter.disable_ac_charge_mode()
+            elif param == "FUNC_FORCED_CHG_EN":
+                success = await inverter.disable_pv_charge_priority()
+            elif param == "FUNC_FORCED_DISCHG_EN":
+                success = await inverter.disable_forced_discharge()
+            elif param == "FUNC_GRID_PEAK_SHAVING":
+                success = await inverter.disable_peak_shaving_mode()
+            elif param == "FUNC_BATTERY_BACKUP_CTRL":
+                success = await inverter.disable_battery_backup()
+            else:
+                raise HomeAssistantError(f"Unknown working mode parameter: {param}")
+
+            if not success:
+                raise HomeAssistantError(f"Failed to disable {param}")
+
             _LOGGER.info(
                 "Successfully disabled working mode %s for device %s",
-                self._mode_config["param"],
+                param,
                 self._serial_number,
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and force entity update
             self._optimistic_state = None
