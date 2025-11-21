@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -194,7 +195,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         return False
 
     async def async_select_option(self, option: str) -> None:
-        """Change the operating mode."""
+        """Change the operating mode using device object method."""
         if option not in OPERATING_MODE_OPTIONS:
             _LOGGER.error("Invalid operating mode option: %s", option)
             return
@@ -208,21 +209,26 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            # Get the mode setting from mapping
-            # Based on user clarification:
-            # Normal = FUNC_SET_TO_STANDBY = true
-            # Standby = FUNC_SET_TO_STANDBY = false
-            standby_param_value = OPERATING_MODE_MAPPING[option]
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
 
-            # Call the API to set the mode using control_function_parameter directly
-            await self.coordinator.api.control_function_parameter(
-                self._serial, "FUNC_SET_TO_STANDBY", standby_param_value
-            )
+            # Use device object convenience method
+            # Convert Home Assistant option to OperatingMode enum value
+            mode_value = option.upper()  # "Normal" -> "NORMAL", "Standby" -> "STANDBY"
+            success = await inverter.set_operating_mode(mode_value)
+            if not success:
+                raise HomeAssistantError(f"Failed to set operating mode to {option}")
+
             _LOGGER.info(
                 "Successfully set operating mode to %s for device %s",
                 option,
                 self._serial,
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None

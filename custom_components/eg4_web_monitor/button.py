@@ -191,14 +191,6 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         """Return extra state attributes."""
         attributes = {}
 
-        # Add cache statistics if available
-        if hasattr(self.coordinator.api, "get_cache_stats"):
-            cache_stats = self.coordinator.api.get_cache_stats()
-            if cache_stats:
-                attributes["cache_entries"] = cache_stats.get("total_entries", 0)
-                attributes["cache_hits"] = cache_stats.get("cache_hits", 0)
-                attributes["cache_misses"] = cache_stats.get("cache_misses", 0)
-
         # Add device type info
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
@@ -310,12 +302,6 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         attributes["parent_device"] = self._parent_serial
         attributes["battery_id"] = self._battery_id
 
-        # Add cache statistics if available
-        if hasattr(self.coordinator.api, "get_cache_stats"):
-            cache_stats = self.coordinator.api.get_cache_stats()
-            if cache_stats:
-                attributes["cache_entries"] = cache_stats.get("total_entries", 0)
-
         return attributes if attributes else None
 
     async def async_press(self) -> None:
@@ -409,14 +395,6 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
 
         # Add station/plant ID
         attributes["plant_id"] = self.coordinator.plant_id
-
-        # Add cache statistics if available
-        if hasattr(self.coordinator.api, "get_cache_stats"):
-            cache_stats = self.coordinator.api.get_cache_stats()
-            if cache_stats:
-                attributes["cache_entries"] = cache_stats.get("total_entries", 0)
-                attributes["cache_hits"] = cache_stats.get("cache_hits", 0)
-                attributes["cache_misses"] = cache_stats.get("cache_misses", 0)
 
         return attributes if attributes else None
 

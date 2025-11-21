@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceInfo
 
@@ -247,7 +248,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Turn on quick charge."""
+        """Turn on quick charge using device object method."""
         try:
             _LOGGER.debug("Starting quick charge for device %s", self._serial)
 
@@ -255,11 +256,22 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = True
             self.async_write_ha_state()
 
-            # Call the API
-            await self.coordinator.api.start_quick_charge(self._serial)
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.enable_quick_charge()
+            if not success:
+                raise HomeAssistantError("Failed to enable quick charge")
+
             _LOGGER.info(
                 "Successfully started quick charge for device %s", self._serial
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
@@ -275,7 +287,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Turn off quick charge."""
+        """Turn off quick charge using device object method."""
         try:
             _LOGGER.debug("Stopping quick charge for device %s", self._serial)
 
@@ -283,11 +295,22 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = False
             self.async_write_ha_state()
 
-            # Call the API
-            await self.coordinator.api.stop_quick_charge(self._serial)
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.disable_quick_charge()
+            if not success:
+                raise HomeAssistantError("Failed to disable quick charge")
+
             _LOGGER.info(
                 "Successfully stopped quick charge for device %s", self._serial
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator update for real status
             self._optimistic_state = None
@@ -419,7 +442,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Enable battery backup."""
+        """Enable battery backup using device object method."""
         try:
             _LOGGER.debug("Enabling battery backup for device %s", self._serial)
 
@@ -427,11 +450,22 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = True
             self.async_write_ha_state()
 
-            # Call the API
-            await self.coordinator.api.enable_battery_backup(self._serial)
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.enable_battery_backup()
+            if not success:
+                raise HomeAssistantError("Failed to enable battery backup")
+
             _LOGGER.info(
                 "Successfully enabled battery backup for device %s", self._serial
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None
@@ -447,7 +481,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
             raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # pylint: disable=unused-argument
-        """Disable battery backup."""
+        """Disable battery backup using device object method."""
         try:
             _LOGGER.debug("Disabling battery backup for device %s", self._serial)
 
@@ -455,11 +489,22 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
             self._optimistic_state = False
             self.async_write_ha_state()
 
-            # Call the API
-            await self.coordinator.api.disable_battery_backup(self._serial)
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.disable_battery_backup()
+            if not success:
+                raise HomeAssistantError("Failed to disable battery backup")
+
             _LOGGER.info(
                 "Successfully disabled battery backup for device %s", self._serial
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None
@@ -701,7 +746,7 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable Daylight Saving Time."""
+        """Enable Daylight Saving Time using device object method."""
         try:
             _LOGGER.info(
                 "Enabling Daylight Saving Time for station %s",
@@ -712,9 +757,17 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
             self._optimistic_state = True
             self.async_write_ha_state()
 
-            await self.coordinator.api.set_daylight_saving_time(
-                self.coordinator.plant_id, True
-            )
+            # Get station device object
+            station = self.coordinator.station
+            if not station:
+                raise HomeAssistantError(
+                    f"Station {self.coordinator.plant_id} not found"
+                )
+
+            # Use device object convenience method
+            success = await station.set_daylight_saving_time(enabled=True)
+            if not success:
+                raise HomeAssistantError("Failed to enable Daylight Saving Time")
 
             _LOGGER.info(
                 "Successfully enabled Daylight Saving Time for station %s",
@@ -743,7 +796,7 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
             raise
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Disable Daylight Saving Time."""
+        """Disable Daylight Saving Time using device object method."""
         try:
             _LOGGER.info(
                 "Disabling Daylight Saving Time for station %s",
@@ -754,9 +807,17 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
             self._optimistic_state = False
             self.async_write_ha_state()
 
-            await self.coordinator.api.set_daylight_saving_time(
-                self.coordinator.plant_id, False
-            )
+            # Get station device object
+            station = self.coordinator.station
+            if not station:
+                raise HomeAssistantError(
+                    f"Station {self.coordinator.plant_id} not found"
+                )
+
+            # Use device object convenience method
+            success = await station.set_daylight_saving_time(enabled=False)
+            if not success:
+                raise HomeAssistantError("Failed to disable Daylight Saving Time")
 
             _LOGGER.info(
                 "Successfully disabled Daylight Saving Time for station %s",

@@ -494,7 +494,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge power value."""
+        """Set the AC charge power value using device object method."""
         try:
             # Validate range (0.0-15.0 kW)
             if value < 0.0 or value > 15.0:
@@ -506,40 +506,40 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
                 "Setting AC Charge Power for %s to %.1f kW", self.serial, value
             )
 
-            # Use the API client to write the parameter
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_AC_CHARGE_POWER_CMD",
-                value_text=str(value),
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.set_ac_charge_power(power_kw=value)
+            if not success:
+                raise HomeAssistantError("Failed to set AC charge power")
+
+            _LOGGER.info(
+                "Successfully set AC Charge Power for %s to %.1f kW",
+                self.serial,
+                value,
             )
 
-            _LOGGER.debug(
-                "AC Charge Power write response for %s: %s", self.serial, response
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "AC Charge Power changed for %s, refreshing parameters for all inverters",
+                self.serial,
             )
 
-            # Check if the write was successful
-            if response.get("success", False):
-                # Update the stored value
-                self._current_value = value
-                self.async_write_ha_state()
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
-                # Trigger parameter refresh for all inverters
-                _LOGGER.info(
-                    "AC Charge Power changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set AC Charge Power for %s to %.1f kW",
-                    self.serial,
-                    value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set AC charge power: {error_msg}")
-
+        except ValueError as e:
+            _LOGGER.error("Invalid AC Charge Power value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error("Failed to set AC Charge Power for %s: %s", self.serial, e)
             raise HomeAssistantError(f"Failed to set AC charge power: {e}") from e
@@ -774,7 +774,7 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the PV charge power value."""
+        """Set the PV charge power value using device object method."""
         try:
             # Convert to integer and validate range
             int_value = int(round(value))
@@ -793,40 +793,40 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
                 "Setting PV Charge Power for %s to %d kW", self.serial, int_value
             )
 
-            # Use the API client to write the parameter
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_FORCED_CHG_POWER_CMD",
-                value_text=str(int_value),
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.set_pv_charge_power(power_kw=int_value)
+            if not success:
+                raise HomeAssistantError("Failed to set PV charge power")
+
+            _LOGGER.info(
+                "Successfully set PV Charge Power for %s to %d kW",
+                self.serial,
+                int_value,
             )
 
-            _LOGGER.debug(
-                "PV Charge Power write response for %s: %s", self.serial, response
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "PV Charge Power changed for %s, refreshing parameters for all inverters",
+                self.serial,
             )
 
-            # Check if the write was successful
-            if response.get("success", False):
-                # Update the stored value
-                self._current_value = value
-                self.async_write_ha_state()
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
-                # Trigger parameter refresh for all inverters
-                _LOGGER.info(
-                    "PV Charge Power changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set PV Charge Power for %s to %d kW",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set PV charge power: {error_msg}")
-
+        except ValueError as e:
+            _LOGGER.error("Invalid PV Charge Power value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error("Failed to set PV Charge Power for %s: %s", self.serial, e)
             raise HomeAssistantError(f"Failed to set PV charge power: {e}") from e
@@ -1056,7 +1056,7 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the grid peak shaving power value."""
+        """Set the grid peak shaving power value using device object method."""
         try:
             # Validate range (0.0-25.5 kW)
             if value < 0.0 or value > 25.5:
@@ -1068,46 +1068,40 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
                 "Setting Grid Peak Shaving Power for %s to %.1f kW", self.serial, value
             )
 
-            # Use the API client to write the parameter
-            # The parameter name is model-specific: _12K_HOLD_GRID_PEAK_SHAVING_POWER
-            # We'll use a generic name and let the API handle the model-specific mapping
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="_12K_HOLD_GRID_PEAK_SHAVING_POWER",
-                value_text=str(value),
-            )
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
 
-            _LOGGER.debug(
-                "Grid Peak Shaving Power write response for %s: %s",
+            # Use device object convenience method
+            success = await inverter.set_grid_peak_shaving_power(power_kw=value)
+            if not success:
+                raise HomeAssistantError("Failed to set grid peak shaving power")
+
+            _LOGGER.info(
+                "Successfully set Grid Peak Shaving Power for %s to %.1f kW",
                 self.serial,
-                response,
+                value,
             )
 
-            # Check if the write was successful
-            if response.get("success", False):
-                # Update the stored value
-                self._current_value = value
-                self.async_write_ha_state()
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
 
-                # Trigger parameter refresh for all inverters
-                _LOGGER.info(
-                    "Grid Peak Shaving Power changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
+            # Refresh inverter data
+            await inverter.refresh()
 
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "Grid Peak Shaving Power changed for %s, refreshing parameters for all inverters",
+                self.serial,
+            )
 
-                _LOGGER.info(
-                    "Successfully set Grid Peak Shaving Power for %s to %.1f kW",
-                    self.serial,
-                    value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(
-                    f"Failed to set grid peak shaving power: {error_msg}"
-                )
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
+        except ValueError as e:
+            _LOGGER.error("Invalid Grid Peak Shaving Power value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error(
                 "Failed to set Grid Peak Shaving Power for %s: %s", self.serial, e
@@ -1375,7 +1369,7 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge SOC limit value."""
+        """Set the AC charge SOC limit value using device object method."""
         try:
             int_value = int(round(value))
             if int_value < 0 or int_value > 100:
@@ -1392,38 +1386,40 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 "Setting AC Charge SOC Limit for %s to %d%%", self.serial, int_value
             )
 
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_AC_CHARGE_SOC_LIMIT",
-                value_text=str(int_value),
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
+
+            # Use device object convenience method
+            success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
+            if not success:
+                raise HomeAssistantError("Failed to set AC charge SOC limit")
+
+            _LOGGER.info(
+                "Successfully set AC Charge SOC Limit for %s to %d%%",
+                self.serial,
+                int_value,
             )
 
-            _LOGGER.debug(
-                "AC Charge SOC Limit write response for %s: %s", self.serial, response
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "AC Charge SOC Limit changed for %s, refreshing parameters for all inverters",
+                self.serial,
             )
 
-            if response.get("success", False):
-                self._current_value = value
-                self.async_write_ha_state()
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
-                _LOGGER.info(
-                    "AC Charge SOC Limit changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set AC Charge SOC Limit for %s to %d%%",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(
-                    f"Failed to set AC charge SOC limit: {error_msg}"
-                )
-
+        except ValueError as e:
+            _LOGGER.error("Invalid AC Charge SOC Limit value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error(
                 "Failed to set AC Charge SOC Limit for %s: %s", self.serial, e
@@ -2242,7 +2238,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the battery charge current value."""
+        """Set the battery charge current value using device object method."""
         try:
             int_value = int(round(value))
             if int_value < 0 or int_value > 250:
@@ -2259,40 +2255,40 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
                 "Setting Battery Charge Current for %s to %d A", self.serial, int_value
             )
 
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_LEAD_ACID_CHARGE_RATE",
-                value_text=str(int_value),
-            )
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
 
-            _LOGGER.debug(
-                "Battery Charge Current write response for %s: %s",
+            # Use device object convenience method
+            success = await inverter.set_battery_charge_current(current_amps=int_value)
+            if not success:
+                raise HomeAssistantError("Failed to set battery charge current")
+
+            _LOGGER.info(
+                "Successfully set Battery Charge Current for %s to %d A",
                 self.serial,
-                response,
+                int_value,
             )
 
-            if response.get("success", False):
-                self._current_value = value
-                self.async_write_ha_state()
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
 
-                _LOGGER.info(
-                    "Battery Charge Current changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
+            # Refresh inverter data
+            await inverter.refresh()
 
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "Battery Charge Current changed for %s, refreshing parameters for all inverters",
+                self.serial,
+            )
 
-                _LOGGER.info(
-                    "Successfully set Battery Charge Current for %s to %d A",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(
-                    f"Failed to set battery charge current: {error_msg}"
-                )
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
+        except ValueError as e:
+            _LOGGER.error("Invalid Battery Charge Current value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error(
                 "Failed to set Battery Charge Current for %s: %s", self.serial, e
@@ -2530,7 +2526,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the battery discharge current value."""
+        """Set the battery discharge current value using device object method."""
         try:
             int_value = int(round(value))
             if int_value < 0 or int_value > 250:
@@ -2549,40 +2545,40 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
                 int_value,
             )
 
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_LEAD_ACID_DISCHARGE_RATE",
-                value_text=str(int_value),
-            )
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
 
-            _LOGGER.debug(
-                "Battery Discharge Current write response for %s: %s",
+            # Use device object convenience method
+            success = await inverter.set_battery_discharge_current(current_amps=int_value)
+            if not success:
+                raise HomeAssistantError("Failed to set battery discharge current")
+
+            _LOGGER.info(
+                "Successfully set Battery Discharge Current for %s to %d A",
                 self.serial,
-                response,
+                int_value,
             )
 
-            if response.get("success", False):
-                self._current_value = value
-                self.async_write_ha_state()
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
 
-                _LOGGER.info(
-                    "Battery Discharge Current changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
+            # Refresh inverter data
+            await inverter.refresh()
 
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            # Trigger parameter refresh for all inverters
+            _LOGGER.info(
+                "Battery Discharge Current changed for %s, refreshing parameters for all inverters",
+                self.serial,
+            )
 
-                _LOGGER.info(
-                    "Successfully set Battery Discharge Current for %s to %d A",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(
-                    f"Failed to set battery discharge current: {error_msg}"
-                )
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
+        except ValueError as e:
+            _LOGGER.error("Invalid Battery Discharge Current value for %s: %s", self.serial, e)
+            raise HomeAssistantError(str(e)) from e
         except Exception as e:
             _LOGGER.error(
                 "Failed to set Battery Discharge Current for %s: %s", self.serial, e
