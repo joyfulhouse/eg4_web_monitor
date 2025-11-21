@@ -401,6 +401,35 @@ class TestOnGridSOCCutoffNumber:
 
         assert entity.native_value == 20
 
+    @pytest.mark.asyncio
+    async def test_async_set_native_value(self):
+        """Test setting on-grid SOC cutoff using device object."""
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        # Mock inverter device object with set_battery_soc_limits method
+        mock_inverter = MagicMock()
+        mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
+        mock_inverter.refresh = AsyncMock()
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = OnGridSOCCutoffNumber(
+            coordinator=coordinator,
+            serial="1234567890",
+        )
+
+        # Mock hass and async_write_ha_state to avoid HA instance requirement
+        entity.hass = MagicMock()
+        entity.hass.async_create_task = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_set_native_value(20)
+
+        # Verify device object method was called with correct parameter
+        mock_inverter.set_battery_soc_limits.assert_called_once_with(on_grid_limit=20)
+        mock_inverter.refresh.assert_called_once()
+
 
 class TestOffGridSOCCutoffNumber:
     """Test OffGridSOCCutoffNumber entity logic."""
@@ -438,12 +467,16 @@ class TestOffGridSOCCutoffNumber:
 
     @pytest.mark.asyncio
     async def test_async_set_native_value(self):
-        """Test setting off-grid SOC cutoff."""
+        """Test setting off-grid SOC cutoff using device object."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"model": "FlexBOSS21"}}}
-        coordinator.api = MagicMock()
-        coordinator.api.write_parameter = AsyncMock(return_value={"success": True})
         coordinator.async_request_refresh = AsyncMock()
+
+        # Mock inverter device object with set_battery_soc_limits method
+        mock_inverter = MagicMock()
+        mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
+        mock_inverter.refresh = AsyncMock()
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
         entity = OffGridSOCCutoffNumber(
             coordinator=coordinator,
@@ -457,7 +490,9 @@ class TestOffGridSOCCutoffNumber:
 
         await entity.async_set_native_value(15)
 
-        coordinator.api.write_parameter.assert_called_once()
+        # Verify device object method was called with correct parameter
+        mock_inverter.set_battery_soc_limits.assert_called_once_with(off_grid_limit=15)
+        mock_inverter.refresh.assert_called_once()
 
 
 class TestNumberEntityAvailability:
