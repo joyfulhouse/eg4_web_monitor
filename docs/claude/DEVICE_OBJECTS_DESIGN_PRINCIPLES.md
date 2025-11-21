@@ -18,14 +18,22 @@
 4. **Data Management**: Device objects manage their own state and refresh cycles
 5. **Future-Proof**: Changes to the underlying API are handled by the library
 
-### Exception
+### Exception: THERE ARE NO EXCEPTIONS
 
-If a feature requires `client.api.*` calls because the device objects don't provide the necessary functionality:
+If a feature requires `client.api.*` calls OR low-level `write_parameters()` calls because the device objects don't provide the necessary convenience methods:
 
-1. **STOP IMPLEMENTATION**
-2. **Document the missing functionality**
-3. **Report to library maintainers** (joyfulhouse/pylxpweb)
-4. **Fix the library first**, then use the device object methods
+1. **STOP IMPLEMENTATION IMMEDIATELY**
+2. **Document the missing convenience method**
+3. **Open an issue at https://github.com/joyfulhouse/pylxpweb/issues**
+4. **Wait for the library to add the convenience method**
+5. **NEVER work around it by using `write_parameters()` or `client.api.*`**
+
+**Why No Workarounds?**
+- Using `write_parameters()` defeats the purpose of device object abstraction
+- Low-level parameter writes are error-prone and hard to maintain
+- The library should provide high-level, type-safe convenience methods
+- Working around missing methods creates technical debt
+- The library maintainers need to know what methods are needed
 
 ---
 
