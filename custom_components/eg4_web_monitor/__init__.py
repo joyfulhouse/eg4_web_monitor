@@ -133,6 +133,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         await entry.runtime_data.async_shutdown()
 
         # Clean up coordinator API connection
-        await entry.runtime_data.api.close()
+        await entry.runtime_data.client.close()
 
     return bool(unload_ok)

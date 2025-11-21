@@ -25,7 +25,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    from .eg4_inverter_api.client import EG4InverterAPI
+    from pylxpweb import LuxpowerClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -442,7 +442,7 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
 
 
 async def read_device_parameters_ranges(
-    api_client: "EG4InverterAPI", inverter_sn: str
+    api_client: "LuxpowerClient", inverter_sn: str
 ) -> List[Any]:
     """Shared function to read all parameter ranges for a device.
 
@@ -459,8 +459,8 @@ async def read_device_parameters_ranges(
     # Read all register ranges simultaneously for better performance
     tasks = []
     for start_register, point_number in register_ranges:
-        task = api_client.read_parameters(
-            inverter_sn=inverter_sn,
+        task = api_client.api.control.read_parameters(
+            serial=inverter_sn,
             start_register=start_register,
             point_number=point_number,
         )

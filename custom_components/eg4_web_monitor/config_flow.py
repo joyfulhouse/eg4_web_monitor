@@ -31,8 +31,8 @@ from .const import (
     DEFAULT_BASE_URL,
     DOMAIN,
 )
-from .eg4_inverter_api import EG4InverterAPI
-from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
+from pylxpweb import LuxpowerClient
+from pylxpweb.exceptions import LuxpowerAPIError, LuxpowerAuthError, LuxpowerConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +53,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the config flow."""
-        self._api: Optional[EG4InverterAPI] = None
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._base_url: Optional[str] = None
@@ -87,11 +86,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Multiple plants - show selection step
                 return await self.async_step_plant()
 
-            except EG4AuthError:
+            except LuxpowerAuthError:
                 errors["base"] = "invalid_auth"
-            except EG4ConnectionError:
+            except LuxpowerConnectionError:
                 errors["base"] = "cannot_connect"
-            except EG4APIError as e:
+            except LuxpowerAPIError as e:
                 _LOGGER.error("API error during authentication: %s", e)
                 errors["base"] = "unknown"
             except Exception as e:
@@ -168,29 +167,31 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._password is not None
         assert self._base_url is not None
         assert self._verify_ssl is not None
-        self._api = EG4InverterAPI(
+
+        # Use context manager for automatic login/logout
+        async with LuxpowerClient(
             username=self._username,
             password=self._password,
             base_url=self._base_url,
             verify_ssl=self._verify_ssl,
             session=session,
-        )
-
-        try:
-            # Test login
-            await self._api.login()
+        ) as client:
+            # Get plants (API call returns Pydantic model)
+            plants_response = await client.api.plants.get_plants()
             _LOGGER.debug("Authentication successful")
 
-            # Get plants
-            self._plants = await self._api.get_plants()
+            # Convert Pydantic model to dict list
+            self._plants = [
+                {
+                    "plantId": plant.plantId,
+                    "name": plant.name,
+                }
+                for plant in plants_response.rows
+            ]
             _LOGGER.debug("Found %d plants", len(self._plants))
 
             if not self._plants:
-                raise EG4APIError("No plants found for this account")
-
-        finally:
-            if self._api:
-                await self._api.close()
+                raise LuxpowerAPIError("No plants found for this account")
 
     async def _create_entry(self, plant_id: str, plant_name: str) -> ConfigFlowResult:
         """Create the config entry."""
@@ -253,19 +254,16 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 assert self._username is not None
                 assert self._base_url is not None
                 assert self._verify_ssl is not None
-                api = EG4InverterAPI(
+
+                # Use context manager for automatic login/logout
+                async with LuxpowerClient(
                     username=self._username,
                     password=password,
                     base_url=self._base_url,
                     verify_ssl=self._verify_ssl,
                     session=session,
-                )
-
-                try:
-                    await api.login()
+                ):
                     _LOGGER.debug("Reauthentication successful")
-                finally:
-                    await api.close()
 
                 # Get the existing config entry
                 existing_entry = await self.async_set_unique_id(self._username)
@@ -281,11 +279,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.hass.config_entries.async_reload(existing_entry.entry_id)
                     return self.async_abort(reason="reauth_successful")
 
-            except EG4AuthError:
+            except LuxpowerAuthError:
                 errors["base"] = "invalid_auth"
-            except EG4ConnectionError:
+            except LuxpowerConnectionError:
                 errors["base"] = "cannot_connect"
-            except EG4APIError as e:
+            except LuxpowerAPIError as e:
                 _LOGGER.error("API error during reauthentication: %s", e)
                 errors["base"] = "unknown"
             except Exception as e:
@@ -361,11 +359,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         plant_name=plant_name,
                     )
 
-            except EG4AuthError:
+            except LuxpowerAuthError:
                 errors["base"] = "invalid_auth"
-            except EG4ConnectionError:
+            except LuxpowerConnectionError:
                 errors["base"] = "cannot_connect"
-            except EG4APIError as e:
+            except LuxpowerAPIError as e:
                 _LOGGER.error("API error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
             except Exception as e:

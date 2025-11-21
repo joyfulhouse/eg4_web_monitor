@@ -1,4 +1,4 @@
-"""Data update coordinator for EG4 Web Monitor integration."""
+"""Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
 import logging
@@ -41,7 +41,9 @@ from .const import (
     CURRENT_SENSORS,
     FUNCTION_PARAM_MAPPING,
 )
-from .eg4_inverter_api import EG4InverterAPI
+from pylxpweb import LuxpowerClient
+from pylxpweb.devices import Station, BaseInverter, Battery
+from pylxpweb.exceptions import LuxpowerAuthError, LuxpowerAPIError, LuxpowerConnectionError
 from .utils import (
     CircuitBreaker,
     extract_individual_battery_sensors,
@@ -51,22 +53,21 @@ from .utils import (
     apply_sensor_scaling,
     to_camel_case,
 )
-from .eg4_inverter_api.exceptions import EG4APIError, EG4AuthError, EG4ConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Class to manage fetching EG4 Web Monitor data from the API."""
+    """Class to manage fetching EG4 Web Monitor data from the API using device objects."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
         self.entry = entry
         self.plant_id = entry.data[CONF_PLANT_ID]
 
-        # Initialize API client with injected session (Platinum tier requirement)
+        # Initialize Luxpower API client with injected session (Platinum tier requirement)
         # Home Assistant manages the aiohttp ClientSession for efficient resource usage
-        self.api = EG4InverterAPI(
+        self.client = LuxpowerClient(
             username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
             base_url=entry.data.get(
@@ -75,6 +76,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
             session=aiohttp_client.async_get_clientsession(hass),
         )
+
+        # Station object for device hierarchy
+        self.station: Optional[Station] = None
 
         # Device tracking
         self.devices: Dict[str, Dict[str, Any]] = {}
@@ -124,7 +128,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> Dict[str, Any]:
-        """Fetch data from API endpoint."""
+        """Fetch data from API endpoint using device objects."""
         try:
             _LOGGER.debug("Fetching data for plant %s", self.plant_id)
 
@@ -165,27 +169,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     lambda t: t.exception() if not t.cancelled() else None
                 )
 
-            # Get comprehensive data for all devices in the plant
-            data = await self.api.get_all_device_data(self.plant_id)
-
-            # Get station/plant configuration data
-            try:
-                station_data = await self.api.get_plant_details(self.plant_id)
-                _LOGGER.debug(
-                    "Retrieved station data for plant %s: %s",
-                    self.plant_id,
-                    station_data.get("name"),
-                )
-            except Exception as e:
-                _LOGGER.warning("Failed to fetch station data: %s", e)
-                station_data = None
+            # Load or refresh station data using device objects
+            if self.station is None:
+                _LOGGER.info("Loading station data for plant %s", self.plant_id)
+                self.station = await Station.load(self.client, self.plant_id)
+            else:
+                _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
+                await self.station.refresh_all_data()
 
             # Process and structure the device data
-            processed_data = await self._process_device_data(data)
-
-            # Add station data to processed_data
-            if station_data:
-                processed_data["station"] = station_data
+            processed_data = await self._process_station_data()
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)
@@ -200,7 +193,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             return processed_data
 
-        except EG4AuthError as e:
+        except LuxpowerAuthError as e:
             # Silver tier requirement: Log when service becomes unavailable
             if self._last_available_state:
                 _LOGGER.warning(
@@ -213,7 +206,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Silver tier requirement: Trigger reauthentication flow on auth failure
             raise ConfigEntryAuthFailed(f"Authentication failed: {e}") from e
 
-        except EG4ConnectionError as e:
+        except LuxpowerConnectionError as e:
             # Silver tier requirement: Log when service becomes unavailable
             if self._last_available_state:
                 _LOGGER.warning(
@@ -225,7 +218,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.error("Connection error: %s", e)
             raise UpdateFailed(f"Connection failed: {e}") from e
 
-        except EG4APIError as e:
+        except LuxpowerAPIError as e:
             # Silver tier requirement: Log when service becomes unavailable
             if self._last_available_state:
                 _LOGGER.warning(
@@ -249,12 +242,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.exception("Unexpected error updating data: %s", e)
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
-    async def _process_device_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process and structure device data for Home Assistant."""
+    async def _process_station_data(self) -> Dict[str, Any]:
+        """Process station data using device objects."""
+        if not self.station:
+            raise UpdateFailed("Station not loaded")
+
         processed = {
             "plant_id": self.plant_id,
             "devices": {},
-            "device_info": raw_data.get("device_info", {}),
+            "device_info": {},
             "last_update": dt_util.utcnow(),
         }
 
@@ -262,64 +258,38 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if self.data and "parameters" in self.data:
             processed["parameters"] = self.data["parameters"]
 
-        # Store device info temporarily for model extraction
-        self._temp_device_info = raw_data.get("device_info", {})
+        # Add station data
+        processed["station"] = {
+            "name": self.station.name,
+            "plant_id": self.station.plant_id,
+        }
 
-        # Process each device
-        for serial, device_data in raw_data.get("devices", {}).items():
-            if "error" in device_data:
-                _LOGGER.error("Error in device %s: %s", serial, device_data["error"])
+        # Process all inverters in the station
+        for inverter in self.station.all_inverters:
+            try:
+                processed["devices"][inverter.serial] = await self._process_inverter_object(
+                    inverter
+                )
+            except Exception as e:
+                _LOGGER.error("Error processing inverter %s: %s", inverter.serial, e)
                 # Keep device in data but mark it as having an error
-                # This prevents sensors from becoming completely unavailable
-                processed["devices"][serial] = {
+                processed["devices"][inverter.serial] = {
                     "type": "unknown",
                     "model": "Unknown",
-                    "error": device_data["error"],
+                    "error": str(e),
                     "sensors": {},
                     "batteries": {},
                 }
-                continue
 
-            device_type = device_data.get("type", "unknown")
-
-            if device_type == "inverter":
-                processed["devices"][serial] = await self._process_inverter_data(
-                    serial, device_data
-                )
-            elif device_type == "gridboss":
-                processed["devices"][serial] = await self._process_gridboss_data(
-                    serial, device_data
-                )
-            else:
-                _LOGGER.warning(
-                    "Unknown device type '%s' for device %s", device_type, serial
-                )
-
-        # Process parallel group energy data if available
-        parallel_energy = raw_data.get("parallel_energy")
-        parallel_groups_info = raw_data.get("parallel_groups_info", [])
-        _LOGGER.debug(
-            "Parallel group data - success: %s, groups: %s",
-            parallel_energy.get("success") if parallel_energy else None,
-            parallel_groups_info,
-        )
-        # Only create parallel group if the API indicates parallel groups exis
-        if parallel_energy and parallel_energy.get("success"):
-            _LOGGER.debug("Processing parallel group energy data")
-            processed["devices"][
-                "parallel_group"
-            ] = await self._process_parallel_group_data(
-                parallel_energy, parallel_groups_info
-            )
-
-        # Process individual inverter energy data in batches with rate limiting
-        if self._pending_individual_energy_serials:
-            await self._process_individual_energy_batch(processed)
-            self._pending_individual_energy_serials.clear()
-
-        # Clear temporary device info
-        if hasattr(self, "_temp_device_info"):
-            delattr(self, "_temp_device_info")
+        # Process parallel group data if available
+        if hasattr(self.station, 'parallel_groups') and self.station.parallel_groups:
+            for group in self.station.parallel_groups:
+                try:
+                    processed["devices"][
+                        f"parallel_group_{group.group_id}"
+                    ] = await self._process_parallel_group_object(group)
+                except Exception as e:
+                    _LOGGER.error("Error processing parallel group: %s", e)
 
         # Check if we need to refresh parameters for any inverters that don't have them
         if "parameters" not in processed:
@@ -344,425 +314,92 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self.hass.async_create_task(
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
-        # Working mode parameters are already available from the standard parameter refresh above
-        # No need for separate working mode parameter reading - they're included in cache
-        inverter_serials = [
-            serial
-            for serial, device_data in processed["devices"].items()
-            if device_data.get("type") == "inverter"
-        ]
-        if inverter_serials:
-            _LOGGER.info(
-                "Working mode parameters (AC Charge, PV Charge Priority, Forced Discharge, "
-                "Peak Shaving, Battery Backup) available from parameter cache for %d inverters",
-                len(inverter_serials),
-            )
 
         return processed
 
-    async def _process_inverter_data(
-        self, serial: str, device_data: Dict[str, Any]
+    async def _process_inverter_object(
+        self, inverter: BaseInverter
     ) -> Dict[str, Any]:
-        """Process inverter device data."""
-        runtime = device_data.get("runtime", {})
-        energy = device_data.get("energy", {})
-        battery = device_data.get("battery", {})
-
+        """Process inverter device data from device object."""
         processed: Dict[str, Any] = {
-            "serial": serial,
-            "type": "inverter",
-            "model": self._extract_model_from_overview(serial),
-            # Extract firmware from runtime response
-            "firmware_version": runtime.get("fwCode", "1.0.0") if runtime else "1.0.0",
+            "serial": inverter.serial,
+            "type": "inverter" if not inverter.is_gridboss else "gridboss",
+            "model": inverter.model or "Unknown",
+            "firmware_version": inverter.firmware_version or "1.0.0",
             "sensors": {},
             "binary_sensors": {},
             "batteries": {},
         }
 
-        # Process runtime data
-        if runtime and isinstance(runtime, dict):
-            processed["sensors"].update(self._extract_runtime_sensors(runtime))
-            processed["binary_sensors"].update(
-                self._extract_runtime_binary_sensors(runtime)
-            )
+        # Process runtime data from Pydantic model
+        if hasattr(inverter, 'runtime') and inverter.runtime:
+            runtime_data = self._extract_runtime_from_object(inverter.runtime)
+            processed["sensors"].update(runtime_data["sensors"])
+            processed["binary_sensors"].update(runtime_data["binary_sensors"])
 
         # Process energy data
-        if energy and isinstance(energy, dict):
-            processed["sensors"].update(self._extract_energy_sensors(energy))
+        if hasattr(inverter, 'energy') and inverter.energy:
+            energy_data = self._extract_energy_from_object(inverter.energy)
+            processed["sensors"].update(energy_data)
 
-        # Store inverter serial for batched individual energy processing
-        self._pending_individual_energy_serials.append(serial)
-        _LOGGER.debug("Added inverter %s to individual energy processing queue", serial)
+        # Process battery bank data
+        if hasattr(inverter, 'battery_bank') and inverter.battery_bank:
+            # Inverter-level battery data
+            if hasattr(inverter.battery_bank, 'voltage'):
+                processed["sensors"]["battery_voltage"] = inverter.battery_bank.voltage
+            if hasattr(inverter.battery_bank, 'current'):
+                processed["sensors"]["battery_current"] = inverter.battery_bank.current
+            if hasattr(inverter.battery_bank, 'power'):
+                processed["sensors"]["battery_power"] = inverter.battery_bank.power
+            if hasattr(inverter.battery_bank, 'soc'):
+                processed["sensors"]["state_of_charge"] = inverter.battery_bank.soc
+            if hasattr(inverter.battery_bank, 'soh'):
+                processed["sensors"]["state_of_health"] = inverter.battery_bank.soh
 
-        # Process battery data
-        if battery and isinstance(battery, dict):
-            # Non-array battery data (inverter-level)
-            processed["sensors"].update(self._extract_battery_sensors(battery))
-            processed["binary_sensors"].update(
-                self._extract_battery_binary_sensors(battery)
-            )
-
-            # Individual batteries from batteryArray
-            battery_array = battery.get("batteryArray", [])
-            if isinstance(battery_array, list):
-                _LOGGER.debug(
-                    "Found batteryArray with %d batteries for device %s",
-                    len(battery_array),
-                    serial,
-                )
-                for i, bat_data in enumerate(battery_array):
-                    if isinstance(bat_data, dict):
-                        _LOGGER.debug(
-                            "Battery %d data fields available: %s",
-                            i + 1,
-                            list(bat_data.keys()),
-                        )
-                        raw_battery_key = bat_data.get("batteryKey", f"BAT{i + 1:03d}")
-                        battery_key = clean_battery_display_name(
-                            raw_battery_key, serial
-                        )
-                        battery_sensors = extract_individual_battery_sensors(bat_data)
-                        processed["batteries"][battery_key] = battery_sensors
-
-        # Process quick charge status
-        try:
-            quick_charge_status = await self.api.get_quick_charge_status(serial)
-            processed["quick_charge_status"] = quick_charge_status
-            _LOGGER.debug("Retrieved quick charge status for device %s", serial)
-        except Exception as e:
-            _LOGGER.debug(
-                "Failed to get quick charge status for device %s: %s", serial, e
-            )
-            # Don't fail the entire update if quick charge status fails
-            processed["quick_charge_status"] = {"status": False, "error": str(e)}
-
-        # Process battery backup status by reading FUNC_EPS_EN parameter from base parameters
-        try:
-            # Read base parameters (0-127) where FUNC_EPS_EN is likely located
-            # (cached with 2-minute TTL)
-            battery_backup_params = await self.api.read_parameters(serial, 0, 127)
-            func_eps_en = None
-            if battery_backup_params and battery_backup_params.get("success"):
-                func_eps_en = battery_backup_params.get("FUNC_EPS_EN")
-
-            if func_eps_en is not None:
-                # Enhanced debugging to understand the actual API response
-                _LOGGER.info(
-                    "Battery backup parameter for %s: FUNC_EPS_EN = %r (type: %s)",
-                    serial,
-                    func_eps_en,
-                    type(func_eps_en).__name__,
-                )
-                # Convert to boolean with explicit handling of different value types
-                if func_eps_en is None:
-                    enabled = False
-                elif isinstance(func_eps_en, str):
-                    # Handle string values like "1", "0", "true", "false"
-                    enabled = func_eps_en.lower() not in (
-                        "0",
-                        "false",
-                        "off",
-                        "disabled",
-                        "",
+            # Individual batteries
+            if hasattr(inverter.battery_bank, 'batteries'):
+                for battery in inverter.battery_bank.batteries:
+                    battery_key = clean_battery_display_name(
+                        getattr(battery, 'battery_key', f"BAT{battery.index:03d}"),
+                        inverter.serial
                     )
-                elif isinstance(func_eps_en, (int, float)):
-                    # Handle numeric values where 0 = disabled, non-zero = enabled
-                    enabled = bool(func_eps_en != 0)
-                else:
-                    # Default boolean conversion
-                    enabled = bool(func_eps_en)
-                processed["battery_backup_status"] = {
-                    "FUNC_EPS_EN": func_eps_en,
-                    "enabled": enabled,
-                }
-                _LOGGER.info(
-                    "Battery backup status for %s: raw=%r, enabled=%s",
-                    serial,
-                    func_eps_en,
-                    enabled,
-                )
-                # Update the coordinator's parameter cache with this fresh data
-                if "parameters" not in processed:
-                    processed["parameters"] = {}
-                if serial not in processed["parameters"]:
-                    processed["parameters"][serial] = {}
-                processed["parameters"][serial]["FUNC_EPS_EN"] = func_eps_en
-            else:
-                processed["battery_backup_status"] = {
-                    "enabled": False,
-                    "error": "FUNC_EPS_EN parameter not found in base parameters",
-                }
-                _LOGGER.warning(
-                    "FUNC_EPS_EN parameter not found in base parameters for device %s",
-                    serial,
-                )
-        except Exception as e:
-            _LOGGER.debug(
-                "Failed to get battery backup status for device %s: %s", serial, e
-            )
-            # Don't fail the entire update if battery backup status fails
-            processed["battery_backup_status"] = {"enabled": False, "error": str(e)}
+                    battery_sensors = self._extract_battery_from_object(battery)
+                    processed["batteries"][battery_key] = battery_sensors
+
+        # Process GridBOSS midbox data
+        if inverter.is_gridboss and hasattr(inverter, 'midbox') and inverter.midbox:
+            gridboss_data = self._extract_gridboss_from_object(inverter.midbox)
+            processed["sensors"].update(gridboss_data["sensors"])
+            processed["binary_sensors"].update(gridboss_data["binary_sensors"])
 
         return processed
 
-    async def _process_individual_energy_batch(self, processed: Dict[str, Any]) -> None:
-        """Process individual inverter energy data in batches with rate limiting."""
-        serials = self._pending_individual_energy_serials
-        if not serials:
-            return
+    def _extract_runtime_from_object(self, runtime: Any) -> Dict[str, Any]:
+        """Extract sensor data from runtime Pydantic model."""
+        sensors: Dict[str, Any] = {}
+        binary_sensors: Dict[str, Any] = {}
 
-        _LOGGER.debug(
-            "Processing individual energy data for %d inverters with rate limiting",
-            len(serials),
-        )
-
-        # Process in batches of 3 with 1 second delay between batches to avoid API overload
-        batch_size = 3
-        delay_between_batches = 1.0
-
-        for i in range(0, len(serials), batch_size):
-            batch = serials[i : i + batch_size]
-            _LOGGER.debug("Processing batch %d: %s", i // batch_size + 1, batch)
-
-            # Process batch concurrently but limit batch size
-            tasks = []
-            for serial in batch:
-                tasks.append(self._fetch_individual_energy(serial))
-
-            try:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Apply results to processed data
-                for serial, result in zip(batch, results):
-                    if isinstance(result, Exception):
-                        _LOGGER.debug(
-                            "Failed to get individual energy for %s: %s", serial, result
-                        )
-                        continue
-
-                    # Note: asyncio.gather with return_exceptions=True returns Union[T, BaseException]
-                    # We've already filtered out exceptions above, safe to cast
-                    if (
-                        result
-                        and result.get("success")  # type: ignore[union-attr]
-                        and serial in processed["devices"]
-                    ):
-                        _LOGGER.debug(
-                            "Individual energy API response for %s: %s",
-                            serial,
-                            list(result.keys()),  # type: ignore[union-attr]
-                        )
-                        energy_sensors = self._extract_energy_sensors(result)  # type: ignore[arg-type]
-                        _LOGGER.debug(
-                            "Extracted %d energy sensors: %s",
-                            len(energy_sensors),
-                            list(energy_sensors.keys()),
-                        )
-                        processed["devices"][serial]["sensors"].update(energy_sensors)
-                        _LOGGER.debug(
-                            "Added %d individual energy sensors for %s",
-                            len(energy_sensors),
-                            serial,
-                        )
-                    else:
-                        _LOGGER.warning(
-                            "Invalid individual energy response for %s: success=%s, "
-                            "serial_in_devices=%s",
-                            serial,
-                            result.get("success") if result else "None",  # type: ignore[union-attr]
-                            serial in processed["devices"],
-                        )
-
-            except Exception as e:
-                _LOGGER.warning("Error processing individual energy batch: %s", e)
-
-            # Add delay between batches (except for last batch)
-            if i + batch_size < len(serials):
-                await asyncio.sleep(delay_between_batches)
-
-    async def _fetch_individual_energy(self, serial: str) -> Optional[Dict[str, Any]]:
-        """Fetch individual inverter energy data with error handling."""
-        try:
-            result = await self.api.get_inverter_energy_info(serial)
-            if result and result.get("success"):
-                return result
-            _LOGGER.debug("No individual energy data for %s", serial)
-            return None
-        except Exception as e:
-            _LOGGER.debug("Failed to fetch individual energy for %s: %s", serial, e)
-            return None
-
-    async def _process_gridboss_data(
-        self, serial: str, device_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Process GridBOSS device data."""
-        midbox = device_data.get("midbox", {})
-
-        processed = {
-            "serial": serial,
-            "type": "gridboss",
-            "model": self._extract_model_from_overview(serial),
-            "firmware_version": midbox.get(
-                "fwCode", "1.0.0"
-            ),  # Extract firmware from midbox response
-            "sensors": {},
-            "binary_sensors": {},
-        }
-
-        # Process midbox data
-        if midbox and isinstance(midbox, dict):
-            _LOGGER.debug(
-                "Raw midbox response structure for %s: %s", serial, list(midbox.keys())
-            )
-            midbox_data = midbox.get("midboxData", {})
-            if isinstance(midbox_data, dict):
-                _LOGGER.debug(
-                    "Processing midboxData for %s with fields: %s",
-                    serial,
-                    list(midbox_data.keys()),
-                )
-                processed["sensors"].update(self._extract_gridboss_sensors(midbox_data))
-                binary_sensors = self._extract_gridboss_binary_sensors(midbox_data)
-                processed["binary_sensors"].update(binary_sensors)
-            else:
-                _LOGGER.debug(
-                    "No midboxData found for %s, using raw midbox data: %s",
-                    serial,
-                    list(midbox.keys()),
-                )
-                # Try using the raw midbox data if midboxData is not nested
-                processed["sensors"].update(self._extract_gridboss_sensors(midbox))
-                gridboss_binary = self._extract_gridboss_binary_sensors(midbox)
-                processed["binary_sensors"].update(gridboss_binary)
-
-        return processed
-
-    async def _process_parallel_group_data(
-        self,
-        parallel_energy: Optional[Dict[str, Any]] = None,
-        parallel_groups_info: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
-        """Process parallel group energy data."""
-        _LOGGER.debug(
-            "Processing parallel group data - energy: %s, groups: %s",
-            bool(parallel_energy),
-            parallel_groups_info,
-        )
-
-        # Extract the group name from parallel groups info
-        group_name = "Parallel Group"  # Default fallback
-        if parallel_groups_info and len(parallel_groups_info) > 0:
-            # Extract group letter from first group
-            first_group = parallel_groups_info[0]
-            group_letter = first_group.get("parallelGroup", "")
-            _LOGGER.debug("Parallel group naming - group_letter: %s", group_letter)
-
-            if group_letter:
-                # Always include the letter if available, regardless of group coun
-                group_name = f"Parallel Group {group_letter}"
-                _LOGGER.debug("Set parallel group name to: %s", group_name)
-            else:
-                _LOGGER.debug(
-                    "No group letter found, using default name: %s", group_name
-                )
-
-        processed: Dict[str, Any] = {
-            "serial": "parallel_group",
-            "type": "parallel_group",
-            "model": group_name,
-            "sensors": {},
-            "binary_sensors": {},
-        }
-
-        # Extract parallel group energy sensors if available
-        if parallel_energy:
-            processed["sensors"].update(
-                self._extract_parallel_group_sensors(parallel_energy)
-            )
-            processed["binary_sensors"].update(
-                self._extract_parallel_group_binary_sensors(parallel_energy)
-            )
-
-        return processed
-
-    def _extract_model_from_overview(self, serial: str) -> str:
-        """Extract device model from overview data."""
-        # Check device_info from login response first (most reliable)
-        if hasattr(self, "data") and self.data:
-            device_info = self.data.get("device_info", {})
-            if serial in device_info:
-                model = device_info[serial].get("deviceTypeText4APP")
-                if model:
-                    return str(model)
-
-            # Note: parallel_groups and inverter_overview discovery endpoints
-            # have been disabled as they were problematic and not essential
-
-        # Store device info temporarily during device setup for fallback
-        if hasattr(self, "_temp_device_info"):
-            device_data = self._temp_device_info.get(serial, {})
-            model = device_data.get("deviceTypeText4APP")
-            if model:
-                return str(model)
-
-        return "Unknown"
-
-    def _extract_runtime_sensors(self, runtime: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract sensor data from runtime response."""
-        _LOGGER.debug("Runtime data fields available: %s", list(runtime.keys()))
-        sensors = {}
-
-        # Use shared field mapping from const.py to reduce duplication
+        # Map Pydantic model fields to sensor types
         field_mapping = INVERTER_RUNTIME_FIELD_MAPPING
 
-        # Use shared sensor list from const.py to reduce duplication
-        divide_by_10_sensors = DIVIDE_BY_10_SENSORS
-
-        # Voltage fields that need division by 10
-        divide_voltage_by_10_fields = {"vacr", "vpv1", "vpv2", "vpv3", "vBat"}
-
         for api_field, sensor_type in field_mapping.items():
-            if api_field in runtime:
-                value = runtime[api_field]
+            if hasattr(runtime, api_field):
+                value = getattr(runtime, api_field)
                 if value is not None:
-                    # Apply division by 10 for today/daily energy sensors
-                    if sensor_type in divide_by_10_sensors:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for division",
-                                sensor_type,
-                                value,
-                            )
-                            continue
+                    # Apply sensor scaling
+                    scaled_value = apply_sensor_scaling(sensor_type, value, "inverter")
 
-                    # Apply division by 10 for voltage sensors (vacr field)
-                    if api_field in divide_voltage_by_10_fields:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for voltage division",
-                                api_field,
-                                value,
-                            )
-                            continue
+                    # Apply camel casing for status text
+                    if sensor_type == "status_text" and isinstance(scaled_value, str):
+                        scaled_value = to_camel_case(scaled_value)
 
-                    # Apply camel casing for status tex
-                    if sensor_type == "status_text" and isinstance(value, str):
-                        value = to_camel_case(value)
-
-                    sensors[sensor_type] = value
+                    sensors[sensor_type] = scaled_value
 
         # Calculate net grid power for standard inverters
-        # pToUser = import from grid (positive when importing)
-        # pToGrid = export to grid (positive when exporting)
-        # grid_power = pToUser - pToGrid (positive = importing, negative = exporting)
-        if "pToUser" in runtime and "pToGrid" in runtime:
+        if hasattr(runtime, 'pToUser') and hasattr(runtime, 'pToGrid'):
             try:
-                p_to_user = float(runtime["pToUser"])  # Import from grid
-                p_to_grid = float(runtime["pToGrid"])  # Export to grid
+                p_to_user = float(runtime.pToUser)  # Import from grid
+                p_to_grid = float(runtime.pToGrid)  # Export to grid
                 sensors["grid_power"] = p_to_user - p_to_grid
                 _LOGGER.debug(
                     "Calculated grid_power: %s - %s = %s W (positive=importing, negative=exporting)",
@@ -772,177 +409,159 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
-                    "Could not calculate grid_power from pToUser=%s and pToGrid=%s: %s",
-                    runtime.get("pToUser"),
-                    runtime.get("pToGrid"),
-                    e,
+                    "Could not calculate grid_power: %s", e
                 )
 
-        return sensors
+        return {"sensors": sensors, "binary_sensors": binary_sensors}
 
-    def _extract_runtime_binary_sensors(
-        self, runtime: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Extract binary sensor data from runtime response."""
-        # Currently no binary sensors are extracted from runtime data
-        # This method is reserved for future binary sensor implementations
-        _ = runtime  # Explicitly mark parameter as unused but preserved for interface
-        return {}
+    def _extract_energy_from_object(self, energy: Any) -> Dict[str, Any]:
+        """Extract sensor data from energy Pydantic model."""
+        sensors: Dict[str, Any] = {}
 
-    def _extract_energy_sensors(self, energy: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract sensor data from energy response."""
-        _LOGGER.debug("Energy data fields available: %s", list(energy.keys()))
-        sensors = {}
-
-        # Use shared field mapping from const.py to reduce duplication
         field_mapping = INVERTER_ENERGY_FIELD_MAPPING
 
-        # Use shared sensor list from const.py to reduce duplication
-        divide_by_10_sensors = DIVIDE_BY_10_SENSORS
-
         for api_field, sensor_type in field_mapping.items():
-            if api_field in energy:
-                value = energy[api_field]
+            if hasattr(energy, api_field):
+                value = getattr(energy, api_field)
                 if value is not None:
-                    # Apply division by 10 for energy sensors to convert to kWh
-                    if sensor_type in divide_by_10_sensors:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for division",
-                                sensor_type,
-                                value,
-                            )
-                            continue
-                    sensors[sensor_type] = value
-
-        return sensors
-
-    def _extract_battery_sensors(self, battery: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract sensor data from battery response (non-array data)."""
-        sensors = {}
-
-        field_mapping = {
-            "batteryVoltage": "battery_voltage",
-            "batteryCurrent": "battery_current",
-            "batteryPower": "battery_power",
-            "stateOfCharge": "state_of_charge",
-            "stateOfHealth": "state_of_health",
-            "temperature": "temperature",
-            # Battery power flow sensors from getBatteryInfo
-            "pCharge": "battery_charge_power",
-            "pDisCharge": "battery_discharge_power",
-            "batPower": "battery_power",
-            "batStatus": "battery_status",
-        }
-
-        for api_field, sensor_type in field_mapping.items():
-            if api_field in battery:
-                value = battery[api_field]
-                if value is not None:
-                    # Apply scaling for sensors that need i
+                    # Apply sensor scaling
                     scaled_value = apply_sensor_scaling(sensor_type, value, "inverter")
                     sensors[sensor_type] = scaled_value
 
         return sensors
 
-    def _extract_battery_binary_sensors(
-        self, battery: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Extract binary sensor data from battery response."""
-        # Currently no binary sensors are extracted from battery data
-        # This method is reserved for future binary sensor implementations
-        _ = battery  # Explicitly mark parameter as unused but preserved for interface
-        return {}
+    def _extract_battery_from_object(self, battery: Battery) -> Dict[str, Any]:
+        """Extract sensor data from Battery object."""
+        sensors: Dict[str, Any] = {}
 
-    def _extract_gridboss_sensors(self, midbox_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract sensor data from GridBOSS midbox response."""
-        _LOGGER.debug(
-            "GridBOSS midbox data fields available: %s", list(midbox_data.keys())
-        )
-        sensors = {}
-
-        # Use field mapping from const.py to avoid duplication
-        field_mapping = {
-            # Core Power sensors (not in const.py)
-            "hybridPower": "hybrid_power",
-            "smartLoadPower": "smart_load_power",
-            **GRIDBOSS_FIELD_MAPPING,  # Import all the standardized mappings
+        # Direct field mappings
+        field_map = {
+            "voltage": "battery_real_voltage",
+            "current": "battery_real_current",
+            "power": "battery_real_power",
+            "soc": "battery_rsoc",
+            "soh": "state_of_health",
+            "temperature": "temperature",
+            "cell_voltage_max": "battery_cell_voltage_max",
+            "cell_voltage_min": "battery_cell_voltage_min",
+            "mos_temperature": "battery_mos_temperature",
+            "env_temperature": "battery_env_temperature",
+            "cycle_count": "cycle_count",
+            "remaining_capacity": "battery_remaining_capacity",
+            "full_capacity": "battery_full_capacity",
+            "firmware_version": "battery_firmware_version",
         }
 
-        for api_field, sensor_type in field_mapping.items():
-            if api_field in midbox_data:
-                value = midbox_data[api_field]
+        for obj_field, sensor_type in field_map.items():
+            if hasattr(battery, obj_field):
+                value = getattr(battery, obj_field)
                 if value is not None:
-                    # Smart Port Status needs text conversion BEFORE filtering and scaling
-                    if sensor_type.startswith("smart_port") and sensor_type.endswith(
-                        "_status"
-                    ):
-                        _LOGGER.debug(
-                            "Converting Smart Port status %s: raw_value=%s, type=%s",
-                            sensor_type,
-                            value,
-                            type(value),
-                        )
+                    # Apply sensor scaling
+                    scaled_value = apply_sensor_scaling(sensor_type, value, "battery")
+                    sensors[sensor_type] = scaled_value
+
+        # Calculate cell voltage difference if min/max available
+        if "battery_cell_voltage_max" in sensors and "battery_cell_voltage_min" in sensors:
+            sensors["battery_cell_voltage_diff"] = (
+                sensors["battery_cell_voltage_max"] - sensors["battery_cell_voltage_min"]
+            )
+
+        return sensors
+
+    def _extract_gridboss_from_object(self, midbox: Any) -> Dict[str, Any]:
+        """Extract sensor data from GridBOSS midbox Pydantic model."""
+        sensors: Dict[str, Any] = {}
+        binary_sensors: Dict[str, Any] = {}
+
+        field_mapping = GRIDBOSS_FIELD_MAPPING
+
+        for api_field, sensor_type in field_mapping.items():
+            if hasattr(midbox, api_field):
+                value = getattr(midbox, api_field)
+                if value is not None:
+                    # Smart Port Status needs text conversion
+                    if sensor_type.startswith("smart_port") and sensor_type.endswith("_status"):
                         status_map = {0: "Unused", 1: "Smart Load", 2: "AC Couple"}
-                        converted_value = status_map.get(value, f"Unknown ({value})")
-                        _LOGGER.debug(
-                            "Smart Port status %s converted from %s to %s",
-                            sensor_type,
-                            value,
-                            converted_value,
-                        )
-                        value = converted_value
-                        # Smart Port status sensors are always included, skip filtering and scaling
+                        value = status_map.get(value, f"Unknown ({value})")
                         sensors[sensor_type] = value
                         continue
 
-                    # Use sensor lists from const.py to avoid duplication
-                    gridboss_divide_by_10_sensors = (
-                        GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
-                    )
+                    # Apply sensor scaling
+                    scaled_value = apply_sensor_scaling(sensor_type, value, "gridboss")
+                    sensors[sensor_type] = scaled_value
 
-                    # GridBOSS frequency sensors need division by 100
-                    # Use frequency sensors from const.py to avoid duplication
-                    gridboss_divide_by_100_sensors = DIVIDE_BY_100_SENSORS
-
-                    if sensor_type in gridboss_divide_by_10_sensors:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert GridBOSS %s value %s to float for "
-                                "division by 10",
-                                sensor_type,
-                                value,
-                            )
-                            continue
-                    elif sensor_type in gridboss_divide_by_100_sensors:
-                        try:
-                            value = float(value) / 100.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert GridBOSS %s value %s to float for "
-                                "division by 100",
-                                sensor_type,
-                                value,
-                            )
-                            continue
-
-                    # Zero-value filtering for GridBOSS sensors
-                    # GridBOSS sensors should be created regardless of value for better monitoring
-                    # if should_filter_zero_sensor(sensor_type, value):
-                    #     _LOGGER.debug("Skipping zero-value %s sensor: %s", sensor_type, value)
-                    #     continue
-
-                    sensors[sensor_type] = value
-
-        # Filter out sensors for unused Smart Ports (status = 0)
-        sensors = self._filter_unused_smart_port_sensors(sensors, midbox_data)
+        # Filter out sensors for unused Smart Ports
+        sensors = self._filter_unused_smart_port_sensors_from_object(sensors, midbox)
 
         # Calculate aggregate sensors from individual L1/L2 values
         self._calculate_gridboss_aggregates(sensors)
+
+        return {"sensors": sensors, "binary_sensors": binary_sensors}
+
+    def _filter_unused_smart_port_sensors_from_object(
+        self, sensors: Dict[str, Any], midbox: Any
+    ) -> Dict[str, Any]:
+        """Filter out sensors for unused Smart Ports from midbox object."""
+        smart_port_statuses = {}
+        for port in range(1, 5):
+            status_field = f"smartPort{port}Status"
+            if hasattr(midbox, status_field):
+                status_value = getattr(midbox, status_field)
+                smart_port_statuses[port] = status_value
+
+        # Identify sensors to remove for unused Smart Ports (status = 0)
+        sensors_to_remove = []
+        for port, status in smart_port_statuses.items():
+            if status == 0:  # Unused Smart Port
+                sensors_to_remove.extend(
+                    [
+                        f"smart_load{port}_power_l1",
+                        f"smart_load{port}_power_l2",
+                        f"smart_load{port}_l1",
+                        f"smart_load{port}_l2",
+                        f"smart_load{port}_lifetime_l1",
+                        f"smart_load{port}_lifetime_l2",
+                    ]
+                )
+
+        # Remove the identified sensors
+        filtered_sensors = sensors.copy()
+        for sensor_key in sensors_to_remove:
+            if sensor_key in filtered_sensors:
+                del filtered_sensors[sensor_key]
+
+        return filtered_sensors
+
+    async def _process_parallel_group_object(self, group: Any) -> Dict[str, Any]:
+        """Process parallel group data from group object."""
+        processed: Dict[str, Any] = {
+            "serial": f"parallel_group_{group.group_id}",
+            "type": "parallel_group",
+            "model": f"Parallel Group {group.group_letter}" if hasattr(group, 'group_letter') else "Parallel Group",
+            "sensors": {},
+            "binary_sensors": {},
+        }
+
+        # Extract parallel group energy sensors if available
+        if hasattr(group, 'energy') and group.energy:
+            sensors = self._extract_parallel_group_sensors_from_object(group.energy)
+            processed["sensors"].update(sensors)
+
+        return processed
+
+    def _extract_parallel_group_sensors_from_object(self, energy: Any) -> Dict[str, Any]:
+        """Extract sensor data from parallel group energy object."""
+        sensors: Dict[str, Any] = {}
+
+        field_mapping = PARALLEL_GROUP_FIELD_MAPPING
+
+        for api_field, sensor_type in field_mapping.items():
+            if hasattr(energy, api_field):
+                value = getattr(energy, api_field)
+                if value is not None:
+                    # Apply sensor scaling
+                    scaled_value = apply_sensor_scaling(sensor_type, value, "parallel_group")
+                    sensors[sensor_type] = scaled_value
 
         return sensors
 
@@ -998,7 +617,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             gen_l2 = _safe_numeric(sensors["generator_power_l2"])
             sensors["generator_power"] = gen_l1 + gen_l2
 
-        # Calculate AC Couple aggregate today values for each por
+        # Calculate AC Couple aggregate today values for each port
         for port in range(1, 5):
             l1_key = f"ac_couple{port}_today_l1"
             l2_key = f"ac_couple{port}_today_l2"
@@ -1007,7 +626,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 l2_val = _safe_numeric(sensors[l2_key])
                 sensors[f"ac_couple{port}_today"] = l1_val + l2_val
 
-        # Calculate AC Couple aggregate total values for each por
+        # Calculate AC Couple aggregate total values for each port
         for port in range(1, 5):
             l1_key = f"ac_couple{port}_total_l1"
             l2_key = f"ac_couple{port}_total_l2"
@@ -1016,64 +635,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 l2_val = _safe_numeric(sensors[l2_key])
                 sensors[f"ac_couple{port}_total"] = l1_val + l2_val
 
-    def _filter_unused_smart_port_sensors(
-        self, sensors: Dict[str, Any], midbox_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Filter out sensors for unused Smart Ports (status = 0)."""
-        # Get Smart Port status values from raw midbox data
-        smart_port_statuses = {}
-        for port in range(1, 5):
-            status_api_field = f"smartPort{port}Status"
-            if status_api_field in midbox_data:
-                status_value = midbox_data[status_api_field]
-                smart_port_statuses[port] = status_value
-                _LOGGER.debug("Smart Port %d status: %s", port, status_value)
-
-        # Identify sensors to remove for unused Smart Ports (status = 0)
-        sensors_to_remove = []
-        for port, status in smart_port_statuses.items():
-            if status == 0:  # Unused Smart Por
-                _LOGGER.debug(
-                    "Smart Port %d is unused (status=0), removing related sensors", port
-                )
-                # Remove Smart Load power sensors
-                sensors_to_remove.extend(
-                    [
-                        f"smart_load{port}_power_l1",
-                        f"smart_load{port}_power_l2",
-                    ]
-                )
-                # Remove Smart Load energy sensors (daily)
-                sensors_to_remove.extend(
-                    [
-                        f"smart_load{port}_l1",
-                        f"smart_load{port}_l2",
-                    ]
-                )
-                # Remove Smart Load energy sensors (lifetime)
-                sensors_to_remove.extend(
-                    [
-                        f"smart_load{port}_lifetime_l1",
-                        f"smart_load{port}_lifetime_l2",
-                    ]
-                )
-                # Note: Keep the status sensor itself for visibility
-
-        # Remove the identified sensors
-        filtered_sensors = sensors.copy()
-        for sensor_key in sensors_to_remove:
-            if sensor_key in filtered_sensors:
-                del filtered_sensors[sensor_key]
-                _LOGGER.debug("Removed unused Smart Port sensor: %s", sensor_key)
-
-        _LOGGER.debug("Filtered %d unused Smart Port sensors", len(sensors_to_remove))
-        return filtered_sensors
-
-    def _extract_gridboss_binary_sensors(
-        self, _midbox_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Extract binary sensor data from GridBOSS midbox response."""
-        return {}
+    # PRESERVED HELPER METHODS - Keep exact entity ID generation logic
 
     def get_device_info(self, serial: str) -> Optional[DeviceInfo]:
         """Get device information for a specific serial number."""
@@ -1083,8 +645,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         device_data = self.data["devices"].get(serial)
         if not device_data:
             return None
-
-        # Device info debug logging removed for performance
 
         # Special handling for parallel group device naming
         model = device_data.get("model", "Unknown")
@@ -1121,7 +681,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 device_info["via_device"] = (DOMAIN, parallel_group_serial)
 
         # Return as Dict (compatible with DeviceInfo type)
-        # TypedDict compatibility: dict[str, Any] is structurally compatible with DeviceInfo
         return device_info  # type: ignore[return-value]
 
     def _get_parallel_group_for_device(self, device_serial: str) -> Optional[str]:
@@ -1129,29 +688,17 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if not self.data or "devices" not in self.data:
             return None
 
-        # Check parallel groups info to see which devices belong to which group
-        parallel_groups_info = self.data.get("parallel_groups_info", [])
-        if parallel_groups_info:
-            for group in parallel_groups_info:
-                # Check if this device is listed in the group's inverter lis
-                inverter_list = group.get("inverterList", [])
-                for inverter in inverter_list:
-                    if inverter.get("serialNum") == device_serial:
-                        # This device belongs to this parallel group
-                        # Find the actual parallel group device serial in our devices
-                        for serial, device_data in self.data["devices"].items():
-                            if device_data.get("type") == "parallel_group":
-                                return str(
-                                    serial
-                                )  # Return the actual parallel group device serial
-                        # If no parallel group device found, don't set via_device
-                        return None
+        # Check if station has parallel group info
+        if self.station and hasattr(self.station, 'parallel_groups'):
+            for group in self.station.parallel_groups:
+                if hasattr(group, 'inverters'):
+                    for inverter in group.inverters:
+                        if inverter.serial == device_serial:
+                            return f"parallel_group_{group.group_id}"
 
-        # Fallback: if no specific group membership found but a parallel group exists,
-        # assume all inverter/gridboss devices are part of i
+        # Fallback: if a parallel group exists, assume all devices are part of it
         for serial, device_data in self.data["devices"].items():
             if device_data.get("type") == "parallel_group":
-                # Found a parallel group - return its serial as the paren
                 return str(serial)
 
         return None
@@ -1196,50 +743,36 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "name": f"Station {station_name}",
             "manufacturer": "EG4 Electronics",
             "model": "Station",
-            "configuration_url": f"{self.api.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
+            "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
 
-    def _extract_parallel_group_sensors(
-        self, parallel_energy: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Extract sensor data from parallel group energy response."""
-        _LOGGER.debug(
-            "Parallel group energy data fields available: %s",
-            list(parallel_energy.keys()),
-        )
-        sensors = {}
+    def get_inverter_object(self, serial: str) -> Optional[BaseInverter]:
+        """Get inverter device object by serial number."""
+        if not self.station:
+            return None
 
-        # Use shared field mapping from const.py to reduce duplication
-        field_mapping = PARALLEL_GROUP_FIELD_MAPPING
+        for inverter in self.station.all_inverters:
+            if inverter.serial == serial:
+                return inverter
 
-        # Use shared sensor list from const.py to reduce duplication
-        divide_by_10_sensors = DIVIDE_BY_10_SENSORS
+        return None
 
-        for api_field, sensor_type in field_mapping.items():
-            if api_field in parallel_energy:
-                value = parallel_energy[api_field]
-                if value is not None:
-                    # Apply division by 10 for energy sensors to convert to kWh
-                    if sensor_type in divide_by_10_sensors:
-                        try:
-                            value = float(value) / 10.0
-                        except (ValueError, TypeError):
-                            _LOGGER.warning(
-                                "Could not convert %s value %s to float for division",
-                                sensor_type,
-                                value,
-                            )
-                            continue
-                    sensors[sensor_type] = value
+    def get_battery_object(self, serial: str, battery_index: int) -> Optional[Battery]:
+        """Get battery object by inverter serial and battery index."""
+        inverter = self.get_inverter_object(serial)
+        if not inverter or not hasattr(inverter, 'battery_bank'):
+            return None
 
-        return sensors
+        if not hasattr(inverter.battery_bank, 'batteries'):
+            return None
 
-    def _extract_parallel_group_binary_sensors(
-        self,
-        parallel_energy: Dict[str, Any],  # pylint: disable=unused-argument
-    ) -> Dict[str, Any]:
-        """Extract binary sensor data from parallel group energy response."""
-        return {}
+        for battery in inverter.battery_bank.batteries:
+            if battery.index == battery_index:
+                return battery
+
+        return None
+
+    # PRESERVED PARAMETER REFRESH METHODS
 
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
@@ -1318,7 +851,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Refresh parameters for a specific device."""
         try:
             # Use shared utility function to read all parameter ranges
-            responses = await read_device_parameters_ranges(self.api, serial)
+            responses = await read_device_parameters_ranges(self.client, serial)
 
             # Process responses to update device parameter cache
             parameter_data = {}
@@ -1332,7 +865,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                             parameter_data[key] = value
 
             # Store parameter data in coordinator data structure
-            # Note: self.data is managed by the coordinator base class
             if hasattr(self, "data") and self.data is not None:
                 if "parameters" not in self.data:
                     self.data["parameters"] = {}
@@ -1403,7 +935,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             )
 
             # Use existing API method
-            response = await self.api.control_function_parameter(
+            response = await self.client.control_function_parameter(
                 serial_number=serial_number,
                 function_param=function_param,
                 enable=enable,
@@ -1440,76 +972,24 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def get_working_mode_state(self, serial_number: str, function_param: str) -> bool:
         """Get current working mode state from cached parameters."""
         try:
-            # Get cached parameters from standard parameter cache (includes all 3 register ranges)
+            # Get cached parameters from standard parameter cache
             if not self.data or "parameters" not in self.data:
-                _LOGGER.debug(
-                    "No cached parameters available - data structure: %s",
-                    list(self.data.keys()) if self.data else "None",
-                )
                 return False
 
             parameter_data = self.data["parameters"].get(serial_number, {})
             if not parameter_data:
-                available_devices = list(self.data["parameters"].keys())
-                _LOGGER.debug(
-                    "No cached parameters for device %s - available: %s",
-                    serial_number,
-                    available_devices,
-                )
                 return False
-
-            # Debug: Check if working mode parameters exist in cache
-            working_mode_params_in_cache = {
-                k: v
-                for k, v in parameter_data.items()
-                if "FUNC_" in k
-                and k
-                in [
-                    "FUNC_AC_CHARGE",
-                    "FUNC_FORCED_CHG_EN",
-                    "FUNC_FORCED_DISCHG_EN",
-                    "FUNC_GRID_PEAK_SHAVING",
-                    "FUNC_BATTERY_BACKUP_CTRL",
-                ]
-            }
-            if working_mode_params_in_cache:
-                _LOGGER.debug(
-                    "Working mode parameters found in cache for %s: %s",
-                    serial_number,
-                    working_mode_params_in_cache,
-                )
 
             # Map function parameters to parameter register values
             param_key = FUNCTION_PARAM_MAPPING.get(function_param)
             if param_key:
-                # Check if parameter exists and is enabled (value == 1 or True)
+                # Check if parameter exists and is enabled
                 param_value = parameter_data.get(param_key, False)
-                # Handle both bool and int values (True or 1 = enabled)
+                # Handle both bool and int values
                 if isinstance(param_value, bool):
                     is_enabled = param_value
                 else:
                     is_enabled = param_value == 1
-                _LOGGER.debug(
-                    "Working mode %s for device %s: parameter %s = %s (type: %s) -> enabled: %s",
-                    function_param,
-                    serial_number,
-                    param_key,
-                    param_value,
-                    type(param_value),
-                    is_enabled,
-                )
-
-                # Log available parameters if the expected one is missing
-                if param_key not in parameter_data:
-                    available_params = [
-                        k for k in parameter_data.keys() if "FUNC_" in k
-                    ]
-                    _LOGGER.debug(
-                        "Parameter %s not found for device %s. Available FUNC_ parameters: %s",
-                        param_key,
-                        serial_number,
-                        list(available_params)[:10],
-                    )
 
                 return is_enabled
 
@@ -1551,15 +1031,9 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Invalidate all caches to ensure fresh data when date changes."""
         try:
             # Clear API response cache
-            if hasattr(self.api, "clear_cache"):
-                self.api.clear_cache()
+            if hasattr(self.client, "clear_cache"):
+                self.client.clear_cache()
                 _LOGGER.debug("Cleared API response cache")
-
-            # Clear device discovery cache
-            if hasattr(self.api, "_device_cache"):
-                self.api._device_cache.clear()
-                self.api._device_cache_expires = None
-                _LOGGER.debug("Cleared device discovery cache")
 
             # Update last invalidation time
             self._last_cache_invalidation = dt_util.utcnow()
@@ -1573,11 +1047,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.error("Error invalidating caches: %s", e)
 
     def _should_perform_session_maintenance(self) -> bool:
-        """Check if session maintenance (keepalive) is due.
-
-        Solution 4: Background session maintenance.
-        Returns True if 90+ minutes have passed since last maintenance.
-        """
+        """Check if session maintenance (keepalive) is due."""
         if self._last_session_maintenance is None:
             return True
 
@@ -1585,17 +1055,13 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return bool(time_since_maintenance >= self._session_maintenance_interval)
 
     async def _perform_session_maintenance(self) -> None:
-        """Perform session maintenance to keep session alive.
-
-        Solution 4: Background session maintenance.
-        Makes a lightweight API call to prevent session expiry.
-        """
+        """Perform session maintenance to keep session alive."""
         try:
             _LOGGER.debug("Starting session maintenance keepalive")
 
             # Make a lightweight API call to keep session alive
-            # Using get_plant_details as it's a simple, low-cost endpoint
-            await self.api.get_plant_details(self.plant_id)
+            if self.station:
+                await self.station.refresh_basic_info()
 
             # Update last maintenance time
             self._last_session_maintenance = dt_util.utcnow()
@@ -1613,17 +1079,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             )
 
     async def _async_handle_shutdown(self, event: Any) -> None:
-        """Handle Home Assistant stop event to cancel background tasks.
-
-        This ensures background tasks are cancelled before the final write stage,
-        preventing warnings about tasks still running after shutdown.
-        """
+        """Handle Home Assistant stop event to cancel background tasks."""
         _LOGGER.debug("Handling Home Assistant stop event, cancelling background tasks")
 
-        # Cancel any pending refresh operations (including debounced refreshes)
+        # Cancel any pending refresh operations
         if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
             self._debounced_refresh.async_cancel()
-            # Give the event loop a chance to process the cancellation
             await asyncio.sleep(0)
             _LOGGER.debug("Cancelled debounced refresh")
 
@@ -1632,7 +1093,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if not task.done():
                 task.cancel()
 
-        # Wait for all tasks to complete cancellation to ensure clean shutdown
+        # Wait for all tasks to complete cancellation
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
