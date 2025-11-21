@@ -36,21 +36,35 @@ def mock_setup_entry():
 
 @pytest.fixture
 def mock_api():
-    """Mock EG4InverterAPI."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api_class:
-        mock_instance = AsyncMock()
-        mock_instance.login = AsyncMock()
-        mock_instance.get_plants = AsyncMock(
-            return_value=[
-                {"plantId": "plant1", "name": "Station 1"},
-                {"plantId": "plant2", "name": "Station 2"},
-            ]
+    """Mock LuxpowerClient and Station.load_all."""
+    from unittest.mock import MagicMock
+
+    # Create mock Station objects
+    mock_station1 = MagicMock()
+    mock_station1.id = "plant1"
+    mock_station1.name = "Station 1"
+
+    mock_station2 = MagicMock()
+    mock_station2.id = "plant2"
+    mock_station2.name = "Station 2"
+
+    # Mock the LuxpowerClient class itself to prevent actual connections
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(return_value=[mock_station1, mock_station2])
         )
-        mock_instance.close = AsyncMock()
-        mock_api_class.return_value = mock_instance
-        yield mock_instance
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        yield None
 
 
 @pytest.fixture
@@ -202,110 +216,155 @@ async def test_reconfigure_plant_selection(hass, mock_api, mock_config_entry):
     assert mock_reload.called
 
 
-async def test_reconfigure_single_plant_account(hass, mock_api, mock_config_entry):
+async def test_reconfigure_single_plant_account(hass, mock_config_entry):
     """Test reconfiguring to account with only one plant (auto-select)."""
-    # Mock API to return only one plant
-    mock_api.get_plants = AsyncMock(
-        return_value=[{"plantId": "single_plant", "name": "Only Station"}]
-    )
+    from unittest.mock import MagicMock
 
-    mock_config_entry.add_to_hass(hass)
+    # Create mock Station object for single plant
+    mock_station = MagicMock()
+    mock_station.id = "single_plant"
+    mock_station.name = "Only Station"
 
-    # Start reconfigure flow
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={
-            "source": config_entries.SOURCE_RECONFIGURE,
-            "entry_id": mock_config_entry.entry_id,
-        },
-    )
-
-    # Submit with different username
     with (
-        patch.object(hass.config_entries, "async_update_entry") as mock_update,
-        patch.object(hass.config_entries, "async_reload") as mock_reload,
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(return_value=[mock_station])
+        )
     ):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_USERNAME: "different_user",
-                CONF_PASSWORD: "new_password",
-                CONF_BASE_URL: DEFAULT_BASE_URL,
-                CONF_VERIFY_SSL: True,
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        mock_config_entry.add_to_hass(hass)
+
+        # Start reconfigure flow
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": mock_config_entry.entry_id,
             },
         )
 
-    # Should auto-select single plant and complete
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "reconfigure_successful"
-    assert mock_update.called
-    assert mock_reload.called
+        # Submit with different username
+        with (
+            patch.object(hass.config_entries, "async_update_entry") as mock_update,
+            patch.object(hass.config_entries, "async_reload") as mock_reload,
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={
+                    CONF_USERNAME: "different_user",
+                    CONF_PASSWORD: "new_password",
+                    CONF_BASE_URL: DEFAULT_BASE_URL,
+                    CONF_VERIFY_SSL: True,
+                },
+            )
+
+        # Should auto-select single plant and complete
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert mock_update.called
+        assert mock_reload.called
 
 
-async def test_reconfigure_invalid_auth(hass, mock_api, mock_config_entry):
+async def test_reconfigure_invalid_auth(hass, mock_config_entry):
     """Test reconfigure with invalid credentials."""
     from pylxpweb.exceptions import (
         LuxpowerAuthError as EG4AuthError,
     )
 
-    mock_api.login.side_effect = EG4AuthError("Invalid credentials")
     mock_config_entry.add_to_hass(hass)
 
-    # Start reconfigure flow
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={
-            "source": config_entries.SOURCE_RECONFIGURE,
-            "entry_id": mock_config_entry.entry_id,
-        },
-    )
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
-    # Submit with invalid credentials
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        user_input={
-            CONF_USERNAME: "test_user",
-            CONF_PASSWORD: "wrong_password",
-            CONF_BASE_URL: DEFAULT_BASE_URL,
-            CONF_VERIFY_SSL: True,
-        },
-    )
+        # Start reconfigure flow
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": mock_config_entry.entry_id,
+            },
+        )
 
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"]["base"] == "invalid_auth"
+        # Submit with invalid credentials
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "wrong_password",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"]["base"] == "invalid_auth"
 
 
-async def test_reconfigure_connection_error(hass, mock_api, mock_config_entry):
+async def test_reconfigure_connection_error(hass, mock_config_entry):
     """Test reconfigure with connection error."""
     from pylxpweb.exceptions import (
         LuxpowerConnectionError as EG4ConnectionError,
     )
 
-    mock_api.login.side_effect = EG4ConnectionError("Cannot connect")
     mock_config_entry.add_to_hass(hass)
 
-    # Start reconfigure flow
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={
-            "source": config_entries.SOURCE_RECONFIGURE,
-            "entry_id": mock_config_entry.entry_id,
-        },
-    )
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
-    # Submit with credentials
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        user_input={
-            CONF_USERNAME: "test_user",
-            CONF_PASSWORD: "test_password",
-            CONF_BASE_URL: DEFAULT_BASE_URL,
-            CONF_VERIFY_SSL: True,
-        },
-    )
+        # Start reconfigure flow
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": mock_config_entry.entry_id,
+            },
+        )
 
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"]["base"] == "cannot_connect"
+        # Submit with credentials
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "test_password",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"]["base"] == "cannot_connect"
 
 
 # Removed test_reconfigure_invalid_plant - voluptuous schema validation with vol.In

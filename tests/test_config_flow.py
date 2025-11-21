@@ -52,37 +52,64 @@ def mock_setup_entry():
 
 @pytest.fixture
 def mock_api():
-    """Create a mock EG4InverterAPI."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plants = AsyncMock(
-            return_value=[
-                {"plantId": "123", "name": "Test Plant 1"},
-                {"plantId": "456", "name": "Test Plant 2"},
-            ]
+    """Create a mock for LuxpowerClient and Station.load_all."""
+    from unittest.mock import MagicMock
+
+    # Create mock Station objects
+    mock_station1 = MagicMock()
+    mock_station1.id = "123"
+    mock_station1.name = "Test Plant 1"
+
+    mock_station2 = MagicMock()
+    mock_station2.id = "456"
+    mock_station2.name = "Test Plant 2"
+
+    # Mock the LuxpowerClient class itself to prevent actual connections
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(return_value=[mock_station1, mock_station2])
         )
-        api_instance.close = AsyncMock()
-        yield api_instance
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        yield None
 
 
 @pytest.fixture
 def mock_api_single_plant():
-    """Create a mock EG4InverterAPI with single plant."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plants = AsyncMock(
-            return_value=[
-                {"plantId": "123", "name": "Test Plant"},
-            ]
+    """Create a mock for LuxpowerClient and Station.load_all with single plant."""
+    from unittest.mock import MagicMock
+
+    # Create mock Station object
+    mock_station = MagicMock()
+    mock_station.id = "123"
+    mock_station.name = "Test Plant"
+
+    # Mock the LuxpowerClient class itself to prevent actual connections
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(return_value=[mock_station])
         )
-        api_instance.close = AsyncMock()
-        yield api_instance
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
+
+        yield None
 
 
 async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
@@ -163,13 +190,20 @@ async def test_user_flow_success_single_plant(
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant):
     """Test flow with invalid authentication."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
-        api_instance.get_plants = AsyncMock(return_value=[])
-        api_instance.close = AsyncMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -192,13 +226,20 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant):
     """Test flow with connection error."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
-        api_instance.get_plants = AsyncMock(return_value=[])
-        api_instance.close = AsyncMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -221,13 +262,20 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
 
 async def test_user_flow_api_error(hass: HomeAssistant):
     """Test flow with API error."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(side_effect=EG4APIError("API Error"))
-        api_instance.get_plants = AsyncMock(return_value=[])
-        api_instance.close = AsyncMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4APIError("API Error"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -250,13 +298,20 @@ async def test_user_flow_api_error(hass: HomeAssistant):
 
 async def test_user_flow_unknown_exception(hass: HomeAssistant):
     """Test flow with unexpected exception."""
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api:
-        api_instance = mock_api.return_value
-        api_instance.login = AsyncMock(side_effect=Exception("Unexpected"))
-        api_instance.get_plants = AsyncMock(return_value=[])
-        api_instance.close = AsyncMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=Exception("Unexpected"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -280,13 +335,20 @@ async def test_user_flow_unknown_exception(hass: HomeAssistant):
 async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_plant):
     """Test user can recover from errors and complete flow."""
     # First attempt - invalid auth
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api_error:
-        api_instance = mock_api_error.return_value
-        api_instance.login = AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
-        api_instance.get_plants = AsyncMock(return_value=[])
-        api_instance.close = AsyncMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+        ) as mock_client_class,
+        patch(
+            "pylxpweb.devices.Station.load_all",
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
+        )
+    ):
+        # Make LuxpowerClient work as a context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client_instance
 
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -305,30 +367,20 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["errors"] == {"base": "invalid_auth"}
 
-    # Second attempt - success
-    with patch(
-        "custom_components.eg4_web_monitor.config_flow.EG4InverterAPI"
-    ) as mock_api_success:
-        api_instance = mock_api_success.return_value
-        api_instance.login = AsyncMock(return_value=True)
-        api_instance.get_plants = AsyncMock(
-            return_value=[{"plantId": "123", "name": "Test Plant"}]
-        )
-        api_instance.close = AsyncMock()
+    # Second attempt - success (uses mock_api_single_plant fixture)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "correctpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
 
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_USERNAME: "test@example.com",
-                CONF_PASSWORD: "correctpassword",
-                CONF_BASE_URL: DEFAULT_BASE_URL,
-                CONF_VERIFY_SSL: True,
-            },
-        )
-
-        # Should create entry after recovery
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["title"] == "EG4 Web Monitor - Test Plant"
+    # Should create entry after recovery
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["title"] == "EG4 Web Monitor - Test Plant"
 
 
 async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):

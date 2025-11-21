@@ -262,7 +262,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         # Add station data
         processed["station"] = {
             "name": self.station.name,
-            "plant_id": self.station.plant_id,
+            "plant_id": self.station.id,
         }
 
         # Process all inverters in the station
