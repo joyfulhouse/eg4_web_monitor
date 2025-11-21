@@ -25,7 +25,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    from pylxpweb import LuxpowerClient
+    from pylxpweb.devices.inverters.base import BaseInverter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -442,11 +442,17 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
 
 
 async def read_device_parameters_ranges(
-    api_client: "LuxpowerClient", inverter_sn: str
+    inverter: "BaseInverter",
 ) -> List[Any]:
-    """Shared function to read all parameter ranges for a device.
+    """Shared function to read all parameter ranges for a device using device objects.
 
     Consolidates the duplicate register reading logic used in coordinator.py and number.py.
+
+    Args:
+        inverter: BaseInverter device object
+
+    Returns:
+        List of parameter read responses
     """
 
     # Define standard register ranges
@@ -459,8 +465,8 @@ async def read_device_parameters_ranges(
     # Read all register ranges simultaneously for better performance
     tasks = []
     for start_register, point_number in register_ranges:
-        task = api_client.api.control.read_parameters(
-            serial=inverter_sn,
+        # Use inverter object's read_parameters method directly!
+        task = inverter.read_parameters(
             start_register=start_register,
             point_number=point_number,
         )

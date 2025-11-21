@@ -297,7 +297,7 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         try:
             # Use shared utility function to read all parameter ranges
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             # Process responses and look for HOLD_SYSTEM_CHARGE_SOC_LIMIT in any range
@@ -600,7 +600,7 @@ class ACChargePowerNumber(CoordinatorEntity, NumberEntity):
         try:
             # Use shared utility function to read all parameter ranges
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             # Process responses and look for HOLD_AC_CHARGE_POWER_CMD
@@ -887,7 +887,7 @@ class PVChargePowerNumber(CoordinatorEntity, NumberEntity):
         try:
             # Use shared utility function to read all parameter ranges
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             # Process responses and look for HOLD_FORCED_CHG_POWER_CMD
@@ -1174,7 +1174,7 @@ class GridPeakShavingPowerNumber(CoordinatorEntity, NumberEntity):
         try:
             # Use shared utility function to read all parameter ranges
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             # Process responses and look for _12K_HOLD_GRID_PEAK_SHAVING_POWER
@@ -1487,7 +1487,7 @@ class ACChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
         """Read the current AC charge SOC limit from the device."""
         try:
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             for _, response, start_register in process_parameter_responses(
@@ -1777,7 +1777,7 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         """Read the current on-grid SOC cutoff from the device."""
         try:
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             for _, response, start_register in process_parameter_responses(
@@ -2060,7 +2060,7 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
         """Read the current off-grid SOC cutoff from the device."""
         try:
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             for _, response, start_register in process_parameter_responses(
@@ -2346,7 +2346,7 @@ class BatteryChargeCurrentNumber(CoordinatorEntity, NumberEntity):
         """Read the current battery charge current from the device."""
         try:
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             for _, response, start_register in process_parameter_responses(
@@ -2636,7 +2636,7 @@ class BatteryDischargeCurrentNumber(CoordinatorEntity, NumberEntity):
         """Read the current battery discharge current from the device."""
         try:
             responses = await read_device_parameters_ranges(
-                self.coordinator.api, self.serial
+                self.coordinator.get_inverter_object(self.serial)
             )
 
             for _, response, start_register in process_parameter_responses(

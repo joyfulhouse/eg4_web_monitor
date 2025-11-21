@@ -850,8 +850,14 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     async def _refresh_device_parameters(self, serial: str) -> None:
         """Refresh parameters for a specific device."""
         try:
+            # Get inverter object for this serial
+            inverter = self.get_inverter_object(serial)
+            if not inverter:
+                _LOGGER.warning("Cannot find inverter object for serial %s", serial)
+                return
+
             # Use shared utility function to read all parameter ranges
-            responses = await read_device_parameters_ranges(self.client, serial)
+            responses = await read_device_parameters_ranges(inverter)
 
             # Process responses to update device parameter cache
             parameter_data = {}

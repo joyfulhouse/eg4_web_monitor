@@ -176,17 +176,20 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             verify_ssl=self._verify_ssl,
             session=session,
         ) as client:
-            # Get plants (API call returns Pydantic model)
-            plants_response = await client.api.plants.get_plants()
+            # Import Station here to avoid circular import
+            from pylxpweb.devices import Station
+
+            # Load all stations for this user (uses device objects!)
+            stations = await Station.load_all(client)
             _LOGGER.debug("Authentication successful")
 
-            # Convert Pydantic model to dict list
+            # Convert Station objects to dict list
             self._plants = [
                 {
-                    "plantId": plant.plantId,
-                    "name": plant.name,
+                    "plantId": station.id,
+                    "name": station.name,
                 }
-                for plant in plants_response.rows
+                for station in stations
             ]
             _LOGGER.debug("Found %d plants", len(self._plants))
 
