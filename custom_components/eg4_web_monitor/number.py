@@ -198,39 +198,41 @@ class SystemChargeSOCLimitNumber(CoordinatorEntity, NumberEntity):
                 "Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value
             )
 
-            # Use the API client to write the parameter
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_SYSTEM_CHARGE_SOC_LIMIT",
-                value_text=str(int_value),
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
+
+            # Use inverter device object's convenience method
+            success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
+
+            if not success:
+                raise HomeAssistantError(
+                    f"Failed to set SOC limit to {int_value}%"
+                )
+
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters when any parameter changes
+            _LOGGER.info(
+                "Parameter changed for %s, refreshing parameters for all inverters",
+                self.serial,
             )
 
-            _LOGGER.debug("Parameter write response for %s: %s", self.serial, response)
+            # Create background task to refresh all device parameters and then update
+            # all SOC entities
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
 
-            # Check if the write was successful
-            if response.get("success", False):
-                # Update the stored value
-                self._current_value = value
-                self.async_write_ha_state()
-
-                # Trigger parameter refresh for all inverters when any parameter changes
-                _LOGGER.info(
-                    "Parameter changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                # Create background task to refresh all device parameters and then update
-                # all SOC entities
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set System Charge SOC Limit for %s to %d%%",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
-                raise HomeAssistantError(f"Failed to set SOC limit: {error_msg}")
+            _LOGGER.info(
+                "Successfully set System Charge SOC Limit for %s to %d%%",
+                self.serial,
+                int_value,
+            )
 
         except Exception as e:
             _LOGGER.error(
@@ -1680,37 +1682,41 @@ class OnGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 "Setting On-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
             )
 
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_DISCHG_CUT_OFF_SOC_EOD",
-                value_text=str(int_value),
-            )
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
 
-            _LOGGER.debug(
-                "On-Grid SOC Cut-Off write response for %s: %s", self.serial, response
-            )
+            # Use inverter device object's convenience method
+            success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
 
-            if response.get("success", False):
-                self._current_value = value
-                self.async_write_ha_state()
-
-                _LOGGER.info(
-                    "On-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set On-Grid SOC Cut-Off for %s to %d%%",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
+            if not success:
                 raise HomeAssistantError(
-                    f"Failed to set on-grid SOC cutoff: {error_msg}"
+                    f"Failed to set on-grid SOC cutoff to {int_value}%"
                 )
+
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters when any parameter changes
+            _LOGGER.info(
+                "On-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
+                self.serial,
+            )
+
+            # Create background task to refresh all device parameters and then update
+            # all SOC entities
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+            _LOGGER.info(
+                "Successfully set On-Grid SOC Cut-Off for %s to %d%%",
+                self.serial,
+                int_value,
+            )
 
         except Exception as e:
             _LOGGER.error(
@@ -1963,37 +1969,41 @@ class OffGridSOCCutoffNumber(CoordinatorEntity, NumberEntity):
                 "Setting Off-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
             )
 
-            response = await self.coordinator.api.write_parameter(
-                inverter_sn=self.serial,
-                hold_param="HOLD_SOC_LOW_LIMIT_EPS_DISCHG",
-                value_text=str(int_value),
-            )
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self.serial} not found")
 
-            _LOGGER.debug(
-                "Off-Grid SOC Cut-Off write response for %s: %s", self.serial, response
-            )
+            # Use inverter device object's convenience method
+            success = await inverter.set_battery_soc_limits(off_grid_limit=int_value)
 
-            if response.get("success", False):
-                self._current_value = value
-                self.async_write_ha_state()
-
-                _LOGGER.info(
-                    "Off-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
-                    self.serial,
-                )
-
-                self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-                _LOGGER.info(
-                    "Successfully set Off-Grid SOC Cut-Off for %s to %d%%",
-                    self.serial,
-                    int_value,
-                )
-            else:
-                error_msg = response.get("message", "Unknown error")
+            if not success:
                 raise HomeAssistantError(
-                    f"Failed to set off-grid SOC cutoff: {error_msg}"
+                    f"Failed to set off-grid SOC cutoff to {int_value}%"
                 )
+
+            # Update the stored value
+            self._current_value = value
+            self.async_write_ha_state()
+
+            # Refresh inverter data
+            await inverter.refresh()
+
+            # Trigger parameter refresh for all inverters when any parameter changes
+            _LOGGER.info(
+                "Off-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
+                self.serial,
+            )
+
+            # Create background task to refresh all device parameters and then update
+            # all SOC entities
+            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+
+            _LOGGER.info(
+                "Successfully set Off-Grid SOC Cut-Off for %s to %d%%",
+                self.serial,
+                int_value,
+            )
 
         except Exception as e:
             _LOGGER.error(

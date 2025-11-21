@@ -244,8 +244,8 @@ async def test_reconfigure_single_plant_account(hass, mock_api, mock_config_entr
 
 async def test_reconfigure_invalid_auth(hass, mock_api, mock_config_entry):
     """Test reconfigure with invalid credentials."""
-    from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-        EG4AuthError,
+    from pylxpweb.exceptions import (
+        LuxpowerAuthError as EG4AuthError,
     )
 
     mock_api.login.side_effect = EG4AuthError("Invalid credentials")
@@ -277,8 +277,8 @@ async def test_reconfigure_invalid_auth(hass, mock_api, mock_config_entry):
 
 async def test_reconfigure_connection_error(hass, mock_api, mock_config_entry):
     """Test reconfigure with connection error."""
-    from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-        EG4ConnectionError,
+    from pylxpweb.exceptions import (
+        LuxpowerConnectionError as EG4ConnectionError,
     )
 
     mock_api.login.side_effect = EG4ConnectionError("Cannot connect")

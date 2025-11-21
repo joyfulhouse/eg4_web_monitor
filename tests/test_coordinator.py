@@ -17,10 +17,10 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
-from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-    EG4APIError,
-    EG4AuthError,
-    EG4ConnectionError,
+from pylxpweb.exceptions import (
+    LuxpowerAPIError as EG4APIError,
+    LuxpowerAuthError as EG4AuthError,
+    LuxpowerConnectionError as EG4ConnectionError,
 )
 
 

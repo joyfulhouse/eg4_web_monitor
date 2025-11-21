@@ -15,10 +15,10 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
-from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-    EG4AuthError,
-    EG4ConnectionError,
-    EG4APIError,
+from pylxpweb.exceptions import (
+    LuxpowerAuthError as EG4AuthError,
+    LuxpowerConnectionError as EG4ConnectionError,
+    LuxpowerAPIError as EG4APIError,
 )
 
 
@@ -452,8 +452,8 @@ class TestReauthentication:
         from custom_components.eg4_web_monitor.config_flow import (
             EG4WebMonitorConfigFlow,
         )
-        from custom_components.eg4_web_monitor.eg4_inverter_api.exceptions import (
-            EG4AuthError,
+        from pylxpweb.exceptions import (
+            LuxpowerAuthError as EG4AuthError,
         )
 
         flow = EG4WebMonitorConfigFlow()

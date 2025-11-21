@@ -211,33 +211,28 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         """Handle the button press."""
         try:
             _LOGGER.debug(
-                "Refresh button pressed for device %s - clearing cache",
+                "Refresh button pressed for device %s - using device object",
                 self._serial,
             )
 
-            # Step 1: Clear all cache for this device
-            if hasattr(self.coordinator.api, "_invalidate_cache_for_device"):
-                self.coordinator.api._invalidate_cache_for_device(self._serial)  # pylint: disable=protected-access
-                _LOGGER.debug("Cleared device-specific cache for %s", self._serial)
-
-            # Step 2: Clear parameter cache to ensure fresh parameter reads
-            if hasattr(self.coordinator.api, "_clear_parameter_cache"):
-                self.coordinator.api._clear_parameter_cache()  # pylint: disable=protected-access
-                _LOGGER.debug("Cleared parameter cache")
-
-            # Step 3: Force refresh of device parameters (for number entities)
+            # Get device object and refresh using high-level method
             device_data = self.coordinator.data.get("devices", {}).get(self._serial, {})
-            if device_data.get("type") == "inverter":
-                await self.coordinator.refresh_all_device_parameters()
-                _LOGGER.debug("Refreshed device parameters for inverter")
+            device_type = device_data.get("type", "unknown")
 
-            # Step 4: Force immediate coordinator refresh
+            if device_type == "inverter":
+                # Get inverter object and refresh
+                inverter = self.coordinator.get_inverter_object(self._serial)
+                if inverter:
+                    _LOGGER.debug("Refreshing inverter device object for %s", self._serial)
+                    await inverter.refresh()
+                    _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
+                else:
+                    _LOGGER.warning("Inverter object not found for %s", self._serial)
+
+            # For other device types or as fallback, trigger coordinator refresh
             await self.coordinator.async_request_refresh()
             _LOGGER.debug("Successfully refreshed data for device %s", self._serial)
 
-            # Parameters and coordinator data have been refreshed
-            # Number entities will automatically update via coordinator listeners
-            _LOGGER.debug("Refresh completed - all data updated")
         except Exception as e:
             _LOGGER.error("Failed to refresh data for device %s: %s", self._serial, e)
             raise
@@ -328,33 +323,30 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         try:
             _LOGGER.info(
                 "Battery refresh button pressed for battery %s (parent: %s) - "
-                "clearing cache and refreshing data",
+                "using device object methods",
                 self._battery_key,
                 self._parent_serial,
             )
 
-            # Step 1: Clear cache for parent device (which includes battery data)
-            if hasattr(self.coordinator.api, "_invalidate_cache_for_device"):
-                self.coordinator.api._invalidate_cache_for_device(self._parent_serial)  # pylint: disable=protected-access
+            # Get parent inverter object and refresh (which refreshes all batteries)
+            inverter = self.coordinator.get_inverter_object(self._parent_serial)
+            if inverter:
                 _LOGGER.debug(
-                    "Cleared device-specific cache for parent %s", self._parent_serial
+                    "Refreshing parent inverter %s to update battery %s",
+                    self._parent_serial,
+                    self._battery_key,
+                )
+                await inverter.refresh()
+                _LOGGER.debug(
+                    "Successfully refreshed battery %s via parent inverter",
+                    self._battery_key,
+                )
+            else:
+                _LOGGER.warning(
+                    "Parent inverter object not found for %s", self._parent_serial
                 )
 
-            # Step 2: Clear battery-related cache entries
-            if hasattr(self.coordinator.api, "clear_cache"):
-                # Clear entire cache to ensure fresh battery data
-                self.coordinator.api.clear_cache()
-                _LOGGER.debug("Cleared all cache for fresh battery data")
-
-            # Step 3: Force immediate API call for battery data (most targeted)
-            try:
-                _LOGGER.debug("Calling battery API directly for fresh data")
-                await self.coordinator.api.get_battery_info(self._parent_serial)
-                _LOGGER.debug("Successfully fetched fresh battery data from API")
-            except Exception as api_error:
-                _LOGGER.warning("Direct battery API call failed: %s", api_error)
-
-            # Step 4: Force immediate coordinator refresh to update all entities
+            # Force immediate coordinator refresh to update all entities
             await self.coordinator.async_request_refresh()
             _LOGGER.debug(
                 "Successfully refreshed data for battery %s", self._battery_key

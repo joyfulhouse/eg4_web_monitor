@@ -42,7 +42,8 @@ from .const import (
     FUNCTION_PARAM_MAPPING,
 )
 from pylxpweb import LuxpowerClient
-from pylxpweb.devices import Station, BaseInverter, Battery
+from pylxpweb.devices import Station, Battery
+from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.exceptions import LuxpowerAuthError, LuxpowerAPIError, LuxpowerConnectionError
 from .utils import (
     CircuitBreaker,
@@ -745,6 +746,16 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "model": "Station",
             "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
+
+    @property
+    def api(self) -> LuxpowerClient:
+        """Provide backward-compatible access to client.
+
+        DEPRECATED: Use device object methods instead of client.api.* calls.
+        This property exists only for backward compatibility during refactoring.
+        New code should use device object methods via get_inverter_object().
+        """
+        return self.client
 
     def get_inverter_object(self, serial: str) -> Optional[BaseInverter]:
         """Get inverter device object by serial number."""

@@ -623,14 +623,30 @@ Based on Home Assistant integration needs:
 
 ## Action Plan
 
-1. **Create all issues in pylxpweb repository**
-2. **Do NOT implement workarounds in Home Assistant**
-3. **Wait for library to add convenience methods**
-4. **Once methods are added, update Home Assistant to use them**
-5. **NEVER use `write_parameters()` or `client.api.*` as workarounds**
+1. ✅ **Create all issues in pylxpweb repository** - DONE
+2. ✅ **Do NOT implement workarounds in Home Assistant** - Policy enforced
+3. ⏳ **Wait for library to add convenience methods** - In progress
+4. ⏳ **Once methods are added, update Home Assistant to use them** - Pending
+5. ✅ **NEVER use `write_parameters()` or `client.api.*` as workarounds** - Policy enforced
 
 ---
 
-**Document Status**: READY TO CREATE ISSUES
+## Created Issues
+
+All issues have been created in the pylxpweb repository:
+
+1. ✅ [Issue #8](https://github.com/joyfulhouse/pylxpweb/issues/8) - Battery Backup Control (HIGH PRIORITY)
+2. ✅ [Issue #9](https://github.com/joyfulhouse/pylxpweb/issues/9) - AC Charge Power Control (HIGH PRIORITY)
+3. ✅ [Issue #10](https://github.com/joyfulhouse/pylxpweb/issues/10) - PV Charge Power Control (MEDIUM PRIORITY)
+4. ✅ [Issue #11](https://github.com/joyfulhouse/pylxpweb/issues/11) - Grid Peak Shaving Control (MEDIUM PRIORITY)
+5. ✅ [Issue #12](https://github.com/joyfulhouse/pylxpweb/issues/12) - AC Charge SOC Limit Control (HIGH PRIORITY)
+6. ✅ [Issue #13](https://github.com/joyfulhouse/pylxpweb/issues/13) - Battery Current Control (MEDIUM PRIORITY)
+7. ✅ [Issue #14](https://github.com/joyfulhouse/pylxpweb/issues/14) - Operating Mode Enhancement (LOW PRIORITY)
+8. ✅ [Issue #15](https://github.com/joyfulhouse/pylxpweb/issues/15) - DST Control (LOW PRIORITY)
+
+---
+
+**Document Status**: ISSUES CREATED - Waiting for library updates
 **Repository**: https://github.com/joyfulhouse/pylxpweb/issues
-**Next Step**: Create these issues and wait for library updates
+**Date Created**: November 20, 2025
+**Next Step**: Monitor issues and proceed with partial refactoring of entities using existing methods
