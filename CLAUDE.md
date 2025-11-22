@@ -426,6 +426,42 @@ docker-compose logs -f homeassistant | grep eg4_web_monitor
 4. Smart caching to minimize API calls
 5. Test coverage for all features in CI pipeline
 
+### String Formatting Conventions
+**This integration follows Python string formatting best practices:**
+
+1. **F-Strings (Preferred)**: Use for all non-logging string formatting
+   ```python
+   # Good - Modern and readable
+   message = f"Device {serial} has {count} sensors"
+   entity_id = f"sensor.{model}_{serial}_{sensor_type}"
+   ```
+
+2. **Percent Formatting (Logging Only)**: Use for logging to enable lazy evaluation
+   ```python
+   # Good - Lazy evaluation improves performance
+   _LOGGER.debug("Processing device %s with type %s", serial, device_type)
+   _LOGGER.error("Failed to fetch data for %s: %s", serial, error)
+   ```
+
+3. **Avoid `.format()`**: Do not use `.format()` method
+   ```python
+   # Bad - Outdated style
+   message = "Device {} has {} sensors".format(serial, count)
+   ```
+
+**Rationale**:
+- F-strings provide better readability and performance for immediate string construction
+- Percent formatting in logging provides lazy evaluation (string only built if log level active)
+- This dual approach optimizes both code clarity and runtime performance
+
+**Base Entity Classes**:
+The integration provides base entity classes in `base_entity.py` to eliminate code duplication:
+- `EG4DeviceEntity`: Base for all device entities (inverters, GridBOSS, parallel groups)
+- `EG4BatteryEntity`: Base for individual battery entities
+- `EG4StationEntity`: Base for station/plant level entities
+
+All new entity classes should inherit from these base classes to maintain consistency.
+
 ## Troubleshooting
 
 **Integration Not Found**:

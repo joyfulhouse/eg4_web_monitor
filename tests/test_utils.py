@@ -1,7 +1,6 @@
 """Tests for utility functions in EG4 Web Monitor integration."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 import asyncio
 
 from custom_components.eg4_web_monitor.utils import (
@@ -21,8 +20,6 @@ from custom_components.eg4_web_monitor.utils import (
     safe_get_nested_value,
     validate_device_data,
     CircuitBreaker,
-    read_device_parameters_ranges,
-    process_parameter_responses,
 )
 
 
@@ -572,100 +569,110 @@ class TestCircuitBreaker:
         assert breaker.failure_count == 0
 
 
-class TestReadDeviceParametersRanges:
-    """Test read_device_parameters_ranges function."""
-
-    async def test_successful_read(self):
-        """Test successful parameter read."""
-        mock_api = MagicMock()
-        mock_api.read_parameters = AsyncMock(
-            side_effect=[
-                {"register_0": "value0"},
-                {"register_127": "value127"},
-                {"register_240": "value240"},
-            ]
-        )
-
-        results = await read_device_parameters_ranges(mock_api, "1234567890")
-
-        assert len(results) == 3
-        assert results[0] == {"register_0": "value0"}
-        assert results[1] == {"register_127": "value127"}
-        assert results[2] == {"register_240": "value240"}
-
-    async def test_partial_failure(self):
-        """Test partial failure handling."""
-        mock_api = MagicMock()
-        mock_api.read_parameters = AsyncMock(
-            side_effect=[
-                {"register_0": "value0"},
-                Exception("Read failed"),
-                {"register_240": "value240"},
-            ]
-        )
-
-        results = await read_device_parameters_ranges(mock_api, "1234567890")
-
-        assert len(results) == 3
-        assert results[0] == {"register_0": "value0"}
-        assert isinstance(results[1], Exception)
-        assert results[2] == {"register_240": "value240"}
+# NOTE: TestReadDeviceParametersRanges and TestProcessParameterResponses were removed
+# These tests referenced utility functions that were removed during the refactoring
+# to use pylxpweb library's device objects. Parameter handling is now done by the
+# library's internal methods, so these tests are no longer applicable.
 
 
-class TestProcessParameterResponses:
-    """Test process_parameter_responses function."""
+class TestBatteryDataProcessing:
+    """Test battery data processing with scaling constants."""
 
-    def test_successful_responses(self):
-        """Test processing successful responses."""
-        responses = [
-            {"register_0": "value0"},
-            {"register_127": "value127"},
-            {"register_240": "value240"},
-        ]
+    def test_clean_battery_display_name_with_separator(self):
+        """Test clean_battery_display_name with BATTERY_KEY_SEPARATOR format."""
+        from custom_components.eg4_web_monitor.utils import clean_battery_display_name
 
-        mock_logger = MagicMock()
-        results = list(
-            process_parameter_responses(responses, "1234567890", mock_logger)
-        )
+        # Test format: "1234567890_Battery_ID_01"
+        result = clean_battery_display_name("1234567890_Battery_ID_01", "9876543210")
+        assert result == "1234567890-01"
 
-        assert len(results) == 3
-        assert results[0] == (0, {"register_0": "value0"}, 0)
-        assert results[1] == (1, {"register_127": "value127"}, 127)
-        assert results[2] == (2, {"register_240": "value240"}, 240)
+    def test_clean_battery_display_name_with_prefix(self):
+        """Test clean_battery_display_name with BATTERY_KEY_PREFIX format."""
+        from custom_components.eg4_web_monitor.utils import clean_battery_display_name
 
-    def test_exception_handling(self):
-        """Test exception in responses is skipped."""
-        responses = [
-            {"register_0": "value0"},
-            Exception("Read failed"),
-            {"register_240": "value240"},
-        ]
+        # Test format: "Battery_ID_01"
+        result = clean_battery_display_name("Battery_ID_01", "1234567890")
+        assert result == "1234567890-01"
 
-        mock_logger = MagicMock()
-        results = list(
-            process_parameter_responses(responses, "1234567890", mock_logger)
-        )
+    def test_clean_battery_display_name_with_short_prefix(self):
+        """Test clean_battery_display_name with BATTERY_KEY_SHORT_PREFIX format."""
+        from custom_components.eg4_web_monitor.utils import clean_battery_display_name
 
-        # Should only get 2 results (exception is skipped)
-        assert len(results) == 2
-        assert results[0] == (0, {"register_0": "value0"}, 0)
-        assert results[1] == (2, {"register_240": "value240"}, 240)
+        # Test format: "BAT001"
+        result = clean_battery_display_name("BAT001", "1234567890")
+        assert result == "BAT001"
 
-        # Should log the exception
-        mock_logger.debug.assert_called_once()
+    def test_clean_battery_display_name_with_numeric(self):
+        """Test clean_battery_display_name with numeric format."""
+        from custom_components.eg4_web_monitor.utils import clean_battery_display_name
 
-    def test_all_exceptions(self):
-        """Test all responses are exceptions."""
-        responses = [
-            Exception("Failed 1"),
-            Exception("Failed 2"),
-            Exception("Failed 3"),
-        ]
+        # Test format: "01"
+        result = clean_battery_display_name("01", "1234567890")
+        assert result == "1234567890-01"
 
-        mock_logger = MagicMock()
-        results = list(
-            process_parameter_responses(responses, "1234567890", mock_logger)
-        )
+        # Test format: "1" (single digit)
+        result = clean_battery_display_name("1", "1234567890")
+        assert result == "1234567890-01"
 
-        assert len(results) == 0
-        assert mock_logger.debug.call_count == 3
+    def test_clean_battery_display_name_empty(self):
+        """Test clean_battery_display_name with empty string."""
+        from custom_components.eg4_web_monitor.utils import clean_battery_display_name
+
+        result = clean_battery_display_name("", "1234567890")
+        assert result == "01"
+
+    def test_process_sensor_value_voltage_scaling(self):
+        """Test _process_sensor_value with voltage scaling constants."""
+        from custom_components.eg4_web_monitor.utils import _process_sensor_value
+
+        # Test cell voltage (millivolts scale)
+        result = _process_sensor_value("batMaxCellVoltage", 3500, "voltage")
+        assert result == 3.5
+
+        result = _process_sensor_value("batMinCellVoltage", 3400, "voltage")
+        assert result == 3.4
+
+        # Test total voltage (centivolts scale)
+        result = _process_sensor_value("totalVoltage", 5120, "voltage")
+        assert result == 51.2
+
+    def test_process_sensor_value_current_scaling(self):
+        """Test _process_sensor_value with current scaling constant."""
+        from custom_components.eg4_web_monitor.utils import _process_sensor_value
+
+        # Test current (deciamperes scale)
+        result = _process_sensor_value("current", 150, "current")
+        assert result == 15.0
+
+    def test_process_sensor_value_temperature_scaling(self):
+        """Test _process_sensor_value with temperature scaling constant."""
+        from custom_components.eg4_web_monitor.utils import _process_sensor_value
+
+        # Test temperature fields (decidegrees scale)
+        result = _process_sensor_value("batMaxCellTemp", 255, "temperature")
+        assert result == 25.5
+
+        result = _process_sensor_value("batMinCellTemp", 230, "temperature")
+        assert result == 23.0
+
+        result = _process_sensor_value("ambientTemp", 200, "temperature")
+        assert result == 20.0
+
+        result = _process_sensor_value("mosTemp", 350, "temperature")
+        assert result == 35.0
+
+    def test_process_sensor_value_invalid_values(self):
+        """Test _process_sensor_value handles invalid values."""
+        from custom_components.eg4_web_monitor.utils import _process_sensor_value
+
+        # Test None
+        result = _process_sensor_value("batMaxCellVoltage", None, "voltage")
+        assert result is None
+
+        # Test empty string
+        result = _process_sensor_value("batMaxCellVoltage", "", "voltage")
+        assert result is None
+
+        # Test "N/A"
+        result = _process_sensor_value("batMaxCellVoltage", "N/A", "voltage")
+        assert result is None

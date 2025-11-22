@@ -1,7 +1,7 @@
 """Config flow for EG4 Web Monitor integration."""
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -10,29 +10,39 @@ from homeassistant.helpers import aiohttp_client
 if TYPE_CHECKING:
     from homeassistant import config_entries
     from homeassistant.config_entries import ConfigFlowResult
-    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.data_entry_flow import AbortFlow
+    from homeassistant.exceptions import HomeAssistantError
 else:
     from homeassistant import config_entries  # type: ignore[assignment]
-    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.data_entry_flow import AbortFlow
+    from homeassistant.exceptions import HomeAssistantError
 
     # At runtime, ConfigFlowResult might not exist, use FlowResult
     try:
-        from homeassistant.config_entries import ConfigFlowResult  # type: ignore[attr-defined]
+        from homeassistant.config_entries import (
+            ConfigFlowResult,  # type: ignore[attr-defined]
+        )
     except ImportError:
-        from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult  # type: ignore[misc]
+        from homeassistant.data_entry_flow import (
+            FlowResult as ConfigFlowResult,  # type: ignore[misc]
+        )
+
+from pylxpweb import LuxpowerClient
+from pylxpweb.exceptions import (
+    LuxpowerAPIError,
+    LuxpowerAuthError,
+    LuxpowerConnectionError,
+)
 
 from .const import (
     CONF_BASE_URL,
+    CONF_DST_SYNC,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
-from pylxpweb import LuxpowerClient
-from pylxpweb.exceptions import LuxpowerAPIError, LuxpowerAuthError, LuxpowerConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +52,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
         vol.Optional(CONF_VERIFY_SSL, default=True): bool,
+        vol.Optional(CONF_DST_SYNC, default=True): bool,
     }
 )
 
@@ -53,17 +64,18 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the config flow."""
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
-        self._base_url: Optional[str] = None
-        self._verify_ssl: Optional[bool] = None
-        self._plants: Optional[List[Dict[str, Any]]] = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._base_url: str | None = None
+        self._verify_ssl: bool | None = None
+        self._dst_sync: bool | None = None
+        self._plants: list[dict[str, Any]] | None = None
 
     async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the initial step - user credentials."""
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -72,6 +84,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._password = user_input[CONF_PASSWORD]
                 self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
                 self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+                self._dst_sync = user_input.get(CONF_DST_SYNC, True)
 
                 # Test authentication and get plants
                 await self._test_credentials()
@@ -107,10 +120,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_plant(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle plant selection step."""
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -203,6 +216,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._password is not None
         assert self._base_url is not None
         assert self._verify_ssl is not None
+        assert self._dst_sync is not None
 
         unique_id = f"{self._username}_{plant_id}"
         await self.async_set_unique_id(unique_id)
@@ -217,6 +231,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: self._password,
             CONF_BASE_URL: self._base_url,
             CONF_VERIFY_SSL: self._verify_ssl,
+            CONF_DST_SYNC: self._dst_sync,
             CONF_PLANT_ID: plant_id,
             CONF_PLANT_NAME: plant_name,
         }
@@ -239,13 +254,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle reauthentication confirmation.
 
         Silver tier requirement: Reauthentication available through UI.
         """
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -310,13 +325,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reconfigure(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle reconfiguration flow.
 
         Gold tier requirement: Reconfiguration available through UI.
         """
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
         entry_id = self.context.get("entry_id")
@@ -331,6 +346,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._password = user_input[CONF_PASSWORD]
                 self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
                 self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+                self._dst_sync = user_input.get(CONF_DST_SYNC, True)
 
                 # Test new credentials and get plants
                 await self._test_credentials()
@@ -346,21 +362,19 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             plant_id=plant["plantId"],
                             plant_name=plant["name"],
                         )
-                    else:
-                        # Multiple plants - show selection step
-                        return await self.async_step_reconfigure_plant()
-                else:
-                    # Same account - keep existing plant
-                    plant_id = entry.data.get(CONF_PLANT_ID)
-                    plant_name = entry.data.get(CONF_PLANT_NAME)
-                    assert plant_id is not None and plant_name is not None, (
-                        "Plant ID and name must be set"
-                    )
-                    return await self._update_entry(
-                        entry=entry,
-                        plant_id=plant_id,
-                        plant_name=plant_name,
-                    )
+                    # Multiple plants - show selection step
+                    return await self.async_step_reconfigure_plant()
+                # Same account - keep existing plant
+                plant_id = entry.data.get(CONF_PLANT_ID)
+                plant_name = entry.data.get(CONF_PLANT_NAME)
+                assert plant_id is not None and plant_name is not None, (
+                    "Plant ID and name must be set"
+                )
+                return await self._update_entry(
+                    entry=entry,
+                    plant_id=plant_id,
+                    plant_name=plant_name,
+                )
 
             except LuxpowerAuthError:
                 errors["base"] = "invalid_auth"
@@ -385,6 +399,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)
                 ): bool,
+                vol.Optional(
+                    CONF_DST_SYNC, default=entry.data.get(CONF_DST_SYNC, True)
+                ): bool,
             }
         )
 
@@ -398,13 +415,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reconfigure_plant(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle plant selection during reconfiguration.
 
         Gold tier requirement: Reconfiguration available through UI.
         """
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
         entry_id = self.context.get("entry_id")
@@ -472,6 +489,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._password is not None
         assert self._base_url is not None
         assert self._verify_ssl is not None
+        assert self._dst_sync is not None
 
         unique_id = f"{self._username}_{plant_id}"
 
@@ -495,6 +513,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: self._password,
             CONF_BASE_URL: self._base_url,
             CONF_VERIFY_SSL: self._verify_ssl,
+            CONF_DST_SYNC: self._dst_sync,
             CONF_PLANT_ID: plant_id,
             CONF_PLANT_NAME: plant_name,
         }
@@ -510,9 +529,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_abort(reason="reconfigure_successful")
 
 
-class CannotConnect(HomeAssistantError):
+class CannotConnectError(HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuth(HomeAssistantError):
+class InvalidAuthError(HomeAssistantError):
     """Error to indicate there is invalid auth."""

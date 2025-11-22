@@ -2,13 +2,13 @@
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
-from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.sensor import (
@@ -23,11 +23,14 @@ else:
         SensorEntity,
         SensorStateClass,
     )
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
+    from homeassistant.helpers.update_coordinator import (
+        CoordinatorEntity,  # type: ignore[assignment]
+    )
 
 from . import EG4ConfigEntry
 from .const import DOMAIN, SENSOR_TYPES, STATION_SENSOR_TYPES
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import clean_model_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,28 +52,28 @@ LIFETIME_SENSORS = {
 }
 
 
-def _get_current_date(coordinator: EG4DataUpdateCoordinator) -> Optional[str]:
+def _get_current_date(coordinator: EG4DataUpdateCoordinator) -> str | None:
     """Get current date in station's timezone as YYYY-MM-DD string.
 
     Returns None if timezone cannot be determined, falling back to allowing resets.
     """
     try:
         # Try to get timezone from station data
+        tz_str = None
         if coordinator.data and "station" in coordinator.data:
             tz_str = coordinator.data["station"].get("timezone")
-            if tz_str:
-                # Parse timezone string like "GMT -8" or "GMT+8"
-                # Extract offset hours
-                if "GMT" in tz_str:
-                    offset_str = tz_str.replace("GMT", "").strip()
-                    if offset_str:
-                        # Parse offset (e.g., "-8" or "+8")
-                        offset_hours = int(offset_str)
-                        # Create timezone with offset
-                        from datetime import timezone, timedelta
 
-                        tz = timezone(timedelta(hours=offset_hours))
-                        return datetime.now(tz).strftime("%Y-%m-%d")
+        # Parse timezone string like "GMT -8" or "GMT+8"
+        if tz_str and "GMT" in tz_str:
+            offset_str = tz_str.replace("GMT", "").strip()
+            if offset_str:
+                # Parse offset (e.g., "-8" or "+8")
+                offset_hours = int(offset_str)
+                # Create timezone with offset
+                from datetime import timedelta, timezone
+
+                tz = timezone(timedelta(hours=offset_hours))
+                return datetime.now(tz).strftime("%Y-%m-%d")
 
         # Fallback to UTC if timezone not available
         return datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
@@ -88,7 +91,7 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor sensor entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: List[SensorEntity] = []
+    entities: list[SensorEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for sensor setup")
@@ -115,8 +118,19 @@ async def async_setup_entry(
     for serial, device_data in coordinator.data["devices"].items():
         device_type = device_data.get("type", "unknown")
 
+        _LOGGER.debug(
+            f"Sensor setup for device {serial}: type={device_type}, "
+            f"has batteries={len(device_data.get('batteries', {}))} battery keys"
+        )
+
         if device_type == "inverter":
-            entities.extend(_create_inverter_sensors(coordinator, serial, device_data))
+            inverter_entities = _create_inverter_sensors(
+                coordinator, serial, device_data
+            )
+            _LOGGER.debug(
+                f"Created {len(inverter_entities)} entities for inverter {serial}"
+            )
+            entities.extend(inverter_entities)
         elif device_type == "gridboss":
             entities.extend(_create_gridboss_sensors(coordinator, serial, device_data))
         elif device_type == "parallel_group":
@@ -136,25 +150,54 @@ async def async_setup_entry(
 
 
 def _create_inverter_sensors(
-    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
-) -> List[SensorEntity]:
+    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+) -> list[SensorEntity]:
     """Create sensor entities for an inverter device."""
-    entities: List[SensorEntity] = []
+    entities: list[SensorEntity] = []
 
-    # Create main inverter sensors
+    # Create main inverter sensors (excluding battery_bank sensors)
     for sensor_key in device_data.get("sensors", {}):
         if sensor_key in SENSOR_TYPES:
+            # Skip battery_bank sensors - they'll be created separately for battery bank device
+            if not sensor_key.startswith("battery_bank_"):
+                entities.append(
+                    EG4InverterSensor(
+                        coordinator=coordinator,
+                        serial=serial,
+                        sensor_key=sensor_key,
+                        device_type="inverter",
+                    )
+                )
+
+    # Create battery bank sensors (separate device)
+    battery_bank_sensor_count = 0
+    for sensor_key in device_data.get("sensors", {}):
+        if sensor_key.startswith("battery_bank_") and sensor_key in SENSOR_TYPES:
             entities.append(
-                EG4InverterSensor(
+                EG4BatteryBankSensor(
                     coordinator=coordinator,
                     serial=serial,
                     sensor_key=sensor_key,
-                    device_type="inverter",
                 )
             )
+            battery_bank_sensor_count += 1
+
+    if battery_bank_sensor_count > 0:
+        _LOGGER.debug(
+            f"Created {battery_bank_sensor_count} battery bank sensors for {serial}"
+        )
 
     # Create individual battery sensors
-    for battery_key, battery_sensors in device_data.get("batteries", {}).items():
+    batteries = device_data.get("batteries", {})
+    _LOGGER.debug(
+        f"Creating battery sensors for {serial}: found {len(batteries)} batteries"
+    )
+
+    for battery_key, battery_sensors in batteries.items():
+        _LOGGER.debug(
+            f"Processing battery {battery_key} for {serial}: {len(battery_sensors)} sensors"
+        )
+
         for sensor_key in battery_sensors:
             if sensor_key in SENSOR_TYPES:
                 entities.append(
@@ -180,14 +223,16 @@ def _create_inverter_sensors(
                 )
             )
 
+    _LOGGER.debug(f"Total entities created for inverter {serial}: {len(entities)}")
+
     return entities
 
 
 def _create_gridboss_sensors(
-    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
-) -> List[SensorEntity]:
+    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+) -> list[SensorEntity]:
     """Create sensor entities for a GridBOSS device."""
-    entities: List[SensorEntity] = []
+    entities: list[SensorEntity] = []
 
     # Create GridBOSS sensors
     for sensor_key in device_data.get("sensors", {}):
@@ -205,10 +250,10 @@ def _create_gridboss_sensors(
 
 
 def _create_parallel_group_sensors(
-    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: Dict[str, Any]
-) -> List[SensorEntity]:
+    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+) -> list[SensorEntity]:
     """Create sensor entities for a Parallel Group device."""
-    entities: List[SensorEntity] = []
+    entities: list[SensorEntity] = []
 
     # Create Parallel Group sensors
     for sensor_key in device_data.get("sensors", {}):
@@ -244,13 +289,13 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         self._device_type = device_type
 
         # Get sensor configuration - cast needed because const dict .get() returns object
-        self._sensor_config: Dict[str, Any] = cast(
-            Dict[str, Any], SENSOR_TYPES.get(sensor_key, {})
+        self._sensor_config: dict[str, Any] = cast(
+            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
         )
 
         # Monotonic state tracking for total_increasing sensors
-        self._last_valid_state: Optional[float] = None
-        self._last_update_date: Optional[str] = (
+        self._last_valid_state: float | None = None
+        self._last_update_date: str | None = (
             None  # Track date for daily reset detection
         )
 
@@ -271,7 +316,7 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         elif device_type == "parallel_group":
             self._attr_entity_id = f"sensor.eg4_parallel_group_{sensor_key}"
         else:
-            model_clean = model.lower().replace(" ", "_")
+            model_clean = clean_model_name(model, use_underscores=True)
             self._attr_entity_id = f"sensor.eg4_{model_clean}_{serial}_{sensor_key}"
 
         # Set sensor properties from configuration
@@ -346,29 +391,31 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
 
                 # If we have a previous valid state, ensure we never decrease (for lifetime)
                 # or only decrease if value went to 0 (likely a reset)
-                if self._last_valid_state is not None:
-                    if current_value < self._last_valid_state:
-                        # Allow reset to 0 for non-lifetime sensors (manual/API reset)
-                        if not is_lifetime and current_value == 0:
-                            _LOGGER.info(
-                                "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
-                                self._attr_unique_id,
-                            )
-                            self._last_valid_state = current_value
-                            self._last_update_date = current_date
-                            return current_value
-
-                        # Prevent decrease for lifetime sensors or non-zero decreases
-                        _LOGGER.debug(
-                            "Sensor %s: Preventing state decrease from %.2f to %.2f, "
-                            "maintaining %.2f (lifetime=%s)",
+                if (
+                    self._last_valid_state is not None
+                    and current_value < self._last_valid_state
+                ):
+                    # Allow reset to 0 for non-lifetime sensors (manual/API reset)
+                    if not is_lifetime and current_value == 0:
+                        _LOGGER.info(
+                            "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
                             self._attr_unique_id,
-                            self._last_valid_state,
-                            current_value,
-                            self._last_valid_state,
-                            is_lifetime,
                         )
-                        return self._last_valid_state
+                        self._last_valid_state = current_value
+                        self._last_update_date = current_date
+                        return current_value
+
+                    # Prevent decrease for lifetime sensors or non-zero decreases
+                    _LOGGER.debug(
+                        "Sensor %s: Preventing state decrease from %.2f to %.2f, "
+                        "maintaining %.2f (lifetime=%s)",
+                        self._attr_unique_id,
+                        self._last_valid_state,
+                        current_value,
+                        self._last_valid_state,
+                        is_lifetime,
+                    )
+                    return self._last_valid_state
 
                 # Update last valid state and date, return current value
                 self._last_valid_state = current_value
@@ -392,6 +439,98 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         )
 
 
+class EG4BatteryBankSensor(CoordinatorEntity, SensorEntity):
+    """Representation of an EG4 Battery Bank sensor (aggregate of all batteries)."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        sensor_key: str,
+    ) -> None:
+        """Initialize the battery bank sensor."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+
+        self._serial = serial
+        self._sensor_key = sensor_key
+
+        # Get sensor configuration
+        self._sensor_config: dict[str, Any] = cast(
+            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
+        )
+
+        # Generate unique ID
+        self._attr_unique_id = f"{serial}_battery_bank_{sensor_key}"
+
+        # Set entity attributes
+        device_data = self.coordinator.data["devices"].get(serial, {})
+        model = device_data.get("model", "Unknown")
+
+        # Modern entity naming - let Home Assistant combine device name + entity name
+        self._attr_has_entity_name = True
+        self._attr_name = self._sensor_config.get("name", sensor_key)
+
+        # Keep entity_id for backwards compatibility
+        model_clean = clean_model_name(model, use_underscores=True)
+        self._attr_entity_id = (
+            f"sensor.eg4_{model_clean}_{serial}_battery_bank_{sensor_key}"
+        )
+
+        # Set sensor properties from configuration
+        self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
+        self._attr_device_class = self._sensor_config.get("device_class")
+        self._attr_state_class = self._sensor_config.get("state_class")
+        self._attr_icon = self._sensor_config.get("icon")
+
+        # Set entity category
+        if self._sensor_config.get("entity_category") == "diagnostic":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information for battery bank."""
+        device_info = self.coordinator.get_battery_bank_device_info(self._serial)
+        if device_info is None:
+            # Fallback device info if coordinator doesn't have it yet
+            return {
+                "identifiers": {(DOMAIN, f"{self._serial}_battery_bank")},
+                "name": f"Battery Bank ({self._serial})",
+                "manufacturer": "EG4 Electronics",
+                "model": "Battery Bank",
+                "via_device": (DOMAIN, self._serial),
+            }
+        return device_info
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        device_exists = (
+            self.coordinator.data
+            and "devices" in self.coordinator.data
+            and self._serial in self.coordinator.data["devices"]
+        )
+
+        # Battery bank sensor is available if device exists and has battery bank data
+        battery_bank_exists = (
+            device_exists
+            and self._sensor_key
+            in self.coordinator.data["devices"][self._serial].get("sensors", {})
+        )
+
+        return battery_bank_exists
+
+    @property
+    def native_value(self) -> Any:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data["devices"].get(self._serial, {})
+        sensors = device_data.get("sensors", {})
+        return sensors.get(self._sensor_key)
+
+
 class EG4BatterySensor(CoordinatorEntity, SensorEntity):
     """Representation of an EG4 Battery sensor."""
 
@@ -411,13 +550,13 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         self._sensor_key = sensor_key
 
         # Get sensor configuration - cast needed because const dict .get() returns object
-        self._sensor_config: Dict[str, Any] = cast(
-            Dict[str, Any], SENSOR_TYPES.get(sensor_key, {})
+        self._sensor_config: dict[str, Any] = cast(
+            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
         )
 
         # Monotonic state tracking for total_increasing sensors
-        self._last_valid_state: Optional[float] = None
-        self._last_update_date: Optional[str] = (
+        self._last_valid_state: float | None = None
+        self._last_update_date: str | None = (
             None  # Track date for daily reset detection
         )
 
@@ -436,7 +575,7 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         self._attr_name = self._sensor_config.get("name", sensor_key)
 
         # Keep entity_id for backwards compatibility
-        model_clean = model.lower().replace(" ", "_")
+        model_clean = clean_model_name(model, use_underscores=True)
         self._attr_entity_id = (
             f"sensor.eg4_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
         )
@@ -462,9 +601,10 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
             "battery_max_cell_voltage_num",
             "battery_min_cell_voltage_num",
         ]
-        if sensor_key in diagnostic_battery_sensors:
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        elif self._sensor_config.get("entity_category") == "diagnostic":
+        if (
+            sensor_key in diagnostic_battery_sensors
+            or self._sensor_config.get("entity_category") == "diagnostic"
+        ):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
@@ -521,29 +661,31 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
 
                 # If we have a previous valid state, ensure we never decrease (for lifetime)
                 # or only decrease if value went to 0 (likely a reset)
-                if self._last_valid_state is not None:
-                    if current_value < self._last_valid_state:
-                        # Allow reset to 0 for non-lifetime sensors (manual/API reset)
-                        if not is_lifetime and current_value == 0:
-                            _LOGGER.info(
-                                "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
-                                self._attr_unique_id,
-                            )
-                            self._last_valid_state = current_value
-                            self._last_update_date = current_date
-                            return current_value
-
-                        # Prevent decrease for lifetime sensors or non-zero decreases
-                        _LOGGER.debug(
-                            "Sensor %s: Preventing state decrease from %.2f to %.2f, "
-                            "maintaining %.2f (lifetime=%s)",
+                if (
+                    self._last_valid_state is not None
+                    and current_value < self._last_valid_state
+                ):
+                    # Allow reset to 0 for non-lifetime sensors (manual/API reset)
+                    if not is_lifetime and current_value == 0:
+                        _LOGGER.info(
+                            "Sensor %s: Allowing reset to 0 for non-lifetime sensor",
                             self._attr_unique_id,
-                            self._last_valid_state,
-                            current_value,
-                            self._last_valid_state,
-                            is_lifetime,
                         )
-                        return self._last_valid_state
+                        self._last_valid_state = current_value
+                        self._last_update_date = current_date
+                        return current_value
+
+                    # Prevent decrease for lifetime sensors or non-zero decreases
+                    _LOGGER.debug(
+                        "Sensor %s: Preventing state decrease from %.2f to %.2f, "
+                        "maintaining %.2f (lifetime=%s)",
+                        self._attr_unique_id,
+                        self._last_valid_state,
+                        current_value,
+                        self._last_valid_state,
+                        is_lifetime,
+                    )
+                    return self._last_valid_state
 
                 # Update last valid state and date, return current value
                 self._last_valid_state = current_value
@@ -610,14 +752,14 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
 
         # Device registry
         self._attr_device_info = cast(
-            DeviceInfo,
+            "DeviceInfo",
             {
                 "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
             },
         )
 
     @property
-    def native_value(self) -> Optional[float]:
+    def native_value(self) -> float | None:
         """Return the calculated cell voltage delta."""
         device_data = self.coordinator.data["devices"].get(self._serial, {})
         batteries = device_data.get("batteries", {})
@@ -653,9 +795,9 @@ class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
 
 def _create_station_sensors(
     coordinator: EG4DataUpdateCoordinator,
-) -> List[SensorEntity]:
+) -> list[SensorEntity]:
     """Create sensor entities for station/plant configuration."""
-    entities: List[SensorEntity] = []
+    entities: list[SensorEntity] = []
 
     for sensor_key in STATION_SENSOR_TYPES:
         entities.append(
@@ -713,14 +855,14 @@ class EG4StationSensor(CoordinatorEntity[EG4DataUpdateCoordinator], SensorEntity
         # Map sensor keys to station data fields
         if self._sensor_key == "station_name":
             return station_data.get("name")
-        elif self._sensor_key == "station_country":
+        if self._sensor_key == "station_country":
             return station_data.get("country")
-        elif self._sensor_key == "station_timezone":
+        if self._sensor_key == "station_timezone":
             # The API returns display text like "GMT -8"
             return station_data.get("timezone")
-        elif self._sensor_key == "station_create_date":
+        if self._sensor_key == "station_create_date":
             return station_data.get("createDate")
-        elif self._sensor_key == "station_address":
+        if self._sensor_key == "station_address":
             return station_data.get("address")
 
         return None

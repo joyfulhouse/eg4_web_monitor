@@ -2,23 +2,25 @@
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.switch import SwitchEntity
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
     from homeassistant.components.switch import SwitchEntity  # type: ignore[assignment]
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
+    from homeassistant.helpers.update_coordinator import (
+        CoordinatorEntity,  # type: ignore[assignment]
+    )
 
 from . import EG4ConfigEntry
-from .const import WORKING_MODES, FUNCTION_PARAM_MAPPING
+from .const import FUNCTION_PARAM_MAPPING, WORKING_MODES
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,
@@ -40,7 +42,7 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor switch entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: List[SwitchEntity] = []
+    entities: list[SwitchEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for switch setup")
@@ -49,7 +51,7 @@ async def async_setup_entry(
     # Create station DST switch if station data is available
     if "station" in coordinator.data:
         entities.append(EG4DSTSwitch(coordinator))
-        _LOGGER.info("✅ Added DST switch for station")
+        _LOGGER.debug("Added DST switch for station")
 
     # Skip device switches if no devices data
     if "devices" not in coordinator.data:
@@ -68,8 +70,7 @@ async def async_setup_entry(
         # Only create switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
             # Get device model for compatibility check
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-            model = device_info.get("deviceTypeText4APP", "Unknown")
+            model = device_data.get("model", "Unknown")
             model_lower = model.lower()
 
             _LOGGER.info(
@@ -115,7 +116,7 @@ async def async_setup_entry(
                     entities.append(
                         EG4WorkingModeSwitch(
                             coordinator=coordinator,
-                            device_info=device_info,
+                            device_data=device_data,
                             serial_number=serial,
                             mode_config=mode_config,
                         )
@@ -145,7 +146,7 @@ async def async_setup_entry(
         )
         async_add_entities(entities)
     else:
-        _LOGGER.info("No switch entities to add")
+        _LOGGER.debug("No switch entities created - no compatible devices found")
 
 
 class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
@@ -155,7 +156,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        device_data: Dict[str, Any],
+        device_data: dict[str, Any],
     ) -> None:
         """Initialize the quick charge switch."""
         super().__init__(coordinator)
@@ -165,13 +166,14 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         self._device_data = device_data
 
         # Optimistic state for immediate UI feedback
-        self._optimistic_state: Optional[bool] = None
+        self._optimistic_state: bool | None = None
 
         # Get device info from coordinator data
-        device_info = {}
-        if coordinator.data:
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+        self._model = (
+            coordinator.data.get("devices", {}).get(serial, {}).get("model", "Unknown")
+            if coordinator.data
+            else "Unknown"
+        )
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "quick_charge")
@@ -189,7 +191,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_device_info = create_device_info(serial, self._model)
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def is_on(self) -> bool | None:
         """Return True if quick charge is on."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
@@ -212,7 +214,7 @@ class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
@@ -333,7 +335,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        device_data: Dict[str, Any],
+        device_data: dict[str, Any],
     ) -> None:
         """Initialize the battery backup switch."""
         super().__init__(coordinator)
@@ -343,13 +345,14 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self._device_data = device_data
 
         # Optimistic state for immediate UI feedback
-        self._optimistic_state: Optional[bool] = None
+        self._optimistic_state: bool | None = None
 
         # Get device info from coordinator data
-        device_info = {}
-        if coordinator.data:
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+        self._model = (
+            coordinator.data.get("devices", {}).get(serial, {}).get("model", "Unknown")
+            if coordinator.data
+            else "Unknown"
+        )
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "battery_backup")
@@ -368,7 +371,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_device_info = create_device_info(serial, self._model)
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def is_on(self) -> bool | None:
         """Return True if battery backup is enabled."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
@@ -394,7 +397,7 @@ class EG4BatteryBackupSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
@@ -526,23 +529,23 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
     def __init__(
         self,
         coordinator: EG4DataUpdateCoordinator,
-        device_info: Dict[str, Any],
+        device_data: dict[str, Any],
         serial_number: str,
-        mode_config: Dict[str, Any],
+        mode_config: dict[str, Any],
     ) -> None:
         """Initialize the working mode switch."""
         super().__init__(coordinator)
         self.coordinator: EG4DataUpdateCoordinator = coordinator
         self._coordinator = coordinator
-        self._device_info = device_info
+        self._device_data = device_data
         self._serial_number = serial_number
         self._mode_config = mode_config
 
         # Optimistic state for immediate UI feedback
-        self._optimistic_state: Optional[bool] = None
+        self._optimistic_state: bool | None = None
 
         # Get device model
-        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+        self._model = device_data.get("model", "Unknown")
 
         # Set entity attributes using consolidated utilities
         param_clean = self._mode_config["param"].lower().replace("func_", "")
@@ -591,12 +594,21 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
                         is_enabled = param_value == 1
 
                     _LOGGER.debug(
-                        "Working mode switch %s (%s) current state: %s",
+                        "Working mode switch %s (%s) - param_key=%s, raw_value=%s (type=%s), final_state=%s",
                         self._mode_config["param"],
                         self._serial_number,
+                        param_key,
+                        param_value,
+                        type(param_value).__name__,
                         is_enabled,
                     )
                     return is_enabled
+                else:
+                    _LOGGER.warning(
+                        "Working mode switch %s (%s) - no param_key mapping found in FUNCTION_PARAM_MAPPING",
+                        self._mode_config["param"],
+                        self._serial_number,
+                    )
         except Exception as err:
             _LOGGER.error(
                 "Error reading working mode state for %s: %s",
@@ -607,7 +619,7 @@ class EG4WorkingModeSwitch(CoordinatorEntity, SwitchEntity):
         return False
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {
             "description": self._mode_config["description"],
@@ -778,7 +790,7 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
         self._attr_unique_id = f"station_{coordinator.plant_id}_dst"
 
         # Optimistic state for immediate UI feedback
-        self._optimistic_state: Optional[bool] = None
+        self._optimistic_state: bool | None = None
 
     @property
     def device_info(self) -> DeviceInfo:

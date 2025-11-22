@@ -30,11 +30,43 @@ CONF_BASE_URL = "base_url"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_PLANT_ID = "plant_id"
 CONF_PLANT_NAME = "plant_name"
+CONF_DST_SYNC = "dst_sync"
 
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
 DEVICE_TYPE_GRIDBOSS = "gridboss"
 DEVICE_TYPE_BATTERY = "battery"
+
+# Number entity limits
+# AC Charge Power (kW)
+AC_CHARGE_POWER_MIN = 0.0
+AC_CHARGE_POWER_MAX = 15.0
+AC_CHARGE_POWER_STEP = 0.1
+
+# PV Charge Power (kW)
+PV_CHARGE_POWER_MIN = 0
+PV_CHARGE_POWER_MAX = 15
+PV_CHARGE_POWER_STEP = 1
+
+# Grid Peak Shaving Power (kW)
+GRID_PEAK_SHAVING_POWER_MIN = 0.0
+GRID_PEAK_SHAVING_POWER_MAX = 25.5
+GRID_PEAK_SHAVING_POWER_STEP = 0.1
+
+# Battery Charge/Discharge Current (A)
+BATTERY_CURRENT_MIN = 0
+BATTERY_CURRENT_MAX = 250
+BATTERY_CURRENT_STEP = 1
+
+# SOC Limits (%)
+SOC_LIMIT_MIN = 0
+SOC_LIMIT_MAX = 100
+SOC_LIMIT_STEP = 1
+
+# System Charge SOC Limit (%)
+SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
+SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
+SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
 
 # Sensor types and their units
 SENSOR_TYPES = {
@@ -73,6 +105,20 @@ SENSOR_TYPES = {
         "device_class": "power",
         "state_class": "measurement",
         "icon": "mdi:transmission-tower",
+    },
+    "grid_import_power": {
+        "name": "Grid Import Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower-import",
+    },
+    "grid_export_power": {
+        "name": "Grid Export Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower-export",
     },
     "battery_power": {
         "name": "Battery Power",
@@ -266,6 +312,35 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
+    # Battery charge/discharge energy sensors (pylxpweb 0.3.3+)
+    "battery_charge": {
+        "name": "Battery Charge",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_discharge": {
+        "name": "Battery Discharge",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_charge_lifetime": {
+        "name": "Battery Charge (Lifetime)",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_discharge_lifetime": {
+        "name": "Battery Discharge (Lifetime)",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-minus",
+    },
     # Frequency
     "frequency": {
         "name": "Frequency",
@@ -300,6 +375,83 @@ SENSOR_TYPES = {
         "name": "Cycle Count",
         "state_class": "total_increasing",
         "icon": "mdi:counter",
+    },
+    # Battery Bank aggregate sensors (pylxpweb 0.3.3+)
+    "battery_bank_voltage": {
+        "name": "Battery Bank Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_soc": {
+        "name": "Battery Bank SOC",
+        "unit": "%",
+        "device_class": "battery",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_charge_power": {
+        "name": "Battery Bank Charge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_bank_discharge_power": {
+        "name": "Battery Bank Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_bank_power": {
+        "name": "Battery Bank Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-arrow-up-down",
+    },
+    "battery_bank_max_capacity": {
+        "name": "Battery Bank Max Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-high",
+    },
+    "battery_bank_current_capacity": {
+        "name": "Battery Bank Current Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-medium",
+    },
+    "battery_bank_remain_capacity": {
+        "name": "Battery Bank Remaining Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_full_capacity": {
+        "name": "Battery Bank Full Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-high",
+    },
+    "battery_bank_capacity_percent": {
+        "name": "Battery Bank Capacity Percent",
+        "unit": "%",
+        "state_class": "measurement",
+        "icon": "mdi:battery-heart",
+    },
+    "battery_bank_count": {
+        "name": "Battery Count",
+        "state_class": "measurement",
+        "icon": "mdi:counter",
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_status": {
+        "name": "Battery Bank Status",
+        "icon": "mdi:information",
+        "entity_category": "diagnostic",
     },
     # Additional battery sensors from batteryArray
     "battery_real_voltage": {
@@ -416,6 +568,26 @@ SENSOR_TYPES = {
         "icon": "mdi:chip",
         "entity_category": "diagnostic",
     },
+    "battery_capacity_percentage": {
+        "name": "Capacity Percentage",
+        "unit": "%",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging-100",
+    },
+    "battery_max_charge_current": {
+        "name": "Max Charge Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-dc",
+    },
+    "battery_max_discharge_current": {
+        "name": "Max Discharge Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-dc",
+    },
     "battery_max_cell_temp_num": {
         "name": "Max Temp Cell Number",
         "icon": "mdi:numeric",
@@ -451,6 +623,95 @@ SENSOR_TYPES = {
     "battery_warning_status": {
         "name": "Warning Status",
         "icon": "mdi:alert",
+    },
+    # Battery temperature sensors (pylxpweb 0.3.3+)
+    "battery_max_cell_temp": {
+        "name": "Max Cell Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer-high",
+    },
+    "battery_min_cell_temp": {
+        "name": "Min Cell Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer-low",
+    },
+    # Battery cell voltage sensors (pylxpweb 0.3.3+)
+    "battery_max_cell_voltage": {
+        "name": "Max Cell Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-plus",
+    },
+    "battery_min_cell_voltage": {
+        "name": "Min Cell Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_cell_voltage_delta": {
+        "name": "Cell Voltage Delta",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+    },
+    "battery_cell_temp_delta": {
+        "name": "Cell Temperature Delta",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+    },
+    # Battery capacity sensors (pylxpweb 0.3.3+)
+    "battery_discharge_capacity": {
+        "name": "Discharge Capacity",
+        "unit": "Ah",
+        "icon": "mdi:battery-arrow-down",
+        "entity_category": "diagnostic",
+    },
+    "battery_charge_voltage_ref": {
+        "name": "Charge Voltage Reference",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    # Battery metadata sensors (pylxpweb 0.3.3+)
+    "battery_serial_number": {
+        "name": "Serial Number",
+        "icon": "mdi:identifier",
+        "entity_category": "diagnostic",
+    },
+    "battery_type": {
+        "name": "Battery Type Code",
+        "icon": "mdi:battery",
+        "entity_category": "diagnostic",
+    },
+    "battery_type_text": {
+        "name": "Battery Type",
+        "icon": "mdi:battery-sync",
+        "entity_category": "diagnostic",
+    },
+    "battery_bms_model": {
+        "name": "BMS Model",
+        "icon": "mdi:chip",
+        "entity_category": "diagnostic",
+    },
+    "battery_model": {
+        "name": "Model",
+        "icon": "mdi:information",
+        "entity_category": "diagnostic",
+    },
+    "battery_index": {
+        "name": "Index",
+        "icon": "mdi:numeric",
+        "entity_category": "diagnostic",
     },
     # PV String sensors
     "pv1_voltage": {
@@ -682,6 +943,11 @@ SENSOR_TYPES = {
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
+    "has_data": {
+        "name": "Has Runtime Data",
+        "icon": "mdi:database-check",
+        "entity_category": "diagnostic",
+    },
     # New runtime sensors
     "pv_total_power": {
         "name": "PV Total Power",
@@ -696,6 +962,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:thermometer",
+        "entity_category": "diagnostic",
     },
     "radiator1_temperature": {
         "name": "Radiator 1 Temperature",
@@ -703,6 +970,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:radiator",
+        "entity_category": "diagnostic",
     },
     "radiator2_temperature": {
         "name": "Radiator 2 Temperature",
@@ -710,6 +978,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:radiator",
+        "entity_category": "diagnostic",
     },
     # GridBOSS Smart Load sensors
     "smart_load_power": {
@@ -1787,3 +2056,19 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
 }
+
+# Battery data parsing constants
+# These constants define the separators and formats used in battery identification
+BATTERY_KEY_SEPARATOR = "_Battery_ID_"
+BATTERY_KEY_PREFIX = "Battery_ID_"
+BATTERY_KEY_SHORT_PREFIX = "BAT"
+
+# Battery data scaling factors
+# Raw API values are scaled by these factors and need division for proper units
+BATTERY_VOLTAGE_SCALE_MILLIVOLTS = 1000  # Battery cell voltage in mV (÷1000 for V)
+BATTERY_VOLTAGE_SCALE_CENTIVOLTS = 100  # Total battery voltage in cV (÷100 for V)
+BATTERY_CURRENT_SCALE_DECIAMPS = 10  # Battery current in dA (÷10 for A)
+BATTERY_TEMPERATURE_SCALE_DECIDEGREES = 10  # Battery temperature in dC (÷10 for °C)
+
+# Task cleanup constants
+BACKGROUND_TASK_CLEANUP_TIMEOUT = 5  # Seconds to wait for background task cancellation

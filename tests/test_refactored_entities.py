@@ -158,11 +158,15 @@ class TestSystemChargeSOCLimitNumber:
         entity.hass = MagicMock()
 
         # Test below minimum - ValueError wrapped in HomeAssistantError
-        with pytest.raises(HomeAssistantError, match="must be an integer between 10-101%"):
+        with pytest.raises(
+            HomeAssistantError, match="must be an integer between 10-101%"
+        ):
             await entity.async_set_native_value(5)
 
         # Test above maximum
-        with pytest.raises(HomeAssistantError, match="must be an integer between 10-101%"):
+        with pytest.raises(
+            HomeAssistantError, match="must be an integer between 10-101%"
+        ):
             await entity.async_set_native_value(105)
 
     @pytest.mark.asyncio
@@ -323,9 +327,7 @@ class TestEG4BatteryRefreshButtonRefactored:
     async def test_refresh_via_parent_inverter(self):
         """Test battery refresh calls parent inverter.refresh()."""
         coordinator = MagicMock()
-        coordinator.data = {
-            "devices": {"1234567890": {"batteries": {"BAT001": {}}}}
-        }
+        coordinator.data = {"devices": {"1234567890": {"batteries": {"BAT001": {}}}}}
         coordinator.async_request_refresh = AsyncMock()
 
         mock_inverter = MagicMock()
@@ -351,9 +353,7 @@ class TestEG4BatteryRefreshButtonRefactored:
     async def test_refresh_handles_missing_parent_inverter(self):
         """Test battery refresh handles missing parent inverter."""
         coordinator = MagicMock()
-        coordinator.data = {
-            "devices": {"1234567890": {"batteries": {"BAT001": {}}}}
-        }
+        coordinator.data = {"devices": {"1234567890": {"batteries": {"BAT001": {}}}}}
         coordinator.async_request_refresh = AsyncMock()
         coordinator.get_inverter_object = MagicMock(return_value=None)
 

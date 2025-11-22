@@ -8,13 +8,15 @@
           "username": "Username",
           "password": "Password",
           "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate"
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "Automatic DST Synchronization"
         },
         "data_description": {
           "username": "Your EG4 Web Monitor account username",
           "password": "Your EG4 Web Monitor account password",
           "base_url": "The base URL for the EG4 Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections"
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically sync Daylight Saving Time settings to your inverter based on your Home Assistant timezone. Checks hourly and corrects mismatches to keep inverter clocks accurate."
         }
       },
       "plant": {
@@ -46,13 +48,15 @@
           "username": "Username",
           "password": "Password",
           "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate"
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "Automatic DST Synchronization"
         },
         "data_description": {
           "username": "Your EG4 Web Monitor account username",
           "password": "Your EG4 Web Monitor account password",
           "base_url": "The base URL for the EG4 Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections"
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically sync Daylight Saving Time settings to your inverter based on your Home Assistant timezone. Checks hourly and corrects mismatches to keep inverter clocks accurate."
         }
       },
       "reconfigure_plant": {

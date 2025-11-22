@@ -3,34 +3,33 @@
 import asyncio
 import logging
 from typing import (
-    Dict,
     Any,
-    Set,
-    Optional,
-    List,
     Callable,
-    Tuple,
-    Iterator,
-    TYPE_CHECKING,
 )
 
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
-    DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
-    GRIDBOSS_ENERGY_SENSORS,
-    VOLTAGE_SENSORS,
+    BATTERY_CURRENT_SCALE_DECIAMPS,
+    BATTERY_KEY_PREFIX,
+    BATTERY_KEY_SEPARATOR,
+    BATTERY_KEY_SHORT_PREFIX,
+    BATTERY_TEMPERATURE_SCALE_DECIDEGREES,
+    BATTERY_VOLTAGE_SCALE_CENTIVOLTS,
+    BATTERY_VOLTAGE_SCALE_MILLIVOLTS,
     CURRENT_SENSORS,
     DOMAIN,
+    GRIDBOSS_ENERGY_SENSORS,
+    VOLTAGE_SENSORS,
 )
-
-if TYPE_CHECKING:
-    from pylxpweb.devices.inverters.base import BaseInverter
+from .const import (
+    DIVIDE_BY_100_SENSORS as CONST_DIVIDE_BY_100_SENSORS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 # Scaling constants - consolidated from duplicated sets across coordinator
-DIVIDE_BY_10_SENSORS: Set[str] = {
+DIVIDE_BY_10_SENSORS: set[str] = {
     "ac_voltage",
     "ac_frequency",
     "battery_voltage",
@@ -52,15 +51,15 @@ DIVIDE_BY_10_SENSORS: Set[str] = {
 }
 
 # Using const.py to avoid duplication
-DIVIDE_BY_100_SENSORS: Set[str] = CONST_DIVIDE_BY_100_SENSORS
+DIVIDE_BY_100_SENSORS: set[str] = CONST_DIVIDE_BY_100_SENSORS
 
 # GridBOSS specific scaling sets - using const.py to avoid duplication
-GRIDBOSS_DIVIDE_BY_10_SENSORS: Set[str] = (
+GRIDBOSS_DIVIDE_BY_10_SENSORS: set[str] = (
     GRIDBOSS_ENERGY_SENSORS | VOLTAGE_SENSORS | CURRENT_SENSORS
 )
 
 # Power and energy sensors that should be filtered when zero (except essential ones)
-POWER_ENERGY_SENSORS: Set[str] = (
+POWER_ENERGY_SENSORS: set[str] = (
     {
         # GridBOSS power sensors
         "load_power",
@@ -91,7 +90,7 @@ POWER_ENERGY_SENSORS: Set[str] = (
 )  # Include all energy sensors for filtering
 
 # Essential sensors that should never be filtered out even when 0
-ESSENTIAL_SENSORS: Set[str] = {
+ESSENTIAL_SENSORS: set[str] = {
     "grid_power",
     "grid_power_l1",
     "grid_power_l2",
@@ -104,7 +103,7 @@ ESSENTIAL_SENSORS: Set[str] = {
 
 
 def validate_api_response(
-    data: Dict[str, Any], required_fields: Optional[List[str]] = None
+    data: dict[str, Any], required_fields: list[str] | None = None
 ) -> bool:
     """Validate API response data structure."""
     # No runtime check needed - type hint guarantees data is dict
@@ -200,14 +199,13 @@ def apply_sensor_scaling(
             scaling_factor = 10.0
         elif sensor_type in DIVIDE_BY_100_SENSORS:
             scaling_factor = 100.0
-    else:
-        # Standard inverter scaling
-        if sensor_type in kw_sensors:
-            scaling_factor = 1000.0
-        elif sensor_type in DIVIDE_BY_10_SENSORS:
-            scaling_factor = 10.0
-        elif sensor_type in DIVIDE_BY_100_SENSORS:
-            scaling_factor = 100.0
+    # Standard inverter scaling
+    elif sensor_type in kw_sensors:
+        scaling_factor = 1000.0
+    elif sensor_type in DIVIDE_BY_10_SENSORS:
+        scaling_factor = 10.0
+    elif sensor_type in DIVIDE_BY_100_SENSORS:
+        scaling_factor = 100.0
 
     # Apply scaling if needed, otherwise return validated value
     return (
@@ -256,25 +254,38 @@ def to_camel_case(text: str) -> str:
 
 
 def clean_battery_display_name(battery_key: str, serial: str) -> str:
-    """Clean up battery key for display in entity names."""
+    """Clean up battery key for display in entity names.
+
+    Args:
+        battery_key: Raw battery key from API (e.g., "1234567890_Battery_ID_01")
+        serial: Parent device serial number
+
+    Returns:
+        Cleaned battery display name for UI
+
+    Examples:
+        "1234567890_Battery_ID_01" -> "1234567890-01"
+        "Battery_ID_01" -> "SERIAL-01"
+        "BAT001" -> "BAT001"
+    """
     if not battery_key:
         return "01"
 
     # Handle keys like "1234567890_Battery_ID_01" -> "1234567890-01"
-    if "_Battery_ID_" in battery_key:
-        parts = battery_key.split("_Battery_ID_")
+    if BATTERY_KEY_SEPARATOR in battery_key:
+        parts = battery_key.split(BATTERY_KEY_SEPARATOR)
         if len(parts) == 2:
             device_serial = parts[0]
             battery_num = parts[1]
             return f"{device_serial}-{battery_num}"
 
     # Handle keys like "Battery_ID_01" -> "01"
-    if battery_key.startswith("Battery_ID_"):
-        battery_num = battery_key.replace("Battery_ID_", "")
+    if battery_key.startswith(BATTERY_KEY_PREFIX):
+        battery_num = battery_key.replace(BATTERY_KEY_PREFIX, "")
         return f"{serial}-{battery_num}"
 
     # Handle keys like "BAT001" -> "BAT001"
-    if battery_key.startswith("BAT"):
+    if battery_key.startswith(BATTERY_KEY_SHORT_PREFIX):
         return battery_key
 
     # If it already looks clean (like "01", "02"), use it with serial
@@ -297,7 +308,20 @@ def _is_valid_numeric(value: Any) -> bool:
 
 
 def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
-    """Process sensor value with proper scaling based on API field."""
+    """Process sensor value with proper scaling based on API field.
+
+    Args:
+        api_field: The API field name (e.g., "batMaxCellVoltage")
+        value: The raw value from the API
+        _sensor_type: The sensor type (unused, for future compatibility)
+
+    Returns:
+        Scaled value in proper units, or None if invalid
+
+    Note:
+        Scaling factors are defined as constants to maintain consistency
+        across the integration. See const.py for factor definitions.
+    """
     if value is None or value == "" or value == "N/A":
         return None
 
@@ -306,22 +330,22 @@ def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
         "batMaxCellVoltage",
         "batMinCellVoltage",
     ] and isinstance(value, (int, float)):
-        # Cell voltage fields are scaled by 1000x (millivolts), need to divide by 1000
-        value = value / 1000.0
+        # Cell voltage fields are in millivolts, convert to volts
+        value = value / BATTERY_VOLTAGE_SCALE_MILLIVOLTS
     elif api_field in ["totalVoltage"] and isinstance(value, (int, float)):
-        # Total voltage is scaled by 100x, need to divide by 100
-        value = value / 100.0
+        # Total voltage is in centivolts, convert to volts
+        value = value / BATTERY_VOLTAGE_SCALE_CENTIVOLTS
     elif api_field in ["current"] and isinstance(value, (int, float)):
-        # Current is scaled by 10x, need to divide by 10
-        value = value / 10.0
+        # Current is in deciamperes, convert to amperes
+        value = value / BATTERY_CURRENT_SCALE_DECIAMPS
     elif api_field in [
         "batMaxCellTemp",
         "batMinCellTemp",
         "ambientTemp",
         "mosTemp",
     ] and isinstance(value, (int, float)):
-        # Temperature fields are scaled by 10x, need to divide by 10
-        value = value / 10.0
+        # Temperature fields are in decidegrees Celsius, convert to degrees Celsius
+        value = value / BATTERY_TEMPERATURE_SCALE_DECIDEGREES
     # Capacity fields are already in Ah, no scaling needed
     # elif api_field in ["currentRemainCapacity", "currentFullCapacity"] and isinstance(
     #     value, (int, float)
@@ -332,7 +356,7 @@ def _process_sensor_value(api_field: str, value: Any, _sensor_type: str) -> Any:
     return value
 
 
-def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, Any]:
+def extract_individual_battery_sensors(bat_data: dict[str, Any]) -> dict[str, Any]:
     """Extract sensor data for individual battery with conditional creation."""
     sensors = {}
 
@@ -441,79 +465,27 @@ def extract_individual_battery_sensors(bat_data: Dict[str, Any]) -> Dict[str, An
     return sensors
 
 
-async def read_device_parameters_ranges(
-    inverter: "BaseInverter",
-) -> List[Any]:
-    """Shared function to read all parameter ranges for a device using device objects.
-
-    Consolidates the duplicate register reading logic used in coordinator.py and number.py.
-
-    Args:
-        inverter: BaseInverter device object
-
-    Returns:
-        List of parameter read responses
-    """
-
-    # Define standard register ranges
-    register_ranges = [
-        (0, 127),  # Base parameters
-        (127, 127),  # Extended parameters range 1
-        (240, 127),  # Extended parameters range 2
-    ]
-
-    # Read all register ranges simultaneously for better performance
-    tasks = []
-    for start_register, point_number in register_ranges:
-        # Use inverter object's read_parameters method directly!
-        task = inverter.read_parameters(
-            start_register=start_register,
-            point_number=point_number,
-        )
-        tasks.append(task)
-
-    # Execute all reads in parallel
-    results: List[Any] = list(await asyncio.gather(*tasks, return_exceptions=True))
-    return results
-
-
-def process_parameter_responses(
-    responses: List[Any], device_serial: str, _logger: logging.Logger
-) -> Iterator[Tuple[int, Any, int]]:
-    """Process parameter responses and handle exceptions.
-
-    Consolidates duplicate response processing logic.
-    """
-    register_starts = [0, 127, 240]  # Corresponding to the ranges above
-    for i, response in enumerate(responses):
-        if isinstance(response, Exception):
-            start_register = register_starts[i]
-            _logger.debug(
-                "Failed to read register range %d for %s: %s",
-                start_register,
-                device_serial,
-                response,
-            )
-            continue
-        yield i, response, register_starts[i]
-
-
 # ========== CONSOLIDATED UTILITY FUNCTIONS ==========
 # These functions eliminate code duplication across multiple platform files
 
 
-def clean_model_name(model: str) -> str:
+def clean_model_name(model: str, use_underscores: bool = False) -> str:
     """Clean model name for consistent entity ID generation.
 
     Args:
         model: Raw model name from device
+        use_underscores: If True, replace spaces/hyphens with underscores instead of removing them
 
     Returns:
         Cleaned model name suitable for entity IDs
     """
     if not model:
         return "unknown"
-    return model.lower().replace(" ", "").replace("-", "")
+
+    cleaned = model.lower()
+    if use_underscores:
+        return cleaned.replace(" ", "_").replace("-", "_")
+    return cleaned.replace(" ", "").replace("-", "")
 
 
 def create_device_info(
@@ -545,7 +517,7 @@ def generate_entity_id(
     model: str,
     serial: str,
     entity_type: str,
-    suffix: Optional[str] = None,
+    suffix: str | None = None,
 ) -> str:
     """Generate standardized entity IDs across all platforms.
 
@@ -568,9 +540,7 @@ def generate_entity_id(
     return base_id
 
 
-def generate_unique_id(
-    serial: str, entity_type: str, suffix: Optional[str] = None
-) -> str:
+def generate_unique_id(serial: str, entity_type: str, suffix: str | None = None) -> str:
     """Generate standardized unique IDs for entity registry.
 
     Args:
@@ -604,7 +574,7 @@ def create_entity_name(model: str, serial: str, entity_name: str) -> str:
 
 
 def safe_get_nested_value(
-    data: Dict[str, Any], keys: List[str], default: Any = None
+    data: dict[str, Any], keys: list[str], default: Any = None
 ) -> Any:
     """Safely get nested dictionary values with fallback.
 
@@ -626,7 +596,7 @@ def safe_get_nested_value(
 
 
 def validate_device_data(
-    device_data: Dict[str, Any], required_fields: List[str]
+    device_data: dict[str, Any], required_fields: list[str]
 ) -> bool:
     """Validate device data contains required fields.
 
@@ -661,7 +631,7 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.timeout = timeout
         self.failure_count = 0
-        self.last_failure_time: Optional[float] = None
+        self.last_failure_time: float | None = None
         self.state = "closed"  # closed, open, half-open
 
     async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

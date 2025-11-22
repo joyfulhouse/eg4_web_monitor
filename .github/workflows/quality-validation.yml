@@ -751,14 +751,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
-      - name: Install mypy and dependencies
+      - name: Install uv
         run: |
-          pip install mypy aiohttp homeassistant
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install mypy and dependencies with uv
+        run: |
+          uv pip install --system 'homeassistant>=2025.11.0' mypy pylxpweb
 
       - name: Verify strict typing configuration
         run: |
@@ -778,30 +783,22 @@ jobs:
           fi
           echo "✅ mypy strict mode enabled"
 
-          # Check py.typed markers
+          # Check py.typed marker for main package
           if [ ! -f "custom_components/eg4_web_monitor/py.typed" ]; then
             echo "❌ py.typed marker missing (main package)"
             exit 1
           fi
           echo "✅ py.typed marker exists (main package)"
 
-          if [ ! -f "custom_components/eg4_web_monitor/eg4_inverter_api/py.typed" ]; then
-            echo "❌ py.typed marker missing (API package)"
-            exit 1
-          fi
-          echo "✅ py.typed marker exists (API package)"
-
       - name: Run mypy type checking
         run: |
-          echo "Running mypy type checking..."
-          # Check integration package files, excluding test/development files
-          # The eg4_inverter_api package is checked via relative imports from main files
+          echo "Running mypy type checking with Home Assistant 2025.11.0+..."
           mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
           if [ $? -ne 0 ]; then
             echo "❌ Type errors found - must be fixed for Platinum tier"
             exit 1
           fi
-          echo "✅ Mypy type checking passed"
+          echo "✅ Mypy type checking passed with zero errors"
 
   platinum-comprehensive-tests:
     name: Platinum - Comprehensive Test Suite

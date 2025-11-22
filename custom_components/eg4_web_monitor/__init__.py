@@ -1,14 +1,15 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import logging
-from typing import Any, Dict, TypeAlias
-import voluptuous as vol
+from typing import Any, TypeAlias
 
+import homeassistant.helpers.config_validation as cv
+import homeassistant.helpers.entity_registry as er
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
-import homeassistant.helpers.config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
@@ -38,7 +39,7 @@ REFRESH_DATA_SCHEMA = vol.Schema(
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
-async def async_setup(hass: HomeAssistant, config: Dict[str, Any]) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the EG4 Web Monitor component."""
 
     async def handle_refresh_data(call: ServiceCall) -> None:
@@ -136,3 +137,47 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         await entry.runtime_data.client.close()
 
     return bool(unload_ok)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None:
+    """Handle removal of an entry.
+
+    This is called when the user deletes the integration from the UI.
+    It purges all statistics for this integration's entities, allowing
+    monotonically increasing values to reset when the integration is re-added.
+
+    Entity Registry entries (names, areas, labels) are NOT deleted,
+    so they will be automatically restored when re-adding the integration.
+    """
+    _LOGGER.info("Removing EG4 Web Monitor entry: %s", entry.entry_id)
+
+    # Get entity registry
+    entity_registry = er.async_get(hass)
+
+    # Get all entities for this config entry
+    entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+
+    # Purge statistics for each entity
+    entity_ids = [entity.entity_id for entity in entities]
+
+    if entity_ids:
+        _LOGGER.info(
+            "Purging statistics for %d entities to reset monotonic values",
+            len(entity_ids),
+        )
+
+        # Call recorder service to purge statistics
+        # This removes all historical data but preserves Entity Registry entries
+        await hass.services.async_call(
+            "recorder",
+            "purge_entities",
+            {
+                "entity_id": entity_ids,
+                "keep_days": 0,  # Delete all history
+            },
+            blocking=True,
+        )
+
+        _LOGGER.info("Statistics purge complete for %d entities", len(entity_ids))
+    else:
+        _LOGGER.debug("No entities found to purge statistics for")

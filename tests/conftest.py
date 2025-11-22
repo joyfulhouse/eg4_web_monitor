@@ -1,11 +1,45 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
 import threading
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+def create_mock_station(
+    station_id: str,
+    station_name: str,
+    country: str = "United States of America",
+    timezone: str = "GMT -8",
+    address: str = "123 Test St",
+    create_date: str = "2025-01-01",
+) -> MagicMock:
+    """Create a mock Station object with all required fields.
+
+    This helper ensures all mock stations have the complete set of fields
+    that the coordinator expects to extract for station sensors.
+
+    Args:
+        station_id: Plant/station ID
+        station_name: Station name
+        country: Country name (defaults to "United States of America")
+        timezone: Timezone string (defaults to "GMT -8")
+        address: Physical address (defaults to "123 Test St")
+        create_date: Plant creation date (defaults to "2025-01-01")
+
+    Returns:
+        MagicMock object configured as a Station with all required attributes
+    """
+    mock_station = MagicMock()
+    mock_station.id = station_id
+    mock_station.name = station_name
+    mock_station.country = country
+    mock_station.timezone = timezone
+    mock_station.address = address
+    mock_station.createDate = create_date
+    return mock_station
 
 
 def pytest_configure(config):

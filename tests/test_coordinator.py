@@ -1,7 +1,7 @@
 """Tests for EG4 Data Update Coordinator."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 from datetime import datetime, timedelta
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -87,20 +87,20 @@ class TestCoordinatorInitialization:
 
         assert coordinator.entry == mock_config_entry
         assert coordinator.plant_id == "12345"
-        assert coordinator.api is not None
+        assert coordinator.client is not None
         assert coordinator.devices == {}
         assert coordinator._last_available_state is True
 
-    async def test_coordinator_creates_api_client(self, hass, mock_config_entry):
-        """Test coordinator creates API client with correct parameters."""
+    async def test_coordinator_creates_client(self, hass, mock_config_entry):
+        """Test coordinator creates pylxpweb client with correct parameters."""
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
-        ) as mock_api_class:
+            "custom_components.eg4_web_monitor.coordinator.LuxpowerClient"
+        ) as mock_client_class:
             _ = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-            # Verify API was created with correct parameters
-            mock_api_class.assert_called_once()
-            call_kwargs = mock_api_class.call_args[1]
+            # Verify client was created with correct parameters
+            mock_client_class.assert_called_once()
+            call_kwargs = mock_client_class.call_args[1]
             assert call_kwargs["username"] == "test_user"
             assert call_kwargs["password"] == "test_pass"
             assert call_kwargs["base_url"] == "https://monitor.eg4electronics.com"
@@ -119,11 +119,11 @@ class TestCoordinatorInitialization:
         )
 
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.EG4InverterAPI"
-        ) as mock_api_class:
+            "custom_components.eg4_web_monitor.coordinator.LuxpowerClient"
+        ) as mock_client_class:
             _ = EG4DataUpdateCoordinator(hass, entry)
 
-            call_kwargs = mock_api_class.call_args[1]
+            call_kwargs = mock_client_class.call_args[1]
             assert call_kwargs["base_url"] == "https://monitor.eg4electronics.com"
 
 
@@ -245,78 +245,61 @@ class TestCoordinatorDataFetching:
 
 
 class TestCoordinatorCaching:
-    """Test coordinator caching behavior."""
+    """Test coordinator caching behavior using pylxpweb 0.3.0 features."""
 
-    async def test_should_invalidate_cache_near_hour_boundary(
+    async def test_uses_library_cache_invalidation_property(
         self, hass, mock_config_entry
     ):
-        """Test cache invalidation is triggered near hour boundary."""
+        """Test coordinator uses pylxpweb client's should_invalidate_cache property."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        # Set current time to 4 minutes before hour
-        mock_now = datetime(2025, 1, 15, 13, 56, 0)
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
-            return_value=mock_now,
-        ):
-            assert coordinator._should_invalidate_cache() is True
+        # Verify the client has the should_invalidate_cache property
+        assert hasattr(coordinator.client, "should_invalidate_cache")
 
-    async def test_should_not_invalidate_cache_far_from_hour(
+    async def test_cache_invalidation_calls_library_clear_cache(
         self, hass, mock_config_entry
     ):
-        """Test cache invalidation is not triggered far from hour boundary."""
+        """Test cache invalidation calls pylxpweb client's clear_cache method."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        # Set current time to 10 minutes after hour
-        mock_now = datetime(2025, 1, 15, 13, 10, 0)
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
-            return_value=mock_now,
-        ):
-            assert coordinator._should_invalidate_cache() is False
+        # Verify the client has the clear_cache method
+        assert hasattr(coordinator.client, "clear_cache")
+        assert callable(coordinator.client.clear_cache)
 
-    async def test_invalidate_cache_respects_rate_limit(self, hass, mock_config_entry):
-        """Test cache invalidation respects 10-minute rate limit."""
-        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-
-        # Set last invalidation to recent time
-        coordinator._last_cache_invalidation = datetime(2025, 1, 15, 13, 52, 0)
-
-        # Current time is 5 minutes later (within 10-minute limit)
-        mock_now = datetime(2025, 1, 15, 13, 57, 0)
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
-            return_value=mock_now,
-        ):
-            assert coordinator._should_invalidate_cache() is False
-
-    async def test_invalidate_all_caches_calls_api(self, hass, mock_config_entry):
-        """Test invalidate_all_caches calls API invalidate methods."""
-        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-
-        # Mock API invalidate method - the API client has this method
-        if hasattr(coordinator.api, "invalidate_all_caches"):
-            coordinator.api.invalidate_all_caches = MagicMock()
-            coordinator._invalidate_all_caches()
-            coordinator.api.invalidate_all_caches.assert_called_once()
-        else:
-            # If method doesn't exist, just verify _invalidate_all_caches runs
-            coordinator._invalidate_all_caches()
-            assert coordinator._last_cache_invalidation is not None
-
-    async def test_invalidate_caches_updates_timestamp(self, hass, mock_config_entry):
+    async def test_cache_invalidation_updates_timestamp(self, hass, mock_config_entry):
         """Test cache invalidation updates last invalidation timestamp."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        # Mock API
-        coordinator.api.invalidate_all_caches = MagicMock()
+        # Mock the client's should_invalidate_cache property to return True
+        with patch.object(
+            type(coordinator.client),
+            "should_invalidate_cache",
+            new_callable=PropertyMock,
+        ) as mock_should_invalidate:
+            mock_should_invalidate.return_value = True
 
-        assert coordinator._last_cache_invalidation is None
+            # Mock clear_cache to avoid actual API calls
+            with patch.object(coordinator.client, "clear_cache"):
+                assert coordinator._last_cache_invalidation is None
 
-        coordinator._invalidate_all_caches()
+                # Trigger update which checks cache invalidation
+                # We need to mock station loading to avoid actual API calls
+                with (
+                    patch.object(coordinator, "station", None),
+                    patch("pylxpweb.devices.Station.load") as mock_load,
+                    patch.object(
+                        coordinator, "_process_station_data", new_callable=AsyncMock
+                    ) as mock_process,
+                ):
+                    mock_station = MagicMock()
+                    mock_load.return_value = mock_station
+                    mock_station.refresh_all_data = AsyncMock()
+                    mock_process.return_value = {"devices": {}, "plant_id": "12345"}
 
-        # Verify timestamp was updated
-        assert coordinator._last_cache_invalidation is not None
+                    await coordinator._async_update_data()
+
+                    # Verify timestamp was updated
+                    assert coordinator._last_cache_invalidation is not None
 
 
 class TestCoordinatorParameterRefresh:

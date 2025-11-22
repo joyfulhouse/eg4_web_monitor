@@ -37,16 +37,11 @@ def mock_setup_entry():
 @pytest.fixture
 def mock_api():
     """Mock LuxpowerClient and Station.load_all."""
-    from unittest.mock import MagicMock
+    from tests.conftest import create_mock_station
 
-    # Create mock Station objects
-    mock_station1 = MagicMock()
-    mock_station1.id = "plant1"
-    mock_station1.name = "Station 1"
-
-    mock_station2 = MagicMock()
-    mock_station2.id = "plant2"
-    mock_station2.name = "Station 2"
+    # Create mock Station objects with all required fields
+    mock_station1 = create_mock_station("plant1", "Station 1")
+    mock_station2 = create_mock_station("plant2", "Station 2")
 
     # Mock the LuxpowerClient class itself to prevent actual connections
     with (
@@ -55,8 +50,8 @@ def mock_api():
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station1, mock_station2])
-        )
+            new=AsyncMock(return_value=[mock_station1, mock_station2]),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -218,12 +213,10 @@ async def test_reconfigure_plant_selection(hass, mock_api, mock_config_entry):
 
 async def test_reconfigure_single_plant_account(hass, mock_config_entry):
     """Test reconfiguring to account with only one plant (auto-select)."""
-    from unittest.mock import MagicMock
+    from tests.conftest import create_mock_station
 
-    # Create mock Station object for single plant
-    mock_station = MagicMock()
-    mock_station.id = "single_plant"
-    mock_station.name = "Only Station"
+    # Create mock Station object for single plant with all required fields
+    mock_station = create_mock_station("single_plant", "Only Station")
 
     with (
         patch(
@@ -231,8 +224,8 @@ async def test_reconfigure_single_plant_account(hass, mock_config_entry):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station])
-        )
+            new=AsyncMock(return_value=[mock_station]),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -287,8 +280,8 @@ async def test_reconfigure_invalid_auth(hass, mock_config_entry):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
-        )
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -334,8 +327,8 @@ async def test_reconfigure_connection_error(hass, mock_config_entry):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
-        )
+            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()

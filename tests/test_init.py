@@ -13,9 +13,11 @@ from custom_components.eg4_web_monitor import (
     async_setup,
     async_setup_entry,
     async_unload_entry,
+    async_remove_entry,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_DST_SYNC,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -53,6 +55,7 @@ def mock_config_entry(mock_coordinator):
             CONF_PASSWORD: "test_pass",
             CONF_BASE_URL: "https://monitor.eg4electronics.com",
             CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
             CONF_PLANT_ID: "12345",
             CONF_PLANT_NAME: "Test Plant",
         },
@@ -362,3 +365,98 @@ class TestAsyncUnloadEntry:
             assert "switch" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
+
+
+class TestAsyncRemoveEntry:
+    """Test async_remove_entry function."""
+
+    async def test_remove_entry_purges_statistics(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test that removing entry purges statistics for all entities."""
+        # Add config entry
+        mock_config_entry.add_to_hass(hass)
+
+        # Create mock entities in registry
+        from homeassistant.helpers import entity_registry as er
+
+        entity_registry = er.async_get(hass)
+
+        # Create test entities
+        test_entities = [
+            entity_registry.async_get_or_create(
+                "sensor",
+                DOMAIN,
+                f"{DOMAIN}_test_entity_{i}",
+                config_entry=mock_config_entry,
+                suggested_object_id=f"eg4_test_entity_{i}",
+            )
+            for i in range(3)
+        ]
+
+        # Mock the recorder service call
+        with patch.object(
+            hass.services, "async_call", new=AsyncMock()
+        ) as mock_service_call:
+            await async_remove_entry(hass, mock_config_entry)
+
+            # Verify recorder.purge_entities was called
+            mock_service_call.assert_called_once()
+            call_args = mock_service_call.call_args
+
+            # Verify service name and parameters
+            assert call_args[0][0] == "recorder"
+            assert call_args[0][1] == "purge_entities"
+
+            # Verify all entity IDs were included
+            purge_data = call_args[0][2]
+            assert len(purge_data["entity_id"]) == 3
+            for entity in test_entities:
+                assert entity.entity_id in purge_data["entity_id"]
+
+            # Verify keep_days is 0 (delete all history)
+            assert purge_data["keep_days"] == 0
+
+            # Verify blocking=True (wait for completion)
+            assert call_args[1]["blocking"] is True
+
+    async def test_remove_entry_with_no_entities(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test removing entry when no entities exist."""
+        mock_config_entry.add_to_hass(hass)
+
+        # Mock the recorder service call
+        with patch.object(
+            hass.services, "async_call", new=AsyncMock()
+        ) as mock_service_call:
+            await async_remove_entry(hass, mock_config_entry)
+
+            # Verify recorder service was NOT called (no entities to purge)
+            mock_service_call.assert_not_called()
+
+    async def test_remove_entry_logs_properly(
+        self, hass: HomeAssistant, mock_config_entry, caplog
+    ):
+        """Test that remove_entry logs appropriate messages."""
+        mock_config_entry.add_to_hass(hass)
+
+        # Create mock entities
+        from homeassistant.helpers import entity_registry as er
+
+        entity_registry = er.async_get(hass)
+        entity_registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"{DOMAIN}_test_entity",
+            config_entry=mock_config_entry,
+            suggested_object_id="eg4_test_entity",
+        )
+
+        with patch.object(hass.services, "async_call", new=AsyncMock()):
+            await async_remove_entry(hass, mock_config_entry)
+
+            # Verify logging messages
+            assert "Removing EG4 Web Monitor entry" in caplog.text
+            assert "Purging statistics for 1 entities" in caplog.text
+            assert "Statistics purge complete" in caplog.text

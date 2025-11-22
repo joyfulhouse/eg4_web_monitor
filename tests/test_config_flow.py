@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_DST_SYNC,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -53,16 +54,11 @@ def mock_setup_entry():
 @pytest.fixture
 def mock_api():
     """Create a mock for LuxpowerClient and Station.load_all."""
-    from unittest.mock import MagicMock
+    from tests.conftest import create_mock_station
 
-    # Create mock Station objects
-    mock_station1 = MagicMock()
-    mock_station1.id = "123"
-    mock_station1.name = "Test Plant 1"
-
-    mock_station2 = MagicMock()
-    mock_station2.id = "456"
-    mock_station2.name = "Test Plant 2"
+    # Create mock Station objects with all required fields
+    mock_station1 = create_mock_station("123", "Test Plant 1")
+    mock_station2 = create_mock_station("456", "Test Plant 2")
 
     # Mock the LuxpowerClient class itself to prevent actual connections
     with (
@@ -71,8 +67,8 @@ def mock_api():
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station1, mock_station2])
-        )
+            new=AsyncMock(return_value=[mock_station1, mock_station2]),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -86,12 +82,10 @@ def mock_api():
 @pytest.fixture
 def mock_api_single_plant():
     """Create a mock for LuxpowerClient and Station.load_all with single plant."""
-    from unittest.mock import MagicMock
+    from tests.conftest import create_mock_station
 
-    # Create mock Station object
-    mock_station = MagicMock()
-    mock_station.id = "123"
-    mock_station.name = "Test Plant"
+    # Create mock Station object with all required fields
+    mock_station = create_mock_station("123", "Test Plant")
 
     # Mock the LuxpowerClient class itself to prevent actual connections
     with (
@@ -100,8 +94,8 @@ def mock_api_single_plant():
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station])
-        )
+            new=AsyncMock(return_value=[mock_station]),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -151,6 +145,7 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         CONF_PASSWORD: "testpassword",
         CONF_BASE_URL: DEFAULT_BASE_URL,
         CONF_VERIFY_SSL: True,
+        CONF_DST_SYNC: True,
         CONF_PLANT_ID: "123",
         CONF_PLANT_NAME: "Test Plant 1",
     }
@@ -196,8 +191,8 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
-        )
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -232,8 +227,8 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect"))
-        )
+            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -268,8 +263,8 @@ async def test_user_flow_api_error(hass: HomeAssistant):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4APIError("API Error"))
-        )
+            new=AsyncMock(side_effect=EG4APIError("API Error")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -304,8 +299,8 @@ async def test_user_flow_unknown_exception(hass: HomeAssistant):
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=Exception("Unexpected"))
-        )
+            new=AsyncMock(side_effect=Exception("Unexpected")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()
@@ -341,8 +336,8 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials"))
-        )
+            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials")),
+        ),
     ):
         # Make LuxpowerClient work as a context manager
         mock_client_instance = AsyncMock()

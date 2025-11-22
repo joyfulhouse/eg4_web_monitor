@@ -1,19 +1,24 @@
 """Button platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
-    from homeassistant.components.button import ButtonEntity, ButtonEntityDescription  # type: ignore[assignment]
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
+    from homeassistant.components.button import (  # type: ignore[assignment]
+        ButtonEntity,
+        ButtonEntityDescription,
+    )
+    from homeassistant.helpers.update_coordinator import (
+        CoordinatorEntity,  # type: ignore[assignment]
+    )
 
 from . import EG4ConfigEntry
 from .const import DOMAIN
@@ -40,7 +45,7 @@ async def async_setup_entry(
     )
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: List[ButtonEntity] = []
+    entities: list[ButtonEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for button setup")
@@ -49,7 +54,7 @@ async def async_setup_entry(
     # Create station refresh button if station data is available
     if "station" in coordinator.data:
         entities.append(EG4StationRefreshButton(coordinator))
-        _LOGGER.info("✅ Added refresh button for station")
+        _LOGGER.debug("Added refresh button for station")
 
     # Skip device buttons if no device data
     if "devices" not in coordinator.data:
@@ -83,7 +88,7 @@ async def async_setup_entry(
 
         # Create refresh button for all device types
         entities.append(EG4RefreshButton(coordinator, serial, device_data, model))
-        _LOGGER.info("✅ Added refresh button for device %s (%s)", serial, model)
+        _LOGGER.debug("Added refresh button for device %s (%s)", serial, model)
 
     # Also create refresh buttons for individual batteries
     for serial, device_data in coordinator.data["devices"].items():
@@ -110,10 +115,10 @@ async def async_setup_entry(
                 )
 
     if entities:
-        _LOGGER.info("Adding %d refresh button entities", len(entities))
+        _LOGGER.info("Setup complete: %d button entities created", len(entities))
         async_add_entities(entities)
     else:
-        _LOGGER.info("No refresh button entities to add")
+        _LOGGER.debug("No button entities created")
 
 
 class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
@@ -123,7 +128,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        device_data: Dict[str, Any],
+        device_data: dict[str, Any],
         model: str,
     ) -> None:
         """Initialize the refresh button."""
@@ -187,7 +192,7 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         return False
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
@@ -215,7 +220,9 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
                 # Get inverter object and refresh
                 inverter = self.coordinator.get_inverter_object(self._serial)
                 if inverter:
-                    _LOGGER.debug("Refreshing inverter device object for %s", self._serial)
+                    _LOGGER.debug(
+                        "Refreshing inverter device object for %s", self._serial
+                    )
                     await inverter.refresh()
                     _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
                 else:
@@ -294,7 +301,7 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         return False
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
@@ -389,7 +396,7 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
         )
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
