@@ -8,13 +8,17 @@
           "username": "Nome utente",
           "password": "Password",
           "base_url": "URL di base",
-          "verify_ssl": "Verifica certificato SSL"
+          "verify_ssl": "Verifica certificato SSL",
+          "dst_sync": "Sincronizzazione ora legale",
+          "library_debug": "Registrazione debug della libreria"
         },
         "data_description": {
           "username": "Il tuo nome utente dell'account EG4 Web Monitor",
           "password": "La tua password dell'account EG4 Web Monitor",
           "base_url": "L'URL di base per l'API EG4 Web Monitor",
-          "verify_ssl": "Abilita la verifica del certificato SSL per connessioni sicure"
+          "verify_ssl": "Abilita la verifica del certificato SSL per connessioni sicure",
+          "dst_sync": "Sincronizza automaticamente le impostazioni dell'ora legale con il tuo inverter in base al fuso orario di Home Assistant",
+          "library_debug": "Abilita la registrazione DEBUG per la libreria pylxpweb (mostra richieste API, risposte e operazioni interne della libreria)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Nome utente",
           "password": "Password",
           "base_url": "URL di base",
-          "verify_ssl": "Verifica certificato SSL"
+          "verify_ssl": "Verifica certificato SSL",
+          "dst_sync": "Sincronizzazione ora legale",
+          "library_debug": "Registrazione debug della libreria"
         },
         "data_description": {
           "username": "Il tuo nome utente dell'account EG4 Web Monitor",
           "password": "La tua password dell'account EG4 Web Monitor",
           "base_url": "L'URL di base per l'API EG4 Web Monitor",
-          "verify_ssl": "Abilita la verifica del certificato SSL per connessioni sicure"
+          "verify_ssl": "Abilita la verifica del certificato SSL per connessioni sicure",
+          "dst_sync": "Sincronizza automaticamente le impostazioni dell'ora legale con il tuo inverter in base al fuso orario di Home Assistant",
+          "library_debug": "Abilita la registrazione DEBUG per la libreria pylxpweb (mostra richieste API, risposte e operazioni interne della libreria)"
         }
       },
       "reconfigure_plant": {

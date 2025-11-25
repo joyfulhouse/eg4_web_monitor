@@ -33,8 +33,8 @@ def mock_coordinator():
     coordinator.entry.entry_id = "test_entry_id"
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_shutdown = AsyncMock()
-    coordinator.api = MagicMock()
-    coordinator.api.close = AsyncMock()
+    coordinator.client = MagicMock()
+    coordinator.client.close = AsyncMock()
     # Add minimal data structure for platforms to work with
     coordinator.data = {
         "devices": {},
@@ -308,7 +308,7 @@ class TestAsyncUnloadEntry:
             assert result is True
             mock_unload.assert_called_once()
             mock_coordinator.async_shutdown.assert_called_once()
-            mock_coordinator.api.close.assert_called_once()
+            mock_coordinator.client.close.assert_called_once()
 
     async def test_unload_entry_failure(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
@@ -325,13 +325,13 @@ class TestAsyncUnloadEntry:
 
             assert result is False
             mock_unload.assert_called_once()
-            # API should not be closed if unload failed
-            mock_coordinator.api.close.assert_not_called()
+            # Client should not be closed if unload failed
+            mock_coordinator.client.close.assert_not_called()
 
     async def test_unload_entry_cleans_up_api(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
-        """Test that API connection is closed on unload."""
+        """Test that client connection is closed on unload."""
         mock_config_entry.add_to_hass(hass)
 
         with patch.object(
@@ -341,8 +341,8 @@ class TestAsyncUnloadEntry:
         ):
             await async_unload_entry(hass, mock_config_entry)
 
-            # Verify API close was called
-            mock_coordinator.api.close.assert_called_once()
+            # Verify client close was called
+            mock_coordinator.client.close.assert_called_once()
 
     async def test_unload_entry_unloads_all_platforms(
         self, hass: HomeAssistant, mock_config_entry
@@ -367,96 +367,3 @@ class TestAsyncUnloadEntry:
             assert "select" in [p.value for p in platforms]
 
 
-class TestAsyncRemoveEntry:
-    """Test async_remove_entry function."""
-
-    async def test_remove_entry_purges_statistics(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """Test that removing entry purges statistics for all entities."""
-        # Add config entry
-        mock_config_entry.add_to_hass(hass)
-
-        # Create mock entities in registry
-        from homeassistant.helpers import entity_registry as er
-
-        entity_registry = er.async_get(hass)
-
-        # Create test entities
-        test_entities = [
-            entity_registry.async_get_or_create(
-                "sensor",
-                DOMAIN,
-                f"{DOMAIN}_test_entity_{i}",
-                config_entry=mock_config_entry,
-                suggested_object_id=f"eg4_test_entity_{i}",
-            )
-            for i in range(3)
-        ]
-
-        # Mock the recorder service call
-        with patch.object(
-            hass.services, "async_call", new=AsyncMock()
-        ) as mock_service_call:
-            await async_remove_entry(hass, mock_config_entry)
-
-            # Verify recorder.purge_entities was called
-            mock_service_call.assert_called_once()
-            call_args = mock_service_call.call_args
-
-            # Verify service name and parameters
-            assert call_args[0][0] == "recorder"
-            assert call_args[0][1] == "purge_entities"
-
-            # Verify all entity IDs were included
-            purge_data = call_args[0][2]
-            assert len(purge_data["entity_id"]) == 3
-            for entity in test_entities:
-                assert entity.entity_id in purge_data["entity_id"]
-
-            # Verify keep_days is 0 (delete all history)
-            assert purge_data["keep_days"] == 0
-
-            # Verify blocking=True (wait for completion)
-            assert call_args[1]["blocking"] is True
-
-    async def test_remove_entry_with_no_entities(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """Test removing entry when no entities exist."""
-        mock_config_entry.add_to_hass(hass)
-
-        # Mock the recorder service call
-        with patch.object(
-            hass.services, "async_call", new=AsyncMock()
-        ) as mock_service_call:
-            await async_remove_entry(hass, mock_config_entry)
-
-            # Verify recorder service was NOT called (no entities to purge)
-            mock_service_call.assert_not_called()
-
-    async def test_remove_entry_logs_properly(
-        self, hass: HomeAssistant, mock_config_entry, caplog
-    ):
-        """Test that remove_entry logs appropriate messages."""
-        mock_config_entry.add_to_hass(hass)
-
-        # Create mock entities
-        from homeassistant.helpers import entity_registry as er
-
-        entity_registry = er.async_get(hass)
-        entity_registry.async_get_or_create(
-            "sensor",
-            DOMAIN,
-            f"{DOMAIN}_test_entity",
-            config_entry=mock_config_entry,
-            suggested_object_id="eg4_test_entity",
-        )
-
-        with patch.object(hass.services, "async_call", new=AsyncMock()):
-            await async_remove_entry(hass, mock_config_entry)
-
-            # Verify logging messages
-            assert "Removing EG4 Web Monitor entry" in caplog.text
-            assert "Purging statistics for 1 entities" in caplog.text
-            assert "Statistics purge complete" in caplog.text

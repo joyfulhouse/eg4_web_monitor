@@ -8,13 +8,17 @@
           "username": "Nom d'utilisateur",
           "password": "Mot de passe",
           "base_url": "URL de base",
-          "verify_ssl": "Vérifier le certificat SSL"
+          "verify_ssl": "Vérifier le certificat SSL",
+          "dst_sync": "Synchronisation de l'heure d'été",
+          "library_debug": "Journalisation de débogage de la bibliothèque"
         },
         "data_description": {
           "username": "Votre nom d'utilisateur de compte EG4 Web Monitor",
           "password": "Votre mot de passe de compte EG4 Web Monitor",
           "base_url": "L'URL de base pour l'API EG4 Web Monitor",
-          "verify_ssl": "Activer la vérification du certificat SSL pour des connexions sécurisées"
+          "verify_ssl": "Activer la vérification du certificat SSL pour des connexions sécurisées",
+          "dst_sync": "Synchroniser automatiquement les paramètres d'heure d'été avec votre onduleur en fonction du fuseau horaire de Home Assistant",
+          "library_debug": "Activer la journalisation DEBUG pour la bibliothèque pylxpweb (affiche les requêtes API, les réponses et les opérations internes de la bibliothèque)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Nom d'utilisateur",
           "password": "Mot de passe",
           "base_url": "URL de base",
-          "verify_ssl": "Vérifier le certificat SSL"
+          "verify_ssl": "Vérifier le certificat SSL",
+          "dst_sync": "Synchronisation de l'heure d'été",
+          "library_debug": "Journalisation de débogage de la bibliothèque"
         },
         "data_description": {
           "username": "Votre nom d'utilisateur de compte EG4 Web Monitor",
           "password": "Votre mot de passe de compte EG4 Web Monitor",
           "base_url": "L'URL de base pour l'API EG4 Web Monitor",
-          "verify_ssl": "Activer la vérification du certificat SSL pour des connexions sécurisées"
+          "verify_ssl": "Activer la vérification du certificat SSL pour des connexions sécurisées",
+          "dst_sync": "Synchroniser automatiquement les paramètres d'heure d'été avec votre onduleur en fonction du fuseau horaire de Home Assistant",
+          "library_debug": "Activer la journalisation DEBUG pour la bibliothèque pylxpweb (affiche les requêtes API, les réponses et les opérations internes de la bibliothèque)"
         }
       },
       "reconfigure_plant": {

@@ -31,6 +31,7 @@ CONF_VERIFY_SSL = "verify_ssl"
 CONF_PLANT_ID = "plant_id"
 CONF_PLANT_NAME = "plant_name"
 CONF_DST_SYNC = "dst_sync"
+CONF_LIBRARY_DEBUG = "library_debug"
 
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
@@ -410,7 +411,7 @@ SENSOR_TYPES = {
         "unit": UnitOfPower.WATT,
         "device_class": "power",
         "state_class": "measurement",
-        "icon": "mdi:battery-arrow-up-down",
+        "icon": "mdi:battery-charging",
     },
     "battery_bank_max_capacity": {
         "name": "Battery Bank Max Capacity",
@@ -608,6 +609,11 @@ SENSOR_TYPES = {
         "icon": "mdi:numeric",
         "entity_category": "diagnostic",
     },
+    "firmware_version": {
+        "name": "Firmware Version",
+        "icon": "mdi:chip",
+        "entity_category": "diagnostic",
+    },
     "battery_balance_status": {
         "name": "Balance Status",
         "icon": "mdi:scale-balance",
@@ -701,11 +707,6 @@ SENSOR_TYPES = {
     "battery_bms_model": {
         "name": "BMS Model",
         "icon": "mdi:chip",
-        "entity_category": "diagnostic",
-    },
-    "battery_model": {
-        "name": "Model",
-        "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
     "battery_index": {

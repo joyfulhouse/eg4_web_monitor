@@ -37,6 +37,7 @@ from pylxpweb.exceptions import (
 from .const import (
     CONF_BASE_URL,
     CONF_DST_SYNC,
+    CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -53,12 +54,19 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
         vol.Optional(CONF_VERIFY_SSL, default=True): bool,
         vol.Optional(CONF_DST_SYNC, default=True): bool,
+        vol.Optional(CONF_LIBRARY_DEBUG, default=False): bool,
     }
 )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for EG4 Web Monitor."""
+class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
+    config_entries.ConfigFlow, domain=DOMAIN
+):
+    """Handle a config flow for EG4 Web Monitor.
+
+    Note: The type: ignore is needed because mypy doesn't understand
+    Home Assistant's metaclass magic for the domain keyword argument.
+    """
 
     VERSION = 1
 
@@ -69,6 +77,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._base_url: str | None = None
         self._verify_ssl: bool | None = None
         self._dst_sync: bool | None = None
+        self._library_debug: bool | None = None
         self._plants: list[dict[str, Any]] | None = None
 
     async def async_step_user(
@@ -85,6 +94,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
                 self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
                 self._dst_sync = user_input.get(CONF_DST_SYNC, True)
+                self._library_debug = user_input.get(CONF_LIBRARY_DEBUG, False)
 
                 # Test authentication and get plants
                 await self._test_credentials()
@@ -217,6 +227,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._base_url is not None
         assert self._verify_ssl is not None
         assert self._dst_sync is not None
+        assert self._library_debug is not None
 
         unique_id = f"{self._username}_{plant_id}"
         await self.async_set_unique_id(unique_id)
@@ -232,6 +243,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_BASE_URL: self._base_url,
             CONF_VERIFY_SSL: self._verify_ssl,
             CONF_DST_SYNC: self._dst_sync,
+            CONF_LIBRARY_DEBUG: self._library_debug,
             CONF_PLANT_ID: plant_id,
             CONF_PLANT_NAME: plant_name,
         }

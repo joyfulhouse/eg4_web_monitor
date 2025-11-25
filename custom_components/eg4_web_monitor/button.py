@@ -21,7 +21,6 @@ else:
     )
 
 from . import EG4ConfigEntry
-from .const import DOMAIN
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     generate_entity_id,
@@ -40,9 +39,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EG4 Web Monitor button entities."""
-    _LOGGER.info(
-        "Setting up EG4 Web Monitor button entities for entry %s", entry.entry_id
-    )
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     entities: list[ButtonEntity] = []
@@ -54,7 +50,6 @@ async def async_setup_entry(
     # Create station refresh button if station data is available
     if "station" in coordinator.data:
         entities.append(EG4StationRefreshButton(coordinator))
-        _LOGGER.debug("Added refresh button for station")
 
     # Skip device buttons if no device data
     if "devices" not in coordinator.data:
@@ -65,17 +60,8 @@ async def async_setup_entry(
             async_add_entities(entities)
         return
 
-    _LOGGER.info(
-        "Found %d devices for button setup: %s",
-        len(coordinator.data["devices"]),
-        list(coordinator.data["devices"].keys()),
-    )
-
     # Create refresh diagnostic buttons for all devices
     for serial, device_data in coordinator.data["devices"].items():
-        device_type = device_data.get("type", "unknown")
-        _LOGGER.debug("Processing device %s with type: %s", serial, device_type)
-
         # Get device info for proper naming
         device_type = device_data.get("type", "unknown")
         if device_type == "parallel_group":
@@ -88,7 +74,6 @@ async def async_setup_entry(
 
         # Create refresh button for all device types
         entities.append(EG4RefreshButton(coordinator, serial, device_data, model))
-        _LOGGER.debug("Added refresh button for device %s (%s)", serial, model)
 
     # Also create refresh buttons for individual batteries
     for serial, device_data in coordinator.data["devices"].items():
@@ -108,17 +93,9 @@ async def async_setup_entry(
                         battery_id=battery_key,  # Use battery_key as the display ID
                     )
                 )
-                _LOGGER.info(
-                    "✅ Added refresh button for battery %s (parent: %s)",
-                    battery_key,
-                    serial,
-                )
 
     if entities:
-        _LOGGER.info("Setup complete: %d button entities created", len(entities))
         async_add_entities(entities)
-    else:
-        _LOGGER.debug("No button entities created")
 
 
 class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
@@ -270,16 +247,6 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-        # Device info for grouping with battery
-        # Must match coordinator.get_battery_device_info()
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{parent_serial}_{battery_key}")},
-            "name": f"Battery {battery_key}",  # Will be cleaned by coordinator
-            "manufacturer": "EG4 Electronics",
-            "model": f"{parent_model} Battery",
-            "via_device": (DOMAIN, parent_serial),
-        }
-
         # Set entity description
         self.entity_description = ButtonEntityDescription(
             key=f"{battery_key}_refresh",
@@ -287,6 +254,17 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
             icon="mdi:refresh",
             entity_category=EntityCategory.DIAGNOSTIC,
         )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information for battery entity grouping.
+
+        Use coordinator method to ensure device info matches battery sensors.
+        """
+        device_info = self.coordinator.get_battery_device_info(
+            self._parent_serial, self._battery_key
+        )
+        return device_info if device_info else {}
 
     @property
     def available(self) -> bool:
@@ -314,26 +292,15 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Handle the button press."""
         try:
-            _LOGGER.info(
-                "Battery refresh button pressed for battery %s (parent: %s) - "
-                "using device object methods",
+            _LOGGER.debug(
+                "Refresh button pressed for battery %s",
                 self._battery_key,
-                self._parent_serial,
             )
 
             # Get parent inverter object and refresh (which refreshes all batteries)
             inverter = self.coordinator.get_inverter_object(self._parent_serial)
             if inverter:
-                _LOGGER.debug(
-                    "Refreshing parent inverter %s to update battery %s",
-                    self._parent_serial,
-                    self._battery_key,
-                )
                 await inverter.refresh()
-                _LOGGER.debug(
-                    "Successfully refreshed battery %s via parent inverter",
-                    self._battery_key,
-                )
             else:
                 _LOGGER.warning(
                     "Parent inverter object not found for %s", self._parent_serial
@@ -341,9 +308,6 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
 
             # Force immediate coordinator refresh to update all entities
             await self.coordinator.async_request_refresh()
-            _LOGGER.debug(
-                "Successfully refreshed data for battery %s", self._battery_key
-            )
         except Exception as e:
             _LOGGER.error(
                 "Failed to refresh data for battery %s: %s", self._battery_key, e
@@ -408,18 +372,8 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Handle the button press."""
         try:
-            _LOGGER.info(
-                "Station refresh button pressed for plant %s - refreshing station data",
-                self.coordinator.plant_id,
-            )
-
             # Force immediate coordinator refresh to fetch fresh station data
             await self.coordinator.async_request_refresh()
-
-            _LOGGER.info(
-                "Successfully refreshed station data for plant %s",
-                self.coordinator.plant_id,
-            )
         except Exception as e:
             _LOGGER.error(
                 "Failed to refresh station data for plant %s: %s",

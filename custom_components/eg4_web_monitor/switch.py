@@ -51,7 +51,6 @@ async def async_setup_entry(
     # Create station DST switch if station data is available
     if "station" in coordinator.data:
         entities.append(EG4DSTSwitch(coordinator))
-        _LOGGER.debug("Added DST switch for station")
 
     # Skip device switches if no devices data
     if "devices" not in coordinator.data:
@@ -65,21 +64,12 @@ async def async_setup_entry(
     # Create switch entities for compatible devices
     for serial, device_data in coordinator.data["devices"].items():
         device_type = device_data.get("type", "unknown")
-        _LOGGER.debug("Processing device %s with type: %s", serial, device_type)
 
         # Only create switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
             # Get device model for compatibility check
             model = device_data.get("model", "Unknown")
             model_lower = model.lower()
-
-            _LOGGER.info(
-                "Evaluating switch compatibility for device %s: "
-                "model='%s' (original), model_lower='%s'",
-                serial,
-                model,
-                model_lower,
-            )
 
             # Check if device model is known to support switch functions
             # Based on the feature request, this appears to be for standard inverters
@@ -88,29 +78,13 @@ async def async_setup_entry(
             if any(supported in model_lower for supported in supported_models):
                 # Add quick charge switch
                 entities.append(EG4QuickChargeSwitch(coordinator, serial, device_data))
-                _LOGGER.info(
-                    "✅ Added quick charge switch for compatible device %s (%s)",
-                    serial,
-                    model,
-                )
 
                 # Add battery backup switch (EPS) - XP devices do not support this
                 if not any(xp_model in model_lower for xp_model in ["xp"]):
                     entities.append(
                         EG4BatteryBackupSwitch(coordinator, serial, device_data)
                     )
-                    _LOGGER.info(
-                        "✅ Added battery backup switch for compatible device %s (%s)",
-                        serial,
-                        model,
-                    )
-                else:
-                    _LOGGER.info(
-                        "⚠️ Skipping battery backup switch for XP device %s (%s) - "
-                        "XP devices do not support EPS functionality",
-                        serial,
-                        model,
-                    )
+
                 # Add working mode switches
                 for mode_config in WORKING_MODES.values():
                     entities.append(
@@ -121,32 +95,9 @@ async def async_setup_entry(
                             mode_config=mode_config,
                         )
                     )
-                    _LOGGER.info(
-                        "✅ Added working mode switch '%s' for device %s (%s)",
-                        mode_config["name"],
-                        serial,
-                        model,
-                    )
-            else:
-                _LOGGER.warning(
-                    "❌ Skipping switches for device %s (%s) - "
-                    "model not in supported list %s",
-                    serial,
-                    model,
-                    supported_models,
-                )
-        else:
-            _LOGGER.debug(
-                "Skipping device %s - not an inverter (type: %s)", serial, device_type
-            )
 
     if entities:
-        _LOGGER.info(
-            "Adding %d switch entities (quick charge and battery backup)", len(entities)
-        )
         async_add_entities(entities)
-    else:
-        _LOGGER.debug("No switch entities created - no compatible devices found")
 
 
 class EG4QuickChargeSwitch(CoordinatorEntity, SwitchEntity):

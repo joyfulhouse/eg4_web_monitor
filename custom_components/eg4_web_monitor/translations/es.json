@@ -8,13 +8,17 @@
           "username": "Nombre de usuario",
           "password": "Contraseña",
           "base_url": "URL base",
-          "verify_ssl": "Verificar certificado SSL"
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronización de horario de verano",
+          "library_debug": "Registro de depuración de biblioteca"
         },
         "data_description": {
           "username": "Su nombre de usuario de cuenta EG4 Web Monitor",
           "password": "Su contraseña de cuenta EG4 Web Monitor",
           "base_url": "La URL base para la API de EG4 Web Monitor",
-          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras"
+          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración de horario de verano con su inversor según la zona horaria de Home Assistant",
+          "library_debug": "Habilitar registro DEBUG para la biblioteca pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la biblioteca)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Nombre de usuario",
           "password": "Contraseña",
           "base_url": "URL base",
-          "verify_ssl": "Verificar certificado SSL"
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronización de horario de verano",
+          "library_debug": "Registro de depuración de biblioteca"
         },
         "data_description": {
           "username": "Su nombre de usuario de cuenta EG4 Web Monitor",
           "password": "Su contraseña de cuenta EG4 Web Monitor",
           "base_url": "La URL base para la API de EG4 Web Monitor",
-          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras"
+          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración de horario de verano con su inversor según la zona horaria de Home Assistant",
+          "library_debug": "Habilitar registro DEBUG para la biblioteca pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la biblioteca)"
         }
       },
       "reconfigure_plant": {

@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_DST_SYNC,
+    CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -146,6 +147,7 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         CONF_BASE_URL: DEFAULT_BASE_URL,
         CONF_VERIFY_SSL: True,
         CONF_DST_SYNC: True,
+        CONF_LIBRARY_DEBUG: False,
         CONF_PLANT_ID: "123",
         CONF_PLANT_NAME: "Test Plant 1",
     }
@@ -390,6 +392,8 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
             CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            CONF_LIBRARY_DEBUG: False,
             CONF_PLANT_ID: "123",
             CONF_PLANT_NAME: "Test Plant 1",
         },

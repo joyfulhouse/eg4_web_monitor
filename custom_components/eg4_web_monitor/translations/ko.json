@@ -8,13 +8,17 @@
           "username": "사용자 이름",
           "password": "비밀번호",
           "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인"
+          "verify_ssl": "SSL 인증서 확인",
+          "dst_sync": "DST 동기화",
+          "library_debug": "라이브러리 디버그 로깅"
         },
         "data_description": {
           "username": "EG4 Web Monitor 계정 사용자 이름",
           "password": "EG4 Web Monitor 계정 비밀번호",
           "base_url": "EG4 Web Monitor API의 기본 URL",
-          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화"
+          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화",
+          "dst_sync": "Home Assistant 시간대에 따라 인버터에 일광 절약 시간 설정을 자동으로 동기화합니다",
+          "library_debug": "pylxpweb 라이브러리에 대한 DEBUG 로깅을 활성화합니다 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "사용자 이름",
           "password": "비밀번호",
           "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인"
+          "verify_ssl": "SSL 인증서 확인",
+          "dst_sync": "DST 동기화",
+          "library_debug": "라이브러리 디버그 로깅"
         },
         "data_description": {
           "username": "EG4 Web Monitor 계정 사용자 이름",
           "password": "EG4 Web Monitor 계정 비밀번호",
           "base_url": "EG4 Web Monitor API의 기본 URL",
-          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화"
+          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화",
+          "dst_sync": "Home Assistant 시간대에 따라 인버터에 일광 절약 시간 설정을 자동으로 동기화합니다",
+          "library_debug": "pylxpweb 라이브러리에 대한 DEBUG 로깅을 활성화합니다 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "AC 전력"},
-      "ac_voltage": {"name": "AC 전압"},
-      "ac_current": {"name": "AC 전류"},
-      "frequency": {"name": "주파수"},
-      "dc_power": {"name": "DC 전력"},
-      "dc_voltage": {"name": "DC 전압"},
-      "dc_current": {"name": "DC 전류"},
-      "battery_power": {"name": "배터리 전력"},
-      "battery_voltage": {"name": "배터리 전압"},
-      "battery_current": {"name": "배터리 전류"},
-      "state_of_charge": {"name": "충전 상태"},
-      "state_of_health": {"name": "건강 상태"},
-      "total_energy": {"name": "총 에너지"},
-      "daily_energy": {"name": "일일 에너지"},
-      "monthly_energy": {"name": "월간 에너지"},
-      "yearly_energy": {"name": "연간 에너지"},
-      "internal_temperature": {"name": "내부 온도"},
-      "radiator1_temperature": {"name": "라디에이터 1 온도"},
-      "radiator2_temperature": {"name": "라디에이터 2 온도"},
-      "status_code": {"name": "상태 코드"},
-      "status_text": {"name": "상태"},
-      "grid_power": {"name": "그리드 전력"},
-      "load_power": {"name": "부하 전력"},
-      "consumption_power": {"name": "소비 전력"},
-      "pv_total_power": {"name": "PV 총 전력"},
-      "pv1_power": {"name": "PV1 전력"},
-      "pv2_power": {"name": "PV2 전력"},
-      "pv3_power": {"name": "PV3 전력"},
-      "cell_voltage_max": {"name": "최대 셀 전압"},
-      "cell_voltage_min": {"name": "최소 셀 전압"},
-      "cell_voltage_delta": {"name": "셀 전압 델타"},
-      "cycle_count": {"name": "사이클 횟수"},
-      "firmware_version": {"name": "펌웨어 버전"}
+      "ac_power": {
+        "name": "AC 전력"
+      },
+      "ac_voltage": {
+        "name": "AC 전압"
+      },
+      "ac_current": {
+        "name": "AC 전류"
+      },
+      "frequency": {
+        "name": "주파수"
+      },
+      "dc_power": {
+        "name": "DC 전력"
+      },
+      "dc_voltage": {
+        "name": "DC 전압"
+      },
+      "dc_current": {
+        "name": "DC 전류"
+      },
+      "battery_power": {
+        "name": "배터리 전력"
+      },
+      "battery_voltage": {
+        "name": "배터리 전압"
+      },
+      "battery_current": {
+        "name": "배터리 전류"
+      },
+      "state_of_charge": {
+        "name": "충전 상태"
+      },
+      "state_of_health": {
+        "name": "건강 상태"
+      },
+      "total_energy": {
+        "name": "총 에너지"
+      },
+      "daily_energy": {
+        "name": "일일 에너지"
+      },
+      "monthly_energy": {
+        "name": "월간 에너지"
+      },
+      "yearly_energy": {
+        "name": "연간 에너지"
+      },
+      "internal_temperature": {
+        "name": "내부 온도"
+      },
+      "radiator1_temperature": {
+        "name": "라디에이터 1 온도"
+      },
+      "radiator2_temperature": {
+        "name": "라디에이터 2 온도"
+      },
+      "status_code": {
+        "name": "상태 코드"
+      },
+      "status_text": {
+        "name": "상태"
+      },
+      "grid_power": {
+        "name": "그리드 전력"
+      },
+      "load_power": {
+        "name": "부하 전력"
+      },
+      "consumption_power": {
+        "name": "소비 전력"
+      },
+      "pv_total_power": {
+        "name": "PV 총 전력"
+      },
+      "pv1_power": {
+        "name": "PV1 전력"
+      },
+      "pv2_power": {
+        "name": "PV2 전력"
+      },
+      "pv3_power": {
+        "name": "PV3 전력"
+      },
+      "cell_voltage_max": {
+        "name": "최대 셀 전압"
+      },
+      "cell_voltage_min": {
+        "name": "최소 셀 전압"
+      },
+      "cell_voltage_delta": {
+        "name": "셀 전압 델타"
+      },
+      "cycle_count": {
+        "name": "사이클 횟수"
+      },
+      "firmware_version": {
+        "name": "펌웨어 버전"
+      }
     },
     "switch": {
       "quick_charge": {

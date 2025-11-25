@@ -8,13 +8,17 @@
           "username": "Benutzername",
           "password": "Passwort",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-Zertifikat überprüfen"
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "library_debug": "Bibliotheks-Debug-Protokollierung"
         },
         "data_description": {
           "username": "Ihr EG4 Web Monitor-Kontobenutzername",
           "password": "Ihr EG4 Web Monitor-Kontopasswort",
           "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
-          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Benutzername",
           "password": "Passwort",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-Zertifikat überprüfen"
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "library_debug": "Bibliotheks-Debug-Protokollierung"
         },
         "data_description": {
           "username": "Ihr EG4 Web Monitor-Kontobenutzername",
           "password": "Ihr EG4 Web Monitor-Kontopasswort",
           "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
-          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
         }
       },
       "reconfigure_plant": {

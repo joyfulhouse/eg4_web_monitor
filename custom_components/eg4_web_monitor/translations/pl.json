@@ -8,13 +8,17 @@
           "username": "Nazwa użytkownika",
           "password": "Hasło",
           "base_url": "Bazowy URL",
-          "verify_ssl": "Weryfikuj certyfikat SSL"
+          "verify_ssl": "Weryfikuj certyfikat SSL",
+          "dst_sync": "Synchronizacja DST",
+          "library_debug": "Logowanie debugowania biblioteki"
         },
         "data_description": {
           "username": "Twoja nazwa użytkownika konta EG4 Web Monitor",
           "password": "Twoje hasło konta EG4 Web Monitor",
           "base_url": "Bazowy URL dla API EG4 Web Monitor",
-          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń"
+          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń",
+          "dst_sync": "Automatycznie synchronizuj ustawienia czasu letniego z falownikiem na podstawie strefy czasowej Home Assistant",
+          "library_debug": "Włącz logowanie DEBUG dla biblioteki pylxpweb (pokazuje żądania API, odpowiedzi i wewnętrzne operacje biblioteki)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Nazwa użytkownika",
           "password": "Hasło",
           "base_url": "Bazowy URL",
-          "verify_ssl": "Weryfikuj certyfikat SSL"
+          "verify_ssl": "Weryfikuj certyfikat SSL",
+          "dst_sync": "Synchronizacja DST",
+          "library_debug": "Logowanie debugowania biblioteki"
         },
         "data_description": {
           "username": "Twoja nazwa użytkownika konta EG4 Web Monitor",
           "password": "Twoje hasło konta EG4 Web Monitor",
           "base_url": "Bazowy URL dla API EG4 Web Monitor",
-          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń"
+          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń",
+          "dst_sync": "Automatycznie synchronizuj ustawienia czasu letniego z falownikiem na podstawie strefy czasowej Home Assistant",
+          "library_debug": "Włącz logowanie DEBUG dla biblioteki pylxpweb (pokazuje żądania API, odpowiedzi i wewnętrzne operacje biblioteki)"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "Moc AC"},
-      "ac_voltage": {"name": "Napięcie AC"},
-      "ac_current": {"name": "Prąd AC"},
-      "frequency": {"name": "Częstotliwość"},
-      "dc_power": {"name": "Moc DC"},
-      "dc_voltage": {"name": "Napięcie DC"},
-      "dc_current": {"name": "Prąd DC"},
-      "battery_power": {"name": "Moc baterii"},
-      "battery_voltage": {"name": "Napięcie baterii"},
-      "battery_current": {"name": "Prąd baterii"},
-      "state_of_charge": {"name": "Stan naładowania"},
-      "state_of_health": {"name": "Stan kondycji"},
-      "total_energy": {"name": "Całkowita energia"},
-      "daily_energy": {"name": "Energia dzienna"},
-      "monthly_energy": {"name": "Energia miesięczna"},
-      "yearly_energy": {"name": "Energia roczna"},
-      "internal_temperature": {"name": "Temperatura wewnętrzna"},
-      "radiator1_temperature": {"name": "Temperatura radiatora 1"},
-      "radiator2_temperature": {"name": "Temperatura radiatora 2"},
-      "status_code": {"name": "Kod stanu"},
-      "status_text": {"name": "Stan"},
-      "grid_power": {"name": "Moc sieci"},
-      "load_power": {"name": "Moc obciążenia"},
-      "consumption_power": {"name": "Moc zużycia"},
-      "pv_total_power": {"name": "Całkowita moc PV"},
-      "pv1_power": {"name": "Moc PV1"},
-      "pv2_power": {"name": "Moc PV2"},
-      "pv3_power": {"name": "Moc PV3"},
-      "cell_voltage_max": {"name": "Maksymalne napięcie ogniwa"},
-      "cell_voltage_min": {"name": "Minimalne napięcie ogniwa"},
-      "cell_voltage_delta": {"name": "Różnica napięć ogniw"},
-      "cycle_count": {"name": "Liczba cykli"},
-      "firmware_version": {"name": "Wersja oprogramowania"}
+      "ac_power": {
+        "name": "Moc AC"
+      },
+      "ac_voltage": {
+        "name": "Napięcie AC"
+      },
+      "ac_current": {
+        "name": "Prąd AC"
+      },
+      "frequency": {
+        "name": "Częstotliwość"
+      },
+      "dc_power": {
+        "name": "Moc DC"
+      },
+      "dc_voltage": {
+        "name": "Napięcie DC"
+      },
+      "dc_current": {
+        "name": "Prąd DC"
+      },
+      "battery_power": {
+        "name": "Moc baterii"
+      },
+      "battery_voltage": {
+        "name": "Napięcie baterii"
+      },
+      "battery_current": {
+        "name": "Prąd baterii"
+      },
+      "state_of_charge": {
+        "name": "Stan naładowania"
+      },
+      "state_of_health": {
+        "name": "Stan kondycji"
+      },
+      "total_energy": {
+        "name": "Całkowita energia"
+      },
+      "daily_energy": {
+        "name": "Energia dzienna"
+      },
+      "monthly_energy": {
+        "name": "Energia miesięczna"
+      },
+      "yearly_energy": {
+        "name": "Energia roczna"
+      },
+      "internal_temperature": {
+        "name": "Temperatura wewnętrzna"
+      },
+      "radiator1_temperature": {
+        "name": "Temperatura radiatora 1"
+      },
+      "radiator2_temperature": {
+        "name": "Temperatura radiatora 2"
+      },
+      "status_code": {
+        "name": "Kod stanu"
+      },
+      "status_text": {
+        "name": "Stan"
+      },
+      "grid_power": {
+        "name": "Moc sieci"
+      },
+      "load_power": {
+        "name": "Moc obciążenia"
+      },
+      "consumption_power": {
+        "name": "Moc zużycia"
+      },
+      "pv_total_power": {
+        "name": "Całkowita moc PV"
+      },
+      "pv1_power": {
+        "name": "Moc PV1"
+      },
+      "pv2_power": {
+        "name": "Moc PV2"
+      },
+      "pv3_power": {
+        "name": "Moc PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Maksymalne napięcie ogniwa"
+      },
+      "cell_voltage_min": {
+        "name": "Minimalne napięcie ogniwa"
+      },
+      "cell_voltage_delta": {
+        "name": "Różnica napięć ogniw"
+      },
+      "cycle_count": {
+        "name": "Liczba cykli"
+      },
+      "firmware_version": {
+        "name": "Wersja oprogramowania"
+      }
     },
     "switch": {
       "quick_charge": {

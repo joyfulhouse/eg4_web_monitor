@@ -9,14 +9,16 @@
           "password": "Password",
           "base_url": "Base URL",
           "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "Automatic DST Synchronization"
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
           "username": "Your EG4 Web Monitor account username",
           "password": "Your EG4 Web Monitor account password",
           "base_url": "The base URL for the EG4 Web Monitor API",
           "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically sync Daylight Saving Time settings to your inverter based on your Home Assistant timezone. Checks hourly and corrects mismatches to keep inverter clocks accurate."
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       },
       "plant": {
@@ -49,14 +51,16 @@
           "password": "Password",
           "base_url": "Base URL",
           "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "Automatic DST Synchronization"
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
           "username": "Your EG4 Web Monitor account username",
           "password": "Your EG4 Web Monitor account password",
           "base_url": "The base URL for the EG4 Web Monitor API",
           "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically sync Daylight Saving Time settings to your inverter based on your Home Assistant timezone. Checks hourly and corrects mismatches to keep inverter clocks accurate."
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       },
       "reconfigure_plant": {

@@ -8,13 +8,17 @@
           "username": "ユーザー名",
           "password": "パスワード",
           "base_url": "ベース URL",
-          "verify_ssl": "SSL 証明書を検証"
+          "verify_ssl": "SSL 証明書を検証",
+          "dst_sync": "DST同期",
+          "library_debug": "ライブラリデバッグログ"
         },
         "data_description": {
           "username": "EG4 Web Monitor アカウントのユーザー名",
           "password": "EG4 Web Monitor アカウントのパスワード",
           "base_url": "EG4 Web Monitor API のベース URL",
-          "verify_ssl": "安全な接続のために SSL 証明書検証を有効にする"
+          "verify_ssl": "安全な接続のために SSL 証明書検証を有効にする",
+          "dst_sync": "Home Assistantのタイムゾーンに基づいて、インバーターに夏時間設定を自動的に同期します",
+          "library_debug": "pylxpwebライブラリのDEBUGログを有効にします（APIリクエスト、レスポンス、ライブラリ内部操作を表示）"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "ユーザー名",
           "password": "パスワード",
           "base_url": "ベース URL",
-          "verify_ssl": "SSL 証明書を検証"
+          "verify_ssl": "SSL 証明書を検証",
+          "dst_sync": "DST同期",
+          "library_debug": "ライブラリデバッグログ"
         },
         "data_description": {
           "username": "EG4 Web Monitor アカウントのユーザー名",
           "password": "EG4 Web Monitor アカウントのパスワード",
           "base_url": "EG4 Web Monitor API のベース URL",
-          "verify_ssl": "安全な接続のために SSL 証明書検証を有効にする"
+          "verify_ssl": "安全な接続のために SSL 証明書検証を有効にする",
+          "dst_sync": "Home Assistantのタイムゾーンに基づいて、インバーターに夏時間設定を自動的に同期します",
+          "library_debug": "pylxpwebライブラリのDEBUGログを有効にします（APIリクエスト、レスポンス、ライブラリ内部操作を表示）"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "AC 電力"},
-      "ac_voltage": {"name": "AC 電圧"},
-      "ac_current": {"name": "AC 電流"},
-      "frequency": {"name": "周波数"},
-      "dc_power": {"name": "DC 電力"},
-      "dc_voltage": {"name": "DC 電圧"},
-      "dc_current": {"name": "DC 電流"},
-      "battery_power": {"name": "バッテリー電力"},
-      "battery_voltage": {"name": "バッテリー電圧"},
-      "battery_current": {"name": "バッテリー電流"},
-      "state_of_charge": {"name": "充電状態"},
-      "state_of_health": {"name": "健全性状態"},
-      "total_energy": {"name": "総エネルギー"},
-      "daily_energy": {"name": "日次エネルギー"},
-      "monthly_energy": {"name": "月次エネルギー"},
-      "yearly_energy": {"name": "年次エネルギー"},
-      "internal_temperature": {"name": "内部温度"},
-      "radiator1_temperature": {"name": "ラジエーター 1 温度"},
-      "radiator2_temperature": {"name": "ラジエーター 2 温度"},
-      "status_code": {"name": "ステータスコード"},
-      "status_text": {"name": "ステータス"},
-      "grid_power": {"name": "グリッド電力"},
-      "load_power": {"name": "負荷電力"},
-      "consumption_power": {"name": "消費電力"},
-      "pv_total_power": {"name": "PV 総電力"},
-      "pv1_power": {"name": "PV1 電力"},
-      "pv2_power": {"name": "PV2 電力"},
-      "pv3_power": {"name": "PV3 電力"},
-      "cell_voltage_max": {"name": "最大セル電圧"},
-      "cell_voltage_min": {"name": "最小セル電圧"},
-      "cell_voltage_delta": {"name": "セル電圧差"},
-      "cycle_count": {"name": "サイクル回数"},
-      "firmware_version": {"name": "ファームウェアバージョン"}
+      "ac_power": {
+        "name": "AC 電力"
+      },
+      "ac_voltage": {
+        "name": "AC 電圧"
+      },
+      "ac_current": {
+        "name": "AC 電流"
+      },
+      "frequency": {
+        "name": "周波数"
+      },
+      "dc_power": {
+        "name": "DC 電力"
+      },
+      "dc_voltage": {
+        "name": "DC 電圧"
+      },
+      "dc_current": {
+        "name": "DC 電流"
+      },
+      "battery_power": {
+        "name": "バッテリー電力"
+      },
+      "battery_voltage": {
+        "name": "バッテリー電圧"
+      },
+      "battery_current": {
+        "name": "バッテリー電流"
+      },
+      "state_of_charge": {
+        "name": "充電状態"
+      },
+      "state_of_health": {
+        "name": "健全性状態"
+      },
+      "total_energy": {
+        "name": "総エネルギー"
+      },
+      "daily_energy": {
+        "name": "日次エネルギー"
+      },
+      "monthly_energy": {
+        "name": "月次エネルギー"
+      },
+      "yearly_energy": {
+        "name": "年次エネルギー"
+      },
+      "internal_temperature": {
+        "name": "内部温度"
+      },
+      "radiator1_temperature": {
+        "name": "ラジエーター 1 温度"
+      },
+      "radiator2_temperature": {
+        "name": "ラジエーター 2 温度"
+      },
+      "status_code": {
+        "name": "ステータスコード"
+      },
+      "status_text": {
+        "name": "ステータス"
+      },
+      "grid_power": {
+        "name": "グリッド電力"
+      },
+      "load_power": {
+        "name": "負荷電力"
+      },
+      "consumption_power": {
+        "name": "消費電力"
+      },
+      "pv_total_power": {
+        "name": "PV 総電力"
+      },
+      "pv1_power": {
+        "name": "PV1 電力"
+      },
+      "pv2_power": {
+        "name": "PV2 電力"
+      },
+      "pv3_power": {
+        "name": "PV3 電力"
+      },
+      "cell_voltage_max": {
+        "name": "最大セル電圧"
+      },
+      "cell_voltage_min": {
+        "name": "最小セル電圧"
+      },
+      "cell_voltage_delta": {
+        "name": "セル電圧差"
+      },
+      "cycle_count": {
+        "name": "サイクル回数"
+      },
+      "firmware_version": {
+        "name": "ファームウェアバージョン"
+      }
     },
     "switch": {
       "quick_charge": {

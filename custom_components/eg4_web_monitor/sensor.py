@@ -184,19 +184,53 @@ def _create_inverter_sensors(
 
     if battery_bank_sensor_count > 0:
         _LOGGER.debug(
-            f"Created {battery_bank_sensor_count} battery bank sensors for {serial}"
+            "Created %d battery bank sensors for %s", battery_bank_sensor_count, serial
         )
+        # Log the battery bank device info that will be used
+        battery_bank_device_info = coordinator.get_battery_bank_device_info(serial)
+        if battery_bank_device_info:
+            _LOGGER.debug(
+                "Battery bank device_info for %s: identifiers=%s, via_device=%s",
+                serial,
+                battery_bank_device_info.get("identifiers"),
+                battery_bank_device_info.get("via_device"),
+            )
+        else:
+            _LOGGER.warning(
+                "No battery_bank device_info returned for inverter %s", serial
+            )
 
     # Create individual battery sensors
     batteries = device_data.get("batteries", {})
     _LOGGER.debug(
-        f"Creating battery sensors for {serial}: found {len(batteries)} batteries"
+        "Creating battery sensors for %s: found %d batteries",
+        serial,
+        len(batteries),
     )
 
     for battery_key, battery_sensors in batteries.items():
         _LOGGER.debug(
-            f"Processing battery {battery_key} for {serial}: {len(battery_sensors)} sensors"
+            "Processing battery %s for %s: %d sensors",
+            battery_key,
+            serial,
+            len(battery_sensors),
         )
+
+        # Log device info that will be used for this battery
+        battery_device_info = coordinator.get_battery_device_info(serial, battery_key)
+        if battery_device_info:
+            _LOGGER.debug(
+                "Battery %s device_info: identifiers=%s, via_device=%s",
+                battery_key,
+                battery_device_info.get("identifiers"),
+                battery_device_info.get("via_device"),
+            )
+        else:
+            _LOGGER.warning(
+                "No device_info returned for battery %s (inverter %s)",
+                battery_key,
+                serial,
+            )
 
         for sensor_key in battery_sensors:
             if sensor_key in SENSOR_TYPES:
@@ -521,7 +555,7 @@ class EG4BatteryBankSensor(CoordinatorEntity, SensorEntity):
             in self.coordinator.data["devices"][self._serial].get("sensors", {})
         )
 
-        return battery_bank_exists
+        return bool(battery_bank_exists)
 
     @property
     def native_value(self) -> Any:
@@ -828,12 +862,10 @@ class EG4StationSensor(CoordinatorEntity[EG4DataUpdateCoordinator], SensorEntity
         sensor_config = STATION_SENSOR_TYPES[sensor_key]
         self._attr_name = sensor_config["name"]
         self._attr_icon = sensor_config.get("icon")
-        # Type ignore for entity_category - config dict returns Any
-        self._attr_entity_category = sensor_config.get("entity_category")  # type: ignore[assignment]
+        self._attr_entity_category = sensor_config.get("entity_category")
 
         if "device_class" in sensor_config:
-            # Type ignore for device_class - config dict returns Any
-            self._attr_device_class = sensor_config["device_class"]  # type: ignore[assignment]
+            self._attr_device_class = sensor_config["device_class"]
 
         # Build unique ID
         self._attr_unique_id = f"station_{coordinator.plant_id}_{sensor_key}"

@@ -8,13 +8,17 @@
           "username": "用户名",
           "password": "密码",
           "base_url": "基础 URL",
-          "verify_ssl": "验证 SSL 证书"
+          "verify_ssl": "验证 SSL 证书",
+          "dst_sync": "夏令时同步",
+          "library_debug": "库调试日志"
         },
         "data_description": {
           "username": "您的 EG4 Web Monitor 账户用户名",
           "password": "您的 EG4 Web Monitor 账户密码",
           "base_url": "EG4 Web Monitor API 的基础 URL",
-          "verify_ssl": "启用 SSL 证书验证以实现安全连接"
+          "verify_ssl": "启用 SSL 证书验证以实现安全连接",
+          "dst_sync": "根据 Home Assistant 时区自动同步逆变器的夏令时设置",
+          "library_debug": "为 pylxpweb 库启用 DEBUG 日志记录（显示 API 请求、响应和内部库操作）"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "用户名",
           "password": "密码",
           "base_url": "基础 URL",
-          "verify_ssl": "验证 SSL 证书"
+          "verify_ssl": "验证 SSL 证书",
+          "dst_sync": "夏令时同步",
+          "library_debug": "库调试日志"
         },
         "data_description": {
           "username": "您的 EG4 Web Monitor 账户用户名",
           "password": "您的 EG4 Web Monitor 账户密码",
           "base_url": "EG4 Web Monitor API 的基础 URL",
-          "verify_ssl": "启用 SSL 证书验证以实现安全连接"
+          "verify_ssl": "启用 SSL 证书验证以实现安全连接",
+          "dst_sync": "根据 Home Assistant 时区自动同步逆变器的夏令时设置",
+          "library_debug": "为 pylxpweb 库启用 DEBUG 日志记录（显示 API 请求、响应和内部库操作）"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "交流功率"},
-      "ac_voltage": {"name": "交流电压"},
-      "ac_current": {"name": "交流电流"},
-      "frequency": {"name": "频率"},
-      "dc_power": {"name": "直流功率"},
-      "dc_voltage": {"name": "直流电压"},
-      "dc_current": {"name": "直流电流"},
-      "battery_power": {"name": "电池功率"},
-      "battery_voltage": {"name": "电池电压"},
-      "battery_current": {"name": "电池电流"},
-      "state_of_charge": {"name": "充电状态"},
-      "state_of_health": {"name": "健康状态"},
-      "total_energy": {"name": "总能量"},
-      "daily_energy": {"name": "每日能量"},
-      "monthly_energy": {"name": "每月能量"},
-      "yearly_energy": {"name": "每年能量"},
-      "internal_temperature": {"name": "内部温度"},
-      "radiator1_temperature": {"name": "散热器 1 温度"},
-      "radiator2_temperature": {"name": "散热器 2 温度"},
-      "status_code": {"name": "状态码"},
-      "status_text": {"name": "状态"},
-      "grid_power": {"name": "电网功率"},
-      "load_power": {"name": "负载功率"},
-      "consumption_power": {"name": "消耗功率"},
-      "pv_total_power": {"name": "光伏总功率"},
-      "pv1_power": {"name": "光伏 1 功率"},
-      "pv2_power": {"name": "光伏 2 功率"},
-      "pv3_power": {"name": "光伏 3 功率"},
-      "cell_voltage_max": {"name": "最大电芯电压"},
-      "cell_voltage_min": {"name": "最小电芯电压"},
-      "cell_voltage_delta": {"name": "电芯电压差"},
-      "cycle_count": {"name": "循环次数"},
-      "firmware_version": {"name": "固件版本"}
+      "ac_power": {
+        "name": "交流功率"
+      },
+      "ac_voltage": {
+        "name": "交流电压"
+      },
+      "ac_current": {
+        "name": "交流电流"
+      },
+      "frequency": {
+        "name": "频率"
+      },
+      "dc_power": {
+        "name": "直流功率"
+      },
+      "dc_voltage": {
+        "name": "直流电压"
+      },
+      "dc_current": {
+        "name": "直流电流"
+      },
+      "battery_power": {
+        "name": "电池功率"
+      },
+      "battery_voltage": {
+        "name": "电池电压"
+      },
+      "battery_current": {
+        "name": "电池电流"
+      },
+      "state_of_charge": {
+        "name": "充电状态"
+      },
+      "state_of_health": {
+        "name": "健康状态"
+      },
+      "total_energy": {
+        "name": "总能量"
+      },
+      "daily_energy": {
+        "name": "每日能量"
+      },
+      "monthly_energy": {
+        "name": "每月能量"
+      },
+      "yearly_energy": {
+        "name": "每年能量"
+      },
+      "internal_temperature": {
+        "name": "内部温度"
+      },
+      "radiator1_temperature": {
+        "name": "散热器 1 温度"
+      },
+      "radiator2_temperature": {
+        "name": "散热器 2 温度"
+      },
+      "status_code": {
+        "name": "状态码"
+      },
+      "status_text": {
+        "name": "状态"
+      },
+      "grid_power": {
+        "name": "电网功率"
+      },
+      "load_power": {
+        "name": "负载功率"
+      },
+      "consumption_power": {
+        "name": "消耗功率"
+      },
+      "pv_total_power": {
+        "name": "光伏总功率"
+      },
+      "pv1_power": {
+        "name": "光伏 1 功率"
+      },
+      "pv2_power": {
+        "name": "光伏 2 功率"
+      },
+      "pv3_power": {
+        "name": "光伏 3 功率"
+      },
+      "cell_voltage_max": {
+        "name": "最大电芯电压"
+      },
+      "cell_voltage_min": {
+        "name": "最小电芯电压"
+      },
+      "cell_voltage_delta": {
+        "name": "电芯电压差"
+      },
+      "cycle_count": {
+        "name": "循环次数"
+      },
+      "firmware_version": {
+        "name": "固件版本"
+      }
     },
     "switch": {
       "quick_charge": {

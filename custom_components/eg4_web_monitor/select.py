@@ -215,7 +215,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
             # Use device object convenience method
             # Pass string directly - library handles conversion internally
             mode_value = option.upper()  # "Normal" -> "NORMAL", "Standby" -> "STANDBY"
-            success = await inverter.set_operating_mode(mode_value)  # type: ignore[arg-type]
+            success = await inverter.set_operating_mode(mode_value)
             if not success:
                 raise HomeAssistantError(f"Failed to set operating mode to {option}")
 

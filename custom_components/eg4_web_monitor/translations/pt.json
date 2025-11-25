@@ -8,13 +8,17 @@
           "username": "Nome de usuário",
           "password": "Senha",
           "base_url": "URL base",
-          "verify_ssl": "Verificar certificado SSL"
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronização de horário de verão",
+          "library_debug": "Registro de depuração da biblioteca"
         },
         "data_description": {
           "username": "Seu nome de usuário da conta EG4 Web Monitor",
           "password": "Sua senha da conta EG4 Web Monitor",
           "base_url": "A URL base para a API do EG4 Web Monitor",
-          "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras"
+          "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras",
+          "dst_sync": "Sincronizar automaticamente as configurações de horário de verão com seu inversor com base no fuso horário do Home Assistant",
+          "library_debug": "Ativar registro DEBUG para a biblioteca pylxpweb (mostra solicitações de API, respostas e operações internas da biblioteca)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Nome de usuário",
           "password": "Senha",
           "base_url": "URL base",
-          "verify_ssl": "Verificar certificado SSL"
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronização de horário de verão",
+          "library_debug": "Registro de depuração da biblioteca"
         },
         "data_description": {
           "username": "Seu nome de usuário da conta EG4 Web Monitor",
           "password": "Sua senha da conta EG4 Web Monitor",
           "base_url": "A URL base para a API do EG4 Web Monitor",
-          "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras"
+          "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras",
+          "dst_sync": "Sincronizar automaticamente as configurações de horário de verão com seu inversor com base no fuso horário do Home Assistant",
+          "library_debug": "Ativar registro DEBUG para a biblioteca pylxpweb (mostra solicitações de API, respostas e operações internas da biblioteca)"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "Potência CA"},
-      "ac_voltage": {"name": "Tensão CA"},
-      "ac_current": {"name": "Corrente CA"},
-      "frequency": {"name": "Frequência"},
-      "dc_power": {"name": "Potência CC"},
-      "dc_voltage": {"name": "Tensão CC"},
-      "dc_current": {"name": "Corrente CC"},
-      "battery_power": {"name": "Potência da bateria"},
-      "battery_voltage": {"name": "Tensão da bateria"},
-      "battery_current": {"name": "Corrente da bateria"},
-      "state_of_charge": {"name": "Estado de carga"},
-      "state_of_health": {"name": "Estado de saúde"},
-      "total_energy": {"name": "Energia total"},
-      "daily_energy": {"name": "Energia diária"},
-      "monthly_energy": {"name": "Energia mensal"},
-      "yearly_energy": {"name": "Energia anual"},
-      "internal_temperature": {"name": "Temperatura interna"},
-      "radiator1_temperature": {"name": "Temperatura radiador 1"},
-      "radiator2_temperature": {"name": "Temperatura radiador 2"},
-      "status_code": {"name": "Código de status"},
-      "status_text": {"name": "Status"},
-      "grid_power": {"name": "Potência da rede"},
-      "load_power": {"name": "Potência de carga"},
-      "consumption_power": {"name": "Potência de consumo"},
-      "pv_total_power": {"name": "Potência PV total"},
-      "pv1_power": {"name": "Potência PV1"},
-      "pv2_power": {"name": "Potência PV2"},
-      "pv3_power": {"name": "Potência PV3"},
-      "cell_voltage_max": {"name": "Tensão célula máxima"},
-      "cell_voltage_min": {"name": "Tensão célula mínima"},
-      "cell_voltage_delta": {"name": "Delta tensão célula"},
-      "cycle_count": {"name": "Contador de ciclos"},
-      "firmware_version": {"name": "Versão do firmware"}
+      "ac_power": {
+        "name": "Potência CA"
+      },
+      "ac_voltage": {
+        "name": "Tensão CA"
+      },
+      "ac_current": {
+        "name": "Corrente CA"
+      },
+      "frequency": {
+        "name": "Frequência"
+      },
+      "dc_power": {
+        "name": "Potência CC"
+      },
+      "dc_voltage": {
+        "name": "Tensão CC"
+      },
+      "dc_current": {
+        "name": "Corrente CC"
+      },
+      "battery_power": {
+        "name": "Potência da bateria"
+      },
+      "battery_voltage": {
+        "name": "Tensão da bateria"
+      },
+      "battery_current": {
+        "name": "Corrente da bateria"
+      },
+      "state_of_charge": {
+        "name": "Estado de carga"
+      },
+      "state_of_health": {
+        "name": "Estado de saúde"
+      },
+      "total_energy": {
+        "name": "Energia total"
+      },
+      "daily_energy": {
+        "name": "Energia diária"
+      },
+      "monthly_energy": {
+        "name": "Energia mensal"
+      },
+      "yearly_energy": {
+        "name": "Energia anual"
+      },
+      "internal_temperature": {
+        "name": "Temperatura interna"
+      },
+      "radiator1_temperature": {
+        "name": "Temperatura radiador 1"
+      },
+      "radiator2_temperature": {
+        "name": "Temperatura radiador 2"
+      },
+      "status_code": {
+        "name": "Código de status"
+      },
+      "status_text": {
+        "name": "Status"
+      },
+      "grid_power": {
+        "name": "Potência da rede"
+      },
+      "load_power": {
+        "name": "Potência de carga"
+      },
+      "consumption_power": {
+        "name": "Potência de consumo"
+      },
+      "pv_total_power": {
+        "name": "Potência PV total"
+      },
+      "pv1_power": {
+        "name": "Potência PV1"
+      },
+      "pv2_power": {
+        "name": "Potência PV2"
+      },
+      "pv3_power": {
+        "name": "Potência PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Tensão célula máxima"
+      },
+      "cell_voltage_min": {
+        "name": "Tensão célula mínima"
+      },
+      "cell_voltage_delta": {
+        "name": "Delta tensão célula"
+      },
+      "cycle_count": {
+        "name": "Contador de ciclos"
+      },
+      "firmware_version": {
+        "name": "Versão do firmware"
+      }
     },
     "switch": {
       "quick_charge": {

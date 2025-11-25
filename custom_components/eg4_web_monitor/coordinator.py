@@ -78,8 +78,7 @@ def _map_device_properties(
             if value is not None and value != "":
                 sensors[sensor_key] = value
 
-    if logger_prefix:
-        _LOGGER.debug(f"{logger_prefix}: Mapped {len(sensors)} properties from device")
+    # Logging removed - routine property mapping
 
     return sensors
 
@@ -420,9 +419,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     # Refresh parallel group data to load energy statistics
                     await group.refresh()
-                    _LOGGER.debug(
-                        f"Refreshed parallel group {getattr(group, 'name', 'unknown')} data"
-                    )
 
                     # Process the parallel group itself
                     processed["devices"][
@@ -435,9 +431,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             processed["devices"][
                                 group.mid_device.serial_number
                             ] = await self._process_mid_device_object(group.mid_device)
-                            _LOGGER.debug(
-                                f"Processed GridBOSS/MID device {group.mid_device.serial_number}"
-                            )
                         except Exception as e:
                             _LOGGER.error(
                                 "Error processing MID device %s: %s",
@@ -449,10 +442,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Process all batteries from station (pylxpweb 0.3.3+)
         if hasattr(self.station, "all_batteries"):
-            _LOGGER.debug(
-                f"Station has all_batteries attribute, checking battery count: "
-                f"{len(self.station.all_batteries) if self.station.all_batteries else 0}"
-            )
             for battery in self.station.all_batteries:
                 try:
                     # Find parent inverter serial - try multiple property names
@@ -475,12 +464,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             if len(parts) > 0 and parts[0].isdigit():
                                 parent_serial = parts[0]
 
-                    _LOGGER.debug(
-                        f"Processing battery {getattr(battery, 'battery_sn', 'unknown')}: "
-                        f"parent_serial={parent_serial}, "
-                        f"battery_key={getattr(battery, 'battery_key', 'N/A')}, "
-                        f"battery_index={getattr(battery, 'battery_index', 'N/A')}"
-                    )
                     if parent_serial and parent_serial in processed["devices"]:
                         battery_key = clean_battery_display_name(
                             getattr(
@@ -498,15 +481,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         processed["devices"][parent_serial]["batteries"][
                             battery_key
                         ] = battery_sensors
-
-                        _LOGGER.debug(
-                            f"Added battery {battery_key} for inverter {parent_serial} "
-                            f"with {len(battery_sensors)} sensors"
-                        )
                     else:
                         _LOGGER.warning(
-                            f"Battery {getattr(battery, 'battery_sn', 'unknown')} parent_serial "
-                            f"'{parent_serial}' not found in processed devices: {list(processed['devices'].keys())}"
+                            "Battery %s parent inverter '%s' not found in processed devices",
+                            getattr(battery, "battery_sn", "unknown"),
+                            parent_serial,
                         )
                 except Exception as e:
                     _LOGGER.error(
@@ -558,19 +537,43 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns:
             Processed device data dictionary with sensors and binary_sensors
         """
+        # Refresh inverter to load firmware version
+        await inverter.refresh()
+
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
         firmware_version = getattr(inverter, "firmware_version", "1.0.0")
 
-        _LOGGER.debug(
-            f"Inverter {inverter.serial_number}: model={model}, firmware_version={firmware_version}"
-        )
+        # Routine inverter processing - no logging needed
+
+        # Check for firmware updates (pylxpweb 0.3.7+)
+        # pylxpweb 0.3.13+ handles "already up to date" gracefully without exceptions
+        firmware_update_info = None
+        try:
+            if hasattr(inverter, "check_firmware_updates"):
+                # Check for updates (pylxpweb 0.3.9+ uses adaptive caching)
+                await inverter.check_firmware_updates()
+
+                # Check progress if method exists (pylxpweb 0.3.9+)
+                # This updates both update availability AND progress info
+                if hasattr(inverter, "get_firmware_update_progress"):
+                    await inverter.get_firmware_update_progress()
+
+                # Get firmware update info from properties (includes progress)
+                firmware_update_info = self._extract_firmware_update_info(inverter)
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not check firmware updates for %s: %s",
+                inverter.serial_number,
+                e,
+            )
 
         processed: dict[str, Any] = {
             "serial": inverter.serial_number,
             "type": "inverter",
             "model": model,
             "firmware_version": firmware_version,
+            "firmware_update_info": firmware_update_info,
             "sensors": {},
             "binary_sensors": {},
             "batteries": {},
@@ -578,17 +581,15 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Only process if inverter has data
         if not inverter.has_data:
-            _LOGGER.debug(
-                f"Inverter {inverter.serial_number} has no data, skipping sensor extraction"
-            )
             return processed
 
         # Map inverter properties to sensor keys (pylxpweb 0.3.3+)
         # Use utility function to extract properties
         property_map = self._get_inverter_property_map()
-        processed["sensors"] = _map_device_properties(
-            inverter, property_map, logger_prefix=f"Inverter {inverter.serial_number}"
-        )
+        processed["sensors"] = _map_device_properties(inverter, property_map)
+
+        # Add firmware_version as diagnostic sensor
+        processed["sensors"]["firmware_version"] = firmware_version
 
         # Calculate net grid power (v2.2.7 legacy calculation)
         # grid_power = power_to_user - power_to_grid
@@ -597,11 +598,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             power_to_user = _safe_numeric(inverter.power_to_user)  # Import
             power_to_grid = _safe_numeric(inverter.power_to_grid)  # Export
             processed["sensors"]["grid_power"] = power_to_user - power_to_grid
-            _LOGGER.debug(
-                f"Calculated grid_power for {inverter.serial_number}: "
-                f"{power_to_user} - {power_to_grid} = {processed['sensors']['grid_power']} W "
-                f"(positive=importing, negative=exporting)"
-            )
 
         # Add legacy ac_voltage sensor (EPS output voltage - internal AC from inverter)
         if hasattr(inverter, "eps_voltage_r"):
@@ -618,10 +614,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Process battery bank aggregate data if available
         # Note: battery_bank is a private attribute (_battery_bank) in pylxpweb
         battery_bank = getattr(inverter, "_battery_bank", None)
-        _LOGGER.debug(
-            f"Inverter {inverter.serial_number}: _battery_bank={battery_bank}, "
-            f"has batteries={battery_bank.battery_count if battery_bank else 0}"
-        )
         if battery_bank and battery_bank.battery_count > 0:
             try:
                 battery_bank_sensors = self._extract_battery_bank_from_object(
@@ -629,22 +621,12 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 # Add battery bank sensors to inverter sensors with battery_bank_ prefix
                 processed["sensors"].update(battery_bank_sensors)
-                _LOGGER.debug(
-                    f"Added {len(battery_bank_sensors)} battery bank sensors for inverter {inverter.serial_number}"
-                )
             except Exception as e:
                 _LOGGER.warning(
-                    f"Error extracting battery bank data for inverter {inverter.serial_number}: {e}"
+                    "Error extracting battery bank data for inverter %s: %s",
+                    inverter.serial_number,
+                    e,
                 )
-        else:
-            _LOGGER.debug(
-                f"Inverter {inverter.serial_number}: battery_bank not available or empty"
-            )
-
-        _LOGGER.debug(
-            f"Processed inverter {inverter.serial_number}: {len(processed['sensors'])} sensors, "
-            f"{len(processed['binary_sensors'])} binary sensors"
-        )
 
         return processed
 
@@ -746,7 +728,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sensors = _map_device_properties(
             battery,
             property_map,
-            logger_prefix=f"Battery {getattr(battery, 'battery_sn', 'unknown')}",
         )
 
         # Calculate derived sensors
@@ -851,7 +832,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sensors = _map_device_properties(
             battery_bank,
             property_map,
-            logger_prefix=f"BatteryBank {getattr(battery_bank, 'inverter_serial', 'unknown')}",
         )
 
         return sensors
@@ -938,9 +918,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if hasattr(group, "name") and group.name
             else "Parallel Group",
             "type": "parallel_group",
-            "model": f"Parallel Group {group.name}"
-            if hasattr(group, "name") and group.name
-            else "Parallel Group",
+            "model": "Parallel Group",  # Model is always just "Parallel Group"
             "sensors": {},
             "binary_sensors": {},
         }
@@ -950,11 +928,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         processed["sensors"] = _map_device_properties(
             group,
             property_map,
-            logger_prefix=f"Parallel Group {getattr(group, 'name', 'unknown')}",
-        )
-
-        _LOGGER.debug(
-            f"Processed parallel group complete: {len(processed['sensors'])} sensors"
         )
 
         return processed
@@ -995,23 +968,44 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns:
             Processed device data dictionary with sensors and binary_sensors
         """
+        # Refresh MID device to load firmware version
+        await mid_device.refresh()
+
         # Extract model and firmware from the MID device properties
         model = getattr(mid_device, "model", "GridBOSS")
         firmware_version = getattr(mid_device, "firmware_version", "1.0.0")
+
+        # Check for firmware updates (pylxpweb 0.3.7+)
+        # pylxpweb 0.3.13+ handles "already up to date" gracefully without exceptions
+        firmware_update_info = None
+        try:
+            if hasattr(mid_device, "check_firmware_updates"):
+                # Check for updates (pylxpweb 0.3.9+ uses adaptive caching)
+                await mid_device.check_firmware_updates()
+
+                # Check progress if method exists (pylxpweb 0.3.9+)
+                # This updates both update availability AND progress info
+                if hasattr(mid_device, "get_firmware_update_progress"):
+                    await mid_device.get_firmware_update_progress()
+
+                # Get firmware update info from properties (includes progress)
+                firmware_update_info = self._extract_firmware_update_info(mid_device)
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not check firmware updates for %s: %s",
+                mid_device.serial_number,
+                e,
+            )
 
         processed: dict[str, Any] = {
             "serial": mid_device.serial_number,
             "type": "gridboss",
             "model": model,
             "firmware_version": firmware_version,
+            "firmware_update_info": firmware_update_info,
             "sensors": {},
             "binary_sensors": {},
         }
-
-        _LOGGER.debug(
-            f"Processing MID device {mid_device.serial_number}: model={model}, "
-            f"has_data={getattr(mid_device, 'has_data', False)}"
-        )
 
         # Extract sensor data from MIDDevice properties (pylxpweb 0.3.3+ API)
         # All properties are properly scaled by the library
@@ -1021,8 +1015,10 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             processed["sensors"] = _map_device_properties(
                 mid_device,
                 property_map,
-                logger_prefix=f"MID device {mid_device.serial_number}",
             )
+
+            # Add firmware_version as diagnostic sensor
+            processed["sensors"]["firmware_version"] = firmware_version
 
             # Filter out sensors for unused Smart Ports
             self._filter_unused_smart_port_sensors(processed["sensors"], mid_device)
@@ -1030,13 +1026,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Calculate aggregate sensors from L1/L2 values
             self._calculate_gridboss_aggregates(processed["sensors"])
         else:
-            _LOGGER.warning(f"MID device {mid_device.serial_number} has no data")
-
-        _LOGGER.debug(
-            f"Processed MID device {mid_device.serial_number} complete: "
-            f"{len(processed['sensors'])} sensors, "
-            f"{len(processed['binary_sensors'])} binary sensors"
-        )
+            _LOGGER.warning("MID device %s has no data", mid_device.serial_number)
 
         return processed
 
@@ -1084,10 +1074,78 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "generator_l2_current": "generator_current_l2",
             # Other sensors
             "hybrid_power": "hybrid_power",
+            "phase_lock_frequency": "phase_lock_frequency",
             "smart_port1_status": "smart_port1_status",
             "smart_port2_status": "smart_port2_status",
             "smart_port3_status": "smart_port3_status",
             "smart_port4_status": "smart_port4_status",
+            # UPS Energy sensors (today)
+            "e_ups_today_l1": "ups_l1",
+            "e_ups_today_l2": "ups_l2",
+            # UPS Energy sensors (lifetime/total)
+            "e_ups_total_l1": "ups_lifetime_l1",
+            "e_ups_total_l2": "ups_lifetime_l2",
+            # Grid Energy sensors (today)
+            "e_to_grid_today_l1": "grid_export_l1",
+            "e_to_grid_today_l2": "grid_export_l2",
+            "e_to_user_today_l1": "grid_import_l1",
+            "e_to_user_today_l2": "grid_import_l2",
+            # Grid Energy sensors (lifetime/total)
+            "e_to_grid_total_l1": "grid_export_lifetime_l1",
+            "e_to_grid_total_l2": "grid_export_lifetime_l2",
+            "e_to_user_total_l1": "grid_import_lifetime_l1",
+            "e_to_user_total_l2": "grid_import_lifetime_l2",
+            # Load Energy sensors (today)
+            "e_load_today_l1": "load_l1",
+            "e_load_today_l2": "load_l2",
+            # Load Energy sensors (lifetime/total)
+            "e_load_total_l1": "load_lifetime_l1",
+            "e_load_total_l2": "load_lifetime_l2",
+            # AC Couple Energy sensors (today)
+            "e_ac_couple1_today_l1": "ac_couple1_l1",
+            "e_ac_couple1_today_l2": "ac_couple1_l2",
+            "e_ac_couple2_today_l1": "ac_couple2_l1",
+            "e_ac_couple2_today_l2": "ac_couple2_l2",
+            "e_ac_couple3_today_l1": "ac_couple3_l1",
+            "e_ac_couple3_today_l2": "ac_couple3_l2",
+            "e_ac_couple4_today_l1": "ac_couple4_l1",
+            "e_ac_couple4_today_l2": "ac_couple4_l2",
+            # AC Couple Energy sensors (lifetime/total)
+            "e_ac_couple1_total_l1": "ac_couple1_lifetime_l1",
+            "e_ac_couple1_total_l2": "ac_couple1_lifetime_l2",
+            "e_ac_couple2_total_l1": "ac_couple2_lifetime_l1",
+            "e_ac_couple2_total_l2": "ac_couple2_lifetime_l2",
+            "e_ac_couple3_total_l1": "ac_couple3_lifetime_l1",
+            "e_ac_couple3_total_l2": "ac_couple3_lifetime_l2",
+            "e_ac_couple4_total_l1": "ac_couple4_lifetime_l1",
+            "e_ac_couple4_total_l2": "ac_couple4_lifetime_l2",
+            # Smart Load Power sensors (runtime data)
+            "smart_load1_l1_active_power": "smart_load1_power_l1",
+            "smart_load1_l2_active_power": "smart_load1_power_l2",
+            "smart_load2_l1_active_power": "smart_load2_power_l1",
+            "smart_load2_l2_active_power": "smart_load2_power_l2",
+            "smart_load3_l1_active_power": "smart_load3_power_l1",
+            "smart_load3_l2_active_power": "smart_load3_power_l2",
+            "smart_load4_l1_active_power": "smart_load4_power_l1",
+            "smart_load4_l2_active_power": "smart_load4_power_l2",
+            # Smart Load Energy sensors (today)
+            "e_smart_load1_today_l1": "smart_load1_l1",
+            "e_smart_load1_today_l2": "smart_load1_l2",
+            "e_smart_load2_today_l1": "smart_load2_l1",
+            "e_smart_load2_today_l2": "smart_load2_l2",
+            "e_smart_load3_today_l1": "smart_load3_l1",
+            "e_smart_load3_today_l2": "smart_load3_l2",
+            "e_smart_load4_today_l1": "smart_load4_l1",
+            "e_smart_load4_today_l2": "smart_load4_l2",
+            # Smart Load Energy sensors (lifetime/total)
+            "e_smart_load1_total_l1": "smart_load1_lifetime_l1",
+            "e_smart_load1_total_l2": "smart_load1_lifetime_l2",
+            "e_smart_load2_total_l1": "smart_load2_lifetime_l1",
+            "e_smart_load2_total_l2": "smart_load2_lifetime_l2",
+            "e_smart_load3_total_l1": "smart_load3_lifetime_l1",
+            "e_smart_load3_total_l2": "smart_load3_lifetime_l2",
+            "e_smart_load4_total_l1": "smart_load4_lifetime_l1",
+            "e_smart_load4_total_l2": "smart_load4_lifetime_l2",
         }
 
     @staticmethod
@@ -1157,6 +1215,60 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 l1_val = _safe_numeric(sensors[l1_key])
                 l2_val = _safe_numeric(sensors[l2_key])
                 sensors[f"ac_couple{port}_total"] = l1_val + l2_val
+
+        # Calculate UPS consumption aggregates (today)
+        if "ups_l1" in sensors and "ups_l2" in sensors:
+            ups_l1 = _safe_numeric(sensors["ups_l1"])
+            ups_l2 = _safe_numeric(sensors["ups_l2"])
+            sensors["ups_consumption"] = ups_l1 + ups_l2
+
+        # Calculate UPS consumption aggregates (lifetime)
+        if "ups_lifetime_l1" in sensors and "ups_lifetime_l2" in sensors:
+            ups_l1 = _safe_numeric(sensors["ups_lifetime_l1"])
+            ups_l2 = _safe_numeric(sensors["ups_lifetime_l2"])
+            sensors["ups_consumption_lifetime"] = ups_l1 + ups_l2
+
+        # Calculate Load energy aggregates (today)
+        if "load_l1" in sensors and "load_l2" in sensors:
+            load_l1 = _safe_numeric(sensors["load_l1"])
+            load_l2 = _safe_numeric(sensors["load_l2"])
+            sensors["load"] = load_l1 + load_l2
+
+        # Calculate Load energy aggregates (lifetime)
+        if "load_lifetime_l1" in sensors and "load_lifetime_l2" in sensors:
+            load_l1 = _safe_numeric(sensors["load_lifetime_l1"])
+            load_l2 = _safe_numeric(sensors["load_lifetime_l2"])
+            sensors["load_lifetime"] = load_l1 + load_l2
+
+        # Calculate Grid Import aggregates (today)
+        if "grid_import_l1" in sensors and "grid_import_l2" in sensors:
+            import_l1 = _safe_numeric(sensors["grid_import_l1"])
+            import_l2 = _safe_numeric(sensors["grid_import_l2"])
+            sensors["grid_import"] = import_l1 + import_l2
+
+        # Calculate Grid Import aggregates (lifetime)
+        if (
+            "grid_import_lifetime_l1" in sensors
+            and "grid_import_lifetime_l2" in sensors
+        ):
+            import_l1 = _safe_numeric(sensors["grid_import_lifetime_l1"])
+            import_l2 = _safe_numeric(sensors["grid_import_lifetime_l2"])
+            sensors["grid_import_lifetime"] = import_l1 + import_l2
+
+        # Calculate Grid Export aggregates (today)
+        if "grid_export_l1" in sensors and "grid_export_l2" in sensors:
+            export_l1 = _safe_numeric(sensors["grid_export_l1"])
+            export_l2 = _safe_numeric(sensors["grid_export_l2"])
+            sensors["grid_export"] = export_l1 + export_l2
+
+        # Calculate Grid Export aggregates (lifetime)
+        if (
+            "grid_export_lifetime_l1" in sensors
+            and "grid_export_lifetime_l2" in sensors
+        ):
+            export_l1 = _safe_numeric(sensors["grid_export_lifetime_l1"])
+            export_l2 = _safe_numeric(sensors["grid_export_lifetime_l2"])
+            sensors["grid_export_lifetime"] = export_l1 + export_l2
 
     # PRESERVED HELPER METHODS - Keep exact entity ID generation logic
 
@@ -1228,10 +1340,20 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> DeviceInfo | None:
         """Get device information for a specific battery."""
         if not self.data or "devices" not in self.data:
+            _LOGGER.debug(
+                "get_battery_device_info(%s, %s): No data available",
+                serial,
+                battery_key,
+            )
             return None
 
         device_data = self.data["devices"].get(serial)
         if not device_data or battery_key not in device_data.get("batteries", {}):
+            _LOGGER.debug(
+                "get_battery_device_info(%s, %s): Device or battery not found",
+                serial,
+                battery_key,
+            )
             return None
 
         # Get battery-specific data for firmware version and model
@@ -1252,35 +1374,55 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         model = bms_model or battery_model_name or battery_type_text or "Battery Module"
 
         _LOGGER.debug(
-            f"Battery {battery_key} model selection: bms_model={bms_model}, "
-            f"battery_model={battery_model_name}, type_text={battery_type_text}, final_model={model}"
+            "Battery %s model selection: bms_model=%s, battery_model=%s, "
+            "type_text=%s, final_model=%s",
+            battery_key,
+            bms_model,
+            battery_model_name,
+            battery_type_text,
+            model,
         )
-
-        # Get inverter model for naming
-        inverter_model = device_data.get("model", "Unknown")
 
         # Use cleaned battery name for display
         clean_battery_name = clean_battery_display_name(battery_key, serial)
 
-        return {
-            "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
-            "name": f"{inverter_model} Battery {clean_battery_name}",
+        battery_bank_identifier = f"{serial}_battery_bank"
+
+        # battery_key already includes serial (e.g., "4512670118-01")
+        # so use it directly as the identifier
+        device_info = {
+            "identifiers": {(DOMAIN, battery_key)},
+            "name": f"Battery {clean_battery_name}",
             "manufacturer": "EG4 Electronics",
             "model": model,
             "sw_version": battery_firmware,
             "via_device": (
                 DOMAIN,
-                f"{serial}_battery_bank",
+                battery_bank_identifier,
             ),  # Link battery to battery bank
         }
+
+        _LOGGER.debug(
+            "Created battery device_info for %s: name='%s', model='%s', "
+            "identifier='%s', via_device=%s",
+            battery_key,
+            device_info["name"],
+            model,
+            battery_key,
+            battery_bank_identifier,
+        )
+
+        return device_info
 
     def get_battery_bank_device_info(self, serial: str) -> DeviceInfo | None:
         """Get device information for battery bank (aggregate of all batteries)."""
         if not self.data or "devices" not in self.data:
+            _LOGGER.debug("get_battery_bank_device_info(%s): No data available", serial)
             return None
 
         device_data = self.data["devices"].get(serial)
         if not device_data:
+            _LOGGER.debug("get_battery_bank_device_info(%s): Device not found", serial)
             return None
 
         # Get battery bank data from device sensors
@@ -1289,18 +1431,33 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Only create battery bank device if there are batteries
         if battery_count == 0:
+            _LOGGER.debug(
+                "get_battery_bank_device_info(%s): No batteries (count=0)", serial
+            )
             return None
 
         # Get inverter model for naming
         model = device_data.get("model", "Unknown")
 
-        return {
+        device_info = {
             "identifiers": {(DOMAIN, f"{serial}_battery_bank")},
             "name": f"Battery Bank {serial}",
             "manufacturer": "EG4 Electronics",
             "model": f"{model} Battery Bank",
             "via_device": (DOMAIN, serial),  # Link battery bank to its parent inverter
         }
+
+        _LOGGER.debug(
+            "Created battery_bank device_info for %s: name='%s', model='%s', "
+            "battery_count=%d, via_device=%s",
+            serial,
+            device_info["name"],
+            device_info["model"],
+            battery_count,
+            serial,
+        )
+
+        return device_info
 
     def get_station_device_info(self) -> DeviceInfo | None:
         """Get device information for the station/plant."""
@@ -1344,6 +1501,67 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return cast(Battery, battery)
 
         return None
+
+    def _get_device_object(self, serial: str) -> BaseInverter | None:
+        """Get device object (inverter or MID device) by serial number.
+
+        Used by Update platform to get device objects for firmware updates.
+        """
+        if not self.station:
+            return None
+
+        # Check inverters
+        for inverter in self.station.all_inverters:
+            if inverter.serial_number == serial:
+                return inverter
+
+        # Check MID devices (accessed via parallel groups)
+        if hasattr(self.station, "parallel_groups"):
+            for group in self.station.parallel_groups:
+                if hasattr(group, "mid_device") and group.mid_device:
+                    if group.mid_device.serial_number == serial:
+                        return group.mid_device
+
+        return None
+
+    def _extract_firmware_update_info(
+        self, device: BaseInverter
+    ) -> dict[str, Any] | None:
+        """Extract firmware update information from device object.
+
+        Args:
+            device: Inverter or MID device object with FirmwareUpdateMixin
+
+        Returns:
+            Dictionary with firmware update info or None if no update available
+        """
+        if not hasattr(device, "firmware_update_available"):
+            return None
+
+        # Only return update info if an update is actually available
+        if not device.firmware_update_available:
+            return None
+
+        # Use public properties from pylxpweb 0.3.8+
+        # pylxpweb 0.3.10+ provides synchronous progress properties on all FirmwareUpdateMixin devices
+        update_info = {
+            "latest_version": device.latest_firmware_version,
+            "title": device.firmware_update_title,
+            "release_summary": device.firmware_update_summary,
+            "release_url": device.firmware_update_url,
+            "in_progress": False,  # Default to False
+            "update_percentage": None,  # Default to None
+        }
+
+        # Add progress info if available (pylxpweb 0.3.10+)
+        # These are now synchronous properties available on both inverters and MIDDevice
+        if hasattr(device, "firmware_update_in_progress"):
+            update_info["in_progress"] = device.firmware_update_in_progress
+
+        if hasattr(device, "firmware_update_percentage"):
+            update_info["update_percentage"] = device.firmware_update_percentage
+
+        return update_info
 
     # PRESERVED PARAMETER REFRESH METHODS
 
@@ -1484,26 +1702,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Store parameters - inverter.parameters should be a dict
                 self.data["parameters"][serial] = inverter.parameters
 
-                # Debug: Log some key working mode parameters
-                working_mode_keys = [
-                    "FUNC_FORCED_CHG_EN",
-                    "FUNC_AC_CHARGE",
-                    "FUNC_FORCED_DISCHG_EN",
-                    "FUNC_GRID_PEAK_SHAVING",
-                    "FUNC_BATTERY_BACKUP_CTRL",
-                ]
-                working_mode_values = {
-                    k: inverter.parameters.get(k, "NOT_FOUND")
-                    for k in working_mode_keys
-                }
-                _LOGGER.debug(
-                    f"Refreshed parameters for device {serial}: "
-                    f"{len(inverter.parameters)} parameters loaded. "
-                    f"Working modes: {working_mode_values}"
-                )
+                # Parameters refreshed successfully (routine operation - no logging needed)
             else:
                 _LOGGER.warning(
-                    f"Inverter {serial} has no parameters attribute or empty parameters"
+                    "Inverter %s has no parameters attribute or empty parameters",
+                    serial,
                 )
 
         except Exception as e:

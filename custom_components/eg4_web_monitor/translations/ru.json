@@ -8,13 +8,17 @@
           "username": "Имя пользователя",
           "password": "Пароль",
           "base_url": "Базовый URL",
-          "verify_ssl": "Проверять SSL-сертификат"
+          "verify_ssl": "Проверять SSL-сертификат",
+          "dst_sync": "Синхронизация DST",
+          "library_debug": "Отладочное логирование библиотеки"
         },
         "data_description": {
           "username": "Ваше имя пользователя учетной записи EG4 Web Monitor",
           "password": "Ваш пароль учетной записи EG4 Web Monitor",
           "base_url": "Базовый URL для API EG4 Web Monitor",
-          "verify_ssl": "Включить проверку SSL-сертификата для безопасных соединений"
+          "verify_ssl": "Включить проверку SSL-сертификата для безопасных соединений",
+          "dst_sync": "Автоматически синхронизировать настройки летнего времени с вашим инвертором на основе часового пояса Home Assistant",
+          "library_debug": "Включить отладочное логирование для библиотеки pylxpweb (показывает API запросы, ответы и внутренние операции библиотеки)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Имя пользователя",
           "password": "Пароль",
           "base_url": "Базовый URL",
-          "verify_ssl": "Проверять SSL-сертификат"
+          "verify_ssl": "Проверять SSL-сертификат",
+          "dst_sync": "Синхронизация DST",
+          "library_debug": "Отладочное логирование библиотеки"
         },
         "data_description": {
           "username": "Ваше имя пользователя учетной записи EG4 Web Monitor",
           "password": "Ваш пароль учетной записи EG4 Web Monitor",
           "base_url": "Базовый URL для API EG4 Web Monitor",
-          "verify_ssl": "Включить проверку SSL-сертификата для безопасных соединений"
+          "verify_ssl": "Включить проверку SSL-сертификата для безопасных соединений",
+          "dst_sync": "Автоматически синхронизировать настройки летнего времени с вашим инвертором на основе часового пояса Home Assistant",
+          "library_debug": "Включить отладочное логирование для библиотеки pylxpweb (показывает API запросы, ответы и внутренние операции библиотеки)"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "Мощность переменного тока"},
-      "ac_voltage": {"name": "Напряжение переменного тока"},
-      "ac_current": {"name": "Ток переменный"},
-      "frequency": {"name": "Частота"},
-      "dc_power": {"name": "Мощность постоянного тока"},
-      "dc_voltage": {"name": "Напряжение постоянного тока"},
-      "dc_current": {"name": "Ток постоянный"},
-      "battery_power": {"name": "Мощность батареи"},
-      "battery_voltage": {"name": "Напряжение батареи"},
-      "battery_current": {"name": "Ток батареи"},
-      "state_of_charge": {"name": "Уровень заряда"},
-      "state_of_health": {"name": "Состояние здоровья"},
-      "total_energy": {"name": "Общая энергия"},
-      "daily_energy": {"name": "Дневная энергия"},
-      "monthly_energy": {"name": "Месячная энергия"},
-      "yearly_energy": {"name": "Годовая энергия"},
-      "internal_temperature": {"name": "Внутренняя температура"},
-      "radiator1_temperature": {"name": "Температура радиатора 1"},
-      "radiator2_temperature": {"name": "Температура радиатора 2"},
-      "status_code": {"name": "Код состояния"},
-      "status_text": {"name": "Состояние"},
-      "grid_power": {"name": "Мощность сети"},
-      "load_power": {"name": "Мощность нагрузки"},
-      "consumption_power": {"name": "Мощность потребления"},
-      "pv_total_power": {"name": "Общая мощность PV"},
-      "pv1_power": {"name": "Мощность PV1"},
-      "pv2_power": {"name": "Мощность PV2"},
-      "pv3_power": {"name": "Мощность PV3"},
-      "cell_voltage_max": {"name": "Максимальное напряжение ячейки"},
-      "cell_voltage_min": {"name": "Минимальное напряжение ячейки"},
-      "cell_voltage_delta": {"name": "Разница напряжений ячеек"},
-      "cycle_count": {"name": "Количество циклов"},
-      "firmware_version": {"name": "Версия прошивки"}
+      "ac_power": {
+        "name": "Мощность переменного тока"
+      },
+      "ac_voltage": {
+        "name": "Напряжение переменного тока"
+      },
+      "ac_current": {
+        "name": "Ток переменный"
+      },
+      "frequency": {
+        "name": "Частота"
+      },
+      "dc_power": {
+        "name": "Мощность постоянного тока"
+      },
+      "dc_voltage": {
+        "name": "Напряжение постоянного тока"
+      },
+      "dc_current": {
+        "name": "Ток постоянный"
+      },
+      "battery_power": {
+        "name": "Мощность батареи"
+      },
+      "battery_voltage": {
+        "name": "Напряжение батареи"
+      },
+      "battery_current": {
+        "name": "Ток батареи"
+      },
+      "state_of_charge": {
+        "name": "Уровень заряда"
+      },
+      "state_of_health": {
+        "name": "Состояние здоровья"
+      },
+      "total_energy": {
+        "name": "Общая энергия"
+      },
+      "daily_energy": {
+        "name": "Дневная энергия"
+      },
+      "monthly_energy": {
+        "name": "Месячная энергия"
+      },
+      "yearly_energy": {
+        "name": "Годовая энергия"
+      },
+      "internal_temperature": {
+        "name": "Внутренняя температура"
+      },
+      "radiator1_temperature": {
+        "name": "Температура радиатора 1"
+      },
+      "radiator2_temperature": {
+        "name": "Температура радиатора 2"
+      },
+      "status_code": {
+        "name": "Код состояния"
+      },
+      "status_text": {
+        "name": "Состояние"
+      },
+      "grid_power": {
+        "name": "Мощность сети"
+      },
+      "load_power": {
+        "name": "Мощность нагрузки"
+      },
+      "consumption_power": {
+        "name": "Мощность потребления"
+      },
+      "pv_total_power": {
+        "name": "Общая мощность PV"
+      },
+      "pv1_power": {
+        "name": "Мощность PV1"
+      },
+      "pv2_power": {
+        "name": "Мощность PV2"
+      },
+      "pv3_power": {
+        "name": "Мощность PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Максимальное напряжение ячейки"
+      },
+      "cell_voltage_min": {
+        "name": "Минимальное напряжение ячейки"
+      },
+      "cell_voltage_delta": {
+        "name": "Разница напряжений ячеек"
+      },
+      "cycle_count": {
+        "name": "Количество циклов"
+      },
+      "firmware_version": {
+        "name": "Версия прошивки"
+      }
     },
     "switch": {
       "quick_charge": {

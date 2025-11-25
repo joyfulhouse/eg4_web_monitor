@@ -8,13 +8,17 @@
           "username": "Gebruikersnaam",
           "password": "Wachtwoord",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-certificaat verifiëren"
+          "verify_ssl": "SSL-certificaat verifiëren",
+          "dst_sync": "DST-synchronisatie",
+          "library_debug": "Bibliotheek debug-logging"
         },
         "data_description": {
           "username": "Je EG4 Web Monitor account gebruikersnaam",
           "password": "Je EG4 Web Monitor account wachtwoord",
           "base_url": "De basis-URL voor de EG4 Web Monitor API",
-          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen"
+          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen",
+          "dst_sync": "Synchroniseer automatisch zomertijdinstellingen met je omvormer op basis van je Home Assistant-tijdzone",
+          "library_debug": "Schakel DEBUG-logging in voor de pylxpweb-bibliotheek (toont API-verzoeken, antwoorden en interne bibliotheekbewerkingen)"
         }
       },
       "plant": {
@@ -46,13 +50,17 @@
           "username": "Gebruikersnaam",
           "password": "Wachtwoord",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-certificaat verifiëren"
+          "verify_ssl": "SSL-certificaat verifiëren",
+          "dst_sync": "DST-synchronisatie",
+          "library_debug": "Bibliotheek debug-logging"
         },
         "data_description": {
           "username": "Je EG4 Web Monitor account gebruikersnaam",
           "password": "Je EG4 Web Monitor account wachtwoord",
           "base_url": "De basis-URL voor de EG4 Web Monitor API",
-          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen"
+          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen",
+          "dst_sync": "Synchroniseer automatisch zomertijdinstellingen met je omvormer op basis van je Home Assistant-tijdzone",
+          "library_debug": "Schakel DEBUG-logging in voor de pylxpweb-bibliotheek (toont API-verzoeken, antwoorden en interne bibliotheekbewerkingen)"
         }
       },
       "reconfigure_plant": {
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "AC-vermogen"},
-      "ac_voltage": {"name": "AC-spanning"},
-      "ac_current": {"name": "AC-stroom"},
-      "frequency": {"name": "Frequentie"},
-      "dc_power": {"name": "DC-vermogen"},
-      "dc_voltage": {"name": "DC-spanning"},
-      "dc_current": {"name": "DC-stroom"},
-      "battery_power": {"name": "Batterijvermogen"},
-      "battery_voltage": {"name": "Batterijspanning"},
-      "battery_current": {"name": "Batterijstroom"},
-      "state_of_charge": {"name": "Laadtoestand"},
-      "state_of_health": {"name": "Gezondheidstoestand"},
-      "total_energy": {"name": "Totale energie"},
-      "daily_energy": {"name": "Dagelijkse energie"},
-      "monthly_energy": {"name": "Maandelijkse energie"},
-      "yearly_energy": {"name": "Jaarlijkse energie"},
-      "internal_temperature": {"name": "Interne temperatuur"},
-      "radiator1_temperature": {"name": "Radiator 1 temperatuur"},
-      "radiator2_temperature": {"name": "Radiator 2 temperatuur"},
-      "status_code": {"name": "Statuscode"},
-      "status_text": {"name": "Status"},
-      "grid_power": {"name": "Netvermogen"},
-      "load_power": {"name": "Belastingsvermogen"},
-      "consumption_power": {"name": "Verbruiksvermogen"},
-      "pv_total_power": {"name": "Totaal PV-vermogen"},
-      "pv1_power": {"name": "PV1-vermogen"},
-      "pv2_power": {"name": "PV2-vermogen"},
-      "pv3_power": {"name": "PV3-vermogen"},
-      "cell_voltage_max": {"name": "Maximale celspanning"},
-      "cell_voltage_min": {"name": "Minimale celspanning"},
-      "cell_voltage_delta": {"name": "Celspanning delta"},
-      "cycle_count": {"name": "Aantal cycli"},
-      "firmware_version": {"name": "Firmwareversie"}
+      "ac_power": {
+        "name": "AC-vermogen"
+      },
+      "ac_voltage": {
+        "name": "AC-spanning"
+      },
+      "ac_current": {
+        "name": "AC-stroom"
+      },
+      "frequency": {
+        "name": "Frequentie"
+      },
+      "dc_power": {
+        "name": "DC-vermogen"
+      },
+      "dc_voltage": {
+        "name": "DC-spanning"
+      },
+      "dc_current": {
+        "name": "DC-stroom"
+      },
+      "battery_power": {
+        "name": "Batterijvermogen"
+      },
+      "battery_voltage": {
+        "name": "Batterijspanning"
+      },
+      "battery_current": {
+        "name": "Batterijstroom"
+      },
+      "state_of_charge": {
+        "name": "Laadtoestand"
+      },
+      "state_of_health": {
+        "name": "Gezondheidstoestand"
+      },
+      "total_energy": {
+        "name": "Totale energie"
+      },
+      "daily_energy": {
+        "name": "Dagelijkse energie"
+      },
+      "monthly_energy": {
+        "name": "Maandelijkse energie"
+      },
+      "yearly_energy": {
+        "name": "Jaarlijkse energie"
+      },
+      "internal_temperature": {
+        "name": "Interne temperatuur"
+      },
+      "radiator1_temperature": {
+        "name": "Radiator 1 temperatuur"
+      },
+      "radiator2_temperature": {
+        "name": "Radiator 2 temperatuur"
+      },
+      "status_code": {
+        "name": "Statuscode"
+      },
+      "status_text": {
+        "name": "Status"
+      },
+      "grid_power": {
+        "name": "Netvermogen"
+      },
+      "load_power": {
+        "name": "Belastingsvermogen"
+      },
+      "consumption_power": {
+        "name": "Verbruiksvermogen"
+      },
+      "pv_total_power": {
+        "name": "Totaal PV-vermogen"
+      },
+      "pv1_power": {
+        "name": "PV1-vermogen"
+      },
+      "pv2_power": {
+        "name": "PV2-vermogen"
+      },
+      "pv3_power": {
+        "name": "PV3-vermogen"
+      },
+      "cell_voltage_max": {
+        "name": "Maximale celspanning"
+      },
+      "cell_voltage_min": {
+        "name": "Minimale celspanning"
+      },
+      "cell_voltage_delta": {
+        "name": "Celspanning delta"
+      },
+      "cycle_count": {
+        "name": "Aantal cycli"
+      },
+      "firmware_version": {
+        "name": "Firmwareversie"
+      }
     },
     "switch": {
       "quick_charge": {
