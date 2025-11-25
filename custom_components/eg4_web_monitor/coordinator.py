@@ -773,7 +773,6 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "capacity_percent": "battery_capacity_percentage",
             # Current limits
             "charge_max_current": "battery_max_charge_current",
-            "max_battery_charge": "battery_max_discharge_current",
             "charge_voltage_ref": "battery_charge_voltage_ref",
             # Lifecycle
             "cycle_count": "cycle_count",

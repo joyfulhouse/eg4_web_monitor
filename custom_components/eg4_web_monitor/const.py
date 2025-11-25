@@ -582,13 +582,6 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:current-dc",
     },
-    "battery_max_discharge_current": {
-        "name": "Max Discharge Current",
-        "unit": UnitOfElectricCurrent.AMPERE,
-        "device_class": "current",
-        "state_class": "measurement",
-        "icon": "mdi:current-dc",
-    },
     "battery_max_cell_temp_num": {
         "name": "Max Temp Cell Number",
         "icon": "mdi:numeric",
