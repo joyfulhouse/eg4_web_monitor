@@ -790,31 +790,39 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _calculate_battery_derived_sensors(sensors: dict[str, Any]) -> None:
         """Calculate derived battery sensors from raw sensor data.
 
+        Only calculates values if not already provided by the library.
+        pylxpweb provides capacity_percent and cell_voltage_delta directly,
+        so these calculations are fallbacks for older library versions.
+
         Modifies the sensors dictionary in place to add calculated values.
 
         Args:
             sensors: Dictionary of sensor values to modify
         """
-        # Calculate cell voltage difference if min/max available
+        # Calculate cell voltage difference only if not provided by library
         if (
-            "battery_cell_voltage_max" in sensors
+            "battery_cell_voltage_diff" not in sensors
+            and "battery_cell_voltage_max" in sensors
             and "battery_cell_voltage_min" in sensors
         ):
-            sensors["battery_cell_voltage_diff"] = (
+            sensors["battery_cell_voltage_diff"] = round(
                 sensors["battery_cell_voltage_max"]
-                - sensors["battery_cell_voltage_min"]
+                - sensors["battery_cell_voltage_min"],
+                3,
             )
 
-        # Calculate capacity percentage if remaining and full capacity available
+        # Calculate capacity percentage only if not provided by library
         if (
-            "battery_remaining_capacity" in sensors
+            "battery_capacity_percentage" not in sensors
+            and "battery_remaining_capacity" in sensors
             and "battery_full_capacity" in sensors
             and sensors["battery_full_capacity"] > 0
         ):
-            sensors["battery_capacity_percentage"] = (
+            sensors["battery_capacity_percentage"] = round(
                 sensors["battery_remaining_capacity"]
                 / sensors["battery_full_capacity"]
-                * 100
+                * 100,
+                1,
             )
 
     def _extract_battery_bank_from_object(self, battery_bank: Any) -> dict[str, Any]:
