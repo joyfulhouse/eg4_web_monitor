@@ -39,11 +39,12 @@ This directory contains technical documentation, API references, and implementat
 - Troubleshooting: Check integration logs and [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
 
 ### For Developers
-- API client: `eg4_inverter_api/client.py`
-- Coordinator: `coordinator.py`
-- Entity platforms: `sensor.py`, `switch.py`, `button.py`, etc.
-- Constants: `const.py`
-- Type definitions: See inline type hints throughout codebase
+- API client: `pylxpweb` library (external dependency)
+- Coordinator: `coordinator.py` with mixins in `coordinator_mixins.py`
+- Base entity classes: `base_entity.py` (EG4DeviceEntity, EG4BatteryEntity, EG4StationEntity, EG4BaseSwitch)
+- Entity platforms: `sensor.py`, `switch.py`, `button.py`, `number.py`, `select.py`
+- Constants and TypedDicts: `const.py` (SensorConfig, SENSOR_TYPES, etc.)
+- Utility functions: `utils.py` (entity ID generation, device info creation, CircuitBreaker)
 
 ## 🤝 Contributing
 

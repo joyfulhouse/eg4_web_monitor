@@ -173,6 +173,29 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.0.0-beta.7 - November 2025: Architecture Refactor & Code Quality
+Major refactoring release introducing base classes and mixins for better code organization:
+
+**Architecture Improvements:**
+- New `EG4BaseSwitch` base class eliminates ~40% code duplication in switch platform
+- Coordinator logic split into focused mixins in `coordinator_mixins.py`:
+  - `DeviceProcessingMixin`: Device data processing and property mapping
+  - `DeviceInfoMixin`: Device info retrieval for all device types
+  - `ParameterManagementMixin`: Parameter refresh operations
+  - `DSTSyncMixin`: Daylight saving time synchronization
+  - `BackgroundTaskMixin`: Background task management
+  - `FirmwareUpdateMixin`: Firmware update info extraction
+- Added `SensorConfig` TypedDict for type-safe sensor configuration
+- Added `optimistic_state_context()` for clean switch state management
+
+**Dependency Updates:**
+- pylxpweb 0.3.18: Removed monotonic enforcement for energy sensors (now handled by HA's TOTAL_INCREASING)
+
+**Bug Fixes:**
+- Fixed deprecated `asyncio.get_event_loop()` usage (now uses `time.monotonic()`)
+- Fixed `DeviceInfo` return type inconsistencies
+- Removed unused parameters from utility functions
+
 ### v2.2.4 - November 2025: AC Charge Power Decimal Support
 - AC Charge Power number entity supports decimal values (0.1 kW increments)
 - Updated precision to 1 decimal place
@@ -291,7 +314,7 @@ mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 # 4. Run ruff linting on integration files
 ruff check custom_components/ --fix && ruff format custom_components/
 
-# 5. Verify all 301 tests pass with no teardown errors
+# 5. Verify all 127 tests pass with no teardown errors
 # 6. Only push to GitHub after all local validations pass
 ```
 
@@ -425,6 +448,9 @@ docker-compose logs -f homeassistant | grep eg4_web_monitor
 3. Type hints throughout codebase
 4. Smart caching to minimize API calls
 5. Test coverage for all features in CI pipeline
+6. Use `time.monotonic()` instead of deprecated `asyncio.get_event_loop().time()`
+7. TypedDict for configuration dictionaries (e.g., `SensorConfig` in `const.py`)
+8. Proper `DeviceInfo | None` return types for device info methods
 
 ### String Formatting Conventions
 **This integration follows Python string formatting best practices:**
@@ -459,8 +485,52 @@ The integration provides base entity classes in `base_entity.py` to eliminate co
 - `EG4DeviceEntity`: Base for all device entities (inverters, GridBOSS, parallel groups)
 - `EG4BatteryEntity`: Base for individual battery entities
 - `EG4StationEntity`: Base for station/plant level entities
+- `EG4BaseSwitch`: Base for all switch entities with optimistic state management
+- `EG4BaseSensor`: Base for device sensors with monotonic value support
+- `EG4BatteryBankSensor`: Base for battery bank aggregate sensors
 
 All new entity classes should inherit from these base classes to maintain consistency.
+
+**Coordinator Mixins** (`coordinator_mixins.py`):
+The coordinator uses a mixin-based architecture for better separation of concerns:
+```python
+class EG4DataUpdateCoordinator(
+    DeviceProcessingMixin,
+    DeviceInfoMixin,
+    ParameterManagementMixin,
+    DSTSyncMixin,
+    BackgroundTaskMixin,
+    FirmwareUpdateMixin,
+    DataUpdateCoordinator,
+):
+```
+
+Each mixin handles a specific responsibility:
+- `DeviceProcessingMixin`: Processes device objects and maps properties to sensors
+- `DeviceInfoMixin`: Provides `get_device_info()`, `get_battery_device_info()`, etc.
+- `ParameterManagementMixin`: Handles parameter refresh operations
+- `DSTSyncMixin`: Manages daylight saving time synchronization
+- `BackgroundTaskMixin`: Manages background task lifecycle
+- `FirmwareUpdateMixin`: Extracts firmware update information
+
+**Switch Base Class Pattern**:
+The `EG4BaseSwitch` class provides:
+- Common entity attributes setup (name, icon, unique_id, entity_id)
+- Device data and parameter data helper properties (`_device_data`, `_parameter_data`)
+- Optimistic state management for immediate UI feedback
+- `_execute_switch_action()` helper for standardized switch operations
+- `_get_inverter_or_raise()` helper for inverter object retrieval
+
+```python
+class EG4QuickChargeSwitch(EG4BaseSwitch):
+    async def async_turn_on(self, **kwargs):
+        await self._execute_switch_action(
+            action_name="quick charge",
+            enable_method="enable_quick_charge",
+            disable_method="disable_quick_charge",
+            turn_on=True,
+        )
+```
 
 ## Troubleshooting
 

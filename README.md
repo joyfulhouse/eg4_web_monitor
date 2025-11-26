@@ -140,14 +140,24 @@ The reconfiguration process won't lose any of your existing automations or dashb
 ### Switches
 - **Quick Charge**: Start/stop battery quick charging
 - **Battery Backup (EPS)**: Enable/disable emergency power supply mode
+- **Daylight Saving Time**: Enable/disable DST for station time synchronization
+- **Working Mode Switches**:
+  - **AC Charge Mode**: Enable/disable AC charging from grid
+  - **PV Charge Priority**: Enable/disable solar charging priority
+  - **Forced Discharge**: Enable/disable forced battery discharge
+  - **Peak Shaving Mode**: Enable/disable grid peak shaving
+  - **Battery Backup Control**: Enable/disable battery backup controller
 
 ### Selects
 - **Operating Mode**: Switch between Normal and Standby modes
 
 ### Numbers
 - **System Charge SOC Limit**: Set battery charge limit (%)
-- **AC Charge Power**: Configure AC charging power
+- **AC Charge Power**: Configure AC charging power (0.1 kW increments)
 - **PV Charge Power**: Configure PV charging power
+- **Grid Peak Shaving Power**: Configure peak shaving power limit
+- **Battery Charge Current**: Configure battery charging current
+- **Battery Discharge Current**: Configure battery discharging current
 
 ### Buttons
 - **Refresh Data**: Force refresh for devices and batteries
@@ -199,11 +209,21 @@ sensor.gridboss_5555555555_grid_power_l1
 sensor.gridboss_5555555555_load_power
 sensor.gridboss_5555555555_smart_port1_status
 
-# Controls
+# Basic controls
 switch.18kpv_1234567890_quick_charge
 switch.18kpv_1234567890_battery_backup
 select.18kpv_1234567890_operating_mode
 number.18kpv_1234567890_system_charge_soc_limit
+
+# Working mode switches
+switch.18kpv_1234567890_ac_charge
+switch.18kpv_1234567890_forced_chg_en
+switch.18kpv_1234567890_forced_dischg_en
+switch.18kpv_1234567890_grid_peak_shaving
+switch.18kpv_1234567890_battery_backup_ctrl
+
+# Station controls
+switch.eg4_station_daylight_saving_time
 ```
 
 ## Supported Devices
