@@ -925,7 +925,7 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if hasattr(group, "name") and group.name
             else "Parallel Group",
             "type": "parallel_group",
-            "model": "Parallel Group",  # Model is always just "Parallel Group"
+            "model": "Parallel Group",
             "sensors": {},
             "binary_sensors": {},
         }
@@ -1292,8 +1292,11 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         model = device_data.get("model", "Unknown")
         device_type = device_data.get("type", "unknown")
 
-        # Use just the model name for parallel groups, include serial for normal devices
-        device_name = model if device_type == "parallel_group" else f"{model} {serial}"
+        # Use the name field for parallel groups (includes letter), include serial for normal devices
+        if device_type == "parallel_group":
+            device_name = device_data.get("name", model)
+        else:
+            device_name = f"{model} {serial}"
 
         device_info = {
             "identifiers": {(DOMAIN, serial)},

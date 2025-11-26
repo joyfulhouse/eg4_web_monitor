@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -126,7 +126,7 @@ class TestCoordinatorDataFetching:
             "custom_components.eg4_web_monitor.coordinator.Station.load",
             new=AsyncMock(return_value=mock_station_object),
         ):
-            data = await coordinator._async_update_data()
+            await coordinator._async_update_data()
 
             # Verify Station.load was called
             assert coordinator.station is not None
@@ -141,7 +141,7 @@ class TestCoordinatorDataFetching:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.station = mock_station_object
 
-        data = await coordinator._async_update_data()
+        await coordinator._async_update_data()
 
         # Verify refresh_all_data was called (not load)
         mock_station_object.refresh_all_data.assert_called()
@@ -250,9 +250,7 @@ class TestParameterRefresh:
         # Set last refresh to more than 1 hour ago
         coordinator._last_parameter_refresh = dt_util.utcnow() - timedelta(hours=2)
 
-        with patch.object(
-            coordinator, "_hourly_parameter_refresh", new=AsyncMock()
-        ) as mock_refresh:
+        with patch.object(coordinator, "_hourly_parameter_refresh", new=AsyncMock()):
             await coordinator._async_update_data()
 
             # Verify refresh task was created (can't directly assert on task creation)
@@ -294,3 +292,138 @@ class TestCoordinatorCleanup:
         # Verify client has close method
         assert hasattr(coordinator.client, "close")
         assert callable(coordinator.client.close)
+
+
+class TestDeviceInfo:
+    """Test device info generation methods."""
+
+    async def test_parallel_group_device_name_includes_letter(
+        self, hass, mock_config_entry
+    ):
+        """Test parallel group device name includes the group letter."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "parallel_group_INV001": {
+                    "type": "parallel_group",
+                    "name": "Parallel Group A",
+                    "model": "Parallel Group",
+                }
+            }
+        }
+
+        device_info = coordinator.get_device_info("parallel_group_INV001")
+
+        assert device_info is not None
+        assert device_info["name"] == "Parallel Group A"
+        assert device_info["model"] == "Parallel Group"
+
+    async def test_parallel_group_device_name_fallback(self, hass, mock_config_entry):
+        """Test parallel group device name falls back to model when name missing."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "parallel_group_INV001": {
+                    "type": "parallel_group",
+                    "model": "Parallel Group",
+                    # No "name" field
+                }
+            }
+        }
+
+        device_info = coordinator.get_device_info("parallel_group_INV001")
+
+        assert device_info is not None
+        assert device_info["name"] == "Parallel Group"
+        assert device_info["model"] == "Parallel Group"
+
+    async def test_parallel_group_multiple_groups_distinct_names(
+        self, hass, mock_config_entry
+    ):
+        """Test multiple parallel groups have distinct names."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "parallel_group_INV001": {
+                    "type": "parallel_group",
+                    "name": "Parallel Group A",
+                    "model": "Parallel Group",
+                },
+                "parallel_group_INV002": {
+                    "type": "parallel_group",
+                    "name": "Parallel Group B",
+                    "model": "Parallel Group",
+                },
+            }
+        }
+
+        device_info_a = coordinator.get_device_info("parallel_group_INV001")
+        device_info_b = coordinator.get_device_info("parallel_group_INV002")
+
+        assert device_info_a["name"] == "Parallel Group A"
+        assert device_info_b["name"] == "Parallel Group B"
+        # Both should have the same model
+        assert device_info_a["model"] == "Parallel Group"
+        assert device_info_b["model"] == "Parallel Group"
+
+    async def test_inverter_device_name_includes_serial(self, hass, mock_config_entry):
+        """Test inverter device name includes model and serial."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "1234567890": {
+                    "type": "inverter",
+                    "name": "Test Inverter",
+                    "model": "FlexBOSS 18K",
+                }
+            }
+        }
+
+        device_info = coordinator.get_device_info("1234567890")
+
+        assert device_info is not None
+        assert device_info["name"] == "FlexBOSS 18K 1234567890"
+        assert device_info["model"] == "FlexBOSS 18K"
+        assert device_info["serial_number"] == "1234567890"
+
+    async def test_gridboss_device_name_includes_serial(self, hass, mock_config_entry):
+        """Test GridBOSS device name includes model and serial."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "9876543210": {
+                    "type": "gridboss",
+                    "name": "GridBOSS",
+                    "model": "GridBOSS MID",
+                }
+            }
+        }
+
+        device_info = coordinator.get_device_info("9876543210")
+
+        assert device_info is not None
+        assert device_info["name"] == "GridBOSS MID 9876543210"
+        assert device_info["model"] == "GridBOSS MID"
+        assert device_info["serial_number"] == "9876543210"
+
+    async def test_get_device_info_returns_none_for_missing_device(
+        self, hass, mock_config_entry
+    ):
+        """Test get_device_info returns None for non-existent device."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {}}
+
+        device_info = coordinator.get_device_info("nonexistent")
+
+        assert device_info is None
+
+    async def test_get_device_info_returns_none_when_no_data(
+        self, hass, mock_config_entry
+    ):
+        """Test get_device_info returns None when coordinator has no data."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = None
+
+        device_info = coordinator.get_device_info("1234567890")
+
+        assert device_info is None
