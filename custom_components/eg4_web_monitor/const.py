@@ -1,8 +1,9 @@
 """Constants for the EG4 Web Monitor integration."""
 
-from typing import TYPE_CHECKING
+from typing import TypedDict
 
 from homeassistant.const import (
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
@@ -11,14 +12,28 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 
-if TYPE_CHECKING:
-    from homeassistant.const import EntityCategory
-else:
-    try:
-        from homeassistant.const import EntityCategory  # type: ignore[attr-defined]
-    except ImportError:
-        # Fallback for type checking
-        EntityCategory = None  # type: ignore[assignment, misc]
+
+class SensorConfig(TypedDict, total=False):
+    """TypedDict for sensor configuration.
+
+    Attributes:
+        name: Display name for the sensor
+        unit: Unit of measurement (e.g., UnitOfPower.WATT)
+        device_class: Home Assistant device class (power, energy, voltage, etc.)
+        state_class: Home Assistant state class (measurement, total, total_increasing)
+        icon: MDI icon string (e.g., "mdi:solar-power")
+        entity_category: Entity category (diagnostic, config, etc.)
+        suggested_display_precision: Number of decimal places to display
+    """
+
+    name: str
+    unit: str | None
+    device_class: str | None
+    state_class: str | None
+    icon: str
+    entity_category: EntityCategory | None
+    suggested_display_precision: int
+
 
 # Integration constants
 DOMAIN = "eg4_web_monitor"
@@ -2057,6 +2072,73 @@ STATION_SENSOR_TYPES = {
 BATTERY_KEY_SEPARATOR = "_Battery_ID_"
 BATTERY_KEY_PREFIX = "Battery_ID_"
 BATTERY_KEY_SHORT_PREFIX = "BAT"
+
+# Diagnostic sensor keys - centralized for consistency across platforms
+# These sensor keys are assigned EntityCategory.DIAGNOSTIC
+DIAGNOSTIC_DEVICE_SENSOR_KEYS = frozenset(
+    {
+        "temperature",
+        "cycle_count",
+        "state_of_health",
+        "status_code",
+        "status_text",
+        "internal_temperature",
+        "radiator1_temperature",
+        "radiator2_temperature",
+        "firmware_version",
+        "has_data",
+    }
+)
+
+# Diagnostic battery sensor keys - additional sensors specific to batteries
+DIAGNOSTIC_BATTERY_SENSOR_KEYS = frozenset(
+    {
+        "temperature",
+        "cycle_count",
+        "state_of_health",
+        "battery_firmware_version",
+        "battery_max_cell_temp_num",
+        "battery_min_cell_temp_num",
+        "battery_max_cell_voltage_num",
+        "battery_min_cell_voltage_num",
+        "battery_serial_number",
+        "battery_type",
+        "battery_type_text",
+        "battery_bms_model",
+        "battery_index",
+        "battery_discharge_capacity",
+    }
+)
+
+# Lifetime sensors that should never decrease (protected from API glitches)
+# These sensors use monotonic state tracking to prevent incorrect statistics
+# Daily/periodic sensors are NOT included - Home Assistant handles their resets naturally
+LIFETIME_SENSOR_KEYS = frozenset(
+    {
+        "total_energy",
+        "yield_lifetime",
+        "discharging_lifetime",
+        "charging_lifetime",
+        "consumption_lifetime",
+        "grid_export_lifetime",
+        "grid_import_lifetime",
+        "cycle_count",  # Battery cycle count is lifetime
+        "battery_charge_lifetime",
+        "battery_discharge_lifetime",
+    }
+)
+
+# Supported inverter models for number/switch entities
+SUPPORTED_INVERTER_MODELS = frozenset(
+    {
+        "flexboss",
+        "18kpv",
+        "18k",
+        "12kpv",
+        "12k",
+        "xp",
+    }
+)
 
 # Battery data scaling factors
 # Raw API values are scaled by these factors and need division for proper units

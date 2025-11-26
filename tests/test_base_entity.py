@@ -63,14 +63,14 @@ class TestEG4DeviceEntity:
         assert device_info["manufacturer"] == "EG4 Electronics"
         mock_coordinator.get_device_info.assert_called_once_with("1234567890")
 
-    def test_device_info_empty_fallback(self, mock_coordinator):
-        """Test device_info returns empty dict when not available."""
+    def test_device_info_none_fallback(self, mock_coordinator):
+        """Test device_info returns None when not available."""
         mock_coordinator.get_device_info = MagicMock(return_value=None)
 
         entity = EG4DeviceEntity(mock_coordinator, "1234567890")
         device_info = entity.device_info
 
-        assert device_info == {}
+        assert device_info is None
 
     def test_available_when_device_exists(self, mock_coordinator):
         """Test entity is available when device exists."""
@@ -137,7 +137,7 @@ class TestEG4BatteryEntity:
         )
 
     def test_device_info_empty_fallback(self, mock_coordinator):
-        """Test battery device_info returns empty dict when not available."""
+        """Test battery device_info returns None when not available."""
         mock_coordinator.get_battery_device_info = MagicMock(return_value=None)
 
         entity = EG4BatteryEntity(
@@ -145,7 +145,7 @@ class TestEG4BatteryEntity:
         )
         device_info = entity.device_info
 
-        assert device_info == {}
+        assert device_info is None
 
     def test_available_when_battery_exists(self, mock_coordinator):
         """Test battery entity is available when battery exists."""
@@ -208,14 +208,14 @@ class TestEG4StationEntity:
         assert device_info["manufacturer"] == "EG4 Electronics"
         mock_coordinator.get_station_device_info.assert_called_once()
 
-    def test_device_info_empty_fallback(self, mock_coordinator):
-        """Test station device_info returns empty dict when not available."""
+    def test_device_info_none_fallback(self, mock_coordinator):
+        """Test station device_info returns None when not available."""
         mock_coordinator.get_station_device_info = MagicMock(return_value=None)
 
         entity = EG4StationEntity(mock_coordinator)
         device_info = entity.device_info
 
-        assert device_info == {}
+        assert device_info is None
 
     def test_available_when_station_exists(self, mock_coordinator):
         """Test station entity is available when station data exists."""

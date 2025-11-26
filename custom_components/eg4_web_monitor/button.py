@@ -5,22 +5,18 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
     from homeassistant.components.button import (  # type: ignore[assignment]
         ButtonEntity,
         ButtonEntityDescription,
     )
-    from homeassistant.helpers.update_coordinator import (
-        CoordinatorEntity,  # type: ignore[assignment]
-    )
 
 from . import EG4ConfigEntry
+from .base_entity import EG4BatteryEntity, EG4DeviceEntity, EG4StationEntity
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     generate_entity_id,
@@ -82,7 +78,7 @@ async def async_setup_entry(
             device_info = coordinator.data.get("device_info", {}).get(serial, {})
             parent_model = device_info.get("deviceTypeText4APP", "Unknown")
 
-            for battery_key, _ in device_data["batteries"].items():
+            for battery_key in device_data["batteries"]:
                 # Create refresh button for each individual battery
                 entities.append(
                     EG4BatteryRefreshButton(
@@ -90,7 +86,7 @@ async def async_setup_entry(
                         parent_serial=serial,
                         battery_key=battery_key,
                         parent_model=parent_model,
-                        battery_id=battery_key,  # Use battery_key as the display ID
+                        battery_id=battery_key,
                     )
                 )
 
@@ -98,8 +94,13 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
-class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
-    """Button to refresh device data and invalidate cache."""
+class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
+    """Button to refresh device data and invalidate cache.
+
+    Inherits common functionality from EG4DeviceEntity including:
+    - Device info lookup via coordinator
+    - Serial number management
+    """
 
     def __init__(
         self,
@@ -109,10 +110,8 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
         model: str,
     ) -> None:
         """Initialize the refresh button."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        super().__init__(coordinator, serial)
 
-        self._serial = serial
         self._device_data = device_data
         self._model = model
 
@@ -137,14 +136,11 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
                 "button", model, serial, "refresh_data"
             )
 
-        # Set device attributes using consolidated utilities
-        # Modern entity naming - let Home Assistant combine device name + entity name
+        # Set device attributes
         self._attr_has_entity_name = True
         self._attr_name = "Refresh Data"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-        # Device info will be provided by the device_info property
 
         # Set entity description
         self.entity_description = ButtonEntityDescription(
@@ -153,20 +149,6 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
             icon="mdi:refresh",
             entity_category=EntityCategory.DIAGNOSTIC,
         )
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        device_info = self.coordinator.get_device_info(self._serial)
-        return device_info if device_info else {}
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        # Button is always available if device exists
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            return self._serial in self.coordinator.data["devices"]
-        return False
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -214,8 +196,14 @@ class EG4RefreshButton(CoordinatorEntity, ButtonEntity):
             raise
 
 
-class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
-    """Button to refresh individual battery data and invalidate cache."""
+class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
+    """Button to refresh individual battery data and invalidate cache.
+
+    Inherits common functionality from EG4BatteryEntity including:
+    - Battery device info lookup via coordinator
+    - Parent serial and battery key management
+    - Availability checking for battery presence
+    """
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -226,11 +214,8 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         battery_id: str,
     ) -> None:
         """Initialize the battery refresh button."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        super().__init__(coordinator, parent_serial, battery_key)
 
-        self._parent_serial = parent_serial
-        self._battery_key = battery_key
         self._parent_model = parent_model
         self._battery_id = battery_id
 
@@ -241,7 +226,6 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
         )
 
         # Set device attributes
-        # Modern entity naming - let Home Assistant combine device name + entity name
         self._attr_has_entity_name = True
         self._attr_name = "Refresh Data"
         self._attr_icon = "mdi:refresh"
@@ -254,29 +238,6 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
             icon="mdi:refresh",
             entity_category=EntityCategory.DIAGNOSTIC,
         )
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information for battery entity grouping.
-
-        Use coordinator method to ensure device info matches battery sensors.
-        """
-        device_info = self.coordinator.get_battery_device_info(
-            self._parent_serial, self._battery_key
-        )
-        return device_info if device_info else {}
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        # Button is available if parent device exists and has this specific battery
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            parent_device = self.coordinator.data["devices"].get(
-                self._parent_serial, {}
-            )
-            if parent_device and "batteries" in parent_device:
-                return self._battery_key in parent_device["batteries"]
-        return False
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -315,8 +276,13 @@ class EG4BatteryRefreshButton(CoordinatorEntity, ButtonEntity):
             raise
 
 
-class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
-    """Button to refresh station/plant data."""
+class EG4StationRefreshButton(EG4StationEntity, ButtonEntity):
+    """Button to refresh station/plant data.
+
+    Inherits common functionality from EG4StationEntity including:
+    - Station device info lookup via coordinator
+    - Availability checking for station data
+    """
 
     def __init__(
         self,
@@ -324,7 +290,6 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
     ) -> None:
         """Initialize the station refresh button."""
         super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         # Create unique identifiers
         self._attr_unique_id = f"station_{coordinator.plant_id}_refresh_data"
@@ -343,31 +308,6 @@ class EG4StationRefreshButton(CoordinatorEntity, ButtonEntity):
             icon="mdi:refresh",
             entity_category=EntityCategory.DIAGNOSTIC,
         )
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        device_info = self.coordinator.get_station_device_info()
-        return device_info if device_info else {}
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return (
-            self.coordinator.last_update_success
-            and self.coordinator.data is not None
-            and "station" in self.coordinator.data
-        )
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return extra state attributes."""
-        attributes = {}
-
-        # Add station/plant ID
-        attributes["plant_id"] = self.coordinator.plant_id
-
-        return attributes if attributes else None
 
     async def async_press(self) -> None:
         """Handle the button press."""

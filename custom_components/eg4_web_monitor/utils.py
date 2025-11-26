@@ -1,7 +1,7 @@
 """Utility functions for EG4 Inverter integration."""
 
-import asyncio
 import logging
+import time
 from typing import (
     Any,
     Callable,
@@ -14,9 +14,66 @@ from .const import (
     BATTERY_KEY_SEPARATOR,
     BATTERY_KEY_SHORT_PREFIX,
     DOMAIN,
+    LIFETIME_SENSOR_KEYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def get_monotonic_value(
+    raw_value: Any,
+    last_valid_state: float | None,
+    sensor_key: str,
+    entity_id: str | None = None,
+) -> tuple[float | None, float | None]:
+    """Apply monotonic tracking for lifetime sensors.
+
+    Lifetime/cumulative sensors should never decrease. When the API returns
+    a lower value (due to temporary glitches), we preserve the last known
+    valid value to prevent incorrect statistics.
+
+    Args:
+        raw_value: The raw value from the API
+        last_valid_state: The last known valid state for this sensor
+        sensor_key: The sensor key to check if it's a lifetime sensor
+        entity_id: Optional entity ID for logging purposes
+
+    Returns:
+        A tuple of (value_to_use, updated_last_valid_state).
+        - value_to_use: The value to report (may be last_valid_state if raw decreased)
+        - updated_last_valid_state: The new last_valid_state to store
+    """
+    # Check if this is a lifetime sensor that should never decrease
+    is_lifetime_sensor = sensor_key in LIFETIME_SENSOR_KEYS
+
+    if raw_value is None:
+        return None, last_valid_state
+
+    # Try to convert to float
+    try:
+        numeric_value = float(raw_value)
+    except (ValueError, TypeError):
+        return raw_value, last_valid_state
+
+    if not is_lifetime_sensor:
+        # For non-lifetime sensors, just return the value as-is
+        # Don't update last_valid_state (return None) since we don't track them
+        return numeric_value, None
+
+    # For lifetime sensors, apply monotonic protection
+    if last_valid_state is not None and numeric_value < last_valid_state:
+        # Value decreased - this is likely an API glitch
+        # Return the last valid state to prevent statistics issues
+        _LOGGER.debug(
+            "Monotonic protection: %s value decreased from %s to %s, using last valid",
+            entity_id or sensor_key,
+            last_valid_state,
+            numeric_value,
+        )
+        return last_valid_state, last_valid_state
+
+    # Value is same or increased - update tracking
+    return numeric_value, numeric_value
 
 
 def clean_battery_display_name(battery_key: str, serial: str) -> str:
@@ -85,20 +142,16 @@ def clean_model_name(model: str, use_underscores: bool = False) -> str:
     return cleaned.replace(" ", "").replace("-", "")
 
 
-def create_device_info(
-    serial: str, model: str, device_type: str = "inverter"
-) -> DeviceInfo:  # pylint: disable=unused-argument
+def create_device_info(serial: str, model: str) -> DeviceInfo:
     """Create standardized device info dictionary for Home Assistant entities.
 
     Args:
         serial: Device serial number
         model: Device model name
-        device_type: Type of device (inverter, gridboss, battery, etc.)
 
     Returns:
         Device info dictionary for Home Assistant
     """
-    # Cast to DeviceInfo type to satisfy mypy
     return DeviceInfo(
         identifiers={(DOMAIN, serial)},
         name=f"{model} {serial}",
@@ -185,7 +238,7 @@ class CircuitBreaker:
         """
         if self.state == "open":
             if self.last_failure_time and (
-                asyncio.get_event_loop().time() - self.last_failure_time > self.timeout
+                time.monotonic() - self.last_failure_time > self.timeout
             ):
                 self.state = "half-open"
             else:
@@ -199,7 +252,7 @@ class CircuitBreaker:
             return result
         except Exception as e:
             self.failure_count += 1
-            self.last_failure_time = asyncio.get_event_loop().time()
+            self.last_failure_time = time.monotonic()
 
             if self.failure_count >= self.failure_threshold:
                 self.state = "open"

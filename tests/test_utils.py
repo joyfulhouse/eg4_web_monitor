@@ -83,7 +83,7 @@ class TestCreateDeviceInfo:
 
     def test_inverter_device(self):
         """Test inverter device info creation."""
-        info = create_device_info("1234567890", "FlexBOSS21", "inverter")
+        info = create_device_info("1234567890", "FlexBOSS21")
 
         assert info["identifiers"] == {("eg4_web_monitor", "1234567890")}
         assert info["name"] == "FlexBOSS21 1234567890"
@@ -93,7 +93,7 @@ class TestCreateDeviceInfo:
 
     def test_gridboss_device(self):
         """Test GridBOSS device info creation."""
-        info = create_device_info("9876543210", "GridBOSS", "gridboss")
+        info = create_device_info("9876543210", "GridBOSS")
 
         assert info["name"] == "GridBOSS 9876543210"
         assert info["model"] == "GridBOSS"
