@@ -27,7 +27,7 @@ This directory contains technical documentation, API references, and implementat
 ## 🔗 Related Documentation
 
 - **[Main README](../README.md)** - Integration overview, installation, and user guide
-- **[Automations](../automations/README.md)** - Pre-built automation examples
+- **[Examples](../examples/README.md)** - Pre-built automation and dashboard examples
 - **[Samples](../samples/README.md)** - API response samples and test data
 - **[Claude Instructions](../CLAUDE.md)** - Development guidelines and project structure
 
@@ -35,14 +35,14 @@ This directory contains technical documentation, API references, and implementat
 
 ### For Users
 - Installation and setup: See [Main README](../README.md)
-- Automation examples: See [Automations](../automations/)
+- Automation examples: See [Examples](../examples/)
 - Troubleshooting: Check integration logs and [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
 
 ### For Developers
 - API client: `pylxpweb` library (external dependency)
 - Coordinator: `coordinator.py` with mixins in `coordinator_mixins.py`
-- Base entity classes: `base_entity.py` (EG4DeviceEntity, EG4BatteryEntity, EG4StationEntity, EG4BaseSwitch)
-- Entity platforms: `sensor.py`, `switch.py`, `button.py`, `number.py`, `select.py`
+- Base entity classes: `base_entity.py` (EG4DeviceEntity, EG4BatteryEntity, EG4StationEntity, EG4BaseSensor, EG4BaseBatterySensor, EG4BatteryBankEntity, EG4BaseSwitch)
+- Entity platforms: `sensor.py`, `switch.py`, `button.py`, `number.py`, `select.py`, `update.py`
 - Constants and TypedDicts: `const.py` (SensorConfig, SENSOR_TYPES, etc.)
 - Utility functions: `utils.py` (entity ID generation, device info creation, CircuitBreaker)
 
@@ -51,7 +51,7 @@ This directory contains technical documentation, API references, and implementat
 When adding new features or documentation:
 1. Update relevant docs in this directory
 2. Add API samples to `samples/` directory
-3. Include automation examples in `automations/` if applicable
+3. Include automation examples in `examples/automations/` if applicable
 4. Update the main README with user-facing information
 5. Follow Home Assistant [quality scale guidelines](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 

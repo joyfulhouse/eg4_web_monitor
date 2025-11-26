@@ -5,7 +5,7 @@ Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS
 
 ## Quality Scale Compliance
 
-### Platinum Tier Status - January 2025 🏆
+### Platinum Tier Status - November 2025 🏆
 **PLATINUM TIER COMPLIANT** - Meeting all 36 requirements (3 Platinum + 5 Gold + 10 Silver + 18 Bronze)
 
 **Platinum Tier Requirements (3/3)**:
@@ -214,7 +214,7 @@ Major refactoring release introducing base classes and mixins for better code or
 - Integration moved to `custom_components/` subdirectory
 - **Note**: Users upgrading from pre-v2.2.1 may need to re-add repository to HACS
 
-### v1.4.5 - January 2025: Operating Mode Control
+### v1.4.5 - September 2025: Operating Mode Control
 - Operating Mode select entity (Normal/Standby) with real-time parameter sync
 - XP device filtering for EPS Battery Backup (XP devices don't support EPS)
 - Enhanced device compatibility detection
@@ -280,7 +280,7 @@ pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-c
 source /tmp/eg4-test/bin/activate
 
 # Navigate to repository root
-cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+cd /Users/bryanli/Projects/joyfulhouse/homeassistant-dev/eg4_web_monitor
 
 # Run all tests
 pytest tests/ -x --tb=short
@@ -295,7 +295,7 @@ pytest tests/test_config_flow.py -v
 **Pre-Commit Validation Checklist** (all commands run from repository root):
 ```bash
 # Navigate to repository root
-cd /Users/bryanli/Projects/joyfulhouse/custom_components/eg4_web_monitor
+cd /Users/bryanli/Projects/joyfulhouse/homeassistant-dev/eg4_web_monitor
 
 # Activate test environment
 source /tmp/eg4-test/bin/activate
@@ -485,9 +485,10 @@ The integration provides base entity classes in `base_entity.py` to eliminate co
 - `EG4DeviceEntity`: Base for all device entities (inverters, GridBOSS, parallel groups)
 - `EG4BatteryEntity`: Base for individual battery entities
 - `EG4StationEntity`: Base for station/plant level entities
+- `EG4BaseSensor`: Base for device sensors with monotonic value support (inherits from EG4DeviceEntity)
+- `EG4BaseBatterySensor`: Base for individual battery sensors (inherits from EG4BatteryEntity)
+- `EG4BatteryBankEntity`: Base for battery bank aggregate sensors (inherits from EG4DeviceEntity)
 - `EG4BaseSwitch`: Base for all switch entities with optimistic state management
-- `EG4BaseSensor`: Base for device sensors with monotonic value support
-- `EG4BatteryBankSensor`: Base for battery bank aggregate sensors
 
 All new entity classes should inherit from these base classes to maintain consistency.
 
