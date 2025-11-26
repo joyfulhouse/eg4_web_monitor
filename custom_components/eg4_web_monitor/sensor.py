@@ -12,16 +12,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.sensor import (
-        SensorDeviceClass,
         SensorEntity,
-        SensorStateClass,
     )
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
     from homeassistant.components.sensor import (  # type: ignore[assignment]
-        SensorDeviceClass,
         SensorEntity,
-        SensorStateClass,
     )
     from homeassistant.helpers.update_coordinator import (
         CoordinatorEntity,  # type: ignore[assignment]
@@ -243,20 +239,6 @@ def _create_inverter_sensors(
                     )
                 )
 
-        # Create calculated Cell Voltage Delta sensor for each battery
-        # Check if we have the required cell voltage data
-        if (
-            battery_sensors.get("battery_cell_voltage_max") is not None
-            and battery_sensors.get("battery_cell_voltage_min") is not None
-        ):
-            entities.append(
-                EG4BatteryCellVoltageDeltaSensor(
-                    coordinator=coordinator,
-                    serial=serial,
-                    battery_key=battery_key,
-                )
-            )
-
     _LOGGER.debug(f"Total entities created for inverter {serial}: {len(entities)}")
 
     return entities
@@ -359,8 +341,12 @@ class EG4InverterSensor(CoordinatorEntity, SensorEntity):
         self._attr_state_class = self._sensor_config.get("state_class")
         self._attr_icon = self._sensor_config.get("icon")
 
-        # Set display precision for voltage sensors
-        if self._attr_device_class == "voltage":
+        # Set display precision from config, or default to 2 for voltage sensors
+        if "suggested_display_precision" in self._sensor_config:
+            self._attr_suggested_display_precision = self._sensor_config[
+                "suggested_display_precision"
+            ]
+        elif self._attr_device_class == "voltage":
             self._attr_suggested_display_precision = 2
 
         # Set entity category if applicable
@@ -620,8 +606,12 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
         self._attr_state_class = self._sensor_config.get("state_class")
         self._attr_icon = self._sensor_config.get("icon")
 
-        # Set display precision for voltage sensors
-        if self._attr_device_class == "voltage":
+        # Set display precision from config, or default to 2 for voltage sensors
+        if "suggested_display_precision" in self._sensor_config:
+            self._attr_suggested_display_precision = self._sensor_config[
+                "suggested_display_precision"
+            ]
+        elif self._attr_device_class == "voltage":
             self._attr_suggested_display_precision = 2
 
         # Set entity category
@@ -730,86 +720,6 @@ class EG4BatterySensor(CoordinatorEntity, SensorEntity):
                 return raw_value
 
         return raw_value
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        device_exists = (
-            self.coordinator.last_update_success
-            and self.coordinator.data is not None
-            and "devices" in self.coordinator.data
-            and self._serial in self.coordinator.data["devices"]
-            and "error" not in self.coordinator.data["devices"][self._serial]
-        )
-        battery_exists = device_exists and self._battery_key in self.coordinator.data[
-            "devices"
-        ][self._serial].get("batteries", {})
-        return battery_exists
-
-
-class EG4BatteryCellVoltageDeltaSensor(CoordinatorEntity, SensorEntity):
-    """Representation of an EG4 Battery Cell Voltage Delta sensor."""
-
-    def __init__(
-        self,
-        coordinator: EG4DataUpdateCoordinator,
-        serial: str,
-        battery_key: str,
-    ) -> None:
-        """Initialize the battery cell voltage delta sensor."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-
-        self._serial = serial
-        self._battery_key = battery_key
-
-        # Clean up battery ID for entity ID generation
-        clean_battery_id = battery_key.replace("_", "").replace("-", "").lower()
-
-        # Entity configuration
-        # Modern entity naming - let Home Assistant combine device name + entity name
-        self._attr_has_entity_name = True
-        self._attr_name = "Cell Voltage Delta"
-        self._attr_unique_id = f"{serial}_{battery_key}_cell_voltage_delta"
-        serial_clean = serial.lower()
-        self._attr_entity_id = (
-            f"sensor.battery_{serial_clean}_{clean_battery_id}_cell_voltage_delta"
-        )
-
-        # Sensor configuration
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_device_class = SensorDeviceClass.VOLTAGE
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_icon = "mdi:battery-sync"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_suggested_display_precision = 3
-
-        # Device registry
-        self._attr_device_info = cast(
-            "DeviceInfo",
-            {
-                "identifiers": {(DOMAIN, f"{serial}_{battery_key}")},
-            },
-        )
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the calculated cell voltage delta."""
-        device_data = self.coordinator.data["devices"].get(self._serial, {})
-        batteries = device_data.get("batteries", {})
-        battery_data = batteries.get(self._battery_key, {})
-
-        # Get cell voltage max and min
-        cell_voltage_max = battery_data.get("battery_cell_voltage_max")
-        cell_voltage_min = battery_data.get("battery_cell_voltage_min")
-
-        if cell_voltage_max is None or cell_voltage_min is None:
-            return None
-
-        # Calculate absolute difference (delta)
-        voltage_delta = abs(cell_voltage_max - cell_voltage_min)
-
-        return float(voltage_delta)
 
     @property
     def available(self) -> bool:

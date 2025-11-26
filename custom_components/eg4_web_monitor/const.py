@@ -659,6 +659,7 @@ SENSOR_TYPES = {
         "device_class": "voltage",
         "state_class": "measurement",
         "icon": "mdi:delta",
+        "suggested_display_precision": 3,
     },
     "battery_cell_temp_delta": {
         "name": "Cell Temperature Delta",
