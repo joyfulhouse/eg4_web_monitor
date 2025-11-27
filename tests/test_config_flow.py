@@ -9,6 +9,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.eg4_web_monitor.config_flow import _timezone_observes_dst
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_DST_SYNC,
@@ -24,6 +25,87 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError as EG4AuthError,
     LuxpowerConnectionError as EG4ConnectionError,
 )
+
+
+# ====================
+# DST Detection Tests
+# ====================
+
+
+class TestTimezoneObservesDst:
+    """Tests for the _timezone_observes_dst helper function."""
+
+    def test_dst_timezone_returns_true(self):
+        """Test that timezones with DST return True."""
+        # US timezones that observe DST
+        assert _timezone_observes_dst("America/New_York") is True
+        assert _timezone_observes_dst("America/Los_Angeles") is True
+        assert _timezone_observes_dst("America/Chicago") is True
+        assert _timezone_observes_dst("America/Denver") is True
+
+    def test_european_dst_timezone_returns_true(self):
+        """Test that European timezones with DST return True."""
+        assert _timezone_observes_dst("Europe/London") is True
+        assert _timezone_observes_dst("Europe/Paris") is True
+        assert _timezone_observes_dst("Europe/Berlin") is True
+
+    def test_southern_hemisphere_dst_timezone_returns_true(self):
+        """Test that Southern Hemisphere timezones with DST return True."""
+        # Australia (most states observe DST)
+        assert _timezone_observes_dst("Australia/Sydney") is True
+        assert _timezone_observes_dst("Australia/Melbourne") is True
+        # New Zealand
+        assert _timezone_observes_dst("Pacific/Auckland") is True
+        # South America
+        assert _timezone_observes_dst("America/Santiago") is True  # Chile
+        # Note: Brazil (America/Sao_Paulo) abolished DST in 2019
+
+    def test_countries_that_abolished_dst_return_false(self):
+        """Test that countries that recently abolished DST return False."""
+        # Brazil abolished DST in 2019
+        assert _timezone_observes_dst("America/Sao_Paulo") is False
+        # Russia abolished DST in 2011
+        assert _timezone_observes_dst("Europe/Moscow") is False
+        # Turkey abolished DST in 2016
+        assert _timezone_observes_dst("Europe/Istanbul") is False
+
+    def test_non_dst_timezone_returns_false(self):
+        """Test that timezones without DST return False."""
+        # UTC never observes DST
+        assert _timezone_observes_dst("UTC") is False
+        # Arizona doesn't observe DST (except Navajo Nation)
+        assert _timezone_observes_dst("America/Phoenix") is False
+        # Most Asian timezones don't observe DST
+        assert _timezone_observes_dst("Asia/Tokyo") is False
+        assert _timezone_observes_dst("Asia/Shanghai") is False
+        assert _timezone_observes_dst("Asia/Singapore") is False
+
+    def test_none_timezone_returns_false(self):
+        """Test that None timezone returns False."""
+        assert _timezone_observes_dst(None) is False
+
+    def test_empty_timezone_returns_false(self):
+        """Test that empty string timezone returns False."""
+        assert _timezone_observes_dst("") is False
+
+    def test_invalid_timezone_returns_false(self):
+        """Test that invalid timezone names return False."""
+        assert _timezone_observes_dst("Invalid/Timezone") is False
+        assert _timezone_observes_dst("Not_A_Timezone") is False
+
+
+@pytest.fixture
+def hass_with_dst_timezone(hass: HomeAssistant):
+    """Set up HA with a timezone that observes DST."""
+    hass.config.time_zone = "America/New_York"
+    return hass
+
+
+@pytest.fixture
+def hass_with_non_dst_timezone(hass: HomeAssistant):
+    """Set up HA with a timezone that does NOT observe DST."""
+    hass.config.time_zone = "UTC"
+    return hass
 
 
 @pytest.fixture(autouse=True)
@@ -488,3 +570,97 @@ async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_pl
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_BASE_URL] == "https://custom.eg4.com"
     assert result["data"][CONF_VERIFY_SSL] is False
+
+
+# ================================
+# DST Sync Default Behavior Tests
+# ================================
+
+
+async def test_dst_sync_default_true_for_dst_timezone(
+    hass_with_dst_timezone: HomeAssistant, mock_api_single_plant
+):
+    """Test DST sync defaults to True when HA timezone observes DST."""
+    hass = hass_with_dst_timezone
+
+    # Initialize flow - should show form with DST sync defaulting to True
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # Submit credentials without explicitly setting DST sync
+    # (it will use the default from the schema)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            # DST_SYNC not explicitly provided - will use schema default
+        },
+    )
+
+    # Entry should be created with DST sync = True (default for DST timezone)
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DST_SYNC] is True
+
+
+async def test_dst_sync_default_false_for_non_dst_timezone(
+    hass_with_non_dst_timezone: HomeAssistant, mock_api_single_plant
+):
+    """Test DST sync defaults to False when HA timezone does NOT observe DST."""
+    hass = hass_with_non_dst_timezone
+
+    # Initialize flow - should show form with DST sync defaulting to False
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # Submit credentials without explicitly setting DST sync
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            # DST_SYNC not explicitly provided - will use schema default
+        },
+    )
+
+    # Entry should be created with DST sync = False (default for non-DST timezone)
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DST_SYNC] is False
+
+
+async def test_user_can_override_dst_sync_default(
+    hass_with_non_dst_timezone: HomeAssistant, mock_api_single_plant
+):
+    """Test user can explicitly set DST sync to True even in non-DST timezone."""
+    hass = hass_with_non_dst_timezone
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # User explicitly enables DST sync despite timezone not observing DST
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,  # Explicitly enabled
+        },
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DST_SYNC] is True

@@ -2110,24 +2110,6 @@ DIAGNOSTIC_BATTERY_SENSOR_KEYS = frozenset(
     }
 )
 
-# Lifetime sensors that should never decrease (protected from API glitches)
-# These sensors use monotonic state tracking to prevent incorrect statistics
-# Daily/periodic sensors are NOT included - Home Assistant handles their resets naturally
-LIFETIME_SENSOR_KEYS = frozenset(
-    {
-        "total_energy",
-        "yield_lifetime",
-        "discharging_lifetime",
-        "charging_lifetime",
-        "consumption_lifetime",
-        "grid_export_lifetime",
-        "grid_import_lifetime",
-        "cycle_count",  # Battery cycle count is lifetime
-        "battery_charge_lifetime",
-        "battery_discharge_lifetime",
-    }
-)
-
 # Supported inverter models for number/switch entities
 SUPPORTED_INVERTER_MODELS = frozenset(
     {

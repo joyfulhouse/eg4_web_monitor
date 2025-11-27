@@ -32,7 +32,6 @@ from .utils import (
     clean_model_name,
     generate_entity_id,
     generate_unique_id,
-    get_monotonic_value,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -225,12 +224,13 @@ class EG4BaseSensor(EG4DeviceEntity):
     - Sensor configuration from SENSOR_TYPES
     - Display precision handling
     - Diagnostic entity category detection
-    - Monotonic state tracking for lifetime sensors
+
+    Note: Monotonic value enforcement for TOTAL_INCREASING sensors is handled
+    by Home Assistant's statistics system, not by this integration.
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
-        _last_valid_state: Last valid state for monotonic tracking.
     """
 
     def __init__(
@@ -256,9 +256,6 @@ class EG4BaseSensor(EG4DeviceEntity):
         self._sensor_config: dict[str, Any] = cast(
             "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
         )
-
-        # Monotonic state tracking for lifetime sensors
-        self._last_valid_state: float | None = None
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
@@ -327,20 +324,12 @@ class EG4BaseSensor(EG4DeviceEntity):
 
     @property
     def native_value(self) -> Any:
-        """Return the state of the sensor with monotonic protection."""
-        raw_value = self._get_raw_value()
+        """Return the state of the sensor.
 
-        # Apply monotonic tracking for total_increasing sensors
-        if self._attr_state_class == "total_increasing" and raw_value is not None:
-            value, self._last_valid_state = get_monotonic_value(
-                raw_value,
-                self._last_valid_state,
-                self._sensor_key,
-                self._attr_unique_id,
-            )
-            return value
-
-        return raw_value
+        Note: Home Assistant's TOTAL_INCREASING state class handles
+        meter resets automatically - no integration-level enforcement needed.
+        """
+        return self._get_raw_value()
 
     @property
     def available(self) -> bool:
@@ -360,12 +349,13 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
     Provides common functionality for battery-specific sensors:
     - Sensor configuration from SENSOR_TYPES
     - Battery-specific entity category detection
-    - Monotonic state tracking for lifetime battery sensors
+
+    Note: Monotonic value enforcement for TOTAL_INCREASING sensors is handled
+    by Home Assistant's statistics system, not by this integration.
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
-        _last_valid_state: Last valid state for monotonic tracking.
     """
 
     def __init__(
@@ -392,9 +382,6 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         self._sensor_config: dict[str, Any] = cast(
             "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
         )
-
-        # Monotonic state tracking
-        self._last_valid_state: float | None = None
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
@@ -452,20 +439,12 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
 
     @property
     def native_value(self) -> Any:
-        """Return the state of the sensor with monotonic protection."""
-        raw_value = self._get_raw_value()
+        """Return the state of the sensor.
 
-        # Apply monotonic tracking for total_increasing sensors
-        if self._attr_state_class == "total_increasing" and raw_value is not None:
-            value, self._last_valid_state = get_monotonic_value(
-                raw_value,
-                self._last_valid_state,
-                self._sensor_key,
-                self._attr_unique_id,
-            )
-            return value
-
-        return raw_value
+        Note: Home Assistant's TOTAL_INCREASING state class handles
+        meter resets automatically - no integration-level enforcement needed.
+        """
+        return self._get_raw_value()
 
     @property
     def available(self) -> bool:

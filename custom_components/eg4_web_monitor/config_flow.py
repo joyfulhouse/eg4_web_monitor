@@ -1,7 +1,9 @@
 """Config flow for EG4 Web Monitor integration."""
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import voluptuous as vol
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -47,16 +49,55 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-        vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-        vol.Optional(CONF_VERIFY_SSL, default=True): bool,
-        vol.Optional(CONF_DST_SYNC, default=True): bool,
-        vol.Optional(CONF_LIBRARY_DEBUG, default=False): bool,
-    }
-)
+
+def _timezone_observes_dst(timezone_name: str | None) -> bool:
+    """Check if a timezone observes Daylight Saving Time.
+
+    Args:
+        timezone_name: IANA timezone name (e.g., 'America/New_York', 'UTC')
+
+    Returns:
+        True if the timezone observes DST, False otherwise.
+    """
+    if not timezone_name:
+        return False
+
+    try:
+        tz = ZoneInfo(timezone_name)
+    except (KeyError, ValueError):
+        # Invalid timezone name, default to False
+        _LOGGER.debug("Invalid timezone name: %s", timezone_name)
+        return False
+
+    # Check UTC offsets at two different times in the year
+    # January 15 and July 15 are typically in different DST states for most zones
+    current_year = datetime.now().year
+    winter = datetime(current_year, 1, 15, 12, 0, 0, tzinfo=tz)
+    summer = datetime(current_year, 7, 15, 12, 0, 0, tzinfo=tz)
+
+    # If UTC offsets differ, the timezone observes DST
+    return winter.utcoffset() != summer.utcoffset()
+
+
+def _build_user_data_schema(dst_sync_default: bool = True) -> vol.Schema:
+    """Build the user data schema with dynamic DST sync default.
+
+    Args:
+        dst_sync_default: Default value for DST sync checkbox.
+
+    Returns:
+        Voluptuous schema for user data step.
+    """
+    return vol.Schema(
+        {
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD): str,
+            vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
+            vol.Optional(CONF_VERIFY_SSL, default=True): bool,
+            vol.Optional(CONF_DST_SYNC, default=dst_sync_default): bool,
+            vol.Optional(CONF_LIBRARY_DEBUG, default=False): bool,
+        }
+    )
 
 
 class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
@@ -120,9 +161,16 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
                 _LOGGER.exception("Unexpected error: %s", e)
                 errors["base"] = "unknown"
 
+        # Determine DST sync default based on Home Assistant timezone
+        ha_timezone = self.hass.config.time_zone
+        dst_sync_default = _timezone_observes_dst(ha_timezone)
+        _LOGGER.debug(
+            "HA timezone: %s, observes DST: %s", ha_timezone, dst_sync_default
+        )
+
         return self.async_show_form(
             step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            data_schema=_build_user_data_schema(dst_sync_default),
             errors=errors,
             description_placeholders={
                 "base_url": DEFAULT_BASE_URL,

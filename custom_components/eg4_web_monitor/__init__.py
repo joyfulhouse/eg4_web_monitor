@@ -207,7 +207,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
 
     This is called when the user deletes the integration from the UI.
     It purges all statistics for this integration's entities, allowing
-    monotonically increasing values to reset when the integration is re-added.
+    TOTAL_INCREASING sensors to reset when the integration is re-added.
 
     Entity Registry entries (names, areas, labels) are NOT deleted,
     so they will be automatically restored when re-adding the integration.
@@ -225,7 +225,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
 
     if entity_ids:
         _LOGGER.info(
-            "Purging statistics for %d entities to reset monotonic values",
+            "Purging statistics for %d entities to allow fresh sensor history",
             len(entity_ids),
         )
 
