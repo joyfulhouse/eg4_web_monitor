@@ -14,6 +14,7 @@ from .const import (
     BATTERY_KEY_SEPARATOR,
     BATTERY_KEY_SHORT_PREFIX,
     DOMAIN,
+    MANUFACTURER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def create_device_info(serial: str, model: str) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, serial)},
         name=f"{model} {serial}",
-        manufacturer="EG4 Electronics",
+        manufacturer=MANUFACTURER,
         model=model,
         serial_number=serial,
         sw_version="1.0.0",  # Default version, can be updated from API

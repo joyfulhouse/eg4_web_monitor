@@ -49,7 +49,7 @@ def mock_config_entry(mock_coordinator):
     """Create a mock config entry."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title="EG4 Web Monitor - Test Plant",
+        title="EG4 Electronics Web Monitor - Test Plant",
         data={
             CONF_USERNAME: "test_user",
             CONF_PASSWORD: "test_pass",

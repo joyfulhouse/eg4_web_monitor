@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import ENTITY_PREFIX
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,10 +64,12 @@ class EG4FirmwareUpdateEntity(UpdateEntity):
         self._attr_unique_id = f"{serial}_firmware_update"
 
         if device_type == "gridboss":
-            self._attr_entity_id = f"update.eg4_gridboss_{serial}_firmware"
+            self._attr_entity_id = f"update.{ENTITY_PREFIX}_gridboss_{serial}_firmware"
         else:
             model_clean = model.replace(" ", "_").replace("-", "_").lower()
-            self._attr_entity_id = f"update.eg4_{model_clean}_{serial}_firmware"
+            self._attr_entity_id = (
+                f"update.{ENTITY_PREFIX}_{model_clean}_{serial}_firmware"
+            )
 
         # Entity naming
         self._attr_name = "Firmware"

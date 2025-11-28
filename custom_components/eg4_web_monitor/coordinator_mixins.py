@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from pylxpweb.devices import Battery, Station
     from pylxpweb.devices.inverters.base import BaseInverter
 
-from .const import DOMAIN
+from .const import DOMAIN, MANUFACTURER
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -820,7 +820,7 @@ class DeviceInfoMixin:
         device_info = {
             "identifiers": {(DOMAIN, serial)},
             "name": device_name,
-            "manufacturer": "EG4 Electronics",
+            "manufacturer": MANUFACTURER,
             "model": model,
         }
 
@@ -901,7 +901,7 @@ class DeviceInfoMixin:
         device_info = {
             "identifiers": {(DOMAIN, battery_key)},
             "name": f"Battery {clean_battery_name}",
-            "manufacturer": "EG4 Electronics",
+            "manufacturer": MANUFACTURER,
             "model": model,
             "sw_version": battery_firmware,
             "via_device": (DOMAIN, battery_bank_identifier),
@@ -944,7 +944,7 @@ class DeviceInfoMixin:
         device_info = {
             "identifiers": {(DOMAIN, f"{serial}_battery_bank")},
             "name": f"Battery Bank {serial}",
-            "manufacturer": "EG4 Electronics",
+            "manufacturer": MANUFACTURER,
             "model": f"{model} Battery Bank",
             "via_device": (DOMAIN, serial),
         }
@@ -972,7 +972,7 @@ class DeviceInfoMixin:
         return {
             "identifiers": {(DOMAIN, f"station_{self.plant_id}")},
             "name": f"Station {station_name}",
-            "manufacturer": "EG4 Electronics",
+            "manufacturer": MANUFACTURER,
             "model": "Station",
             "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }

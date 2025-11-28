@@ -25,6 +25,8 @@ from .const import (
     DIAGNOSTIC_BATTERY_SENSOR_KEYS,
     DIAGNOSTIC_DEVICE_SENSOR_KEYS,
     DOMAIN,
+    ENTITY_PREFIX,
+    MANUFACTURER,
     SENSOR_TYPES,
 )
 from .coordinator import EG4DataUpdateCoordinator
@@ -288,15 +290,15 @@ class EG4BaseSensor(EG4DeviceEntity):
         """Set up entity_id based on device type."""
         if device_type == "gridboss":
             self._attr_entity_id = (
-                f"sensor.eg4_gridboss_{self._serial}_{self._sensor_key}"
+                f"sensor.{ENTITY_PREFIX}_gridboss_{self._serial}_{self._sensor_key}"
             )
         elif device_type == "parallel_group":
-            self._attr_entity_id = f"sensor.eg4_parallel_group_{self._sensor_key}"
+            self._attr_entity_id = (
+                f"sensor.{ENTITY_PREFIX}_parallel_group_{self._sensor_key}"
+            )
         else:
             model_clean = clean_model_name(model, use_underscores=True)
-            self._attr_entity_id = (
-                f"sensor.eg4_{model_clean}_{self._serial}_{self._sensor_key}"
-            )
+            self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{self._serial}_{self._sensor_key}"
 
     def _setup_display_precision(self) -> None:
         """Set up display precision from config or defaults."""
@@ -399,9 +401,7 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
 
         # Generate entity_id
         model_clean = clean_model_name(model, use_underscores=True)
-        self._attr_entity_id = (
-            f"sensor.eg4_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
-        )
+        self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
 
         # Set sensor properties from configuration
         self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
@@ -508,7 +508,7 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         # Generate entity_id
         model_clean = clean_model_name(model, use_underscores=True)
         self._attr_entity_id = (
-            f"sensor.eg4_{model_clean}_{serial}_battery_bank_{sensor_key}"
+            f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_bank_{sensor_key}"
         )
 
         # Set sensor properties
@@ -530,7 +530,7 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
             return DeviceInfo(
                 identifiers={(DOMAIN, f"{self._serial}_battery_bank")},
                 name=f"Battery Bank ({self._serial})",
-                manufacturer="EG4 Electronics",
+                manufacturer=MANUFACTURER,
                 model="Battery Bank",
                 via_device=(DOMAIN, self._serial),
             )
@@ -658,7 +658,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, serial)},
             name=f"{self._model} {serial}",
-            manufacturer="EG4 Electronics",
+            manufacturer=MANUFACTURER,
             model=self._model,
             serial_number=serial,
         )

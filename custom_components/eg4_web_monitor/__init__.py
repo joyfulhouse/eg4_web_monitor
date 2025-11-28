@@ -12,7 +12,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 
-from .const import DOMAIN
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ async def _async_update_device_registry(
             config_entry_id=coordinator.entry.entry_id,
             identifiers={(DOMAIN, serial)},
             name=device_name,
-            manufacturer="EG4 Electronics",
+            manufacturer=MANUFACTURER,
             model=model,
             serial_number=serial,
             sw_version=firmware_version,

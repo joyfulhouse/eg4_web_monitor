@@ -37,6 +37,7 @@ from pylxpweb.exceptions import (
 )
 
 from .const import (
+    BRAND_NAME,
     CONF_BASE_URL,
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
@@ -44,6 +45,7 @@ from .const import (
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
     DEFAULT_BASE_URL,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
 
@@ -93,7 +95,7 @@ def _build_user_data_schema(dst_sync_default: bool = True) -> vol.Schema:
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
             vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-            vol.Optional(CONF_VERIFY_SSL, default=True): bool,
+            vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
             vol.Optional(CONF_DST_SYNC, default=dst_sync_default): bool,
             vol.Optional(CONF_LIBRARY_DEBUG, default=False): bool,
         }
@@ -173,6 +175,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             data_schema=_build_user_data_schema(dst_sync_default),
             errors=errors,
             description_placeholders={
+                "brand_name": BRAND_NAME,
                 "base_url": DEFAULT_BASE_URL,
             },
         )
@@ -226,6 +229,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             data_schema=plant_schema,
             errors=errors,
             description_placeholders={
+                "brand_name": BRAND_NAME,
                 "plant_count": str(len(plant_options)),
             },
         )
@@ -282,7 +286,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
         self._abort_if_unique_id_configured()
 
         # Create entry title
-        title = f"EG4 Web Monitor - {plant_name}"
+        title = f"{BRAND_NAME} Web Monitor - {plant_name}"
 
         # Create entry data
         data = {
@@ -380,6 +384,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             data_schema=reauth_schema,
             errors=errors,
             description_placeholders={
+                "brand_name": BRAND_NAME,
                 "username": self._username or "",
             },
         )
@@ -470,6 +475,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             data_schema=reconfigure_schema,
             errors=errors,
             description_placeholders={
+                "brand_name": BRAND_NAME,
                 "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
             },
         )
@@ -535,6 +541,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             data_schema=plant_schema,
             errors=errors,
             description_placeholders={
+                "brand_name": BRAND_NAME,
                 "plant_count": str(len(plant_options)),
                 "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
             },
@@ -565,7 +572,7 @@ class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
             return self.async_abort(reason="already_configured")
 
         # Update entry title
-        title = f"EG4 Web Monitor - {plant_name}"
+        title = f"{BRAND_NAME} Web Monitor - {plant_name}"
 
         # Update entry data
         data = {
