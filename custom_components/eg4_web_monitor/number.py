@@ -219,24 +219,41 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current SOC limit value from device object."""
+        """Return the current System Charge SOC limit from cached parameters.
+
+        This reads HOLD_SYSTEM_CHARGE_SOC_LIMIT which controls when the battery
+        stops charging:
+        - 0-100%: Stop charging when battery reaches this SOC
+        - 101%: Enable top balancing (full charge with cell balancing)
+        """
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
                 return None
 
-            if hasattr(inverter, "battery_soc_limits") and inverter.battery_soc_limits:
-                soc_limit = inverter.battery_soc_limits.get("on_grid_limit")
-                if soc_limit is not None and 10 <= soc_limit <= 101:
-                    return int(soc_limit)
+            # Read from cached parameters (no API call)
+            # pylint: disable=protected-access
+            soc_limit = inverter._get_parameter(
+                "HOLD_SYSTEM_CHARGE_SOC_LIMIT", 100, int
+            )
+            if soc_limit is not None and 10 <= soc_limit <= 101:
+                return int(soc_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
-            _LOGGER.debug("Error getting SOC limit for %s: %s", self.serial, e)
+            _LOGGER.debug(
+                "Error getting System Charge SOC limit for %s: %s", self.serial, e
+            )
 
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the SOC limit value."""
+        """Set the System Charge SOC limit using the control API.
+
+        Args:
+            value: Target SOC limit (10-101%)
+                - 10-100: Stop charging when battery reaches this SOC
+                - 101: Enable top balancing (full charge with cell balancing)
+        """
         try:
             int_value = int(value)
             if int_value < 10 or int_value > 101:
@@ -251,19 +268,23 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 "Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+            # Use the control API to set the system charge SOC limit
+            result = (
+                await self.coordinator.client.api.control.set_system_charge_soc_limit(
+                    self.serial, int_value
+                )
+            )
 
-            success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
-
-            if not success:
+            if not result.success:
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
 
             self._current_value = value
             self.async_write_ha_state()
 
-            await inverter.refresh()
+            # Refresh inverter parameters to update cached value
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                await inverter.refresh()
 
             _LOGGER.info(
                 "Parameter changed for %s, refreshing parameters for all inverters",

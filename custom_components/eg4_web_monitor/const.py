@@ -2049,6 +2049,16 @@ WORKING_MODES = {
 # These parameters control battery state of charge thresholds for charging and discharging
 # Note: No entity_category set - these appear in Controls section like System Charge SOC Limit
 SOC_LIMIT_PARAMS = {
+    "system_charge_soc_limit": {
+        "name": "System Charge SOC Limit",
+        "param": "HOLD_SYSTEM_CHARGE_SOC_LIMIT",
+        "description": "Maximum battery SOC during normal charging (10-100%, or 101% for top balancing)",
+        "icon": "mdi:battery-charging",
+        "min": 10,
+        "max": 101,
+        "step": 1,
+        "unit": "%",
+    },
     "ac_charge_soc_limit": {
         "name": "AC Charge SOC Limit",
         "param": "HOLD_AC_CHARGE_SOC_LIMIT",
