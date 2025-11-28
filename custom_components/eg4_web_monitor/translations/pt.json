@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configuração do EG4 Web Monitor",
-        "description": "Conecte-se à sua conta EG4 Web Monitor para gerenciar seus inversores solares, dispositivos GridBOSS e sistemas de baterias.",
+        "title": "Configuração do {brand_name} Web Monitor",
+        "description": "Conecte-se à sua conta {brand_name} Web Monitor para gerenciar seus inversores solares, dispositivos GridBOSS e sistemas de baterias.",
         "data": {
           "username": "Nome de usuário",
           "password": "Senha",
@@ -13,9 +13,9 @@
           "library_debug": "Registro de depuração da biblioteca"
         },
         "data_description": {
-          "username": "Seu nome de usuário da conta EG4 Web Monitor",
-          "password": "Sua senha da conta EG4 Web Monitor",
-          "base_url": "A URL base para a API do EG4 Web Monitor",
+          "username": "Seu nome de usuário da conta {brand_name} Web Monitor",
+          "password": "Sua senha da conta {brand_name} Web Monitor",
+          "base_url": "A URL base para a API do {brand_name} Web Monitor",
           "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras",
           "dst_sync": "Sincronizar automaticamente as configurações de horário de verão com seu inversor com base no fuso horário do Home Assistant",
           "library_debug": "Ativar registro DEBUG para a biblioteca pylxpweb (mostra solicitações de API, respostas e operações internas da biblioteca)"
@@ -32,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "Reautenticar EG4 Web Monitor",
+        "title": "Reautenticar {brand_name} Web Monitor",
         "description": "Sua sessão expirou ou as credenciais são inválidas. Por favor, insira novamente suas credenciais para continuar monitorando seus dispositivos.",
         "data": {
           "username": "Nome de usuário",
@@ -41,11 +41,11 @@
       },
       "reauth_confirm": {
         "title": "Confirmar reautenticação",
-        "description": "Por favor, confirme suas credenciais atualizadas para restaurar o acesso aos seus dispositivos EG4."
+        "description": "Por favor, confirme suas credenciais atualizadas para restaurar o acesso aos seus dispositivos {brand_name}."
       },
       "reconfigure": {
-        "title": "Reconfigurar EG4 Web Monitor",
-        "description": "Atualize as configurações do seu EG4 Web Monitor. Você pode alterar os parâmetros de conexão ou mudar para uma estação diferente.",
+        "title": "Reconfigurar {brand_name} Web Monitor",
+        "description": "Atualize as configurações do seu {brand_name} Web Monitor. Você pode alterar os parâmetros de conexão ou mudar para uma estação diferente.",
         "data": {
           "username": "Nome de usuário",
           "password": "Senha",
@@ -55,9 +55,9 @@
           "library_debug": "Registro de depuração da biblioteca"
         },
         "data_description": {
-          "username": "Seu nome de usuário da conta EG4 Web Monitor",
-          "password": "Sua senha da conta EG4 Web Monitor",
-          "base_url": "A URL base para a API do EG4 Web Monitor",
+          "username": "Seu nome de usuário da conta {brand_name} Web Monitor",
+          "password": "Sua senha da conta {brand_name} Web Monitor",
+          "base_url": "A URL base para a API do {brand_name} Web Monitor",
           "verify_ssl": "Ativar verificação do certificado SSL para conexões seguras",
           "dst_sync": "Sincronizar automaticamente as configurações de horário de verão com seu inversor com base no fuso horário do Home Assistant",
           "library_debug": "Ativar registro DEBUG para a biblioteca pylxpweb (mostra solicitações de API, respostas e operações internas da biblioteca)"
@@ -75,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "Não é possível conectar ao EG4 Web Monitor. Por favor, verifique sua conexão de rede e tente novamente.",
+      "cannot_connect": "Não é possível conectar ao {brand_name} Web Monitor. Por favor, verifique sua conexão de rede e tente novamente.",
       "invalid_auth": "Nome de usuário ou senha inválidos. Por favor, verifique suas credenciais e tente novamente.",
       "unknown": "Ocorreu um erro inesperado. Por favor, tente novamente ou consulte os registros para mais detalhes.",
-      "no_plants": "Nenhuma estação/usina solar encontrada em sua conta. Por favor, certifique-se de ter pelo menos uma estação configurada em sua conta EG4 Web Monitor.",
+      "no_plants": "Nenhuma estação/usina solar encontrada em sua conta. Por favor, certifique-se de ter pelo menos uma estação configurada em sua conta {brand_name} Web Monitor.",
       "invalid_plant": "A estação/usina selecionada não está mais disponível. Por favor, selecione uma estação diferente.",
-      "timeout": "A conexão com o EG4 Web Monitor expirou. Por favor, verifique sua conexão com a Internet e tente novamente."
+      "timeout": "A conexão com o {brand_name} Web Monitor expirou. Por favor, verifique sua conexão com a Internet e tente novamente."
     },
     "abort": {
-      "already_configured": "Esta estação EG4 Web Monitor já está configurada. Cada estação requer uma instância de integração separada.",
-      "reauth_successful": "Reautenticação bem-sucedida! Sua integração EG4 Web Monitor agora está reconectada.",
-      "reconfigure_successful": "Reconfiguração bem-sucedida! Suas configurações do EG4 Web Monitor foram atualizadas."
+      "already_configured": "Esta estação {brand_name} Web Monitor já está configurada. Cada estação requer uma instância de integração separada.",
+      "reauth_successful": "Reautenticação bem-sucedida! Sua integração {brand_name} Web Monitor agora está reconectada.",
+      "reconfigure_successful": "Reconfiguração bem-sucedida! Suas configurações do {brand_name} Web Monitor foram atualizadas."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Opções do EG4 Web Monitor",
-        "description": "Configure opções avançadas para sua integração EG4 Web Monitor.",
+        "title": "Opções do {brand_name} Web Monitor",
+        "description": "Configure opções avançadas para sua integração {brand_name} Web Monitor.",
         "data": {
           "scan_interval": "Intervalo de atualização (segundos)"
         },
         "data_description": {
-          "scan_interval": "Com que frequência consultar a API EG4 para atualizações (mínimo 30 segundos)"
+          "scan_interval": "Com que frequência consultar a API {brand_name} para atualizações (mínimo 30 segundos)"
         }
       }
     }
@@ -255,11 +255,11 @@
   "services": {
     "refresh_data": {
       "name": "Atualizar dados",
-      "description": "Forçar uma atualização imediata dos dados do dispositivo da API EG4, ignorando o intervalo de consulta normal.",
+      "description": "Forçar uma atualização imediata dos dados do dispositivo da API {brand_name}, ignorando o intervalo de consulta normal.",
       "fields": {
         "entry_id": {
           "name": "ID da entrada de configuração",
-          "description": "O ID da entrada de configuração a ser atualizada. Se não for fornecido, todas as integrações do EG4 Web Monitor serão atualizadas."
+          "description": "O ID da entrada de configuração a ser atualizada. Se não for fornecido, todas as integrações do {brand_name} Web Monitor serão atualizadas."
         }
       }
     }
@@ -272,7 +272,7 @@
       "message": "A entrada de configuração {entry_id} não está carregada. Por favor, certifique-se de que a integração está configurada corretamente e em execução."
     },
     "no_coordinators": {
-      "message": "Nenhum coordenador EG4 encontrado para atualizar. Por favor, certifique-se de que pelo menos uma integração EG4 Web Monitor está configurada e carregada."
+      "message": "Nenhum coordenador {brand_name} encontrado para atualizar. Por favor, certifique-se de que pelo menos uma integração {brand_name} Web Monitor está configurada e carregada."
     }
   }
 }

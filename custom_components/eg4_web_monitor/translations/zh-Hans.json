@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "EG4 Web Monitor 设置",
-        "description": "连接到您的 EG4 Web Monitor 账户以管理您的太阳能逆变器、GridBOSS 设备和电池系统。",
+        "title": "{brand_name} Web Monitor 设置",
+        "description": "连接到您的 {brand_name} Web Monitor 账户以管理您的太阳能逆变器、GridBOSS 设备和电池系统。",
         "data": {
           "username": "用户名",
           "password": "密码",
@@ -13,9 +13,9 @@
           "library_debug": "库调试日志"
         },
         "data_description": {
-          "username": "您的 EG4 Web Monitor 账户用户名",
-          "password": "您的 EG4 Web Monitor 账户密码",
-          "base_url": "EG4 Web Monitor API 的基础 URL",
+          "username": "您的 {brand_name} Web Monitor 账户用户名",
+          "password": "您的 {brand_name} Web Monitor 账户密码",
+          "base_url": "{brand_name} Web Monitor API 的基础 URL",
           "verify_ssl": "启用 SSL 证书验证以实现安全连接",
           "dst_sync": "根据 Home Assistant 时区自动同步逆变器的夏令时设置",
           "library_debug": "为 pylxpweb 库启用 DEBUG 日志记录（显示 API 请求、响应和内部库操作）"
@@ -32,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "重新认证 EG4 Web Monitor",
+        "title": "重新认证 {brand_name} Web Monitor",
         "description": "您的会话已过期或凭据无效。请重新输入您的凭据以继续监控您的设备。",
         "data": {
           "username": "用户名",
@@ -41,11 +41,11 @@
       },
       "reauth_confirm": {
         "title": "确认重新认证",
-        "description": "请确认您更新的凭据以恢复对 EG4 设备的访问。"
+        "description": "请确认您更新的凭据以恢复对 {brand_name} 设备的访问。"
       },
       "reconfigure": {
-        "title": "重新配置 EG4 Web Monitor",
-        "description": "更新您的 EG4 Web Monitor 配置设置。您可以更改连接参数或切换到不同的站点。",
+        "title": "重新配置 {brand_name} Web Monitor",
+        "description": "更新您的 {brand_name} Web Monitor 配置设置。您可以更改连接参数或切换到不同的站点。",
         "data": {
           "username": "用户名",
           "password": "密码",
@@ -55,9 +55,9 @@
           "library_debug": "库调试日志"
         },
         "data_description": {
-          "username": "您的 EG4 Web Monitor 账户用户名",
-          "password": "您的 EG4 Web Monitor 账户密码",
-          "base_url": "EG4 Web Monitor API 的基础 URL",
+          "username": "您的 {brand_name} Web Monitor 账户用户名",
+          "password": "您的 {brand_name} Web Monitor 账户密码",
+          "base_url": "{brand_name} Web Monitor API 的基础 URL",
           "verify_ssl": "启用 SSL 证书验证以实现安全连接",
           "dst_sync": "根据 Home Assistant 时区自动同步逆变器的夏令时设置",
           "library_debug": "为 pylxpweb 库启用 DEBUG 日志记录（显示 API 请求、响应和内部库操作）"
@@ -75,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "无法连接到 EG4 Web Monitor。请检查您的网络连接并重试。",
+      "cannot_connect": "无法连接到 {brand_name} Web Monitor。请检查您的网络连接并重试。",
       "invalid_auth": "用户名或密码无效。请检查您的凭据并重试。",
       "unknown": "发生意外错误。请重试或查看日志以获取更多详细信息。",
-      "no_plants": "您的账户中未找到太阳能站点/电站。请确保您在 EG4 Web Monitor 账户中至少配置了一个站点。",
+      "no_plants": "您的账户中未找到太阳能站点/电站。请确保您在 {brand_name} Web Monitor 账户中至少配置了一个站点。",
       "invalid_plant": "所选站点/电站不再可用。请选择不同的站点。",
-      "timeout": "连接到 EG4 Web Monitor 超时。请检查您的互联网连接并重试。"
+      "timeout": "连接到 {brand_name} Web Monitor 超时。请检查您的互联网连接并重试。"
     },
     "abort": {
-      "already_configured": "此 EG4 Web Monitor 站点已配置。每个站点需要单独的集成实例。",
-      "reauth_successful": "重新认证成功！您的 EG4 Web Monitor 集成现已重新连接。",
-      "reconfigure_successful": "重新配置成功！您的 EG4 Web Monitor 设置已更新。"
+      "already_configured": "此 {brand_name} Web Monitor 站点已配置。每个站点需要单独的集成实例。",
+      "reauth_successful": "重新认证成功！您的 {brand_name} Web Monitor 集成现已重新连接。",
+      "reconfigure_successful": "重新配置成功！您的 {brand_name} Web Monitor 设置已更新。"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "EG4 Web Monitor 选项",
-        "description": "配置 EG4 Web Monitor 集成的高级选项。",
+        "title": "{brand_name} Web Monitor 选项",
+        "description": "配置 {brand_name} Web Monitor 集成的高级选项。",
         "data": {
           "scan_interval": "更新间隔（秒）"
         },
         "data_description": {
-          "scan_interval": "轮询 EG4 API 更新的频率（最少 30 秒）"
+          "scan_interval": "轮询 {brand_name} API 更新的频率（最少 30 秒）"
         }
       }
     }
@@ -255,11 +255,11 @@
   "services": {
     "refresh_data": {
       "name": "刷新数据",
-      "description": "强制立即从 EG4 API 刷新设备数据，绕过正常轮询间隔。",
+      "description": "强制立即从 {brand_name} API 刷新设备数据，绕过正常轮询间隔。",
       "fields": {
         "entry_id": {
           "name": "配置条目 ID",
-          "description": "要刷新的配置条目 ID。如果未提供，将刷新所有 EG4 Web Monitor 集成。"
+          "description": "要刷新的配置条目 ID。如果未提供，将刷新所有 {brand_name} Web Monitor 集成。"
         }
       }
     }
@@ -272,7 +272,7 @@
       "message": "配置条目 {entry_id} 未加载。请确保集成已正确配置并运行。"
     },
     "no_coordinators": {
-      "message": "未找到要刷新的 EG4 协调器。请确保至少配置并加载了一个 EG4 Web Monitor 集成。"
+      "message": "未找到要刷新的 {brand_name} 协调器。请确保至少配置并加载了一个 {brand_name} Web Monitor 集成。"
     }
   }
 }
