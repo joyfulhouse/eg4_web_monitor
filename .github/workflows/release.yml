@@ -16,17 +16,17 @@ jobs:
 
       - name: Create release asset
         run: |
-          cd custom_components
-          zip -r ../eg4_web_monitor.zip eg4_web_monitor \
+          cd custom_components/eg4_web_monitor
+          zip -r ../../eg4_web_monitor.zip . \
             -x "*.pyc" \
-            -x "*/__pycache__/*" \
+            -x "__pycache__/*" \
             -x "*.pyo" \
-            -x "*/.mypy_cache/*" \
-            -x "*/.ruff_cache/*" \
+            -x ".mypy_cache/*" \
+            -x ".ruff_cache/*" \
             -x "*.env" \
-            -x "*/.env" \
-            -x "*/secrets.py" \
-            -x "*/.git/*"
+            -x ".env" \
+            -x "secrets.py" \
+            -x ".git/*"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
