@@ -71,11 +71,15 @@ Before installing this integration, you need:
 
 ### HACS (Recommended)
 
-1. Open HACS → Integrations → ⋮ → Custom repositories
-2. Add URL: `https://github.com/joyfulhouse/eg4_web_monitor`
-3. Category: Integration
-4. Search for "EG4 Web Monitor" and install
-5. Restart Home Assistant
+1. Open HACS → Integrations
+2. Search for "EG4 Web Monitor"
+3. Click **Download**
+4. Restart Home Assistant
+
+> **Note:** If you don't see "EG4 Web Monitor" in the search results, you can add it manually:
+> 1. Click ⋮ (three dots) → **Custom repositories**
+> 2. Add `https://github.com/joyfulhouse/eg4_web_monitor` with category **Integration**
+> 3. Search again and install
 
 ### Manual Installation
 
@@ -453,7 +457,7 @@ Unofficial integration not affiliated with EG4 Electronics. Use at your own risk
 [releases]: https://github.com/joyfulhouse/eg4_web_monitor/releases
 [license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [hacs]: https://hacs.xyz
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
+[hacsbadge]: https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge
 [ci-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=CI&style=for-the-badge
 [ci-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
 [maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge
