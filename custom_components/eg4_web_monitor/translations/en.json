@@ -2,19 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "EG4 Web Monitor Setup",
-        "description": "Connect to your EG4 Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
+        "title": "{brand_name} Web Monitor Setup",
+        "description": "Connect to your {brand_name} Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
         "data": {
           "username": "Username",
           "password": "Password",
           "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate"
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
-          "username": "Your EG4 Web Monitor account username",
-          "password": "Your EG4 Web Monitor account password",
-          "base_url": "The base URL for the EG4 Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections"
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       },
       "plant": {
@@ -28,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "Reauthenticate EG4 Web Monitor",
+        "title": "Reauthenticate {brand_name} Web Monitor",
         "description": "Your session has expired or credentials are invalid. Please re-enter your credentials to continue monitoring your devices.",
         "data": {
           "username": "Username",
@@ -37,22 +41,26 @@
       },
       "reauth_confirm": {
         "title": "Confirm Reauthentication",
-        "description": "Please confirm your updated credentials to restore access to your EG4 devices."
+        "description": "Please confirm your updated credentials to restore access to your {brand_name} devices."
       },
       "reconfigure": {
-        "title": "Reconfigure EG4 Web Monitor",
-        "description": "Update your EG4 Web Monitor configuration settings. You can change connection parameters or switch to a different station.",
+        "title": "Reconfigure {brand_name} Web Monitor",
+        "description": "Update your {brand_name} Web Monitor configuration settings. You can change connection parameters or switch to a different station.",
         "data": {
           "username": "Username",
           "password": "Password",
           "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate"
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
-          "username": "Your EG4 Web Monitor account username",
-          "password": "Your EG4 Web Monitor account password",
-          "base_url": "The base URL for the EG4 Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections"
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       },
       "reconfigure_plant": {
@@ -67,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to EG4 Web Monitor. Please check your network connection and try again.",
+      "cannot_connect": "Unable to connect to {brand_name} Web Monitor. Please check your network connection and try again.",
       "invalid_auth": "Invalid username or password. Please check your credentials and try again.",
       "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
-      "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your EG4 Web Monitor account.",
+      "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your {brand_name} Web Monitor account.",
       "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
-      "timeout": "Connection to EG4 Web Monitor timed out. Please check your internet connection and try again."
+      "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again."
     },
     "abort": {
-      "already_configured": "This EG4 Web Monitor station is already configured. Each station requires a separate integration instance.",
-      "reauth_successful": "Reauthentication successful! Your EG4 Web Monitor integration is now reconnected.",
-      "reconfigure_successful": "Reconfiguration successful! Your EG4 Web Monitor settings have been updated."
+      "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
+      "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
+      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "EG4 Web Monitor Options",
-        "description": "Configure advanced options for your EG4 Web Monitor integration.",
+        "title": "{brand_name} Web Monitor Options",
+        "description": "Configure advanced options for your {brand_name} Web Monitor integration.",
         "data": {
           "scan_interval": "Update Interval (seconds)"
         },
         "data_description": {
-          "scan_interval": "How often to poll the EG4 API for updates (minimum 30 seconds)"
+          "scan_interval": "How often to poll the {brand_name} API for updates (minimum 30 seconds)"
         }
       }
     }
@@ -127,7 +135,6 @@
       "status_text": {"name": "Status"},
       "grid_power": {"name": "Grid Power"},
       "load_power": {"name": "Load Power"},
-      "consumption_power": {"name": "Consumption Power"},
       "pv_total_power": {"name": "PV Total Power"},
       "pv1_power": {"name": "PV1 Power"},
       "pv2_power": {"name": "PV2 Power"},
@@ -181,11 +188,11 @@
   "services": {
     "refresh_data": {
       "name": "Refresh Data",
-      "description": "Force an immediate refresh of device data from the EG4 API, bypassing the normal polling interval.",
+      "description": "Force an immediate refresh of device data from the {brand_name} API, bypassing the normal polling interval.",
       "fields": {
         "entry_id": {
           "name": "Configuration Entry ID",
-          "description": "The configuration entry ID to refresh. If not provided, all EG4 Web Monitor integrations will be refreshed."
+          "description": "The configuration entry ID to refresh. If not provided, all {brand_name} Web Monitor integrations will be refreshed."
         }
       }
     }
@@ -198,7 +205,7 @@
       "message": "Configuration entry {entry_id} is not loaded. Please ensure the integration is properly configured and running."
     },
     "no_coordinators": {
-      "message": "No EG4 coordinators found to refresh. Please ensure at least one EG4 Web Monitor integration is configured and loaded."
+      "message": "No {brand_name} coordinators found to refresh. Please ensure at least one {brand_name} Web Monitor integration is configured and loaded."
     }
   }
 }

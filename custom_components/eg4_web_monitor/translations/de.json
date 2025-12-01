@@ -2,19 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "EG4 Web Monitor Einrichtung",
-        "description": "Verbinden Sie sich mit Ihrem EG4 Web Monitor-Konto, um Ihre Solarwechselrichter, GridBOSS-Geräte und Batteriesysteme zu verwalten.",
+        "title": "{brand_name} Web Monitor Einrichtung",
+        "description": "Verbinden Sie sich mit Ihrem {brand_name} Web Monitor-Konto, um Ihre Solarwechselrichter, GridBOSS-Geräte und Batteriesysteme zu verwalten.",
         "data": {
           "username": "Benutzername",
           "password": "Passwort",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-Zertifikat überprüfen"
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "library_debug": "Bibliotheks-Debug-Protokollierung"
         },
         "data_description": {
-          "username": "Ihr EG4 Web Monitor-Kontobenutzername",
-          "password": "Ihr EG4 Web Monitor-Kontopasswort",
-          "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
-          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+          "username": "Ihr {brand_name} Web Monitor-Kontobenutzername",
+          "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
         }
       },
       "plant": {
@@ -28,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "EG4 Web Monitor erneut authentifizieren",
+        "title": "{brand_name} Web Monitor erneut authentifizieren",
         "description": "Ihre Sitzung ist abgelaufen oder die Anmeldedaten sind ungültig. Bitte geben Sie Ihre Anmeldedaten erneut ein, um Ihre Geräte weiterhin zu überwachen.",
         "data": {
           "username": "Benutzername",
@@ -37,22 +41,26 @@
       },
       "reauth_confirm": {
         "title": "Erneute Authentifizierung bestätigen",
-        "description": "Bitte bestätigen Sie Ihre aktualisierten Anmeldedaten, um den Zugriff auf Ihre EG4-Geräte wiederherzustellen."
+        "description": "Bitte bestätigen Sie Ihre aktualisierten Anmeldedaten, um den Zugriff auf Ihre {brand_name}-Geräte wiederherzustellen."
       },
       "reconfigure": {
-        "title": "EG4 Web Monitor neu konfigurieren",
-        "description": "Aktualisieren Sie Ihre EG4 Web Monitor-Konfigurationseinstellungen. Sie können Verbindungsparameter ändern oder zu einer anderen Station wechseln.",
+        "title": "{brand_name} Web Monitor neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre {brand_name} Web Monitor-Konfigurationseinstellungen. Sie können Verbindungsparameter ändern oder zu einer anderen Station wechseln.",
         "data": {
           "username": "Benutzername",
           "password": "Passwort",
           "base_url": "Basis-URL",
-          "verify_ssl": "SSL-Zertifikat überprüfen"
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "library_debug": "Bibliotheks-Debug-Protokollierung"
         },
         "data_description": {
-          "username": "Ihr EG4 Web Monitor-Kontobenutzername",
-          "password": "Ihr EG4 Web Monitor-Kontopasswort",
-          "base_url": "Die Basis-URL für die EG4 Web Monitor-API",
-          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren"
+          "username": "Ihr {brand_name} Web Monitor-Kontobenutzername",
+          "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
         }
       },
       "reconfigure_plant": {
@@ -67,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zu EG4 Web Monitor nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.",
+      "cannot_connect": "Verbindung zu {brand_name} Web Monitor nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.",
       "invalid_auth": "Ungültiger Benutzername oder Passwort. Bitte überprüfen Sie Ihre Anmeldedaten und versuchen Sie es erneut.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut oder überprüfen Sie die Protokolle für weitere Details.",
-      "no_plants": "Keine Solarstationen/Anlagen in Ihrem Konto gefunden. Bitte stellen Sie sicher, dass Sie mindestens eine Station in Ihrem EG4 Web Monitor-Konto konfiguriert haben.",
+      "no_plants": "Keine Solarstationen/Anlagen in Ihrem Konto gefunden. Bitte stellen Sie sicher, dass Sie mindestens eine Station in Ihrem {brand_name} Web Monitor-Konto konfiguriert haben.",
       "invalid_plant": "Die ausgewählte Station/Anlage ist nicht mehr verfügbar. Bitte wählen Sie eine andere Station aus.",
-      "timeout": "Zeitüberschreitung bei Verbindung zu EG4 Web Monitor. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
+      "timeout": "Zeitüberschreitung bei Verbindung zu {brand_name} Web Monitor. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
     },
     "abort": {
-      "already_configured": "Diese EG4 Web Monitor-Station ist bereits konfiguriert. Jede Station benötigt eine separate Integrationsinstanz.",
-      "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre EG4 Web Monitor-Integration ist jetzt wieder verbunden.",
-      "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre EG4 Web Monitor-Einstellungen wurden aktualisiert."
+      "already_configured": "Diese {brand_name} Web Monitor-Station ist bereits konfiguriert. Jede Station benötigt eine separate Integrationsinstanz.",
+      "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre {brand_name} Web Monitor-Integration ist jetzt wieder verbunden.",
+      "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre {brand_name} Web Monitor-Einstellungen wurden aktualisiert."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "EG4 Web Monitor Optionen",
-        "description": "Konfigurieren Sie erweiterte Optionen für Ihre EG4 Web Monitor-Integration.",
+        "title": "{brand_name} Web Monitor Optionen",
+        "description": "Konfigurieren Sie erweiterte Optionen für Ihre {brand_name} Web Monitor-Integration.",
         "data": {
           "scan_interval": "Aktualisierungsintervall (Sekunden)"
         },
         "data_description": {
-          "scan_interval": "Wie oft die EG4-API für Updates abgefragt werden soll (mindestens 30 Sekunden)"
+          "scan_interval": "Wie oft die {brand_name}-API für Updates abgefragt werden soll (mindestens 30 Sekunden)"
         }
       }
     }
@@ -181,11 +189,11 @@
   "services": {
     "refresh_data": {
       "name": "Daten aktualisieren",
-      "description": "Sofortige Aktualisierung der Gerätedaten von der EG4-API erzwingen und dabei das normale Abfrageintervall umgehen.",
+      "description": "Sofortige Aktualisierung der Gerätedaten von der {brand_name}-API erzwingen und dabei das normale Abfrageintervall umgehen.",
       "fields": {
         "entry_id": {
           "name": "Konfigurationseintrag-ID",
-          "description": "Die zu aktualisierende Konfigurationseintrag-ID. Wenn nicht angegeben, werden alle EG4 Web Monitor-Integrationen aktualisiert."
+          "description": "Die zu aktualisierende Konfigurationseintrag-ID. Wenn nicht angegeben, werden alle {brand_name} Web Monitor-Integrationen aktualisiert."
         }
       }
     }
@@ -198,7 +206,7 @@
       "message": "Konfigurationseintrag {entry_id} ist nicht geladen. Bitte stellen Sie sicher, dass die Integration ordnungsgemäß konfiguriert ist und ausgeführt wird."
     },
     "no_coordinators": {
-      "message": "Keine EG4-Koordinatoren zum Aktualisieren gefunden. Bitte stellen Sie sicher, dass mindestens eine EG4 Web Monitor-Integration konfiguriert und geladen ist."
+      "message": "Keine {brand_name}-Koordinatoren zum Aktualisieren gefunden. Bitte stellen Sie sicher, dass mindestens eine {brand_name} Web Monitor-Integration konfiguriert und geladen ist."
     }
   }
 }

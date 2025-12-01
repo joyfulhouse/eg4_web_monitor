@@ -71,11 +71,15 @@ Before installing this integration, you need:
 
 ### HACS (Recommended)
 
-1. Open HACS → Integrations → ⋮ → Custom repositories
-2. Add URL: `https://github.com/joyfulhouse/eg4_web_monitor`
-3. Category: Integration
-4. Search for "EG4 Web Monitor" and install
-5. Restart Home Assistant
+1. Open HACS → Integrations
+2. Search for "EG4 Web Monitor"
+3. Click **Download**
+4. Restart Home Assistant
+
+> **Note:** If you don't see "EG4 Web Monitor" in the search results, you can add it manually:
+> 1. Click ⋮ (three dots) → **Custom repositories**
+> 2. Add `https://github.com/joyfulhouse/eg4_web_monitor` with category **Integration**
+> 3. Search again and install
 
 ### Manual Installation
 
@@ -140,14 +144,24 @@ The reconfiguration process won't lose any of your existing automations or dashb
 ### Switches
 - **Quick Charge**: Start/stop battery quick charging
 - **Battery Backup (EPS)**: Enable/disable emergency power supply mode
+- **Daylight Saving Time**: Enable/disable DST for station time synchronization
+- **Working Mode Switches**:
+  - **AC Charge Mode**: Enable/disable AC charging from grid
+  - **PV Charge Priority**: Enable/disable solar charging priority
+  - **Forced Discharge**: Enable/disable forced battery discharge
+  - **Peak Shaving Mode**: Enable/disable grid peak shaving
+  - **Battery Backup Control**: Enable/disable battery backup controller
 
 ### Selects
 - **Operating Mode**: Switch between Normal and Standby modes
 
 ### Numbers
 - **System Charge SOC Limit**: Set battery charge limit (%)
-- **AC Charge Power**: Configure AC charging power
+- **AC Charge Power**: Configure AC charging power (0.1 kW increments)
 - **PV Charge Power**: Configure PV charging power
+- **Grid Peak Shaving Power**: Configure peak shaving power limit
+- **Battery Charge Current**: Configure battery charging current
+- **Battery Discharge Current**: Configure battery discharging current
 
 ### Buttons
 - **Refresh Data**: Force refresh for devices and batteries
@@ -199,11 +213,21 @@ sensor.gridboss_5555555555_grid_power_l1
 sensor.gridboss_5555555555_load_power
 sensor.gridboss_5555555555_smart_port1_status
 
-# Controls
+# Basic controls
 switch.18kpv_1234567890_quick_charge
 switch.18kpv_1234567890_battery_backup
 select.18kpv_1234567890_operating_mode
 number.18kpv_1234567890_system_charge_soc_limit
+
+# Working mode switches
+switch.18kpv_1234567890_ac_charge
+switch.18kpv_1234567890_forced_chg_en
+switch.18kpv_1234567890_forced_dischg_en
+switch.18kpv_1234567890_grid_peak_shaving
+switch.18kpv_1234567890_battery_backup_ctrl
+
+# Station controls
+switch.eg4_station_daylight_saving_time
 ```
 
 ## Supported Devices
@@ -433,7 +457,7 @@ Unofficial integration not affiliated with EG4 Electronics. Use at your own risk
 [releases]: https://github.com/joyfulhouse/eg4_web_monitor/releases
 [license-shield]: https://img.shields.io/github/license/joyfulhouse/eg4_web_monitor?style=for-the-badge
 [hacs]: https://hacs.xyz
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
+[hacsbadge]: https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge
 [ci-badge]: https://img.shields.io/github/actions/workflow/status/joyfulhouse/eg4_web_monitor/quality-validation.yml?branch=main&label=CI&style=for-the-badge
 [ci-workflow]: https://github.com/joyfulhouse/eg4_web_monitor/actions/workflows/quality-validation.yml
 [maintenance-shield]: https://img.shields.io/badge/maintainer-joyfulhouse-blue.svg?style=for-the-badge

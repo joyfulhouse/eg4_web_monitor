@@ -2,19 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "EG4 Web Monitor 설정",
-        "description": "태양광 인버터, GridBOSS 장치 및 배터리 시스템을 관리하려면 EG4 Web Monitor 계정에 연결하세요.",
+        "title": "{brand_name} Web Monitor 설정",
+        "description": "태양광 인버터, GridBOSS 장치 및 배터리 시스템을 관리하려면 {brand_name} Web Monitor 계정에 연결하세요.",
         "data": {
           "username": "사용자 이름",
           "password": "비밀번호",
           "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인"
+          "verify_ssl": "SSL 인증서 확인",
+          "dst_sync": "DST 동기화",
+          "library_debug": "라이브러리 디버그 로깅"
         },
         "data_description": {
-          "username": "EG4 Web Monitor 계정 사용자 이름",
-          "password": "EG4 Web Monitor 계정 비밀번호",
-          "base_url": "EG4 Web Monitor API의 기본 URL",
-          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화"
+          "username": "{brand_name} Web Monitor 계정 사용자 이름",
+          "password": "{brand_name} Web Monitor 계정 비밀번호",
+          "base_url": "{brand_name} Web Monitor API의 기본 URL",
+          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화",
+          "dst_sync": "Home Assistant 시간대에 따라 인버터에 일광 절약 시간 설정을 자동으로 동기화합니다",
+          "library_debug": "pylxpweb 라이브러리에 대한 DEBUG 로깅을 활성화합니다 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
         }
       },
       "plant": {
@@ -28,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "EG4 Web Monitor 재인증",
+        "title": "{brand_name} Web Monitor 재인증",
         "description": "세션이 만료되었거나 자격 증명이 유효하지 않습니다. 장치를 계속 모니터링하려면 자격 증명을 다시 입력하세요.",
         "data": {
           "username": "사용자 이름",
@@ -37,22 +41,26 @@
       },
       "reauth_confirm": {
         "title": "재인증 확인",
-        "description": "EG4 장치에 대한 액세스를 복원하려면 업데이트된 자격 증명을 확인하세요."
+        "description": "{brand_name} 장치에 대한 액세스를 복원하려면 업데이트된 자격 증명을 확인하세요."
       },
       "reconfigure": {
-        "title": "EG4 Web Monitor 재구성",
-        "description": "EG4 Web Monitor 구성 설정을 업데이트하세요. 연결 매개변수를 변경하거나 다른 스테이션으로 전환할 수 있습니다.",
+        "title": "{brand_name} Web Monitor 재구성",
+        "description": "{brand_name} Web Monitor 구성 설정을 업데이트하세요. 연결 매개변수를 변경하거나 다른 스테이션으로 전환할 수 있습니다.",
         "data": {
           "username": "사용자 이름",
           "password": "비밀번호",
           "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인"
+          "verify_ssl": "SSL 인증서 확인",
+          "dst_sync": "DST 동기화",
+          "library_debug": "라이브러리 디버그 로깅"
         },
         "data_description": {
-          "username": "EG4 Web Monitor 계정 사용자 이름",
-          "password": "EG4 Web Monitor 계정 비밀번호",
-          "base_url": "EG4 Web Monitor API의 기본 URL",
-          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화"
+          "username": "{brand_name} Web Monitor 계정 사용자 이름",
+          "password": "{brand_name} Web Monitor 계정 비밀번호",
+          "base_url": "{brand_name} Web Monitor API의 기본 URL",
+          "verify_ssl": "안전한 연결을 위해 SSL 인증서 확인 활성화",
+          "dst_sync": "Home Assistant 시간대에 따라 인버터에 일광 절약 시간 설정을 자동으로 동기화합니다",
+          "library_debug": "pylxpweb 라이브러리에 대한 DEBUG 로깅을 활성화합니다 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
         }
       },
       "reconfigure_plant": {
@@ -67,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "EG4 Web Monitor에 연결할 수 없습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
+      "cannot_connect": "{brand_name} Web Monitor에 연결할 수 없습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
       "invalid_auth": "사용자 이름 또는 비밀번호가 잘못되었습니다. 자격 증명을 확인하고 다시 시도하세요.",
       "unknown": "예기치 않은 오류가 발생했습니다. 다시 시도하거나 로그에서 자세한 내용을 확인하세요.",
-      "no_plants": "계정에서 태양광 스테이션/플랜트를 찾을 수 없습니다. EG4 Web Monitor 계정에 하나 이상의 스테이션이 구성되어 있는지 확인하세요.",
+      "no_plants": "계정에서 태양광 스테이션/플랜트를 찾을 수 없습니다. {brand_name} Web Monitor 계정에 하나 이상의 스테이션이 구성되어 있는지 확인하세요.",
       "invalid_plant": "선택한 스테이션/플랜트를 더 이상 사용할 수 없습니다. 다른 스테이션을 선택하세요.",
-      "timeout": "EG4 Web Monitor에 대한 연결 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도하세요."
+      "timeout": "{brand_name} Web Monitor에 대한 연결 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도하세요."
     },
     "abort": {
-      "already_configured": "이 EG4 Web Monitor 스테이션은 이미 구성되었습니다. 각 스테이션에는 별도의 통합 인스턴스가 필요합니다.",
-      "reauth_successful": "재인증에 성공했습니다! EG4 Web Monitor 통합이 이제 다시 연결되었습니다.",
-      "reconfigure_successful": "재구성에 성공했습니다! EG4 Web Monitor 설정이 업데이트되었습니다."
+      "already_configured": "이 {brand_name} Web Monitor 스테이션은 이미 구성되었습니다. 각 스테이션에는 별도의 통합 인스턴스가 필요합니다.",
+      "reauth_successful": "재인증에 성공했습니다! {brand_name} Web Monitor 통합이 이제 다시 연결되었습니다.",
+      "reconfigure_successful": "재구성에 성공했습니다! {brand_name} Web Monitor 설정이 업데이트되었습니다."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "EG4 Web Monitor 옵션",
-        "description": "EG4 Web Monitor 통합의 고급 옵션을 구성하세요.",
+        "title": "{brand_name} Web Monitor 옵션",
+        "description": "{brand_name} Web Monitor 통합의 고급 옵션을 구성하세요.",
         "data": {
           "scan_interval": "업데이트 간격(초)"
         },
         "data_description": {
-          "scan_interval": "업데이트를 위해 EG4 API를 폴링하는 빈도(최소 30초)"
+          "scan_interval": "업데이트를 위해 {brand_name} API를 폴링하는 빈도(최소 30초)"
         }
       }
     }
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "AC 전력"},
-      "ac_voltage": {"name": "AC 전압"},
-      "ac_current": {"name": "AC 전류"},
-      "frequency": {"name": "주파수"},
-      "dc_power": {"name": "DC 전력"},
-      "dc_voltage": {"name": "DC 전압"},
-      "dc_current": {"name": "DC 전류"},
-      "battery_power": {"name": "배터리 전력"},
-      "battery_voltage": {"name": "배터리 전압"},
-      "battery_current": {"name": "배터리 전류"},
-      "state_of_charge": {"name": "충전 상태"},
-      "state_of_health": {"name": "건강 상태"},
-      "total_energy": {"name": "총 에너지"},
-      "daily_energy": {"name": "일일 에너지"},
-      "monthly_energy": {"name": "월간 에너지"},
-      "yearly_energy": {"name": "연간 에너지"},
-      "internal_temperature": {"name": "내부 온도"},
-      "radiator1_temperature": {"name": "라디에이터 1 온도"},
-      "radiator2_temperature": {"name": "라디에이터 2 온도"},
-      "status_code": {"name": "상태 코드"},
-      "status_text": {"name": "상태"},
-      "grid_power": {"name": "그리드 전력"},
-      "load_power": {"name": "부하 전력"},
-      "consumption_power": {"name": "소비 전력"},
-      "pv_total_power": {"name": "PV 총 전력"},
-      "pv1_power": {"name": "PV1 전력"},
-      "pv2_power": {"name": "PV2 전력"},
-      "pv3_power": {"name": "PV3 전력"},
-      "cell_voltage_max": {"name": "최대 셀 전압"},
-      "cell_voltage_min": {"name": "최소 셀 전압"},
-      "cell_voltage_delta": {"name": "셀 전압 델타"},
-      "cycle_count": {"name": "사이클 횟수"},
-      "firmware_version": {"name": "펌웨어 버전"}
+      "ac_power": {
+        "name": "AC 전력"
+      },
+      "ac_voltage": {
+        "name": "AC 전압"
+      },
+      "ac_current": {
+        "name": "AC 전류"
+      },
+      "frequency": {
+        "name": "주파수"
+      },
+      "dc_power": {
+        "name": "DC 전력"
+      },
+      "dc_voltage": {
+        "name": "DC 전압"
+      },
+      "dc_current": {
+        "name": "DC 전류"
+      },
+      "battery_power": {
+        "name": "배터리 전력"
+      },
+      "battery_voltage": {
+        "name": "배터리 전압"
+      },
+      "battery_current": {
+        "name": "배터리 전류"
+      },
+      "state_of_charge": {
+        "name": "충전 상태"
+      },
+      "state_of_health": {
+        "name": "건강 상태"
+      },
+      "total_energy": {
+        "name": "총 에너지"
+      },
+      "daily_energy": {
+        "name": "일일 에너지"
+      },
+      "monthly_energy": {
+        "name": "월간 에너지"
+      },
+      "yearly_energy": {
+        "name": "연간 에너지"
+      },
+      "internal_temperature": {
+        "name": "내부 온도"
+      },
+      "radiator1_temperature": {
+        "name": "라디에이터 1 온도"
+      },
+      "radiator2_temperature": {
+        "name": "라디에이터 2 온도"
+      },
+      "status_code": {
+        "name": "상태 코드"
+      },
+      "status_text": {
+        "name": "상태"
+      },
+      "grid_power": {
+        "name": "그리드 전력"
+      },
+      "load_power": {
+        "name": "부하 전력"
+      },
+      "consumption_power": {
+        "name": "소비 전력"
+      },
+      "pv_total_power": {
+        "name": "PV 총 전력"
+      },
+      "pv1_power": {
+        "name": "PV1 전력"
+      },
+      "pv2_power": {
+        "name": "PV2 전력"
+      },
+      "pv3_power": {
+        "name": "PV3 전력"
+      },
+      "cell_voltage_max": {
+        "name": "최대 셀 전압"
+      },
+      "cell_voltage_min": {
+        "name": "최소 셀 전압"
+      },
+      "cell_voltage_delta": {
+        "name": "셀 전압 델타"
+      },
+      "cycle_count": {
+        "name": "사이클 횟수"
+      },
+      "firmware_version": {
+        "name": "펌웨어 버전"
+      }
     },
     "switch": {
       "quick_charge": {
@@ -181,11 +255,11 @@
   "services": {
     "refresh_data": {
       "name": "데이터 새로 고침",
-      "description": "정상 폴링 간격을 우회하여 EG4 API에서 장치 데이터를 즉시 새로 고칩니다.",
+      "description": "정상 폴링 간격을 우회하여 {brand_name} API에서 장치 데이터를 즉시 새로 고칩니다.",
       "fields": {
         "entry_id": {
           "name": "구성 항목 ID",
-          "description": "새로 고칠 구성 항목 ID입니다. 제공하지 않으면 모든 EG4 Web Monitor 통합이 새로 고쳐집니다."
+          "description": "새로 고칠 구성 항목 ID입니다. 제공하지 않으면 모든 {brand_name} Web Monitor 통합이 새로 고쳐집니다."
         }
       }
     }
@@ -198,7 +272,7 @@
       "message": "구성 항목 {entry_id}이(가) 로드되지 않았습니다. 통합이 올바르게 구성되고 실행 중인지 확인하세요."
     },
     "no_coordinators": {
-      "message": "새로 고칠 EG4 코디네이터를 찾을 수 없습니다. 하나 이상의 EG4 Web Monitor 통합이 구성되고 로드되었는지 확인하세요."
+      "message": "새로 고칠 {brand_name} 코디네이터를 찾을 수 없습니다. 하나 이상의 {brand_name} Web Monitor 통합이 구성되고 로드되었는지 확인하세요."
     }
   }
 }

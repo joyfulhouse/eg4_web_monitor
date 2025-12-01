@@ -2,19 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "Konfiguracja EG4 Web Monitor",
-        "description": "Połącz się z kontem EG4 Web Monitor, aby zarządzać falownikami słonecznymi, urządzeniami GridBOSS i systemami bateryjnymi.",
+        "title": "Konfiguracja {brand_name} Web Monitor",
+        "description": "Połącz się z kontem {brand_name} Web Monitor, aby zarządzać falownikami słonecznymi, urządzeniami GridBOSS i systemami bateryjnymi.",
         "data": {
           "username": "Nazwa użytkownika",
           "password": "Hasło",
           "base_url": "Bazowy URL",
-          "verify_ssl": "Weryfikuj certyfikat SSL"
+          "verify_ssl": "Weryfikuj certyfikat SSL",
+          "dst_sync": "Synchronizacja DST",
+          "library_debug": "Logowanie debugowania biblioteki"
         },
         "data_description": {
-          "username": "Twoja nazwa użytkownika konta EG4 Web Monitor",
-          "password": "Twoje hasło konta EG4 Web Monitor",
-          "base_url": "Bazowy URL dla API EG4 Web Monitor",
-          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń"
+          "username": "Twoja nazwa użytkownika konta {brand_name} Web Monitor",
+          "password": "Twoje hasło konta {brand_name} Web Monitor",
+          "base_url": "Bazowy URL dla API {brand_name} Web Monitor",
+          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń",
+          "dst_sync": "Automatycznie synchronizuj ustawienia czasu letniego z falownikiem na podstawie strefy czasowej Home Assistant",
+          "library_debug": "Włącz logowanie DEBUG dla biblioteki pylxpweb (pokazuje żądania API, odpowiedzi i wewnętrzne operacje biblioteki)"
         }
       },
       "plant": {
@@ -28,7 +32,7 @@
         }
       },
       "reauth": {
-        "title": "Ponowna autoryzacja EG4 Web Monitor",
+        "title": "Ponowna autoryzacja {brand_name} Web Monitor",
         "description": "Twoja sesja wygasła lub dane uwierzytelniające są nieprawidłowe. Wprowadź ponownie swoje dane uwierzytelniające, aby kontynuować monitorowanie urządzeń.",
         "data": {
           "username": "Nazwa użytkownika",
@@ -37,22 +41,26 @@
       },
       "reauth_confirm": {
         "title": "Potwierdź ponowną autoryzację",
-        "description": "Potwierdź zaktualizowane dane uwierzytelniające, aby przywrócić dostęp do urządzeń EG4."
+        "description": "Potwierdź zaktualizowane dane uwierzytelniające, aby przywrócić dostęp do urządzeń {brand_name}."
       },
       "reconfigure": {
-        "title": "Przekonfiguruj EG4 Web Monitor",
-        "description": "Zaktualizuj ustawienia konfiguracji EG4 Web Monitor. Możesz zmienić parametry połączenia lub przełączyć się na inną stację.",
+        "title": "Przekonfiguruj {brand_name} Web Monitor",
+        "description": "Zaktualizuj ustawienia konfiguracji {brand_name} Web Monitor. Możesz zmienić parametry połączenia lub przełączyć się na inną stację.",
         "data": {
           "username": "Nazwa użytkownika",
           "password": "Hasło",
           "base_url": "Bazowy URL",
-          "verify_ssl": "Weryfikuj certyfikat SSL"
+          "verify_ssl": "Weryfikuj certyfikat SSL",
+          "dst_sync": "Synchronizacja DST",
+          "library_debug": "Logowanie debugowania biblioteki"
         },
         "data_description": {
-          "username": "Twoja nazwa użytkownika konta EG4 Web Monitor",
-          "password": "Twoje hasło konta EG4 Web Monitor",
-          "base_url": "Bazowy URL dla API EG4 Web Monitor",
-          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń"
+          "username": "Twoja nazwa użytkownika konta {brand_name} Web Monitor",
+          "password": "Twoje hasło konta {brand_name} Web Monitor",
+          "base_url": "Bazowy URL dla API {brand_name} Web Monitor",
+          "verify_ssl": "Włącz weryfikację certyfikatu SSL dla bezpiecznych połączeń",
+          "dst_sync": "Automatycznie synchronizuj ustawienia czasu letniego z falownikiem na podstawie strefy czasowej Home Assistant",
+          "library_debug": "Włącz logowanie DEBUG dla biblioteki pylxpweb (pokazuje żądania API, odpowiedzi i wewnętrzne operacje biblioteki)"
         }
       },
       "reconfigure_plant": {
@@ -67,29 +75,29 @@
       }
     },
     "error": {
-      "cannot_connect": "Nie można połączyć się z EG4 Web Monitor. Sprawdź połączenie sieciowe i spróbuj ponownie.",
+      "cannot_connect": "Nie można połączyć się z {brand_name} Web Monitor. Sprawdź połączenie sieciowe i spróbuj ponownie.",
       "invalid_auth": "Nieprawidłowa nazwa użytkownika lub hasło. Sprawdź swoje dane uwierzytelniające i spróbuj ponownie.",
       "unknown": "Wystąpił nieoczekiwany błąd. Spróbuj ponownie lub sprawdź logi, aby uzyskać więcej szczegółów.",
-      "no_plants": "Nie znaleziono stacji/instalacji słonecznych na Twoim koncie. Upewnij się, że masz skonfigurowaną co najmniej jedną stację na koncie EG4 Web Monitor.",
+      "no_plants": "Nie znaleziono stacji/instalacji słonecznych na Twoim koncie. Upewnij się, że masz skonfigurowaną co najmniej jedną stację na koncie {brand_name} Web Monitor.",
       "invalid_plant": "Wybrana stacja/instalacja nie jest już dostępna. Wybierz inną stację.",
-      "timeout": "Upłynął limit czasu połączenia z EG4 Web Monitor. Sprawdź połączenie internetowe i spróbuj ponownie."
+      "timeout": "Upłynął limit czasu połączenia z {brand_name} Web Monitor. Sprawdź połączenie internetowe i spróbuj ponownie."
     },
     "abort": {
-      "already_configured": "Ta stacja EG4 Web Monitor jest już skonfigurowana. Każda stacja wymaga osobnej instancji integracji.",
-      "reauth_successful": "Ponowna autoryzacja powiodła się! Integracja EG4 Web Monitor została ponownie połączona.",
-      "reconfigure_successful": "Przekonfigurowanie powiodło się! Ustawienia EG4 Web Monitor zostały zaktualizowane."
+      "already_configured": "Ta stacja {brand_name} Web Monitor jest już skonfigurowana. Każda stacja wymaga osobnej instancji integracji.",
+      "reauth_successful": "Ponowna autoryzacja powiodła się! Integracja {brand_name} Web Monitor została ponownie połączona.",
+      "reconfigure_successful": "Przekonfigurowanie powiodło się! Ustawienia {brand_name} Web Monitor zostały zaktualizowane."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Opcje EG4 Web Monitor",
-        "description": "Skonfiguruj zaawansowane opcje integracji EG4 Web Monitor.",
+        "title": "Opcje {brand_name} Web Monitor",
+        "description": "Skonfiguruj zaawansowane opcje integracji {brand_name} Web Monitor.",
         "data": {
           "scan_interval": "Interwał aktualizacji (sekundy)"
         },
         "data_description": {
-          "scan_interval": "Jak często odpytywać API EG4 w celu aktualizacji (minimum 30 sekund)"
+          "scan_interval": "Jak często odpytywać API {brand_name} w celu aktualizacji (minimum 30 sekund)"
         }
       }
     }
@@ -104,39 +112,105 @@
   },
   "entity": {
     "sensor": {
-      "ac_power": {"name": "Moc AC"},
-      "ac_voltage": {"name": "Napięcie AC"},
-      "ac_current": {"name": "Prąd AC"},
-      "frequency": {"name": "Częstotliwość"},
-      "dc_power": {"name": "Moc DC"},
-      "dc_voltage": {"name": "Napięcie DC"},
-      "dc_current": {"name": "Prąd DC"},
-      "battery_power": {"name": "Moc baterii"},
-      "battery_voltage": {"name": "Napięcie baterii"},
-      "battery_current": {"name": "Prąd baterii"},
-      "state_of_charge": {"name": "Stan naładowania"},
-      "state_of_health": {"name": "Stan kondycji"},
-      "total_energy": {"name": "Całkowita energia"},
-      "daily_energy": {"name": "Energia dzienna"},
-      "monthly_energy": {"name": "Energia miesięczna"},
-      "yearly_energy": {"name": "Energia roczna"},
-      "internal_temperature": {"name": "Temperatura wewnętrzna"},
-      "radiator1_temperature": {"name": "Temperatura radiatora 1"},
-      "radiator2_temperature": {"name": "Temperatura radiatora 2"},
-      "status_code": {"name": "Kod stanu"},
-      "status_text": {"name": "Stan"},
-      "grid_power": {"name": "Moc sieci"},
-      "load_power": {"name": "Moc obciążenia"},
-      "consumption_power": {"name": "Moc zużycia"},
-      "pv_total_power": {"name": "Całkowita moc PV"},
-      "pv1_power": {"name": "Moc PV1"},
-      "pv2_power": {"name": "Moc PV2"},
-      "pv3_power": {"name": "Moc PV3"},
-      "cell_voltage_max": {"name": "Maksymalne napięcie ogniwa"},
-      "cell_voltage_min": {"name": "Minimalne napięcie ogniwa"},
-      "cell_voltage_delta": {"name": "Różnica napięć ogniw"},
-      "cycle_count": {"name": "Liczba cykli"},
-      "firmware_version": {"name": "Wersja oprogramowania"}
+      "ac_power": {
+        "name": "Moc AC"
+      },
+      "ac_voltage": {
+        "name": "Napięcie AC"
+      },
+      "ac_current": {
+        "name": "Prąd AC"
+      },
+      "frequency": {
+        "name": "Częstotliwość"
+      },
+      "dc_power": {
+        "name": "Moc DC"
+      },
+      "dc_voltage": {
+        "name": "Napięcie DC"
+      },
+      "dc_current": {
+        "name": "Prąd DC"
+      },
+      "battery_power": {
+        "name": "Moc baterii"
+      },
+      "battery_voltage": {
+        "name": "Napięcie baterii"
+      },
+      "battery_current": {
+        "name": "Prąd baterii"
+      },
+      "state_of_charge": {
+        "name": "Stan naładowania"
+      },
+      "state_of_health": {
+        "name": "Stan kondycji"
+      },
+      "total_energy": {
+        "name": "Całkowita energia"
+      },
+      "daily_energy": {
+        "name": "Energia dzienna"
+      },
+      "monthly_energy": {
+        "name": "Energia miesięczna"
+      },
+      "yearly_energy": {
+        "name": "Energia roczna"
+      },
+      "internal_temperature": {
+        "name": "Temperatura wewnętrzna"
+      },
+      "radiator1_temperature": {
+        "name": "Temperatura radiatora 1"
+      },
+      "radiator2_temperature": {
+        "name": "Temperatura radiatora 2"
+      },
+      "status_code": {
+        "name": "Kod stanu"
+      },
+      "status_text": {
+        "name": "Stan"
+      },
+      "grid_power": {
+        "name": "Moc sieci"
+      },
+      "load_power": {
+        "name": "Moc obciążenia"
+      },
+      "consumption_power": {
+        "name": "Moc zużycia"
+      },
+      "pv_total_power": {
+        "name": "Całkowita moc PV"
+      },
+      "pv1_power": {
+        "name": "Moc PV1"
+      },
+      "pv2_power": {
+        "name": "Moc PV2"
+      },
+      "pv3_power": {
+        "name": "Moc PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Maksymalne napięcie ogniwa"
+      },
+      "cell_voltage_min": {
+        "name": "Minimalne napięcie ogniwa"
+      },
+      "cell_voltage_delta": {
+        "name": "Różnica napięć ogniw"
+      },
+      "cycle_count": {
+        "name": "Liczba cykli"
+      },
+      "firmware_version": {
+        "name": "Wersja oprogramowania"
+      }
     },
     "switch": {
       "quick_charge": {
@@ -181,11 +255,11 @@
   "services": {
     "refresh_data": {
       "name": "Odśwież dane",
-      "description": "Wymuś natychmiastowe odświeżenie danych urządzenia z API EG4, omijając normalny interwał odpytywania.",
+      "description": "Wymuś natychmiastowe odświeżenie danych urządzenia z API {brand_name}, omijając normalny interwał odpytywania.",
       "fields": {
         "entry_id": {
           "name": "ID wpisu konfiguracji",
-          "description": "ID wpisu konfiguracji do odświeżenia. Jeśli nie podano, wszystkie integracje EG4 Web Monitor zostaną odświeżone."
+          "description": "ID wpisu konfiguracji do odświeżenia. Jeśli nie podano, wszystkie integracje {brand_name} Web Monitor zostaną odświeżone."
         }
       }
     }
@@ -198,7 +272,7 @@
       "message": "Wpis konfiguracji {entry_id} nie jest załadowany. Upewnij się, że integracja jest prawidłowo skonfigurowana i uruchomiona."
     },
     "no_coordinators": {
-      "message": "Nie znaleziono koordynatorów EG4 do odświeżenia. Upewnij się, że co najmniej jedna integracja EG4 Web Monitor jest skonfigurowana i załadowana."
+      "message": "Nie znaleziono koordynatorów {brand_name} do odświeżenia. Upewnij się, że co najmniej jedna integracja {brand_name} Web Monitor jest skonfigurowana i załadowana."
     }
   }
 }

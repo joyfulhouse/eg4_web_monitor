@@ -13,9 +13,11 @@ from custom_components.eg4_web_monitor import (
     async_setup,
     async_setup_entry,
     async_unload_entry,
+    async_remove_entry,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_DST_SYNC,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -31,8 +33,8 @@ def mock_coordinator():
     coordinator.entry.entry_id = "test_entry_id"
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_shutdown = AsyncMock()
-    coordinator.api = MagicMock()
-    coordinator.api.close = AsyncMock()
+    coordinator.client = MagicMock()
+    coordinator.client.close = AsyncMock()
     # Add minimal data structure for platforms to work with
     coordinator.data = {
         "devices": {},
@@ -47,12 +49,13 @@ def mock_config_entry(mock_coordinator):
     """Create a mock config entry."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title="EG4 Web Monitor - Test Plant",
+        title="EG4 Electronics Web Monitor - Test Plant",
         data={
             CONF_USERNAME: "test_user",
             CONF_PASSWORD: "test_pass",
             CONF_BASE_URL: "https://monitor.eg4electronics.com",
             CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
             CONF_PLANT_ID: "12345",
             CONF_PLANT_NAME: "Test Plant",
         },
@@ -305,7 +308,7 @@ class TestAsyncUnloadEntry:
             assert result is True
             mock_unload.assert_called_once()
             mock_coordinator.async_shutdown.assert_called_once()
-            mock_coordinator.api.close.assert_called_once()
+            mock_coordinator.client.close.assert_called_once()
 
     async def test_unload_entry_failure(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
@@ -322,13 +325,13 @@ class TestAsyncUnloadEntry:
 
             assert result is False
             mock_unload.assert_called_once()
-            # API should not be closed if unload failed
-            mock_coordinator.api.close.assert_not_called()
+            # Client should not be closed if unload failed
+            mock_coordinator.client.close.assert_not_called()
 
     async def test_unload_entry_cleans_up_api(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
-        """Test that API connection is closed on unload."""
+        """Test that client connection is closed on unload."""
         mock_config_entry.add_to_hass(hass)
 
         with patch.object(
@@ -338,8 +341,8 @@ class TestAsyncUnloadEntry:
         ):
             await async_unload_entry(hass, mock_config_entry)
 
-            # Verify API close was called
-            mock_coordinator.api.close.assert_called_once()
+            # Verify client close was called
+            mock_coordinator.client.close.assert_called_once()
 
     async def test_unload_entry_unloads_all_platforms(
         self, hass: HomeAssistant, mock_config_entry
@@ -362,3 +365,5 @@ class TestAsyncUnloadEntry:
             assert "switch" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
+
+

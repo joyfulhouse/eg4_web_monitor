@@ -1,8 +1,10 @@
 """Constants for the EG4 Web Monitor integration."""
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TypedDict
 
 from homeassistant.const import (
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
@@ -11,30 +13,140 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 
-if TYPE_CHECKING:
-    from homeassistant.const import EntityCategory
-else:
-    try:
-        from homeassistant.const import EntityCategory  # type: ignore[attr-defined]
-    except ImportError:
-        # Fallback for type checking
-        EntityCategory = None  # type: ignore[assignment, misc]
 
-# Integration constants
-DOMAIN = "eg4_web_monitor"
+class SensorConfig(TypedDict, total=False):
+    """TypedDict for sensor configuration.
+
+    Attributes:
+        name: Display name for the sensor
+        unit: Unit of measurement (e.g., UnitOfPower.WATT)
+        device_class: Home Assistant device class (power, energy, voltage, etc.)
+        state_class: Home Assistant state class (measurement, total, total_increasing)
+        icon: MDI icon string (e.g., "mdi:solar-power")
+        entity_category: Entity category (diagnostic, config, etc.)
+        suggested_display_precision: Number of decimal places to display
+    """
+
+    name: str
+    unit: str | None
+    device_class: str | None
+    state_class: str | None
+    icon: str
+    entity_category: EntityCategory | None
+    suggested_display_precision: int
+
+
+# Brand Configuration
+# This allows maintaining multiple brands on the same codebase
+@dataclass(frozen=True)
+class BrandConfig:
+    """Configuration for a brand.
+
+    Attributes:
+        domain: Home Assistant integration domain (e.g., "eg4_web_monitor")
+        brand_name: Full brand name for display (e.g., "EG4 Electronics")
+        short_name: Short brand name for entity IDs (e.g., "EG4")
+        entity_prefix: Prefix for entity IDs (e.g., "eg4")
+        default_base_url: Default API base URL for this brand
+        default_verify_ssl: Default SSL verification setting
+        manufacturer: Manufacturer name for device registry
+    """
+
+    domain: str
+    brand_name: str
+    short_name: str
+    entity_prefix: str
+    default_base_url: str
+    default_verify_ssl: bool
+    manufacturer: str
+
+
+# Brand definitions
+BRAND_EG4 = BrandConfig(
+    domain="eg4_web_monitor",
+    brand_name="EG4 Electronics",
+    short_name="EG4",
+    entity_prefix="eg4",
+    default_base_url="https://monitor.eg4electronics.com",
+    default_verify_ssl=True,
+    manufacturer="EG4 Electronics",
+)
+
+BRAND_LUXPOWER = BrandConfig(
+    domain="lxp_web_monitor",
+    brand_name="LuxpowerTek",
+    short_name="LXP",
+    entity_prefix="lxp",
+    default_base_url="https://eu.luxpowertek.com",
+    default_verify_ssl=True,
+    manufacturer="LuxpowerTek",
+)
+
+BRAND_FORTRESS = BrandConfig(
+    domain="fortress_web_monitor",
+    brand_name="Fortress Power",
+    short_name="FPR",
+    entity_prefix="fpr",
+    default_base_url="https://envy.fortresspower.io",
+    default_verify_ssl=False,
+    manufacturer="Fortress Power",
+)
+
+# Current brand configuration - change this to switch brands
+CURRENT_BRAND = BRAND_EG4
+
+# Integration constants derived from brand configuration
+DOMAIN = CURRENT_BRAND.domain
+DEFAULT_BASE_URL = CURRENT_BRAND.default_base_url
+DEFAULT_VERIFY_SSL = CURRENT_BRAND.default_verify_ssl
+BRAND_NAME = CURRENT_BRAND.brand_name
+ENTITY_PREFIX = CURRENT_BRAND.entity_prefix
+MANUFACTURER = CURRENT_BRAND.manufacturer
 DEFAULT_UPDATE_INTERVAL = 30  # seconds
-DEFAULT_BASE_URL = "https://monitor.eg4electronics.com"
 
 # Configuration keys
 CONF_BASE_URL = "base_url"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_PLANT_ID = "plant_id"
 CONF_PLANT_NAME = "plant_name"
+CONF_DST_SYNC = "dst_sync"
+CONF_LIBRARY_DEBUG = "library_debug"
 
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
 DEVICE_TYPE_GRIDBOSS = "gridboss"
 DEVICE_TYPE_BATTERY = "battery"
+
+# Number entity limits
+# AC Charge Power (kW)
+AC_CHARGE_POWER_MIN = 0.0
+AC_CHARGE_POWER_MAX = 15.0
+AC_CHARGE_POWER_STEP = 0.1
+
+# PV Charge Power (kW)
+PV_CHARGE_POWER_MIN = 0
+PV_CHARGE_POWER_MAX = 15
+PV_CHARGE_POWER_STEP = 1
+
+# Grid Peak Shaving Power (kW)
+GRID_PEAK_SHAVING_POWER_MIN = 0.0
+GRID_PEAK_SHAVING_POWER_MAX = 25.5
+GRID_PEAK_SHAVING_POWER_STEP = 0.1
+
+# Battery Charge/Discharge Current (A)
+BATTERY_CURRENT_MIN = 0
+BATTERY_CURRENT_MAX = 250
+BATTERY_CURRENT_STEP = 1
+
+# SOC Limits (%)
+SOC_LIMIT_MIN = 0
+SOC_LIMIT_MAX = 100
+SOC_LIMIT_STEP = 1
+
+# System Charge SOC Limit (%)
+SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
+SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
+SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
 
 # Sensor types and their units
 SENSOR_TYPES = {
@@ -73,6 +185,20 @@ SENSOR_TYPES = {
         "device_class": "power",
         "state_class": "measurement",
         "icon": "mdi:transmission-tower",
+    },
+    "grid_import_power": {
+        "name": "Grid Import Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower-import",
+    },
+    "grid_export_power": {
+        "name": "Grid Export Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower-export",
     },
     "battery_power": {
         "name": "Battery Power",
@@ -266,6 +392,35 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
+    # Battery charge/discharge energy sensors (pylxpweb 0.3.3+)
+    "battery_charge": {
+        "name": "Battery Charge",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_discharge": {
+        "name": "Battery Discharge",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_charge_lifetime": {
+        "name": "Battery Charge (Lifetime)",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_discharge_lifetime": {
+        "name": "Battery Discharge (Lifetime)",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-minus",
+    },
     # Frequency
     "frequency": {
         "name": "Frequency",
@@ -300,6 +455,83 @@ SENSOR_TYPES = {
         "name": "Cycle Count",
         "state_class": "total_increasing",
         "icon": "mdi:counter",
+    },
+    # Battery Bank aggregate sensors (pylxpweb 0.3.3+)
+    "battery_bank_voltage": {
+        "name": "Battery Bank Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_soc": {
+        "name": "Battery Bank SOC",
+        "unit": "%",
+        "device_class": "battery",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_charge_power": {
+        "name": "Battery Bank Charge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_bank_discharge_power": {
+        "name": "Battery Bank Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_bank_power": {
+        "name": "Battery Bank Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "battery_bank_max_capacity": {
+        "name": "Battery Bank Max Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-high",
+    },
+    "battery_bank_current_capacity": {
+        "name": "Battery Bank Current Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-medium",
+    },
+    "battery_bank_remain_capacity": {
+        "name": "Battery Bank Remaining Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "battery_bank_full_capacity": {
+        "name": "Battery Bank Full Capacity",
+        "unit": "Ah",
+        "state_class": "measurement",
+        "icon": "mdi:battery-high",
+    },
+    "battery_bank_capacity_percent": {
+        "name": "Battery Bank Capacity Percent",
+        "unit": "%",
+        "state_class": "measurement",
+        "icon": "mdi:battery-heart",
+    },
+    "battery_bank_count": {
+        "name": "Battery Count",
+        "state_class": "measurement",
+        "icon": "mdi:counter",
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_status": {
+        "name": "Battery Bank Status",
+        "icon": "mdi:information",
+        "entity_category": "diagnostic",
     },
     # Additional battery sensors from batteryArray
     "battery_real_voltage": {
@@ -416,6 +648,19 @@ SENSOR_TYPES = {
         "icon": "mdi:chip",
         "entity_category": "diagnostic",
     },
+    "battery_capacity_percentage": {
+        "name": "Capacity Percentage",
+        "unit": "%",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging-100",
+    },
+    "battery_max_charge_current": {
+        "name": "Max Charge Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-dc",
+    },
     "battery_max_cell_temp_num": {
         "name": "Max Temp Cell Number",
         "icon": "mdi:numeric",
@@ -436,6 +681,11 @@ SENSOR_TYPES = {
         "icon": "mdi:numeric",
         "entity_category": "diagnostic",
     },
+    "firmware_version": {
+        "name": "Firmware Version",
+        "icon": "mdi:chip",
+        "entity_category": "diagnostic",
+    },
     "battery_balance_status": {
         "name": "Balance Status",
         "icon": "mdi:scale-balance",
@@ -451,6 +701,91 @@ SENSOR_TYPES = {
     "battery_warning_status": {
         "name": "Warning Status",
         "icon": "mdi:alert",
+    },
+    # Battery temperature sensors (pylxpweb 0.3.3+)
+    "battery_max_cell_temp": {
+        "name": "Max Cell Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer-high",
+    },
+    "battery_min_cell_temp": {
+        "name": "Min Cell Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer-low",
+    },
+    # Battery cell voltage sensors (pylxpweb 0.3.3+)
+    "battery_max_cell_voltage": {
+        "name": "Max Cell Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-plus",
+    },
+    "battery_min_cell_voltage": {
+        "name": "Min Cell Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "battery_cell_voltage_delta": {
+        "name": "Cell Voltage Delta",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+        "suggested_display_precision": 3,
+    },
+    "battery_cell_temp_delta": {
+        "name": "Cell Temperature Delta",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:delta",
+    },
+    # Battery capacity sensors (pylxpweb 0.3.3+)
+    "battery_discharge_capacity": {
+        "name": "Discharge Capacity",
+        "unit": "Ah",
+        "icon": "mdi:battery-arrow-down",
+        "entity_category": "diagnostic",
+    },
+    "battery_charge_voltage_ref": {
+        "name": "Charge Voltage Reference",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    # Battery metadata sensors (pylxpweb 0.3.3+)
+    "battery_serial_number": {
+        "name": "Serial Number",
+        "icon": "mdi:identifier",
+        "entity_category": "diagnostic",
+    },
+    "battery_type": {
+        "name": "Battery Type Code",
+        "icon": "mdi:battery",
+        "entity_category": "diagnostic",
+    },
+    "battery_type_text": {
+        "name": "Battery Type",
+        "icon": "mdi:battery-sync",
+        "entity_category": "diagnostic",
+    },
+    "battery_bms_model": {
+        "name": "BMS Model",
+        "icon": "mdi:chip",
+        "entity_category": "diagnostic",
+    },
+    "battery_index": {
+        "name": "Index",
+        "icon": "mdi:numeric",
+        "entity_category": "diagnostic",
     },
     # PV String sensors
     "pv1_voltage": {
@@ -682,6 +1017,11 @@ SENSOR_TYPES = {
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
+    "has_data": {
+        "name": "Has Runtime Data",
+        "icon": "mdi:database-check",
+        "entity_category": "diagnostic",
+    },
     # New runtime sensors
     "pv_total_power": {
         "name": "PV Total Power",
@@ -696,6 +1036,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:thermometer",
+        "entity_category": "diagnostic",
     },
     "radiator1_temperature": {
         "name": "Radiator 1 Temperature",
@@ -703,6 +1044,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:radiator",
+        "entity_category": "diagnostic",
     },
     "radiator2_temperature": {
         "name": "Radiator 2 Temperature",
@@ -710,6 +1052,7 @@ SENSOR_TYPES = {
         "device_class": "temperature",
         "state_class": "measurement",
         "icon": "mdi:radiator",
+        "entity_category": "diagnostic",
     },
     # GridBOSS Smart Load sensors
     "smart_load_power": {
@@ -1706,6 +2049,16 @@ WORKING_MODES = {
 # These parameters control battery state of charge thresholds for charging and discharging
 # Note: No entity_category set - these appear in Controls section like System Charge SOC Limit
 SOC_LIMIT_PARAMS = {
+    "system_charge_soc_limit": {
+        "name": "System Charge SOC Limit",
+        "param": "HOLD_SYSTEM_CHARGE_SOC_LIMIT",
+        "description": "Maximum battery SOC during normal charging (10-100%, or 101% for top balancing)",
+        "icon": "mdi:battery-charging",
+        "min": 10,
+        "max": 101,
+        "step": 1,
+        "unit": "%",
+    },
     "ac_charge_soc_limit": {
         "name": "AC Charge SOC Limit",
         "param": "HOLD_AC_CHARGE_SOC_LIMIT",
@@ -1787,3 +2140,68 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
 }
+
+# Battery data parsing constants
+# These constants define the separators and formats used in battery identification
+BATTERY_KEY_SEPARATOR = "_Battery_ID_"
+BATTERY_KEY_PREFIX = "Battery_ID_"
+BATTERY_KEY_SHORT_PREFIX = "BAT"
+
+# Diagnostic sensor keys - centralized for consistency across platforms
+# These sensor keys are assigned EntityCategory.DIAGNOSTIC
+DIAGNOSTIC_DEVICE_SENSOR_KEYS = frozenset(
+    {
+        "temperature",
+        "cycle_count",
+        "state_of_health",
+        "status_code",
+        "status_text",
+        "internal_temperature",
+        "radiator1_temperature",
+        "radiator2_temperature",
+        "firmware_version",
+        "has_data",
+    }
+)
+
+# Diagnostic battery sensor keys - additional sensors specific to batteries
+DIAGNOSTIC_BATTERY_SENSOR_KEYS = frozenset(
+    {
+        "temperature",
+        "cycle_count",
+        "state_of_health",
+        "battery_firmware_version",
+        "battery_max_cell_temp_num",
+        "battery_min_cell_temp_num",
+        "battery_max_cell_voltage_num",
+        "battery_min_cell_voltage_num",
+        "battery_serial_number",
+        "battery_type",
+        "battery_type_text",
+        "battery_bms_model",
+        "battery_index",
+        "battery_discharge_capacity",
+    }
+)
+
+# Supported inverter models for number/switch entities
+SUPPORTED_INVERTER_MODELS = frozenset(
+    {
+        "flexboss",
+        "18kpv",
+        "18k",
+        "12kpv",
+        "12k",
+        "xp",
+    }
+)
+
+# Battery data scaling factors
+# Raw API values are scaled by these factors and need division for proper units
+BATTERY_VOLTAGE_SCALE_MILLIVOLTS = 1000  # Battery cell voltage in mV (÷1000 for V)
+BATTERY_VOLTAGE_SCALE_CENTIVOLTS = 100  # Total battery voltage in cV (÷100 for V)
+BATTERY_CURRENT_SCALE_DECIAMPS = 10  # Battery current in dA (÷10 for A)
+BATTERY_TEMPERATURE_SCALE_DECIDEGREES = 10  # Battery temperature in dC (÷10 for °C)
+
+# Task cleanup constants
+BACKGROUND_TASK_CLEANUP_TIMEOUT = 5  # Seconds to wait for background task cancellation

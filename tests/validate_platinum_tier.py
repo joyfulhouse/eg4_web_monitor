@@ -42,7 +42,7 @@ def check_async_dependency() -> bool:
         "Verify that the integration uses async HTTP libraries (aiohttp)",
     )
 
-    # Check manifest.json for aiohttp requirement
+    # Check manifest.json for pylxpweb requirement (which uses aiohttp internally)
     manifest_path = Path("custom_components/eg4_web_monitor") / "manifest.json"
     if not manifest_path.exists():
         print("  ❌ manifest.json not found")
@@ -54,14 +54,17 @@ def check_async_dependency() -> bool:
         manifest = json.load(f)
         requirements = manifest.get("requirements", [])
 
-        # Check for aiohttp
+        # Check for pylxpweb (which uses aiohttp internally)
+        has_pylxpweb = any("pylxpweb" in req for req in requirements)
         has_aiohttp = any("aiohttp" in req for req in requirements)
+        if has_pylxpweb:
+            print("  ✅ Using pylxpweb library (uses aiohttp internally)")
+            return True
         if has_aiohttp:
             print("  ✅ Using aiohttp (async HTTP library)")
             return True
-        else:
-            print("  ❌ aiohttp not found in requirements")
-            return False
+        print("  ❌ No async HTTP library found in requirements")
+        return False
 
 
 def check_websession_injection() -> bool:
@@ -75,56 +78,43 @@ def check_websession_injection() -> bool:
         "Verify that the API client supports passing in an aiohttp ClientSession",
     )
 
-    # Check API client for session parameter in __init__
-    client_path = (
-        Path("custom_components/eg4_web_monitor") / "eg4_inverter_api" / "client.py"
-    )
-    if not client_path.exists():
-        print("  ❌ API client file not found")
+    # Check for session injection in coordinator (using pylxpweb library)
+    coordinator_path = Path("custom_components/eg4_web_monitor") / "coordinator.py"
+    if not coordinator_path.exists():
+        print("  ❌ Coordinator file not found")
         return False
 
-    with open(client_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-        # Check for session parameter in __init__
-        init_pattern = r"def __init__\([^)]*session:\s*Optional\[aiohttp\.ClientSession\]\s*=\s*None"
-        if re.search(init_pattern, content, re.MULTILINE):
-            print("  ✅ API client __init__ accepts session parameter")
-        else:
-            print("  ❌ API client __init__ does not accept session parameter")
-            return False
+    with open(coordinator_path, "r", encoding="utf-8") as coord_file:
+        coord_content = coord_file.read()
 
         # Check for session injection in coordinator
-        coordinator_path = Path("custom_components/eg4_web_monitor") / "coordinator.py"
-        if not coordinator_path.exists():
-            print("  ❌ Coordinator file not found")
+        if "async_get_clientsession" in coord_content:
+            print("  ✅ Coordinator injects Home Assistant's aiohttp session")
+        else:
+            print("  ❌ Coordinator does not inject session")
             return False
 
-        with open(coordinator_path, "r", encoding="utf-8") as coord_file:
-            coord_content = coord_file.read()
+        # Check for LuxpowerClient session parameter usage
+        if "session=" in coord_content and "LuxpowerClient" in coord_content:
+            print("  ✅ LuxpowerClient receives injected session parameter")
+        else:
+            print("  ⚠️  Could not verify LuxpowerClient session injection")
 
-            # Check for session injection in coordinator
-            if "async_get_clientsession" in coord_content:
-                print("  ✅ Coordinator injects Home Assistant's aiohttp session")
-            else:
-                print("  ❌ Coordinator does not inject session")
-                return False
+    # Check for session injection in config_flow
+    config_flow_path = Path("custom_components/eg4_web_monitor") / "config_flow.py"
+    if not config_flow_path.exists():
+        print("  ❌ Config flow file not found")
+        return False
 
-        # Check for session injection in config_flow
-        config_flow_path = Path("custom_components/eg4_web_monitor") / "config_flow.py"
-        if not config_flow_path.exists():
-            print("  ❌ Config flow file not found")
+    with open(config_flow_path, "r", encoding="utf-8") as cf_file:
+        cf_content = cf_file.read()
+
+        # Check for session injection in config flow
+        if "async_get_clientsession" in cf_content:
+            print("  ✅ Config flow injects Home Assistant's aiohttp session")
+        else:
+            print("  ❌ Config flow does not inject session")
             return False
-
-        with open(config_flow_path, "r", encoding="utf-8") as cf_file:
-            cf_content = cf_file.read()
-
-            # Check for session injection in config flow
-            if "async_get_clientsession" in cf_content:
-                print("  ✅ Config flow injects Home Assistant's aiohttp session")
-            else:
-                print("  ❌ Config flow does not inject session")
-                return False
 
     return True
 
@@ -154,9 +144,8 @@ def check_strict_typing() -> bool:
             print("  ❌ mypy strict mode not enabled")
             return False
 
-    # Check for py.typed marker files
+    # Check for py.typed marker file (main package only - API is external pylxpweb)
     py_typed_main = Path("custom_components/eg4_web_monitor/py.typed")
-    py_typed_api = Path("custom_components/eg4_web_monitor/eg4_inverter_api/py.typed")
 
     if py_typed_main.exists():
         print("  ✅ py.typed marker file exists (main package)")
@@ -164,11 +153,8 @@ def check_strict_typing() -> bool:
         print("  ❌ py.typed marker file missing (main package)")
         return False
 
-    if py_typed_api.exists():
-        print("  ✅ py.typed marker file exists (API package)")
-    else:
-        print("  ❌ py.typed marker file missing (API package)")
-        return False
+    # Note: API package (pylxpweb) is external and has its own typing
+    print("  ℹ️  External API library (pylxpweb) provides its own type hints")
 
     # Try to run mypy
     try:

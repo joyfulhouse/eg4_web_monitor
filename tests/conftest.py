@@ -1,11 +1,45 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
 import threading
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+def create_mock_station(
+    station_id: str,
+    station_name: str,
+    country: str = "United States of America",
+    timezone: str = "GMT -8",
+    address: str = "123 Test St",
+    create_date: str = "2025-01-01",
+) -> MagicMock:
+    """Create a mock Station object with all required fields.
+
+    This helper ensures all mock stations have the complete set of fields
+    that the coordinator expects to extract for station sensors.
+
+    Args:
+        station_id: Plant/station ID
+        station_name: Station name
+        country: Country name (defaults to "United States of America")
+        timezone: Timezone string (defaults to "GMT -8")
+        address: Physical address (defaults to "123 Test St")
+        create_date: Plant creation date (defaults to "2025-01-01")
+
+    Returns:
+        MagicMock object configured as a Station with all required attributes
+    """
+    mock_station = MagicMock()
+    mock_station.id = station_id
+    mock_station.name = station_name
+    mock_station.country = country
+    mock_station.timezone = timezone
+    mock_station.address = address
+    mock_station.createDate = create_date
+    return mock_station
 
 
 def pytest_configure(config):
@@ -47,3 +81,46 @@ def mock_setup_entry():
         return_value=True,
     ) as mock_setup:
         yield mock_setup
+
+
+@pytest.fixture
+def mock_luxpower_client():
+    """Mock LuxpowerClient from pylxpweb 0.3.5."""
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+    mock_client.clear_cache = MagicMock()
+    mock_client.plants = MagicMock()
+    mock_client.devices = MagicMock()
+    mock_client.control = MagicMock()
+    return mock_client
+
+
+@pytest.fixture
+def mock_station():
+    """Mock Station object from pylxpweb 0.3.5."""
+    mock = MagicMock()
+    mock.id = "123456"
+    mock.name = "Test Station"
+    mock.country = "United States of America"
+    mock.timezone = "GMT -8"
+    mock.address = "123 Test St"
+    mock.createDate = "2025-01-01"
+    mock.load = AsyncMock(return_value=mock)
+    mock.refresh = AsyncMock()
+    mock.refresh_all_data = AsyncMock()
+    mock.detect_dst_status = MagicMock(return_value=True)
+    mock.sync_dst_setting = AsyncMock(return_value=True)
+    mock.all_inverters = []
+    mock.all_batteries = []
+    return mock
+
+
+@pytest.fixture
+def mock_coordinator(mock_luxpower_client, mock_station):
+    """Mock EG4DataUpdateCoordinator with pylxpweb 0.3.5 client."""
+    mock = MagicMock()
+    mock.client = mock_luxpower_client
+    mock.station = mock_station
+    mock.async_shutdown = AsyncMock()
+    mock._last_available_state = True
+    return mock

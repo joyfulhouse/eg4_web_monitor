@@ -1,9 +1,10 @@
 """Select platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -11,7 +12,9 @@ if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
     from homeassistant.components.select import SelectEntity  # type: ignore[assignment]
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity  # type: ignore[assignment]
+    from homeassistant.helpers.update_coordinator import (
+        CoordinatorEntity,  # type: ignore[assignment]
+    )
 
 from . import EG4ConfigEntry
 from .coordinator import EG4DataUpdateCoordinator
@@ -42,7 +45,7 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor select entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: List[SelectEntity] = []
+    entities: list[SelectEntity] = []
 
     if not coordinator.data or "devices" not in coordinator.data:
         _LOGGER.warning("No device data available for select setup")
@@ -56,16 +59,13 @@ async def async_setup_entry(
         # Only create selects for standard inverters (not GridBOSS)
         if device_type == "inverter":
             # Get device model for compatibility check
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-            model = device_info.get("deviceTypeText4APP", "Unknown")
+            model = device_data.get("model", "Unknown")
             model_lower = model.lower()
 
-            _LOGGER.info(
-                "Evaluating select compatibility for device %s: "
-                "model='%s' (original), model_lower='%s'",
+            _LOGGER.debug(
+                "Evaluating select compatibility: device=%s, model=%s",
                 serial,
                 model,
-                model_lower,
             )
 
             # Check if device model is known to support select functions
@@ -77,18 +77,16 @@ async def async_setup_entry(
                 entities.append(
                     EG4OperatingModeSelect(coordinator, serial, device_data)
                 )
-                _LOGGER.info(
-                    "✅ Added operating mode select for compatible device %s (%s)",
+                _LOGGER.debug(
+                    "Added operating mode select for device %s (%s)",
                     serial,
                     model,
                 )
             else:
-                _LOGGER.warning(
-                    "❌ Skipping select for device %s (%s) - "
-                    "model not in supported list %s",
+                _LOGGER.debug(
+                    "Skipping select for device %s (%s) - unsupported model",
                     serial,
                     model,
-                    supported_models,
                 )
         else:
             _LOGGER.debug(
@@ -96,10 +94,10 @@ async def async_setup_entry(
             )
 
     if entities:
-        _LOGGER.info("Adding %d select entities (operating mode)", len(entities))
+        _LOGGER.info("Setup complete: %d select entities created", len(entities))
         async_add_entities(entities)
     else:
-        _LOGGER.info("No select entities to add")
+        _LOGGER.debug("No select entities created - no compatible devices found")
 
 
 class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
@@ -109,7 +107,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        device_data: Dict[str, Any],
+        device_data: dict[str, Any],
     ) -> None:
         """Initialize the operating mode select."""
         super().__init__(coordinator)
@@ -119,11 +117,12 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         self._device_data = device_data
 
         # Optimistic state for immediate UI feedback
-        self._optimistic_state: Optional[str] = None
+        self._optimistic_state: str | None = None
 
         # Get device info from coordinator data
-        device_info = coordinator.data.get("device_info", {}).get(serial, {})
-        self._model = device_info.get("deviceTypeText4APP", "Unknown")
+        self._model = (
+            coordinator.data.get("devices", {}).get(serial, {}).get("model", "Unknown")
+        )
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "operating_mode")
@@ -142,7 +141,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         self._attr_device_info = create_device_info(serial, self._model)
 
     @property
-    def current_option(self) -> Optional[str]:
+    def current_option(self) -> str | None:
         """Return the current operating mode."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
@@ -163,7 +162,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         return "Normal"
 
     @property
-    def extra_state_attributes(self) -> Optional[Dict[str, Any]]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
         attributes = {}
 
@@ -194,7 +193,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         return False
 
     async def async_select_option(self, option: str) -> None:
-        """Change the operating mode."""
+        """Change the operating mode using device object method."""
         if option not in OPERATING_MODE_OPTIONS:
             _LOGGER.error("Invalid operating mode option: %s", option)
             return
@@ -208,21 +207,26 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            # Get the mode setting from mapping
-            # Based on user clarification:
-            # Normal = FUNC_SET_TO_STANDBY = true
-            # Standby = FUNC_SET_TO_STANDBY = false
-            standby_param_value = OPERATING_MODE_MAPPING[option]
+            # Get inverter device object
+            inverter = self.coordinator.get_inverter_object(self._serial)
+            if not inverter:
+                raise HomeAssistantError(f"Inverter {self._serial} not found")
 
-            # Call the API to set the mode using control_function_parameter directly
-            await self.coordinator.api.control_function_parameter(
-                self._serial, "FUNC_SET_TO_STANDBY", standby_param_value
-            )
+            # Use device object convenience method
+            # Pass string directly - library handles conversion internally
+            mode_value = option.upper()  # "Normal" -> "NORMAL", "Standby" -> "STANDBY"
+            success = await inverter.set_operating_mode(mode_value)
+            if not success:
+                raise HomeAssistantError(f"Failed to set operating mode to {option}")
+
             _LOGGER.info(
                 "Successfully set operating mode to %s for device %s",
                 option,
                 self._serial,
             )
+
+            # Refresh inverter data
+            await inverter.refresh()
 
             # Clear optimistic state and request coordinator parameter refresh
             self._optimistic_state = None

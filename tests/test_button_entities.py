@@ -49,8 +49,12 @@ class TestEG4RefreshButton:
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
         coordinator.get_device_info.return_value = {}
         coordinator.async_request_refresh = AsyncMock()
-        coordinator.refresh_all_device_parameters = AsyncMock()
-        coordinator.api = MagicMock()
+
+        # Mock inverter object with async refresh method
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
         device_data = {"type": "inverter"}
 
         entity = EG4RefreshButton(
@@ -62,6 +66,8 @@ class TestEG4RefreshButton:
 
         await entity.async_press()
 
+        # Verify inverter refresh was called
+        mock_inverter.refresh.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
     def test_device_info(self):
@@ -119,8 +125,11 @@ class TestEG4BatteryRefreshButton:
             "devices": {"1234567890": {"batteries": {"1234567890-01": {}}}}
         }
         coordinator.async_request_refresh = AsyncMock()
-        coordinator.api = MagicMock()
-        coordinator.api.get_battery_info = AsyncMock()
+
+        # Mock inverter object with async refresh method
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
         entity = EG4BatteryRefreshButton(
             coordinator=coordinator,
@@ -132,6 +141,8 @@ class TestEG4BatteryRefreshButton:
 
         await entity.async_press()
 
+        # Verify parent inverter refresh was called (which refreshes batteries)
+        mock_inverter.refresh.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
     def test_unique_id(self):
