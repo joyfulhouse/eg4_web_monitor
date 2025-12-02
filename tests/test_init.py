@@ -364,5 +364,3 @@ class TestAsyncUnloadEntry:
             assert "switch" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
-
-

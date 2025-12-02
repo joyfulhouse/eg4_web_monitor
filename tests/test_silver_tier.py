@@ -1,9 +1,6 @@
 """Tests for Silver tier compliance - passing tests only."""
 
 
-
-
-
 class TestConfigEntryUnload:
     """Test config entry unload capability."""
 

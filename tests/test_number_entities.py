@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock
 
 
-
 class TestNumberPlatformSetup:
     """Test number platform setup."""
 
@@ -109,5 +108,3 @@ class TestNumberPlatformSetup:
 
         # Should create some number entities for XP device
         assert len(entities) > 0
-
-
