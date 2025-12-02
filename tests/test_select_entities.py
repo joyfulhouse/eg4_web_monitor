@@ -1,6 +1,5 @@
 """Tests for EG4 select entities - minimal passing tests."""
 
-import pytest
 
 # Placeholder for future select entity tests
 def test_module_imports():

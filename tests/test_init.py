@@ -13,7 +13,6 @@ from custom_components.eg4_web_monitor import (
     async_setup,
     async_setup_entry,
     async_unload_entry,
-    async_remove_entry,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,

@@ -1,6 +1,5 @@
 """Tests for EG4 switch entities - minimal passing tests."""
 
-import pytest
 
 # Placeholder for future switch entity tests
 def test_module_imports():
