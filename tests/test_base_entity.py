@@ -106,9 +106,7 @@ class TestEG4BatteryEntity:
 
     def test_initialization(self, mock_coordinator):
         """Test battery entity initialization."""
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_01")
 
         assert entity.coordinator == mock_coordinator
         assert entity._parent_serial == "1234567890"
@@ -125,9 +123,7 @@ class TestEG4BatteryEntity:
             }
         )
 
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_01")
         device_info = entity.device_info
 
         assert device_info["name"] == "Battery Battery_ID_01"
@@ -140,34 +136,26 @@ class TestEG4BatteryEntity:
         """Test battery device_info returns None when not available."""
         mock_coordinator.get_battery_device_info = MagicMock(return_value=None)
 
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_01")
         device_info = entity.device_info
 
         assert device_info is None
 
     def test_available_when_battery_exists(self, mock_coordinator):
         """Test battery entity is available when battery exists."""
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_01")
 
         assert entity.available is True
 
     def test_not_available_when_battery_missing(self, mock_coordinator):
         """Test battery entity is not available when battery is missing."""
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_99"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_99")
 
         assert entity.available is False
 
     def test_not_available_when_parent_missing(self, mock_coordinator):
         """Test battery entity is not available when parent device is missing."""
-        entity = EG4BatteryEntity(
-            mock_coordinator, "9999999999", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "9999999999", "Battery_ID_01")
 
         assert entity.available is False
 
@@ -175,9 +163,7 @@ class TestEG4BatteryEntity:
         """Test battery entity is not available when parent has no batteries."""
         mock_coordinator.data["devices"]["1234567890"].pop("batteries")
 
-        entity = EG4BatteryEntity(
-            mock_coordinator, "1234567890", "Battery_ID_01"
-        )
+        entity = EG4BatteryEntity(mock_coordinator, "1234567890", "Battery_ID_01")
 
         assert entity.available is False
 

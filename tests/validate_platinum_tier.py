@@ -11,7 +11,6 @@ Platinum Tier Requirements:
 3. strict-typing: Strict typing with mypy ✅
 """
 
-import re
 import subprocess
 import sys
 from pathlib import Path

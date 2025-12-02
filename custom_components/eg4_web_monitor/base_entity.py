@@ -564,6 +564,98 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         return sensors.get(self._sensor_key)
 
 
+# ========== Number Base Classes ==========
+
+
+@contextmanager
+def optimistic_value_context(
+    entity: "EG4BaseNumber", target_value: float
+) -> Generator[None, None, None]:
+    """Context manager for optimistic value handling in number entities.
+
+    Sets the optimistic value before yielding and clears it afterward,
+    ensuring proper cleanup even if an exception occurs.
+
+    Args:
+        entity: The number entity to manage optimistic value for.
+        target_value: The optimistic value to set.
+
+    Yields:
+        None - allows the caller to perform the actual number operation.
+
+    Example:
+        with optimistic_value_context(self, 50.0):
+            await inverter.set_soc_limit(50)
+    """
+    entity._optimistic_value = target_value
+    entity.async_write_ha_state()
+    try:
+        yield
+    finally:
+        entity._optimistic_value = None
+        entity.async_write_ha_state()
+
+
+class EG4BaseNumber(CoordinatorEntity):
+    """Base class for all EG4 number entities.
+
+    This class provides common functionality for number entities including:
+    - Coordinator integration with device data access
+    - Optimistic value management for UI responsiveness
+    - Device information lookup
+    - Availability checking
+    - Common entity attributes
+
+    Attributes:
+        coordinator: The data update coordinator managing device data.
+        serial: The device serial number.
+        _model: The device model name.
+        _clean_model: Cleaned model name for entity IDs.
+        _optimistic_value: Temporary value for immediate UI feedback.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the base number entity.
+
+        Args:
+            coordinator: The data update coordinator.
+            serial: The device serial number.
+        """
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        self.serial = serial
+        self._optimistic_value: float | None = None
+
+        # Get device info for subclasses
+        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        self._model = device_data.get("model", "Unknown")
+        self._clean_model = clean_model_name(self._model, use_underscores=True)
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    def _get_inverter_or_raise(self) -> Any:
+        """Get inverter device object or raise HomeAssistantError.
+
+        Returns:
+            The inverter device object.
+
+        Raises:
+            HomeAssistantError: If inverter is not found.
+        """
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if not inverter:
+            raise HomeAssistantError(f"Inverter {self.serial} not found")
+        return inverter
+
+
 # ========== Switch Base Classes ==========
 
 

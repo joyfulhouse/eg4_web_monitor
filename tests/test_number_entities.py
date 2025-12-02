@@ -1,16 +1,7 @@
 """Unit tests for number entity logic without HA instance."""
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-
-from custom_components.eg4_web_monitor.number import (
-    ACChargePowerNumber,
-    PVChargePowerNumber,
-    GridPeakShavingPowerNumber,
-    ACChargeSOCLimitNumber,
-    OnGridSOCCutoffNumber,
-    OffGridSOCCutoffNumber,
-)
+from unittest.mock import MagicMock
 
 
 class TestNumberPlatformSetup:
@@ -117,5 +108,3 @@ class TestNumberPlatformSetup:
 
         # Should create some number entities for XP device
         assert len(entities) > 0
-
-
