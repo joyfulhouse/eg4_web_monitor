@@ -3,21 +3,20 @@
 import asyncio
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
     from homeassistant.components.number import NumberEntity, NumberMode
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity
 else:
     from homeassistant.components.number import NumberEntity, NumberMode
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
 from . import EG4ConfigEntry
+from .base_entity import EG4BaseNumber, optimistic_value_context
 from .const import (
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
@@ -39,7 +38,6 @@ from .const import (
     SYSTEM_CHARGE_SOC_LIMIT_STEP,
 )
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import clean_model_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,39 +45,23 @@ _LOGGER = logging.getLogger(__name__)
 MAX_PARALLEL_UPDATES = 3
 
 
-class EG4BaseNumberEntity(CoordinatorEntity, NumberEntity):
+class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
     """Base class for EG4 number entities with common functionality.
 
-    This base class eliminates code duplication by providing:
-    - Common initialization pattern
-    - Common availability checking
-    - Common async_added_to_hass pattern
-    - Common parameter refresh logic
+    This base class extends EG4BaseNumber with NumberEntity functionality:
+    - NumberEntity integration
+    - Common entity attributes
+    - Parameter refresh logic with related entity updates
+
+    Uses optimistic_value_context for proper cleanup of optimistic values.
     """
 
-    _attr_has_entity_name = True
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the base number entity."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-        self.serial = serial
-        self._current_value: float | None = None
-
-        # Get device info for subclasses
-        device_data = coordinator.data.get("devices", {}).get(serial, {})
-        self._model = device_data.get("model", "Unknown")
-        self._clean_model = clean_model_name(self._model, use_underscores=True)
-
-        # Device info
-        self._attr_device_info = cast("DeviceInfo", coordinator.get_device_info(serial))
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return bool(self.coordinator.last_update_success)
+        super().__init__(coordinator, serial)
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -95,7 +77,7 @@ class EG4BaseNumberEntity(CoordinatorEntity, NumberEntity):
         updated when this entity's value changes.
         """
 
-    async def _refresh_all_parameters_and_entities(self) -> None:
+    async def _refresh_related_entities(self) -> None:
         """Refresh parameters for all inverters and update related entities."""
         try:
             # First refresh all device parameters
@@ -226,6 +208,10 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         - 0-100%: Stop charging when battery reaches this SOC
         - 101%: Enable top balancing (full charge with cell balancing)
         """
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -254,20 +240,20 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 - 10-100: Stop charging when battery reaches this SOC
                 - 101: Enable top balancing (full charge with cell balancing)
         """
-        try:
-            int_value = int(value)
-            if int_value < 10 or int_value > 101:
-                raise ValueError(
-                    f"SOC limit must be an integer between 10-101%, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(f"SOC limit must be an integer value, got {value}")
-
-            _LOGGER.info(
-                "Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value
+        int_value = int(value)
+        if int_value < 10 or int_value > 101:
+            raise HomeAssistantError(
+                f"SOC limit must be an integer between 10-101%, got {int_value}"
             )
 
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(f"SOC limit must be an integer value, got {value}")
+
+        _LOGGER.info(
+            "Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value
+        )
+
+        with optimistic_value_context(self, value):
             # Use the control API to set the system charge SOC limit
             result = (
                 await self.coordinator.client.api.control.set_system_charge_soc_limit(
@@ -277,9 +263,6 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 
             if not result.success:
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
-
-            self._current_value = value
-            self.async_write_ha_state()
 
             # Refresh inverter parameters to update cached value
             inverter = self.coordinator.get_inverter_object(self.serial)
@@ -291,19 +274,14 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            # Refresh related entities (runs inside context for immediate feedback)
+            await self._refresh_related_entities()
 
             _LOGGER.info(
                 "Successfully set System Charge SOC Limit for %s to %d%%",
                 self.serial,
                 int_value,
             )
-
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set System Charge SOC Limit for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(f"Failed to set SOC limit: {e}") from e
 
 
 class ACChargePowerNumber(EG4BaseNumberEntity):
@@ -334,6 +312,10 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current AC charge power value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return float(round(self._optimistic_value, 1))
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -350,19 +332,15 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge power value using device object method."""
-        try:
-            if value < 0.0 or value > 15.0:
-                raise ValueError(
-                    f"AC charge power must be between 0.0-15.0 kW, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting AC Charge Power for %s to %.1f kW", self.serial, value
+        if value < 0.0 or value > 15.0:
+            raise HomeAssistantError(
+                f"AC charge power must be between 0.0-15.0 kW, got {value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        _LOGGER.info("Setting AC Charge Power for %s to %.1f kW", self.serial, value)
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_ac_charge_power(power_kw=value)
             if not success:
@@ -374,9 +352,6 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
                 value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -384,14 +359,7 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error("Invalid AC Charge Power value for %s: %s", self.serial, e)
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error("Failed to set AC Charge Power for %s: %s", self.serial, e)
-            raise HomeAssistantError(f"Failed to set AC charge power: {e}") from e
+            await self._refresh_related_entities()
 
 
 class PVChargePowerNumber(EG4BaseNumberEntity):
@@ -421,6 +389,10 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current PV charge power value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -437,25 +409,21 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the PV charge power value using device object method."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 15:
-                raise ValueError(
-                    f"PV charge power must be between 0-15 kW, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"PV charge power must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting PV Charge Power for %s to %d kW", self.serial, int_value
+        int_value = int(value)
+        if int_value < 0 or int_value > 15:
+            raise HomeAssistantError(
+                f"PV charge power must be between 0-15 kW, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"PV charge power must be an integer value, got {value}"
+            )
+
+        _LOGGER.info("Setting PV Charge Power for %s to %d kW", self.serial, int_value)
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_pv_charge_power(power_kw=int_value)
             if not success:
@@ -467,9 +435,6 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                 int_value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -477,14 +442,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error("Invalid PV Charge Power value for %s: %s", self.serial, e)
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error("Failed to set PV Charge Power for %s: %s", self.serial, e)
-            raise HomeAssistantError(f"Failed to set PV charge power: {e}") from e
+            await self._refresh_related_entities()
 
 
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
@@ -516,6 +474,10 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current grid peak shaving power value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return float(round(self._optimistic_value, 1))
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -534,19 +496,17 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the grid peak shaving power value using device object method."""
-        try:
-            if value < 0.0 or value > 25.5:
-                raise ValueError(
-                    f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting Grid Peak Shaving Power for %s to %.1f kW", self.serial, value
+        if value < 0.0 or value > 25.5:
+            raise HomeAssistantError(
+                f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        _LOGGER.info(
+            "Setting Grid Peak Shaving Power for %s to %.1f kW", self.serial, value
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_grid_peak_shaving_power(power_kw=value)
             if not success:
@@ -558,9 +518,6 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -568,20 +525,7 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error(
-                "Invalid Grid Peak Shaving Power value for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set Grid Peak Shaving Power for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(
-                f"Failed to set grid peak shaving power: {e}"
-            ) from e
+            await self._refresh_related_entities()
 
 
 class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
@@ -613,6 +557,10 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current AC charge SOC limit value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -631,25 +579,23 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge SOC limit value using device object method."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 100:
-                raise ValueError(
-                    f"AC charge SOC limit must be between 0-100%, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"AC charge SOC limit must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting AC Charge SOC Limit for %s to %d%%", self.serial, int_value
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"AC charge SOC limit must be between 0-100%, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"AC charge SOC limit must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting AC Charge SOC Limit for %s to %d%%", self.serial, int_value
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
             if not success:
@@ -661,9 +607,6 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
                 int_value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -671,18 +614,7 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error(
-                "Invalid AC Charge SOC Limit value for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set AC Charge SOC Limit for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(f"Failed to set AC charge SOC limit: {e}") from e
+            await self._refresh_related_entities()
 
 
 class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
@@ -714,6 +646,10 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current on-grid SOC cutoff value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -731,25 +667,23 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the on-grid SOC cutoff value."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 100:
-                raise ValueError(
-                    f"On-grid SOC cutoff must be between 0-100%, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"On-grid SOC cutoff must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting On-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"On-grid SOC cutoff must be between 0-100%, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"On-grid SOC cutoff must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting On-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
 
@@ -758,9 +692,6 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
                     f"Failed to set on-grid SOC cutoff to {int_value}%"
                 )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -768,19 +699,13 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            await self._refresh_related_entities()
 
             _LOGGER.info(
                 "Successfully set On-Grid SOC Cut-Off for %s to %d%%",
                 self.serial,
                 int_value,
             )
-
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set On-Grid SOC Cut-Off for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(f"Failed to set on-grid SOC cutoff: {e}") from e
 
 
 class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
@@ -812,6 +737,10 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current off-grid SOC cutoff value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -831,25 +760,23 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the off-grid SOC cutoff value."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 100:
-                raise ValueError(
-                    f"Off-grid SOC cutoff must be between 0-100%, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"Off-grid SOC cutoff must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting Off-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Off-grid SOC cutoff must be between 0-100%, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Off-grid SOC cutoff must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting Off-Grid SOC Cut-Off for %s to %d%%", self.serial, int_value
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_battery_soc_limits(off_grid_limit=int_value)
 
@@ -858,9 +785,6 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
                     f"Failed to set off-grid SOC cutoff to {int_value}%"
                 )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -868,19 +792,13 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
+            await self._refresh_related_entities()
 
             _LOGGER.info(
                 "Successfully set Off-Grid SOC Cut-Off for %s to %d%%",
                 self.serial,
                 int_value,
             )
-
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set Off-Grid SOC Cut-Off for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(f"Failed to set off-grid SOC cutoff: {e}") from e
 
 
 class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
@@ -912,6 +830,10 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current battery charge current value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -930,25 +852,23 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the battery charge current value using device object method."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 250:
-                raise ValueError(
-                    f"Battery charge current must be between 0-250 A, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"Battery charge current must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting Battery Charge Current for %s to %d A", self.serial, int_value
+        int_value = int(value)
+        if int_value < 0 or int_value > 250:
+            raise HomeAssistantError(
+                f"Battery charge current must be between 0-250 A, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Battery charge current must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting Battery Charge Current for %s to %d A", self.serial, int_value
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_battery_charge_current(current_amps=int_value)
             if not success:
@@ -960,9 +880,6 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
                 int_value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
@@ -970,20 +887,7 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error(
-                "Invalid Battery Charge Current value for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set Battery Charge Current for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(
-                f"Failed to set battery charge current: {e}"
-            ) from e
+            await self._refresh_related_entities()
 
 
 class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
@@ -1015,6 +919,10 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> int | None:
         """Return the current battery discharge current value from device object."""
+        # Optimistic value takes precedence (set by context manager)
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+
         try:
             inverter = self.coordinator.get_inverter_object(self.serial)
             if not inverter:
@@ -1033,27 +941,20 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the battery discharge current value using device object method."""
-        try:
-            int_value = int(value)
-            if int_value < 0 or int_value > 250:
-                raise ValueError(
-                    f"Battery discharge current must be between 0-250 A, got {int_value}"
-                )
-
-            if abs(value - int_value) > 0.01:
-                raise ValueError(
-                    f"Battery discharge current must be an integer value, got {value}"
-                )
-
-            _LOGGER.info(
-                "Setting Battery Discharge Current for %s to %d A",
-                self.serial,
-                int_value,
+        int_value = int(value)
+        if int_value < 0 or int_value > 250:
+            raise HomeAssistantError(
+                f"Battery discharge current must be between 0-250 A, got {int_value}"
             )
 
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                raise HomeAssistantError(f"Inverter {self.serial} not found")
+        _LOGGER.info(
+            "Setting Battery Discharge Current for %s to %d A",
+            self.serial,
+            int_value,
+        )
+
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
 
             success = await inverter.set_battery_discharge_current(
                 current_amps=int_value
@@ -1067,27 +968,11 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
                 int_value,
             )
 
-            self._current_value = value
-            self.async_write_ha_state()
-
             await inverter.refresh()
 
             _LOGGER.info(
-                "Battery Discharge Current changed for %s, refreshing parameters for all inverters",
+                "Battery Discharge Current changed for %s, refreshing parameters",
                 self.serial,
             )
 
-            self.hass.async_create_task(self._refresh_all_parameters_and_entities())
-
-        except ValueError as e:
-            _LOGGER.error(
-                "Invalid Battery Discharge Current value for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(str(e)) from e
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to set Battery Discharge Current for %s: %s", self.serial, e
-            )
-            raise HomeAssistantError(
-                f"Failed to set battery discharge current: {e}"
-            ) from e
+            await self._refresh_related_entities()
