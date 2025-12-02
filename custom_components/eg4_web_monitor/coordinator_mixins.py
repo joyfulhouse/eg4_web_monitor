@@ -1048,7 +1048,8 @@ class ParameterManagementMixin:
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
                 return
 
-            await inverter.refresh(include_parameters=True)
+            # Use force=True to bypass cache when refreshing parameters after changes
+            await inverter.refresh(force=True, include_parameters=True)
 
             if hasattr(inverter, "parameters") and inverter.parameters:
                 if not self.data:

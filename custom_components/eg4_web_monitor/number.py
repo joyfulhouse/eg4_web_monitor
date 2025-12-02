@@ -217,11 +217,8 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             if not inverter:
                 return None
 
-            # Read from cached parameters (no API call)
-            # pylint: disable=protected-access
-            soc_limit = inverter._get_parameter(
-                "HOLD_SYSTEM_CHARGE_SOC_LIMIT", 100, int
-            )
+            # Read from cached parameters via public property
+            soc_limit = inverter.system_charge_soc_limit
             if soc_limit is not None and 10 <= soc_limit <= 101:
                 return int(soc_limit)
 
@@ -265,9 +262,10 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
 
             # Refresh inverter parameters to update cached value
+            # Use force=True to bypass cache since we just changed a parameter
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
-                await inverter.refresh()
+                await inverter.refresh(force=True, include_parameters=True)
 
             _LOGGER.info(
                 "Parameter changed for %s, refreshing parameters for all inverters",
