@@ -717,35 +717,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Verify websession injection
         run: |
-          echo "Checking API client for websession injection support..."
+          echo "Checking websession injection support..."
 
-          # Check API client __init__ signature
-          if ! grep -q "session:\s*Optional\[aiohttp.ClientSession\]\s*=\s*None" custom_components/eg4_web_monitor/eg4_inverter_api/client.py; then
-            echo "❌ API client does not support session injection"
-            exit 1
-          fi
-          echo "✅ API client supports session parameter"
-
-          # Check coordinator uses injection
+          # Check coordinator uses aiohttp session injection via async_get_clientsession
           if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/coordinator.py; then
             echo "❌ Coordinator does not inject session"
             exit 1
           fi
           echo "✅ Coordinator injects Home Assistant session"
 
-          # Check config flow uses injection
+          # Check config flow uses session injection
           if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/config_flow.py; then
             echo "❌ Config flow does not inject session"
             exit 1
           fi
           echo "✅ Config flow injects Home Assistant session"
+
+          # Check that pylxpweb LuxpowerClient is used with session parameter
+          if ! grep -q "LuxpowerClient" custom_components/eg4_web_monitor/coordinator.py; then
+            echo "❌ LuxpowerClient not used in coordinator"
+            exit 1
+          fi
+          echo "✅ LuxpowerClient API client is used"
+
+          # Check that session is passed to LuxpowerClient
+          if ! grep -q "session=aiohttp_client" custom_components/eg4_web_monitor/coordinator.py; then
+            echo "❌ Session not passed to LuxpowerClient"
+            exit 1
+          fi
+          echo "✅ Session is injected into LuxpowerClient"
 
   platinum-strict-typing:
     name: Platinum - Strict Typing
@@ -812,17 +814,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
-      - name: Install dependencies
+      - name: Install uv
         run: |
-          if [ -f "tests/requirements-test.txt" ]; then
-            pip install -r tests/requirements-test.txt
-          fi
-          pip install pytest pytest-asyncio pytest-cov aiohttp homeassistant pytest-homeassistant-custom-component
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies with uv
+        run: |
+          uv pip install --system -r tests/requirements-test.txt
 
       - name: Run API client tests
         run: |

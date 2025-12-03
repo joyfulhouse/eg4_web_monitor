@@ -1,9 +1,10 @@
 # Testing dependencies for Bronze tier compliance
 # Updated December 2025 for Home Assistant 2025.12 compatibility
+# Requires Python 3.13+ due to pytest-homeassistant-custom-component
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
-pytest-homeassistant-custom-component>=0.13.297
+pytest-homeassistant-custom-component>=0.13.206
 
 # Home Assistant core for testing
 homeassistant>=2025.6.0
