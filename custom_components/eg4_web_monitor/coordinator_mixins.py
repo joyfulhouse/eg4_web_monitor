@@ -9,7 +9,7 @@ verify this at the mixin level. Runtime type safety is guaranteed by the
 final coordinator class inheriting all mixins together.
 """
 
-# mypy: disable-error-code="attr-defined"
+# mypy: disable-error-code="attr-defined,misc,unreachable,assignment"
 
 import asyncio
 import logging
@@ -47,9 +47,9 @@ class CoordinatorProtocol(Protocol):
     dst_sync_enabled: bool
 
     # Private attributes for state tracking
-    _last_parameter_refresh: datetime | None
+    _last_parameter_refresh: datetime | None  # noqa: F821
     _parameter_refresh_interval: timedelta
-    _last_dst_sync: datetime | None
+    _last_dst_sync: datetime | None  # noqa: F821
     _dst_sync_interval: timedelta
     _background_tasks: set[asyncio.Task[Any]]
     _debounced_refresh: Any
@@ -180,6 +180,14 @@ class DeviceProcessingMixin:
             power_to_user = _safe_numeric(inverter.power_to_user)
             power_to_grid = _safe_numeric(inverter.power_to_grid)
             processed["sensors"]["grid_power"] = power_to_user - power_to_grid
+
+        # Calculate total load power (EPS + consumption for better power flow representation)
+        eps_power = _safe_numeric(processed["sensors"].get("eps_power", 0))
+        consumption_power = _safe_numeric(
+            processed["sensors"].get("consumption_power", 0)
+        )
+        if eps_power > 0 or consumption_power > 0:
+            processed["sensors"]["total_load_power"] = eps_power + consumption_power
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):
@@ -898,7 +906,7 @@ class DeviceInfoMixin:
         clean_battery_name = clean_battery_display_name(battery_key, serial)
         battery_bank_identifier = f"{serial}_battery_bank"
 
-        device_info = {
+        device_info: DeviceInfo = {
             "identifiers": {(DOMAIN, battery_key)},
             "name": f"Battery {clean_battery_name}",
             "manufacturer": MANUFACTURER,
@@ -941,7 +949,7 @@ class DeviceInfoMixin:
 
         model = device_data.get("model", "Unknown")
 
-        device_info = {
+        device_info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"{serial}_battery_bank")},
             "name": f"Battery Bank {serial}",
             "manufacturer": MANUFACTURER,
@@ -969,13 +977,14 @@ class DeviceInfoMixin:
         station_data = self.data["station"]
         station_name = station_data.get("name", f"Station {self.plant_id}")
 
-        return {
+        device_info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"station_{self.plant_id}")},
             "name": f"Station {station_name}",
             "manufacturer": MANUFACTURER,
             "model": "Station",
             "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
+        return device_info
 
 
 class ParameterManagementMixin:

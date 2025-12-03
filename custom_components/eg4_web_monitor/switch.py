@@ -423,10 +423,9 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
         self._optimistic_state: bool | None = None
 
     @property
-    def device_info(self) -> DeviceInfo | dict[str, Any]:
+    def device_info(self) -> DeviceInfo | None:
         """Return device information."""
-        device_info = self.coordinator.get_station_device_info()
-        return device_info if device_info else {}
+        return self.coordinator.get_station_device_info()
 
     @property
     def is_on(self) -> bool:

@@ -3,6 +3,8 @@
 import logging
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -304,10 +306,13 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
         sensor_config = STATION_SENSOR_TYPES[sensor_key]
         self._attr_name = sensor_config["name"]
         self._attr_icon = sensor_config.get("icon")
-        self._attr_entity_category = sensor_config.get("entity_category")
+        entity_category = sensor_config.get("entity_category")
+        if entity_category:
+            self._attr_entity_category = EntityCategory(entity_category)
 
-        if "device_class" in sensor_config:
-            self._attr_device_class = sensor_config["device_class"]
+        device_class = sensor_config.get("device_class")
+        if device_class:
+            self._attr_device_class = SensorDeviceClass(device_class)
 
         # Build unique ID
         self._attr_unique_id = f"station_{coordinator.plant_id}_{sensor_key}"
