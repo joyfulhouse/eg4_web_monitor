@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -108,11 +108,11 @@ class EG4DataUpdateCoordinator(
         self.device_sensors: dict[str, list[str]] = {}
 
         # Parameter refresh tracking
-        self._last_parameter_refresh = None
+        self._last_parameter_refresh: datetime | None = None  # type: ignore[assignment]
         self._parameter_refresh_interval = timedelta(hours=1)
 
         # DST sync tracking
-        self._last_dst_sync = None
+        self._last_dst_sync: datetime | None = None  # type: ignore[assignment]
         self._dst_sync_interval = timedelta(hours=1)
 
         # Background task tracking for proper cleanup
@@ -281,9 +281,9 @@ class EG4DataUpdateCoordinator(
         # Process all inverters in the station
         for inverter in self.station.all_inverters:
             try:
-                processed["devices"][
-                    inverter.serial_number
-                ] = await self._process_inverter_object(inverter)
+                processed["devices"][inverter.serial_number] = (
+                    await self._process_inverter_object(inverter)  # type: ignore[misc]
+                )
             except Exception as e:
                 _LOGGER.error(
                     "Error processing inverter %s: %s", inverter.serial_number, e
@@ -423,10 +423,11 @@ class EG4DataUpdateCoordinator(
 
         return None
 
-    def _get_device_object(self, serial: str) -> BaseInverter | None:
+    def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.
 
         Used by Update platform to get device objects for firmware updates.
+        Returns BaseInverter for inverters, or MIDDevice (typed as Any) for MID devices.
         """
         if not self.station:
             return None

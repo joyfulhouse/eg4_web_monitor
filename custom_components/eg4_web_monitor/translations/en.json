@@ -143,7 +143,24 @@
       "cell_voltage_min": {"name": "Minimum Cell Voltage"},
       "cell_voltage_delta": {"name": "Cell Voltage Delta"},
       "cycle_count": {"name": "Cycle Count"},
-      "firmware_version": {"name": "Firmware Version"}
+      "firmware_version": {"name": "Firmware Version"},
+      "grid_voltage_r": {"name": "Grid Voltage R"},
+      "grid_voltage_s": {"name": "Grid Voltage S"},
+      "grid_voltage_t": {"name": "Grid Voltage T"},
+      "grid_frequency": {"name": "Grid Frequency"},
+      "eps_voltage_r": {"name": "EPS Voltage R"},
+      "eps_voltage_s": {"name": "EPS Voltage S"},
+      "eps_voltage_t": {"name": "EPS Voltage T"},
+      "eps_frequency": {"name": "EPS Frequency"},
+      "eps_power": {"name": "EPS Power"},
+      "eps_power_l1": {"name": "EPS Power L1"},
+      "eps_power_l2": {"name": "EPS Power L2"},
+      "power_output": {"name": "Power Output"},
+      "rectifier_power": {"name": "Rectifier Power"},
+      "ac_couple_power": {"name": "AC Couple Power"},
+      "bus1_voltage": {"name": "Bus 1 Voltage"},
+      "bus2_voltage": {"name": "Bus 2 Voltage"},
+      "total_load_power": {"name": "Total Load Power"}
     },
     "switch": {
       "quick_charge": {

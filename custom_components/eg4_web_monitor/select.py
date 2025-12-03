@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from pylxpweb.devices.inverters.base import OperatingMode  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     from homeassistant.components.select import SelectEntity
@@ -213,8 +214,10 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
                 raise HomeAssistantError(f"Inverter {self._serial} not found")
 
             # Use device object convenience method
-            # Pass string directly - library handles conversion internally
-            mode_value = option.upper()  # "Normal" -> "NORMAL", "Standby" -> "STANDBY"
+            # Convert string to OperatingMode enum
+            mode_value = OperatingMode[
+                option.upper()
+            ]  # "Normal" -> NORMAL, "Standby" -> STANDBY
             success = await inverter.set_operating_mode(mode_value)
             if not success:
                 raise HomeAssistantError(f"Failed to set operating mode to {option}")
