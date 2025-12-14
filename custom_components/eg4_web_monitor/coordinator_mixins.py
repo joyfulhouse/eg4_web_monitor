@@ -268,6 +268,7 @@ class DeviceProcessingMixin:
             "radiator2_temperature": "radiator2_temperature",
             # Battery sensors
             "battery_soc": "state_of_charge",
+            "battery_status": "battery_status",
             # Energy sensors - Generation
             "total_energy_today": "yield",
             "total_energy_lifetime": "yield_lifetime",
@@ -280,10 +281,10 @@ class DeviceProcessingMixin:
             "energy_today_usage": "consumption",
             "energy_lifetime_usage": "consumption_lifetime",
             # Energy sensors - Battery Charging/Discharging
-            "energy_today_charging": "battery_charge",
-            "energy_today_discharging": "battery_discharge",
-            "energy_lifetime_charging": "battery_charge_lifetime",
-            "energy_lifetime_discharging": "battery_discharge_lifetime",
+            "energy_today_charging": "charging",
+            "energy_today_discharging": "discharging",
+            "energy_lifetime_charging": "charging_lifetime",
+            "energy_lifetime_discharging": "discharging_lifetime",
             # Current sensors
             "max_charge_current": "max_charge_current",
             "max_discharge_current": "max_discharge_current",
@@ -292,10 +293,14 @@ class DeviceProcessingMixin:
             "power_to_grid": "grid_export_power",
             # Other sensors
             "power_rating": "power_rating",
+            "power_rating_text": "inverter_power_rating",
             "power_factor": "power_factor",
             "status_text": "status_text",
             "status": "status_code",
             "has_data": "has_data",
+            # Diagnostic sensors from energy API
+            "is_lost": "inverter_lost_status",
+            "has_runtime_data": "inverter_has_runtime_data",
         }
 
     def _extract_battery_from_object(self, battery: "Battery") -> dict[str, Any]:
