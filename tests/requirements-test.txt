@@ -11,8 +11,8 @@ homeassistant>=2025.6.0
 
 # Integration dependencies
 aiohttp>=3.10.0
-aiodns>=3.2.0  # Python 3.13 compatibility
-pycares>=4.4.0  # Python 3.13 compatibility
+aiodns>=3.6.1  # Python 3.13 compatibility, requires pycares >=4.9.0
+pycares>=4.9.0,<5  # Python 3.13 compatibility, aiodns 3.6.1 constraint
 voluptuous>=0.15.0
 pylxpweb>=0.3.25
 
