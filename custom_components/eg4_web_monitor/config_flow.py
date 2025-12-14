@@ -58,6 +58,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password: Optional[str] = None
         self._base_url: Optional[str] = None
         self._verify_ssl: Optional[bool] = None
+        self._plant_id: Optional[str] = None
         self._plants: Optional[List[Dict[str, Any]]] = None
 
     async def async_step_user(
@@ -231,6 +232,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._base_url = entry_data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
         self._verify_ssl = entry_data.get(CONF_VERIFY_SSL, True)
         self._username = entry_data.get(CONF_USERNAME)
+        self._plant_id = entry_data.get(CONF_PLANT_ID)
 
         return await self.async_step_reauth_confirm()
 
@@ -267,8 +269,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 finally:
                     await api.close()
 
-                # Get the existing config entry
-                existing_entry = await self.async_set_unique_id(self._username)
+                # Get the existing config entry using correct unique_id format
+                unique_id = f"{self._username}_{self._plant_id}"
+                existing_entry = await self.async_set_unique_id(unique_id)
                 if existing_entry:
                     # Update the entry with new password
                     self.hass.config_entries.async_update_entry(
