@@ -262,7 +262,10 @@ _WORKING_MODE_METHODS = {
     "FUNC_FORCED_CHG_EN": ("enable_pv_charge_priority", "disable_pv_charge_priority"),
     "FUNC_FORCED_DISCHG_EN": ("enable_forced_discharge", "disable_forced_discharge"),
     "FUNC_GRID_PEAK_SHAVING": ("enable_peak_shaving_mode", "disable_peak_shaving_mode"),
-    "FUNC_BATTERY_BACKUP_CTRL": ("enable_battery_backup", "disable_battery_backup"),
+    "FUNC_BATTERY_BACKUP_CTRL": (
+        "enable_battery_backup_ctrl",
+        "disable_battery_backup_ctrl",
+    ),
 }
 
 
