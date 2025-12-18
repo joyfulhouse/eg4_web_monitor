@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from pylxpweb.devices import Battery, Station
     from pylxpweb.devices.inverters.base import BaseInverter
 
+from pylxpweb.devices.inverters._features import InverterFamily
+
 from .const import DOMAIN, MANUFACTURER
 from .utils import clean_battery_display_name
 
@@ -134,6 +136,28 @@ class DeviceProcessingMixin:
         # Refresh inverter to load firmware version
         await inverter.refresh()
 
+        # Detect inverter features for capability-based sensor filtering (pylxpweb 0.4.0+)
+        features: dict[str, Any] = {}
+        try:
+            if hasattr(inverter, "detect_features"):
+                await inverter.detect_features()
+                features = self._extract_inverter_features(inverter)
+                _LOGGER.debug(
+                    "Detected features for inverter %s: family=%s, split_phase=%s, "
+                    "three_phase=%s, parallel=%s",
+                    inverter.serial_number,
+                    features.get("inverter_family"),
+                    features.get("supports_split_phase"),
+                    features.get("supports_three_phase"),
+                    features.get("supports_parallel"),
+                )
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not detect features for inverter %s: %s",
+                inverter.serial_number,
+                e,
+            )
+
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
         firmware_version = getattr(inverter, "firmware_version", "1.0.0")
@@ -159,6 +183,7 @@ class DeviceProcessingMixin:
             "model": model,
             "firmware_version": firmware_version,
             "firmware_update_info": firmware_update_info,
+            "features": features,  # Device capabilities for sensor filtering
             "sensors": {},
             "binary_sensors": {},
             "batteries": {},
@@ -174,6 +199,15 @@ class DeviceProcessingMixin:
 
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version
+
+        # Add feature detection sensors for diagnostics
+        if features:
+            if "inverter_family" in features:
+                processed["sensors"]["inverter_family"] = features["inverter_family"]
+            if "device_type_code" in features:
+                processed["sensors"]["device_type_code"] = features["device_type_code"]
+            if "grid_type" in features:
+                processed["sensors"]["grid_type"] = features["grid_type"]
 
         # Calculate net grid power
         if hasattr(inverter, "power_to_user") and hasattr(inverter, "power_to_grid"):
@@ -302,6 +336,66 @@ class DeviceProcessingMixin:
             "is_lost": "inverter_lost_status",
             "has_runtime_data": "inverter_has_runtime_data",
         }
+
+    @staticmethod
+    def _extract_inverter_features(inverter: "BaseInverter") -> dict[str, Any]:
+        """Extract feature capabilities from inverter object.
+
+        This method extracts the detected features from a pylxpweb inverter
+        object after detect_features() has been called. The features are used
+        for capability-based sensor filtering.
+
+        Args:
+            inverter: BaseInverter object with features detected
+
+        Returns:
+            Dictionary of feature flags for sensor filtering
+        """
+        features: dict[str, Any] = {}
+
+        # Get the features object if available
+        inverter_features = getattr(inverter, "_features", None)
+        if inverter_features is None:
+            return features
+
+        # Extract inverter family (SNA, PV_SERIES, LXP_EU, etc.)
+        if hasattr(inverter_features, "model_family"):
+            family = inverter_features.model_family
+            features["inverter_family"] = (
+                family.value if isinstance(family, InverterFamily) else str(family)
+            )
+        else:
+            features["inverter_family"] = InverterFamily.UNKNOWN.value
+
+        # Extract grid type
+        if hasattr(inverter_features, "grid_type"):
+            features["grid_type"] = str(inverter_features.grid_type.value)
+
+        # Extract device type code for debugging
+        if hasattr(inverter_features, "device_type_code"):
+            features["device_type_code"] = inverter_features.device_type_code
+
+        # Extract boolean capability flags using supports_* properties
+        capability_props = [
+            "supports_split_phase",
+            "supports_three_phase",
+            "supports_off_grid",
+            "supports_parallel",
+            "supports_volt_watt_curve",
+            "supports_grid_peak_shaving",
+            "supports_drms",
+            "supports_discharge_recovery_hysteresis",
+        ]
+
+        for prop in capability_props:
+            if hasattr(inverter, prop):
+                features[prop] = getattr(inverter, prop, False)
+            elif hasattr(inverter_features, prop.replace("supports_", "")):
+                # Fallback to features object attribute
+                attr_name = prop.replace("supports_", "")
+                features[prop] = getattr(inverter_features, attr_name, False)
+
+        return features
 
     def _extract_battery_from_object(self, battery: "Battery") -> dict[str, Any]:
         """Extract sensor data from Battery object using properties.

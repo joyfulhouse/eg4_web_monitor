@@ -20,10 +20,56 @@ from .base_entity import (
     EG4BatteryBankEntity,
     EG4StationEntity,
 )
-from .const import SENSOR_TYPES, STATION_SENSOR_TYPES
+from .const import (
+    DISCHARGE_RECOVERY_SENSORS,
+    SENSOR_TYPES,
+    SPLIT_PHASE_ONLY_SENSORS,
+    STATION_SENSOR_TYPES,
+    THREE_PHASE_ONLY_SENSORS,
+    VOLT_WATT_SENSORS,
+)
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _should_create_sensor(
+    sensor_key: str, features: dict[str, Any] | None
+) -> bool:
+    """Determine if a sensor should be created based on device features.
+
+    This function implements feature-based sensor filtering to avoid creating
+    sensors for capabilities that the inverter doesn't support.
+
+    Args:
+        sensor_key: The sensor key to check
+        features: Device features dictionary from feature detection, or None
+
+    Returns:
+        True if the sensor should be created, False if it should be skipped
+    """
+    # If no features detected, create all sensors (conservative fallback)
+    if not features:
+        return True
+
+    # Check split-phase sensors (only for SNA series)
+    if sensor_key in SPLIT_PHASE_ONLY_SENSORS:
+        return bool(features.get("supports_split_phase", True))
+
+    # Check three-phase sensors (only for PV Series, LXP-EU)
+    if sensor_key in THREE_PHASE_ONLY_SENSORS:
+        return bool(features.get("supports_three_phase", True))
+
+    # Check discharge recovery sensors (only for SNA series)
+    if sensor_key in DISCHARGE_RECOVERY_SENSORS:
+        return bool(features.get("supports_discharge_recovery_hysteresis", True))
+
+    # Check Volt-Watt sensors (only for PV Series, LXP-EU)
+    if sensor_key in VOLT_WATT_SENSORS:
+        return bool(features.get("supports_volt_watt_curve", True))
+
+    # Default: create the sensor
+    return True
 
 # Silver tier requirement: Specify parallel update count
 # Limit concurrent sensor updates to prevent overwhelming the coordinator
@@ -103,19 +149,35 @@ def _create_inverter_sensors(
     """Create sensor entities for an inverter device."""
     entities: list[SensorEntity] = []
 
+    # Get device features for capability-based filtering
+    features = device_data.get("features")
+    skipped_sensors: list[str] = []
+
     # Create main inverter sensors (excluding battery_bank sensors)
     for sensor_key in device_data.get("sensors", {}):
         if sensor_key in SENSOR_TYPES:
             # Skip battery_bank sensors - they'll be created separately
             if not sensor_key.startswith("battery_bank_"):
-                entities.append(
-                    EG4InverterSensor(
-                        coordinator=coordinator,
-                        serial=serial,
-                        sensor_key=sensor_key,
-                        device_type="inverter",
+                # Check if sensor should be created based on device features
+                if _should_create_sensor(sensor_key, features):
+                    entities.append(
+                        EG4InverterSensor(
+                            coordinator=coordinator,
+                            serial=serial,
+                            sensor_key=sensor_key,
+                            device_type="inverter",
+                        )
                     )
-                )
+                else:
+                    skipped_sensors.append(sensor_key)
+
+    if skipped_sensors:
+        _LOGGER.debug(
+            "Skipped %d sensors for %s based on feature detection: %s",
+            len(skipped_sensors),
+            serial,
+            skipped_sensors,
+        )
 
     # Create battery bank sensors (separate device)
     battery_bank_sensor_count = 0
