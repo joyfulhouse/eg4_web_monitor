@@ -168,6 +168,9 @@
       },
       "battery_backup_eps": {
         "name": "Battery Backup (EPS)"
+      },
+      "off_grid_mode": {
+        "name": "Off Grid Mode"
       }
     },
     "number": {

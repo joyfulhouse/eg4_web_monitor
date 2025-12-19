@@ -123,6 +123,9 @@ async def async_setup_entry(
                         serial,
                     )
 
+                # Add off-grid mode switch (Green Mode)
+                entities.append(EG4OffGridModeSwitch(coordinator, serial))
+
                 # Add working mode switches
                 for mode_key, mode_config in WORKING_MODES.items():
                     entities.append(
@@ -297,6 +300,80 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
             action_name="battery backup",
             enable_method="enable_battery_backup",
             disable_method="disable_battery_backup",
+            turn_on=False,
+            refresh_params=True,
+        )
+
+
+class EG4OffGridModeSwitch(EG4BaseSwitch):
+    """Switch to control off-grid mode (Green Mode) functionality.
+
+    Off-Grid Mode (called "Green Mode" in pylxpweb) controls the off-grid
+    operating mode toggle visible in the EG4 web monitoring interface.
+    When enabled, the inverter operates in an off-grid optimized configuration.
+
+    Note: This is FUNC_GREEN_EN in register 110, distinct from FUNC_EPS_EN
+    (battery backup/EPS mode) in register 21.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize the off-grid mode switch."""
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            entity_key="off_grid_mode",
+            name="Off Grid Mode",
+            icon="mdi:transmission-tower-off",
+            entity_category=EntityCategory.CONFIG,
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if off-grid mode is enabled."""
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        # Check parameter data from coordinator
+        return bool(self._parameter_data.get("FUNC_GREEN_EN", False))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return extra state attributes."""
+        attributes: dict[str, Any] = {}
+
+        # Add parameter details if available
+        if self._parameter_data:
+            func_green_en = self._parameter_data.get("FUNC_GREEN_EN")
+            if func_green_en is not None:
+                attributes["func_green_en"] = func_green_en
+
+        # Add optimistic state indicator for debugging
+        if self._optimistic_state is not None:
+            attributes["optimistic_state"] = self._optimistic_state
+
+        return attributes if attributes else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable off-grid mode."""
+        await self._execute_switch_action(
+            action_name="off-grid mode",
+            enable_method="enable_green_mode",
+            disable_method="disable_green_mode",
+            turn_on=True,
+            refresh_params=True,
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable off-grid mode."""
+        await self._execute_switch_action(
+            action_name="off-grid mode",
+            enable_method="enable_green_mode",
+            disable_method="disable_green_mode",
             turn_on=False,
             refresh_params=True,
         )
