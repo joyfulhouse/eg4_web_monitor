@@ -21,11 +21,52 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
-from .const import FUNCTION_PARAM_MAPPING, SUPPORTED_INVERTER_MODELS, WORKING_MODES
+from .const import (
+    FUNCTION_PARAM_MAPPING,
+    INVERTER_FAMILY_SNA,
+    SUPPORTED_INVERTER_MODELS,
+    WORKING_MODES,
+)
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
+    """Check if device supports EPS battery backup parameter.
+
+    The EPS battery backup switch controls a specific inverter parameter.
+    Some devices (like XP series) don't support this parameter through the API,
+    even though they have off-grid capability in hardware.
+
+    Args:
+        device_data: Device data dictionary with model and features
+
+    Returns:
+        True if the device supports the EPS battery backup parameter
+    """
+    features = device_data.get("features")
+
+    # If features are available, use feature-based detection
+    if features:
+        # SNA series (off-grid focused like 12000XP) supports EPS natively
+        # but the parameter control may be different
+        inverter_family = features.get("inverter_family")
+        if inverter_family == INVERTER_FAMILY_SNA:
+            # SNA devices support EPS but may use different parameter
+            # For now, keep them enabled until we confirm parameter support
+            return bool(features.get("supports_off_grid", True))
+
+        # PV Series and others generally support the EPS parameter
+        return bool(features.get("supports_off_grid", True))
+
+    # Fallback to string matching for backward compatibility
+    # XP devices (12000XP, 6000XP) don't support the standard EPS parameter
+    model = device_data.get("model", "Unknown")
+    model_lower = model.lower()
+    return "xp" not in model_lower
+
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
@@ -73,9 +114,14 @@ async def async_setup_entry(
                 # Add quick charge switch
                 entities.append(EG4QuickChargeSwitch(coordinator, serial))
 
-                # Add battery backup switch (EPS) - XP devices do not support this
-                if "xp" not in model_lower:
+                # Add battery backup switch (EPS) based on feature detection
+                if _supports_eps_battery_backup(device_data):
                     entities.append(EG4BatteryBackupSwitch(coordinator, serial))
+                else:
+                    _LOGGER.debug(
+                        "Skipping EPS Battery Backup switch for %s (not supported)",
+                        serial,
+                    )
 
                 # Add working mode switches
                 for mode_key, mode_config in WORKING_MODES.items():
