@@ -130,40 +130,48 @@ INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
 
 # Sensors only available on split-phase (SNA) inverters (12000XP, 6000XP)
 # These inverters use L1/L2 phase naming convention
-SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset({
-    "eps_power_l1",
-    "eps_power_l2",
-})
+SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
+    {
+        "eps_power_l1",
+        "eps_power_l2",
+    }
+)
 
 # Sensors only available on three-phase capable inverters (PV Series, LXP-EU)
 # These inverters use R/S/T phase naming convention
-THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset({
-    "grid_voltage_r",
-    "grid_voltage_s",
-    "grid_voltage_t",
-    "eps_voltage_r",
-    "eps_voltage_s",
-    "eps_voltage_t",
-})
+THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
+    {
+        "grid_voltage_r",
+        "grid_voltage_s",
+        "grid_voltage_t",
+        "eps_voltage_r",
+        "eps_voltage_s",
+        "eps_voltage_t",
+    }
+)
 
 # Sensors related to discharge recovery hysteresis (SNA series only)
 # These parameters prevent oscillation when SOC is near the cutoff threshold
-DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset({
-    "discharge_recovery_lag_soc",
-    "discharge_recovery_lag_volt",
-})
+DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
+    {
+        "discharge_recovery_lag_soc",
+        "discharge_recovery_lag_volt",
+    }
+)
 
 # Sensors related to Volt-Watt curve (PV Series, LXP-EU only)
-VOLT_WATT_SENSORS: frozenset[str] = frozenset({
-    "volt_watt_v1",
-    "volt_watt_v2",
-    "volt_watt_v3",
-    "volt_watt_v4",
-    "volt_watt_p1",
-    "volt_watt_p2",
-    "volt_watt_p3",
-    "volt_watt_p4",
-})
+VOLT_WATT_SENSORS: frozenset[str] = frozenset(
+    {
+        "volt_watt_v1",
+        "volt_watt_v2",
+        "volt_watt_v3",
+        "volt_watt_v4",
+        "volt_watt_p1",
+        "volt_watt_p2",
+        "volt_watt_p3",
+        "volt_watt_p4",
+    }
+)
 
 # Number entity limits
 # AC Charge Power (kW)

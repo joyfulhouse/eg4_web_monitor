@@ -376,23 +376,24 @@ class DeviceProcessingMixin:
             features["device_type_code"] = inverter_features.device_type_code
 
         # Extract boolean capability flags using supports_* properties
-        capability_props = [
-            "supports_split_phase",
-            "supports_three_phase",
-            "supports_off_grid",
-            "supports_parallel",
-            "supports_volt_watt_curve",
-            "supports_grid_peak_shaving",
-            "supports_drms",
-            "supports_discharge_recovery_hysteresis",
-        ]
+        # Maps feature key to InverterFeatures attribute name
+        # Some attributes don't follow simple "supports_X" -> "X" pattern
+        capability_mapping: dict[str, str] = {
+            "supports_split_phase": "split_phase",
+            "supports_three_phase": "three_phase_capable",
+            "supports_off_grid": "off_grid_capable",
+            "supports_parallel": "parallel_support",
+            "supports_volt_watt_curve": "volt_watt_curve",
+            "supports_grid_peak_shaving": "grid_peak_shaving",
+            "supports_drms": "drms_support",
+            "supports_discharge_recovery_hysteresis": "discharge_recovery_hysteresis",
+        }
 
-        for prop in capability_props:
+        for prop, attr_name in capability_mapping.items():
             if hasattr(inverter, prop):
                 features[prop] = getattr(inverter, prop, False)
-            elif hasattr(inverter_features, prop.replace("supports_", "")):
-                # Fallback to features object attribute
-                attr_name = prop.replace("supports_", "")
+            elif hasattr(inverter_features, attr_name):
+                # Fallback to features object attribute using correct mapping
                 features[prop] = getattr(inverter_features, attr_name, False)
 
         return features

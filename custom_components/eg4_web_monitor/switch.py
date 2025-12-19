@@ -67,6 +67,7 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     model_lower = model.lower()
     return "xp" not in model_lower
 
+
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
 

@@ -33,9 +33,7 @@ from .coordinator import EG4DataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
-def _should_create_sensor(
-    sensor_key: str, features: dict[str, Any] | None
-) -> bool:
+def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> bool:
     """Determine if a sensor should be created based on device features.
 
     This function implements feature-based sensor filtering to avoid creating
@@ -70,6 +68,7 @@ def _should_create_sensor(
 
     # Default: create the sensor
     return True
+
 
 # Silver tier requirement: Specify parallel update count
 # Limit concurrent sensor updates to prevent overwhelming the coordinator
