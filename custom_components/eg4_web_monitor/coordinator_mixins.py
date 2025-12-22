@@ -302,7 +302,8 @@ class DeviceProcessingMixin:
             "radiator2_temperature": "radiator2_temperature",
             # Battery sensors
             "battery_soc": "state_of_charge",
-            "battery_status": "battery_status",
+            # Note: battery_status is extracted from BatteryBank.status in
+            # _extract_battery_bank_from_object(), not from the inverter directly
             # Energy sensors - Generation
             "total_energy_today": "yield",
             "total_energy_lifetime": "yield_lifetime",
@@ -506,7 +507,15 @@ class DeviceProcessingMixin:
             Dictionary of sensor_key -> value mappings
         """
         property_map = self._get_battery_bank_property_map()
-        return _map_device_properties(battery_bank, property_map)
+        sensors = _map_device_properties(battery_bank, property_map)
+
+        # Add battery_status as alias for battery_bank_status for backwards compatibility
+        # In v2.2.x, the batStatus field was mapped to battery_status at the inverter level
+        # This maintains the sensor for users upgrading from v2.2.x
+        if "battery_bank_status" in sensors:
+            sensors["battery_status"] = sensors["battery_bank_status"]
+
+        return sensors
 
     @staticmethod
     def _get_battery_bank_property_map() -> dict[str, str]:

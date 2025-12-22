@@ -281,9 +281,9 @@ class EG4DataUpdateCoordinator(
         # Process all inverters in the station
         for inverter in self.station.all_inverters:
             try:
-                processed["devices"][inverter.serial_number] = (
-                    await self._process_inverter_object(inverter)  # type: ignore[misc]
-                )
+                processed["devices"][
+                    inverter.serial_number
+                ] = await self._process_inverter_object(inverter)  # type: ignore[misc]
             except Exception as e:
                 _LOGGER.error(
                     "Error processing inverter %s: %s", inverter.serial_number, e
