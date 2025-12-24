@@ -189,8 +189,35 @@ class DeviceProcessingMixin:
             "batteries": {},
         }
 
-        # Only process if inverter has data
+        # Check if inverter has runtime data
         if not inverter.has_data:
+            # Log detailed diagnostics to help debug missing sensor issues
+            runtime_attr = getattr(inverter, "_runtime", "NOT_FOUND")
+            energy_attr = getattr(inverter, "_energy", "NOT_FOUND")
+            _LOGGER.warning(
+                "Inverter %s (%s) has no runtime data available (has_data=False). "
+                "Runtime sensors will not be created. "
+                "Debug: _runtime=%s, _energy=%s. "
+                "This may indicate an API issue or unsupported device model.",
+                inverter.serial_number,
+                model,
+                "None" if runtime_attr is None else "present",
+                "None" if energy_attr is None else "present",
+            )
+            # Still add diagnostic sensors even without runtime data
+            processed["sensors"]["firmware_version"] = firmware_version
+            processed["sensors"]["has_data"] = False
+            if features:
+                if "inverter_family" in features:
+                    processed["sensors"]["inverter_family"] = features[
+                        "inverter_family"
+                    ]
+                if "device_type_code" in features:
+                    processed["sensors"]["device_type_code"] = features[
+                        "device_type_code"
+                    ]
+                if "grid_type" in features:
+                    processed["sensors"]["grid_type"] = features["grid_type"]
             return processed
 
         # Map inverter properties to sensor keys

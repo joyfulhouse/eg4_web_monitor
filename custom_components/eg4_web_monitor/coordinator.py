@@ -180,6 +180,21 @@ class EG4DataUpdateCoordinator(
                 _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
                 await self.station.refresh_all_data()
 
+            # Log inverter data status after refresh
+            for inverter in self.station.all_inverters:
+                _LOGGER.debug(
+                    "Inverter %s (%s): has_data=%s, _runtime=%s, _energy=%s",
+                    inverter.serial_number,
+                    getattr(inverter, "model", "Unknown"),
+                    inverter.has_data,
+                    "present"
+                    if getattr(inverter, "_runtime", None) is not None
+                    else "None",
+                    "present"
+                    if getattr(inverter, "_energy", None) is not None
+                    else "None",
+                )
+
             # Perform DST sync if enabled and due
             if self.dst_sync_enabled and self.station and self._should_sync_dst():
                 await self._perform_dst_sync()
