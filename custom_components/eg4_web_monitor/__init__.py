@@ -21,11 +21,12 @@ _LOGGER = logging.getLogger(__name__)
 EG4ConfigEntry: TypeAlias = ConfigEntry[EG4DataUpdateCoordinator]
 
 PLATFORMS: list[Platform] = [
-    Platform.SENSOR,
-    Platform.NUMBER,
-    Platform.SWITCH,
+    Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.NUMBER,
     Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
     Platform.UPDATE,
 ]
 

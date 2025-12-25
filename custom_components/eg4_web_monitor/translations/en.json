@@ -111,6 +111,15 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "dongle_connectivity": {
+        "name": "Dongle Connectivity",
+        "state": {
+          "on": "Connected",
+          "off": "Disconnected"
+        }
+      }
+    },
     "sensor": {
       "ac_power": {"name": "AC Power"},
       "ac_voltage": {"name": "AC Voltage"},

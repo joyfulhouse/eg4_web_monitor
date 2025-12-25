@@ -1375,6 +1375,139 @@ class BackgroundTaskMixin:
                 )
 
 
+class DongleStatusMixin:
+    """Mixin for dongle connection status operations.
+
+    The dongle (datalog) is the communication module that connects inverters
+    to the cloud monitoring service. This mixin fetches and caches dongle
+    status to detect when inverter data may be stale.
+    """
+
+    # Mapping of inverter serial -> datalog serial
+    _datalog_serials: dict[str, str]
+    # Mapping of datalog serial -> online status
+    _dongle_statuses: dict[str, bool]
+    # Cache time for dongle statuses
+    _dongle_status_cache_time: datetime | None
+    _dongle_status_cache_ttl: timedelta
+
+    async def _fetch_datalog_serials(self: "CoordinatorProtocol") -> None:
+        """Fetch datalog serial numbers for all inverters.
+
+        Calls get_inverter_info() for each inverter to retrieve the datalogSn field.
+        This only needs to be done once per session as datalog serials don't change.
+        """
+        if not hasattr(self, "_datalog_serials"):
+            self._datalog_serials = {}
+
+        if not self.station:
+            return
+
+        for inverter in self.station.all_inverters:
+            if inverter.serial_number in self._datalog_serials:
+                continue  # Already have this mapping
+
+            try:
+                # Fetch inverter info to get datalog serial
+                info = await self.client.api.devices.get_inverter_info(
+                    inverter.serial_number
+                )
+                if info and info.datalogSn:
+                    self._datalog_serials[inverter.serial_number] = info.datalogSn
+                    _LOGGER.debug(
+                        "Mapped inverter %s to datalog %s",
+                        inverter.serial_number,
+                        info.datalogSn,
+                    )
+            except Exception as e:
+                _LOGGER.debug(
+                    "Could not fetch inverter info for %s: %s",
+                    inverter.serial_number,
+                    e,
+                )
+
+    async def _fetch_dongle_statuses(self: "CoordinatorProtocol") -> None:
+        """Fetch dongle status for all known datalog serials.
+
+        Checks if each dongle is online using get_dongle_status().
+        Results are cached to avoid excessive API calls.
+        """
+        if not hasattr(self, "_dongle_statuses"):
+            self._dongle_statuses = {}
+
+        if not hasattr(self, "_dongle_status_cache_time"):
+            self._dongle_status_cache_time = None
+            self._dongle_status_cache_ttl = timedelta(seconds=60)
+
+        # Check cache validity
+        if self._dongle_status_cache_time is not None:
+            time_since_cache = datetime.now() - self._dongle_status_cache_time
+            if time_since_cache < self._dongle_status_cache_ttl:
+                return  # Use cached data
+
+        if not hasattr(self, "_datalog_serials") or not self._datalog_serials:
+            return
+
+        # Get unique datalog serials (multiple inverters may share one dongle)
+        unique_datalogs = set(self._datalog_serials.values())
+
+        for datalog_sn in unique_datalogs:
+            try:
+                status = await self.client.api.devices.get_dongle_status(datalog_sn)
+                self._dongle_statuses[datalog_sn] = status.is_online
+                _LOGGER.debug(
+                    "Dongle %s status: %s",
+                    datalog_sn,
+                    "online" if status.is_online else "offline",
+                )
+            except Exception as e:
+                _LOGGER.debug("Could not fetch dongle status for %s: %s", datalog_sn, e)
+                # Keep previous status if available, otherwise assume offline
+                if datalog_sn not in self._dongle_statuses:
+                    self._dongle_statuses[datalog_sn] = False
+
+        self._dongle_status_cache_time = datetime.now()
+
+    def get_dongle_status_for_inverter(
+        self: "CoordinatorProtocol", inverter_serial: str
+    ) -> bool | None:
+        """Get the dongle online status for a specific inverter.
+
+        Args:
+            inverter_serial: Inverter serial number
+
+        Returns:
+            True if dongle is online, False if offline, None if unknown
+        """
+        if not hasattr(self, "_datalog_serials") or not hasattr(
+            self, "_dongle_statuses"
+        ):
+            return None
+
+        datalog_sn: str | None = self._datalog_serials.get(inverter_serial)
+        if not datalog_sn:
+            return None
+
+        status: bool | None = self._dongle_statuses.get(datalog_sn)
+        return status
+
+    def get_datalog_serial_for_inverter(
+        self: "CoordinatorProtocol", inverter_serial: str
+    ) -> str | None:
+        """Get the datalog serial number for a specific inverter.
+
+        Args:
+            inverter_serial: Inverter serial number
+
+        Returns:
+            Datalog serial number or None if unknown
+        """
+        if not hasattr(self, "_datalog_serials"):
+            return None
+        serial: str | None = self._datalog_serials.get(inverter_serial)
+        return serial
+
+
 class FirmwareUpdateMixin:
     """Mixin for firmware update information extraction."""
 
