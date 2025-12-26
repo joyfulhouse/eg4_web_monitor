@@ -111,11 +111,11 @@ class EG4DataUpdateCoordinator(
         self.device_sensors: dict[str, list[str]] = {}
 
         # Parameter refresh tracking
-        self._last_parameter_refresh: datetime | None = None  # type: ignore[assignment]
+        self._last_parameter_refresh: datetime | None = None
         self._parameter_refresh_interval = timedelta(hours=1)
 
         # DST sync tracking
-        self._last_dst_sync: datetime | None = None  # type: ignore[assignment]
+        self._last_dst_sync: datetime | None = None
         self._dst_sync_interval = timedelta(hours=1)
 
         # Background task tracking for proper cleanup
@@ -307,7 +307,7 @@ class EG4DataUpdateCoordinator(
             try:
                 processed["devices"][
                     inverter.serial_number
-                ] = await self._process_inverter_object(inverter)  # type: ignore[misc]
+                ] = await self._process_inverter_object(inverter)
             except Exception as e:
                 _LOGGER.error(
                     "Error processing inverter %s: %s", inverter.serial_number, e

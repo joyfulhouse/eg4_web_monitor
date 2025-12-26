@@ -1429,7 +1429,7 @@ class DongleStatusMixin:
     _dongle_status_cache_time: datetime | None
     _dongle_status_cache_ttl: timedelta
 
-    async def _fetch_datalog_serials(self: "CoordinatorProtocol") -> None:
+    async def _fetch_datalog_serials(self) -> None:
         """Fetch datalog serial numbers for all inverters.
 
         Calls get_inverter_info() for each inverter to retrieve the datalogSn field.
@@ -1464,7 +1464,7 @@ class DongleStatusMixin:
                     e,
                 )
 
-    async def _fetch_dongle_statuses(self: "CoordinatorProtocol") -> None:
+    async def _fetch_dongle_statuses(self) -> None:
         """Fetch dongle status for all known datalog serials.
 
         Checks if each dongle is online using get_dongle_status().
@@ -1506,9 +1506,7 @@ class DongleStatusMixin:
 
         self._dongle_status_cache_time = datetime.now()
 
-    def get_dongle_status_for_inverter(
-        self: "CoordinatorProtocol", inverter_serial: str
-    ) -> bool | None:
+    def get_dongle_status_for_inverter(self, inverter_serial: str) -> bool | None:
         """Get the dongle online status for a specific inverter.
 
         Args:
@@ -1529,9 +1527,7 @@ class DongleStatusMixin:
         status: bool | None = self._dongle_statuses.get(datalog_sn)
         return status
 
-    def get_datalog_serial_for_inverter(
-        self: "CoordinatorProtocol", inverter_serial: str
-    ) -> str | None:
+    def get_datalog_serial_for_inverter(self, inverter_serial: str) -> str | None:
         """Get the datalog serial number for a specific inverter.
 
         Args:
