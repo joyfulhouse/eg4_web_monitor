@@ -277,6 +277,44 @@ class DeviceProcessingMixin:
                     e,
                 )
 
+        # Fetch quick charge status for switch entity
+        try:
+            if hasattr(inverter, "get_quick_charge_status"):
+                quick_charge_active = await inverter.get_quick_charge_status()
+                processed["quick_charge_status"] = {
+                    "hasUnclosedQuickChargeTask": quick_charge_active,
+                }
+                _LOGGER.debug(
+                    "Quick charge status for %s: %s",
+                    inverter.serial_number,
+                    quick_charge_active,
+                )
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not fetch quick charge status for %s: %s",
+                inverter.serial_number,
+                e,
+            )
+
+        # Fetch battery backup (EPS) status for switch entity
+        try:
+            if hasattr(inverter, "get_battery_backup_status"):
+                battery_backup_enabled = await inverter.get_battery_backup_status()
+                processed["battery_backup_status"] = {
+                    "enabled": battery_backup_enabled,
+                }
+                _LOGGER.debug(
+                    "Battery backup status for %s: %s",
+                    inverter.serial_number,
+                    battery_backup_enabled,
+                )
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not fetch battery backup status for %s: %s",
+                inverter.serial_number,
+                e,
+            )
+
         return processed
 
     @staticmethod
