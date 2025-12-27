@@ -232,16 +232,25 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
 
         # Call recorder service to purge statistics
         # This removes all historical data but preserves Entity Registry entries
-        await hass.services.async_call(
-            "recorder",
-            "purge_entities",
-            {
-                "entity_id": entity_ids,
-                "keep_days": 0,  # Delete all history
-            },
-            blocking=True,
-        )
-
-        _LOGGER.info("Statistics purge complete for %d entities", len(entity_ids))
+        try:
+            if hass.services.has_service("recorder", "purge_entities"):
+                await hass.services.async_call(
+                    "recorder",
+                    "purge_entities",
+                    {
+                        "entity_id": entity_ids,
+                        "keep_days": 0,  # Delete all history
+                    },
+                    blocking=True,
+                )
+                _LOGGER.info(
+                    "Statistics purge complete for %d entities", len(entity_ids)
+                )
+            else:
+                _LOGGER.debug(
+                    "Recorder service not available, skipping statistics purge"
+                )
+        except Exception as e:
+            _LOGGER.warning("Failed to purge entity statistics: %s", e)
     else:
         _LOGGER.debug("No entities found to purge statistics for")

@@ -263,7 +263,9 @@ class EG4BaseSensor(EG4DeviceEntity):
         self._attr_unique_id = f"{serial}_{sensor_key}"
 
         # Get device data for model information
-        device_data = self.coordinator.data["devices"].get(serial, {})
+        device_data: dict[str, Any] = {}
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
 
         # Modern entity naming
@@ -389,7 +391,9 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
 
         # Get device data for model information
-        device_data = self.coordinator.data["devices"].get(serial, {})
+        device_data: dict[str, Any] = {}
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
 
         # Clean battery ID for entity_id
@@ -498,7 +502,9 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         self._attr_unique_id = f"{serial}_battery_bank_{sensor_key}"
 
         # Get device data for model information
-        device_data = self.coordinator.data["devices"].get(serial, {})
+        device_data: dict[str, Any] = {}
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
 
         # Modern entity naming
@@ -559,6 +565,8 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
     @property
     def native_value(self) -> Any:
         """Return the state of the sensor."""
+        if not self.coordinator.data or "devices" not in self.coordinator.data:
+            return None
         device_data = self.coordinator.data["devices"].get(self._serial, {})
         sensors = device_data.get("sensors", {})
         return sensors.get(self._sensor_key)
@@ -629,7 +637,9 @@ class EG4BaseNumber(CoordinatorEntity):
         self._optimistic_value: float | None = None
 
         # Get device info for subclasses
-        device_data = coordinator.data.get("devices", {}).get(serial, {})
+        device_data: dict[str, Any] = {}
+        if coordinator.data and "devices" in coordinator.data:
+            device_data = coordinator.data["devices"].get(serial, {})
         self._model = device_data.get("model", "Unknown")
         self._clean_model = clean_model_name(self._model, use_underscores=True)
 

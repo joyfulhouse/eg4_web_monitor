@@ -133,6 +133,12 @@ class EG4DataUpdateCoordinator(
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
 
+        # Inverter lookup cache for O(1) access (rebuilt when station loads)
+        self._inverter_cache: dict[str, BaseInverter] = {}
+
+        # Semaphore to limit concurrent API calls and prevent rate limiting
+        self._api_semaphore = asyncio.Semaphore(3)
+
         super().__init__(
             hass,
             _LOGGER,
@@ -179,6 +185,8 @@ class EG4DataUpdateCoordinator(
                     "Refreshing all data after station load to populate battery details"
                 )
                 await self.station.refresh_all_data()
+                # Build inverter cache for O(1) lookups
+                self._rebuild_inverter_cache()
             else:
                 _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
                 await self.station.refresh_all_data()
@@ -302,23 +310,39 @@ class EG4DataUpdateCoordinator(
         if created_date := getattr(self.station, "created_date", None):
             processed["station"]["createDate"] = created_date.isoformat()
 
-        # Process all inverters in the station
-        for inverter in self.station.all_inverters:
-            try:
-                processed["devices"][
-                    inverter.serial_number
-                ] = await self._process_inverter_object(inverter)
-            except Exception as e:
-                _LOGGER.error(
-                    "Error processing inverter %s: %s", inverter.serial_number, e
-                )
-                processed["devices"][inverter.serial_number] = {
-                    "type": "unknown",
-                    "model": "Unknown",
-                    "error": str(e),
-                    "sensors": {},
-                    "batteries": {},
-                }
+        # Process all inverters concurrently with semaphore to prevent rate limiting
+        async def process_inverter_with_semaphore(
+            inv: BaseInverter,
+        ) -> tuple[str, dict[str, Any]]:
+            """Process a single inverter with semaphore protection."""
+            async with self._api_semaphore:
+                try:
+                    result = await self._process_inverter_object(inv)
+                    return (inv.serial_number, result)
+                except Exception as e:
+                    _LOGGER.error(
+                        "Error processing inverter %s: %s", inv.serial_number, e
+                    )
+                    return (
+                        inv.serial_number,
+                        {
+                            "type": "unknown",
+                            "model": "Unknown",
+                            "error": str(e),
+                            "sensors": {},
+                            "batteries": {},
+                        },
+                    )
+
+        # Process all inverters concurrently (max 3 at a time via semaphore)
+        inverter_tasks = [
+            process_inverter_with_semaphore(inv) for inv in self.station.all_inverters
+        ]
+        inverter_results = await asyncio.gather(*inverter_tasks)
+
+        # Populate processed devices from results
+        for serial, device_data in inverter_results:
+            processed["devices"][serial] = device_data
 
         # Process parallel group data if available
         if hasattr(self.station, "parallel_groups") and self.station.parallel_groups:
@@ -414,22 +438,29 @@ class EG4DataUpdateCoordinator(
                 len(inverters_needing_params),
                 inverters_needing_params,
             )
-            self.hass.async_create_task(
+            task = self.hass.async_create_task(
                 self._refresh_missing_parameters(inverters_needing_params, processed)
             )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
 
         return processed
 
+    def _rebuild_inverter_cache(self) -> None:
+        """Rebuild inverter lookup cache after station load."""
+        self._inverter_cache = {}
+        if self.station:
+            for inverter in self.station.all_inverters:
+                self._inverter_cache[inverter.serial_number] = inverter
+            _LOGGER.debug(
+                "Rebuilt inverter cache with %d inverters",
+                len(self._inverter_cache),
+            )
+
     def get_inverter_object(self, serial: str) -> BaseInverter | None:
-        """Get inverter device object by serial number."""
-        if not self.station:
-            return None
-
-        for inverter in self.station.all_inverters:
-            if inverter.serial_number == serial:
-                return inverter
-
-        return None
+        """Get inverter device object by serial number (O(1) cached lookup)."""
+        return self._inverter_cache.get(serial)
 
     def get_battery_object(self, serial: str, battery_index: int) -> Battery | None:
         """Get battery object by inverter serial and battery index."""

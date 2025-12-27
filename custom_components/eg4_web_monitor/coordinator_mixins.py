@@ -1479,7 +1479,7 @@ class DongleStatusMixin:
 
         # Check cache validity
         if self._dongle_status_cache_time is not None:
-            time_since_cache = datetime.now() - self._dongle_status_cache_time
+            time_since_cache = dt_util.utcnow() - self._dongle_status_cache_time
             if time_since_cache < self._dongle_status_cache_ttl:
                 return  # Use cached data
 
@@ -1504,7 +1504,7 @@ class DongleStatusMixin:
                 if datalog_sn not in self._dongle_statuses:
                     self._dongle_statuses[datalog_sn] = False
 
-        self._dongle_status_cache_time = datetime.now()
+        self._dongle_status_cache_time = dt_util.utcnow()
 
     def get_dongle_status_for_inverter(self, inverter_serial: str) -> bool | None:
         """Get the dongle online status for a specific inverter.

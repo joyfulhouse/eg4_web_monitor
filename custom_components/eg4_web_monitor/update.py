@@ -11,6 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ENTITY_PREFIX
 from .coordinator import EG4DataUpdateCoordinator
@@ -42,7 +43,9 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class EG4FirmwareUpdateEntity(UpdateEntity):
+class EG4FirmwareUpdateEntity(
+    CoordinatorEntity[EG4DataUpdateCoordinator], UpdateEntity
+):
     """Firmware update entity for EG4 devices."""
 
     _attr_has_entity_name = True
@@ -54,11 +57,13 @@ class EG4FirmwareUpdateEntity(UpdateEntity):
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the update entity."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._serial = serial
 
         # Get device data for naming
-        device_data = coordinator.data["devices"].get(serial, {})
+        device_data: dict[str, Any] = {}
+        if coordinator.data and "devices" in coordinator.data:
+            device_data = coordinator.data["devices"].get(serial, {})
         model = device_data.get("model", "Unknown")
         device_type = device_data.get("type", "device")
 
