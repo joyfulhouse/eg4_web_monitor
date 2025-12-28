@@ -10,6 +10,6 @@
   "issue_tracker": "https://github.com/joyfulhouse/eg4_web_monitor/issues",
   "loggers": ["eg4_web_monitor"],
   "quality_scale": "platinum",
-  "requirements": ["pylxpweb>=0.4.2"],
-  "version": "3.0.0-rc.15"
+  "requirements": ["pylxpweb>=0.4.3"],
+  "version": "3.0.0-rc.16"
 }
