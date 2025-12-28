@@ -84,11 +84,20 @@ Before installing this integration, you need:
 ### Manual Installation
 
 ```bash
-cd /config/custom_components
-git clone https://github.com/joyfulhouse/eg4_web_monitor.git eg4_web_monitor
+# Clone to a temporary location
+cd /tmp
+git clone https://github.com/joyfulhouse/eg4_web_monitor.git
+
+# Copy the integration to your custom_components folder
+cp -r /tmp/eg4_web_monitor/custom_components/eg4_web_monitor /config/custom_components/
+
+# Clean up
+rm -rf /tmp/eg4_web_monitor
 ```
 
 Restart Home Assistant after installation.
+
+> **Note:** The repository contains a `custom_components/eg4_web_monitor/` subdirectory. You must copy this inner directory to your Home Assistant `custom_components` folder, not the entire repository.
 
 ## Configuration
 
@@ -293,7 +302,7 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.18kpv_1234567890_battery_backup_eps
+          entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
 ## Frequently Asked Questions
@@ -301,6 +310,8 @@ automation:
 ### How often does the data update?
 
 Data updates every 30 seconds by default. You can force an immediate update using the "Refresh Data" button or the `eg4_web_monitor.refresh_data` service.
+
+**Note:** If you change settings directly on the EG4 monitoring website (not through Home Assistant), parameter data like working mode switches may take up to an hour to refresh. Press the `button.<model>_<serial>_refresh_data` button to force an immediate parameter sync.
 
 ### Can I monitor multiple solar installations?
 

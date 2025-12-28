@@ -143,18 +143,24 @@ Advanced solar energy monitoring with comprehensive metrics and visualizations.
 
 All entity IDs follow this format:
 ```
-{platform}.eg4_{model}_{serial}_{sensor_name}
+{platform}.{model}_{serial}_{sensor_name}
 ```
 
 **Examples**:
-- `sensor.eg4_flexboss21_5551234567_battery_soc`
-- `switch.eg4_flexboss21_5551234567_grid_charge`
-- `number.eg4_flexboss21_5551234567_ac_charge_power`
-- `button.eg4_flexboss21_5551234567_refresh_data`
+- `sensor.18kpv_1234567890_state_of_charge`
+- `sensor.flexboss21_1234567890_ac_power`
+- `switch.18kpv_1234567890_quick_charge`
+- `switch.18kpv_1234567890_battery_backup`
+- `number.18kpv_1234567890_ac_charge_power`
+- `button.18kpv_1234567890_refresh_data`
 
 **GridBOSS entities**:
-- `sensor.eg4_gridboss_9991234567_grid_power`
-- `switch.eg4_gridboss_9991234567_smart_load_port_1`
+- `sensor.gridboss_9991234567_grid_power`
+- `sensor.gridboss_9991234567_load_power`
+
+**Battery entities**:
+- `sensor.battery_1234567890_01_state_of_charge`
+- `sensor.battery_1234567890_01_cell_voltage_delta`
 
 ## Finding Your Serial Numbers
 

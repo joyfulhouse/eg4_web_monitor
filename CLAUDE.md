@@ -173,6 +173,23 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.0.0-rc.15 - December 2025: Working Mode Switch Fix & Type Safety
+**Bug Fixes:**
+- Fixed working mode switches (battery_backup_mode, ac_charge, etc.) not refreshing parameters after actions (#67)
+- Changed `refresh_params=False` to `refresh_params=True` in `EG4WorkingModeSwitch`
+- Added explicit type hints to `ParameterManagementMixin` and `DSTSyncMixin`
+- Fixed `OperatingMode` import path to use main pylxpweb module
+- Removed explicit Protocol self type from mixin method
+
+### v3.0.0-rc.14 - December 2025: Bug Fixes & Optimizations
+**Bug Fixes:**
+- Comprehensive bug fixes and performance optimizations
+- Resolved mypy type errors in DongleStatusMixin
+
+### v3.0.0-rc.13 - December 2025: Quick Charge Switch Fix
+- Fixed Quick Charge switch always showing OFF (#66)
+- Quick charge status now properly fetched during coordinator updates
+
 ### v3.0.0-beta.7 - November 2025: Architecture Refactor & Code Quality
 Major refactoring release introducing base classes and mixins for better code organization:
 
