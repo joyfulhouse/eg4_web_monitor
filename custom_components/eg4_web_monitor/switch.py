@@ -504,7 +504,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             enable_method=methods[0],
             disable_method=methods[1],
             turn_on=True,
-            refresh_params=False,
+            refresh_params=True,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -520,7 +520,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             enable_method=methods[0],
             disable_method=methods[1],
             turn_on=False,
-            refresh_params=False,
+            refresh_params=True,
         )
 
 
