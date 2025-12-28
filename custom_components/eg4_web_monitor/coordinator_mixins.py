@@ -117,7 +117,7 @@ class DeviceProcessingMixin:
     """
 
     async def _process_inverter_object(
-        self: "CoordinatorProtocol", inverter: "BaseInverter"
+        self, inverter: "BaseInverter"
     ) -> dict[str, Any]:
         """Process inverter device data from device object using pylxpweb 0.3.3+ properties.
 
@@ -1164,6 +1164,10 @@ class DeviceInfoMixin:
 class ParameterManagementMixin:
     """Mixin for device parameter refresh operations."""
 
+    # Type hints for attributes initialized in coordinator
+    _last_parameter_refresh: datetime | None
+    _parameter_refresh_interval: timedelta
+
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
         try:
@@ -1296,6 +1300,10 @@ class ParameterManagementMixin:
 
 class DSTSyncMixin:
     """Mixin for daylight saving time synchronization operations."""
+
+    # Type hints for attributes initialized in coordinator
+    _last_dst_sync: datetime | None
+    _dst_sync_interval: timedelta
 
     def _should_sync_dst(self) -> bool:
         """Check if DST sync is due.

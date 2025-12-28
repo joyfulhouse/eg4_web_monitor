@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from pylxpweb.devices.inverters.base import OperatingMode
+from pylxpweb import OperatingMode
 
 if TYPE_CHECKING:
     from homeassistant.components.select import SelectEntity
