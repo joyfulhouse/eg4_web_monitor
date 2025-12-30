@@ -173,6 +173,16 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.0.0-rc.16 - December 2025: Dependency Update & Documentation Fixes
+**Dependency Updates:**
+- Require pylxpweb>=0.4.3 for improved re-authentication handling that prevents silent failures on transient network issues (#70)
+
+**Documentation:**
+- Fixed manual installation instructions to correctly copy inner `custom_components/eg4_web_monitor` directory (#69)
+- Fixed entity ID format in examples (removed incorrect `eg4_` prefix)
+- Fixed automation example using wrong entity ID (`battery_backup_eps` → `battery_backup`)
+- Added FAQ about parameter refresh timing when changing settings via EG4 web portal
+
 ### v3.0.0-rc.15 - December 2025: Working Mode Switch Fix & Type Safety
 **Bug Fixes:**
 - Fixed working mode switches (battery_backup_mode, ac_charge, etc.) not refreshing parameters after actions (#67)
