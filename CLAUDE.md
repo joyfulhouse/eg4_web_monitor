@@ -173,6 +173,11 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.0.0-rc.17 - December 2025: GridBOSS Auto-Sync Fix
+**Bug Fixes:**
+- GridBOSS now automatically detected even when parallel group data is not pre-configured (#72)
+- Require pylxpweb>=0.4.4 which auto-calls `/api/inverter/autoParallel` to initialize parallel groups when GridBOSS is detected but parallel data is missing
+
 ### v3.0.0-rc.16 - December 2025: Dependency Update & Documentation Fixes
 **Dependency Updates:**
 - Require pylxpweb>=0.4.3 for improved re-authentication handling that prevents silent failures on transient network issues (#70)
