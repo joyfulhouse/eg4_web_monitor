@@ -194,11 +194,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        # Clean up coordinator background tasks
-        await entry.runtime_data.async_shutdown()
+        coordinator = entry.runtime_data
 
-        # Clean up coordinator API connection
-        await entry.runtime_data.client.close()
+        # Clean up coordinator background tasks
+        await coordinator.async_shutdown()
+
+        # Clean up HTTP client if present
+        if coordinator.client is not None:
+            await coordinator.client.close()
+
+        # Clean up Modbus transport if present
+        if (
+            hasattr(coordinator, "_modbus_transport")
+            and coordinator._modbus_transport is not None
+        ):
+            await coordinator._modbus_transport.disconnect()
 
     return bool(unload_ok)
 

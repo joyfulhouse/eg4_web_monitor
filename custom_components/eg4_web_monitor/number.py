@@ -252,6 +252,13 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 
         with optimistic_value_context(self, value):
             # Use the control API to set the system charge SOC limit
+            # This feature requires HTTP cloud API access
+            if self.coordinator.client is None:
+                raise HomeAssistantError(
+                    "Setting SOC limit requires cloud API connection. "
+                    "This feature is not available in Modbus-only mode."
+                )
+
             result = (
                 await self.coordinator.client.api.control.set_system_charge_soc_limit(
                     self.serial, int_value

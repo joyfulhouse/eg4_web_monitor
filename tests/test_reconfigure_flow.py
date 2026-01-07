@@ -11,11 +11,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
@@ -53,6 +55,7 @@ def mock_config_entry(hass: HomeAssistant) -> MockConfigEntry:
         domain=DOMAIN,
         title="EG4 Electronics Web Monitor - Test Plant",
         data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,

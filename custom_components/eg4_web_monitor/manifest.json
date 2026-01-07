@@ -6,10 +6,10 @@
   "dependencies": [],
   "documentation": "https://github.com/joyfulhouse/eg4_web_monitor",
   "integration_type": "device",
-  "iot_class": "cloud_polling",
+  "iot_class": "local_polling",
   "issue_tracker": "https://github.com/joyfulhouse/eg4_web_monitor/issues",
   "loggers": ["eg4_web_monitor"],
   "quality_scale": "platinum",
-  "requirements": ["pylxpweb>=0.4.4"],
-  "version": "3.0.0-rc.17"
+  "requirements": ["pylxpweb>=0.5.0", "pymodbus>=3.6.0"],
+  "version": "3.1.0-beta.1"
 }

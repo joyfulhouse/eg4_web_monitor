@@ -1156,8 +1156,14 @@ class DeviceInfoMixin:
             "name": f"Station {station_name}",
             "manufacturer": MANUFACTURER,
             "model": "Station",
-            "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
+
+        # Add configuration URL if HTTP client is available
+        if self.client is not None:
+            device_info["configuration_url"] = (
+                f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}"
+            )
+
         return device_info
 
 
@@ -1446,6 +1452,10 @@ class DongleStatusMixin:
         if not hasattr(self, "_datalog_serials"):
             self._datalog_serials = {}
 
+        # Skip if HTTP client is not available (Modbus-only mode)
+        if self.client is None:
+            return
+
         if not self.station:
             return
 
@@ -1480,6 +1490,10 @@ class DongleStatusMixin:
         """
         if not hasattr(self, "_dongle_statuses"):
             self._dongle_statuses = {}
+
+        # Skip if HTTP client is not available (Modbus-only mode)
+        if self.client is None:
+            return
 
         if not hasattr(self, "_dongle_status_cache_time"):
             self._dongle_status_cache_time = None

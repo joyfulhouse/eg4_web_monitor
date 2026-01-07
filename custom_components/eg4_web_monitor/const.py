@@ -112,6 +112,27 @@ CONF_PLANT_NAME = "plant_name"
 CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"
 
+# Connection type configuration
+CONF_CONNECTION_TYPE = "connection_type"
+CONNECTION_TYPE_HTTP = "http"
+CONNECTION_TYPE_MODBUS = "modbus"
+CONNECTION_TYPE_HYBRID = "hybrid"  # Local Modbus + Cloud HTTP for best of both
+
+# Modbus configuration keys
+CONF_MODBUS_HOST = "modbus_host"
+CONF_MODBUS_PORT = "modbus_port"
+CONF_MODBUS_UNIT_ID = "modbus_unit_id"
+CONF_INVERTER_SERIAL = "inverter_serial"
+CONF_INVERTER_MODEL = "inverter_model"
+
+# Modbus default values
+DEFAULT_MODBUS_PORT = 502
+DEFAULT_MODBUS_UNIT_ID = 1
+DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
+
+# Modbus update interval (can be much faster than HTTP due to local network)
+MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
+
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
 DEVICE_TYPE_GRIDBOSS = "gridboss"

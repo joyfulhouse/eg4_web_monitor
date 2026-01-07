@@ -12,11 +12,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.eg4_web_monitor.config_flow import _timezone_observes_dst
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
@@ -195,8 +197,19 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
+    # Step 1: Connection type selection
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "user"
+
+    # Select HTTP connection type
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: HTTP credentials
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "http_credentials"
     assert result["errors"] == {}
 
     # Submit credentials
@@ -224,6 +237,7 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "EG4 Electronics Web Monitor - Test Plant 1"
     assert result["data"] == {
+        CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
         CONF_USERNAME: "test@example.com",
         CONF_PASSWORD: "testpassword",
         CONF_BASE_URL: DEFAULT_BASE_URL,
@@ -246,8 +260,18 @@ async def test_user_flow_success_single_plant(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
+    # Step 1: Connection type selection
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: HTTP credentials
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "http_credentials"
 
     # Submit credentials - should auto-select single plant
     result = await hass.config_entries.flow.async_configure(
@@ -265,6 +289,7 @@ async def test_user_flow_success_single_plant(
     assert result["title"] == "EG4 Electronics Web Monitor - Test Plant"
     assert result["data"][CONF_PLANT_ID] == "123"
     assert result["data"][CONF_PLANT_NAME] == "Test Plant"
+    assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
 
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant):
@@ -288,6 +313,13 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
 
+        # Step 1: Connection type selection
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        )
+
+        # Step 2: Submit invalid credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -299,7 +331,7 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "user"
+        assert result["step_id"] == "http_credentials"
         assert result["errors"] == {"base": "invalid_auth"}
 
 
@@ -324,6 +356,13 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
 
+        # Step 1: Connection type selection
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        )
+
+        # Step 2: Submit credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -335,7 +374,7 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "user"
+        assert result["step_id"] == "http_credentials"
         assert result["errors"] == {"base": "cannot_connect"}
 
 
@@ -360,6 +399,13 @@ async def test_user_flow_api_error(hass: HomeAssistant):
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
 
+        # Step 1: Connection type selection
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        )
+
+        # Step 2: Submit credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -371,7 +417,7 @@ async def test_user_flow_api_error(hass: HomeAssistant):
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "user"
+        assert result["step_id"] == "http_credentials"
         assert result["errors"] == {"base": "unknown"}
 
 
@@ -396,6 +442,13 @@ async def test_user_flow_unknown_exception(hass: HomeAssistant):
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
 
+        # Step 1: Connection type selection
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        )
+
+        # Step 2: Submit credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -407,7 +460,7 @@ async def test_user_flow_unknown_exception(hass: HomeAssistant):
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "user"
+        assert result["step_id"] == "http_credentials"
         assert result["errors"] == {"base": "unknown"}
 
 
@@ -433,6 +486,13 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
 
+        # Step 1: Connection type selection
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        )
+
+        # Step 2: Submit invalid credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -470,6 +530,7 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
         domain=DOMAIN,
         title="EG4 Electronics Web Monitor - Test Plant 1",
         data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
@@ -487,7 +548,13 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # Try to configure with same username - should proceed to plant selection
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: Try to configure with same username - should proceed to plant selection
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -519,7 +586,13 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # Submit credentials
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: Submit credentials
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -557,6 +630,13 @@ async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_pl
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: Submit credentials with custom URL
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -583,7 +663,7 @@ async def test_dst_sync_default_true_for_dst_timezone(
     """Test DST sync defaults to True when HA timezone observes DST."""
     hass = hass_with_dst_timezone
 
-    # Initialize flow - should show form with DST sync defaulting to True
+    # Initialize flow - should show connection type selection
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -591,7 +671,13 @@ async def test_dst_sync_default_true_for_dst_timezone(
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "user"
 
-    # Submit credentials without explicitly setting DST sync
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: Submit credentials without explicitly setting DST sync
     # (it will use the default from the schema)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -615,7 +701,7 @@ async def test_dst_sync_default_false_for_non_dst_timezone(
     """Test DST sync defaults to False when HA timezone does NOT observe DST."""
     hass = hass_with_non_dst_timezone
 
-    # Initialize flow - should show form with DST sync defaulting to False
+    # Initialize flow - should show connection type selection
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -623,7 +709,13 @@ async def test_dst_sync_default_false_for_non_dst_timezone(
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "user"
 
-    # Submit credentials without explicitly setting DST sync
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: Submit credentials without explicitly setting DST sync
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -650,7 +742,13 @@ async def test_user_can_override_dst_sync_default(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # User explicitly enables DST sync despite timezone not observing DST
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+    )
+
+    # Step 2: User explicitly enables DST sync despite timezone not observing DST
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {

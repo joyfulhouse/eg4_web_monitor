@@ -17,6 +17,8 @@ if TYPE_CHECKING:
         DataUpdateCoordinator,
         UpdateFailed,
     )
+
+    from pylxpweb.transports import ModbusTransport
 else:
     from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
         DataUpdateCoordinator,
@@ -35,11 +37,24 @@ from pylxpweb.exceptions import (
 from .const import (
     BATTERY_KEY_SEPARATOR,
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_INVERTER_MODEL,
+    CONF_INVERTER_SERIAL,
+    CONF_MODBUS_HOST,
+    CONF_MODBUS_PORT,
+    CONF_MODBUS_UNIT_ID,
     CONF_PLANT_ID,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
+    CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_MODBUS,
+    DEFAULT_MODBUS_PORT,
+    DEFAULT_MODBUS_TIMEOUT,
+    DEFAULT_MODBUS_UNIT_ID,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
+    MODBUS_UPDATE_INTERVAL,
 )
 from .coordinator_mixins import (
     BackgroundTaskMixin,
@@ -83,27 +98,51 @@ class EG4DataUpdateCoordinator(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
         self.entry = entry
-        self.plant_id = entry.data[CONF_PLANT_ID]
+
+        # Determine connection type (default to HTTP for backwards compatibility)
+        self.connection_type: str = entry.data.get(
+            CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
+        )
+
+        # Plant ID (only used for HTTP and Hybrid modes)
+        self.plant_id: str | None = entry.data.get(CONF_PLANT_ID)
 
         # Get Home Assistant timezone as IANA timezone string for DST detection
         iana_timezone = str(hass.config.time_zone) if hass.config.time_zone else None
 
-        # Initialize Luxpower API client with injected session (Platinum tier requirement)
-        self.client = LuxpowerClient(
-            username=entry.data[CONF_USERNAME],
-            password=entry.data[CONF_PASSWORD],
-            base_url=entry.data.get(
-                CONF_BASE_URL, "https://monitor.eg4electronics.com"
-            ),
-            verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
-            session=aiohttp_client.async_get_clientsession(hass),
-            iana_timezone=iana_timezone,
-        )
+        # Initialize HTTP client for HTTP and Hybrid modes
+        self.client: LuxpowerClient | None = None
+        if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
+            self.client = LuxpowerClient(
+                username=entry.data[CONF_USERNAME],
+                password=entry.data[CONF_PASSWORD],
+                base_url=entry.data.get(
+                    CONF_BASE_URL, "https://monitor.eg4electronics.com"
+                ),
+                verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
+                session=aiohttp_client.async_get_clientsession(hass),
+                iana_timezone=iana_timezone,
+            )
 
-        # DST sync configuration
+        # Initialize Modbus transport for Modbus and Hybrid modes
+        self._modbus_transport: ModbusTransport | None = None
+        if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
+            from pylxpweb.transports import create_modbus_transport
+
+            self._modbus_transport = create_modbus_transport(
+                host=entry.data[CONF_MODBUS_HOST],
+                port=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
+                timeout=DEFAULT_MODBUS_TIMEOUT,
+            )
+            self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+            self._modbus_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
+
+        # DST sync configuration (only for HTTP/Hybrid)
         self.dst_sync_enabled = entry.data.get(CONF_DST_SYNC, True)
 
-        # Station object for device hierarchy
+        # Station object for device hierarchy (HTTP/Hybrid only)
         self.station: Station | None = None
 
         # Device tracking
@@ -139,11 +178,18 @@ class EG4DataUpdateCoordinator(
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 
+        # Determine update interval based on connection type
+        # Modbus and Hybrid can poll faster since they use local network
+        if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
+            update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
+        else:
+            update_interval = timedelta(seconds=DEFAULT_UPDATE_INTERVAL)
+
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
+            update_interval=update_interval,
         )
 
         # Register shutdown listener to cancel background tasks on Home Assistant stop
@@ -152,10 +198,10 @@ class EG4DataUpdateCoordinator(
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from API endpoint using device objects.
+        """Fetch data from appropriate transport based on connection type.
 
         This is the main data update method called by Home Assistant's coordinator
-        at regular intervals (default: 30 seconds).
+        at regular intervals.
 
         Returns:
             Dictionary containing all device data, sensors, and station information.
@@ -164,8 +210,298 @@ class EG4DataUpdateCoordinator(
             ConfigEntryAuthFailed: If authentication fails.
             UpdateFailed: If connection or API errors occur.
         """
+        if self.connection_type == CONNECTION_TYPE_MODBUS:
+            return await self._async_update_modbus_data()
+        if self.connection_type == CONNECTION_TYPE_HYBRID:
+            return await self._async_update_hybrid_data()
+        # Default to HTTP
+        return await self._async_update_http_data()
+
+    async def _async_update_modbus_data(self) -> dict[str, Any]:
+        """Fetch data from local Modbus transport.
+
+        This method is used for Modbus-only connections where we have
+        direct access to the inverter but no cloud API access.
+
+        Returns:
+            Dictionary containing device data from Modbus registers.
+        """
+        from pylxpweb.transports.exceptions import (
+            TransportConnectionError,
+            TransportError,
+            TransportReadError,
+            TransportTimeoutError,
+        )
+
+        if self._modbus_transport is None:
+            raise UpdateFailed("Modbus transport not initialized")
+
         try:
-            _LOGGER.debug("Fetching data for plant %s", self.plant_id)
+            _LOGGER.debug("Fetching Modbus data for inverter %s", self._modbus_serial)
+
+            # Ensure transport is connected
+            if not self._modbus_transport.is_connected:
+                await self._modbus_transport.connect()
+
+            # Read runtime and energy data concurrently
+            runtime_data, energy_data, battery_data = await asyncio.gather(
+                self._modbus_transport.read_runtime(),
+                self._modbus_transport.read_energy(),
+                self._modbus_transport.read_battery(),
+            )
+
+            # Build device data structure from transport data models
+            processed = {
+                "plant_id": None,  # No plant for Modbus-only
+                "devices": {},
+                "device_info": {},
+                "last_update": dt_util.utcnow(),
+                "connection_type": CONNECTION_TYPE_MODBUS,
+            }
+
+            # Create device entry for the inverter
+            serial = self._modbus_serial
+            device_data: dict[str, Any] = {
+                "type": "inverter",
+                "model": self._modbus_model,
+                "serial": serial,
+                "sensors": {},
+                "batteries": {},
+            }
+
+            # Map runtime data to sensors
+            device_data["sensors"].update(
+                {
+                    "pv1_voltage": runtime_data.pv1_voltage,
+                    "pv1_power": runtime_data.pv1_power,
+                    "pv2_voltage": runtime_data.pv2_voltage,
+                    "pv2_power": runtime_data.pv2_power,
+                    "pv3_voltage": runtime_data.pv3_voltage,
+                    "pv3_power": runtime_data.pv3_power,
+                    "ppv": runtime_data.pv_total_power,
+                    "vBat": runtime_data.battery_voltage,
+                    "soc": runtime_data.battery_soc,
+                    "pCharge": runtime_data.battery_charge_power,
+                    "pDisCharge": runtime_data.battery_discharge_power,
+                    "tBat": runtime_data.battery_temperature,
+                    "vacr": runtime_data.grid_voltage_r,
+                    "vacs": runtime_data.grid_voltage_s,
+                    "vact": runtime_data.grid_voltage_t,
+                    "fac": runtime_data.grid_frequency,
+                    "prec": runtime_data.grid_power,
+                    "pToGrid": runtime_data.power_to_grid,
+                    "pinv": runtime_data.inverter_power,
+                    "pToUser": runtime_data.load_power,
+                    "vepsr": runtime_data.eps_voltage_r,
+                    "vepss": runtime_data.eps_voltage_s,
+                    "vepst": runtime_data.eps_voltage_t,
+                    "feps": runtime_data.eps_frequency,
+                    "peps": runtime_data.eps_power,
+                    "seps": runtime_data.eps_status,
+                    "vBus1": runtime_data.bus_voltage_1,
+                    "vBus2": runtime_data.bus_voltage_2,
+                    "tinner": runtime_data.internal_temperature,
+                    "tradiator1": runtime_data.radiator_temperature_1,
+                    "tradiator2": runtime_data.radiator_temperature_2,
+                    "status": runtime_data.device_status,
+                }
+            )
+
+            # Map energy data to sensors
+            device_data["sensors"].update(
+                {
+                    "todayYielding": energy_data.pv_energy_today,
+                    "todayCharging": energy_data.charge_energy_today,
+                    "todayDischarging": energy_data.discharge_energy_today,
+                    "todayImport": energy_data.grid_import_today,
+                    "todayExport": energy_data.grid_export_today,
+                    "todayUsage": energy_data.load_energy_today,
+                    "totalYielding": energy_data.pv_energy_total,
+                    "totalCharging": energy_data.charge_energy_total,
+                    "totalDischarging": energy_data.discharge_energy_total,
+                    "totalImport": energy_data.grid_import_total,
+                    "totalExport": energy_data.grid_export_total,
+                    "totalUsage": energy_data.load_energy_total,
+                }
+            )
+
+            # Add battery bank data if available
+            if battery_data:
+                device_data["sensors"]["battery_bank_soc"] = battery_data.soc
+                device_data["sensors"]["battery_bank_voltage"] = battery_data.voltage
+                device_data["sensors"]["battery_bank_charge_power"] = (
+                    battery_data.charge_power
+                )
+                device_data["sensors"]["battery_bank_discharge_power"] = (
+                    battery_data.discharge_power
+                )
+
+            processed["devices"][serial] = device_data
+
+            # Silver tier logging
+            if not self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 Modbus connection restored for inverter %s",
+                    self._modbus_serial,
+                )
+                self._last_available_state = True
+
+            _LOGGER.debug(
+                "Modbus update complete - PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                runtime_data.pv_total_power,
+                runtime_data.battery_soc,
+                runtime_data.grid_power,
+            )
+
+            return processed
+
+        except TransportConnectionError as e:
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "Modbus connection lost for inverter %s: %s",
+                    self._modbus_serial,
+                    e,
+                )
+                self._last_available_state = False
+            raise UpdateFailed(f"Modbus connection failed: {e}") from e
+
+        except TransportTimeoutError as e:
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "Modbus timeout for inverter %s: %s", self._modbus_serial, e
+                )
+                self._last_available_state = False
+            raise UpdateFailed(f"Modbus timeout: {e}") from e
+
+        except (TransportReadError, TransportError) as e:
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "Modbus read error for inverter %s: %s", self._modbus_serial, e
+                )
+                self._last_available_state = False
+            raise UpdateFailed(f"Modbus read error: {e}") from e
+
+        except Exception as e:
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "Unexpected Modbus error for inverter %s: %s",
+                    self._modbus_serial,
+                    e,
+                )
+                self._last_available_state = False
+            _LOGGER.exception("Unexpected Modbus error: %s", e)
+            raise UpdateFailed(f"Unexpected error: {e}") from e
+
+    async def _async_update_hybrid_data(self) -> dict[str, Any]:
+        """Fetch data using both Modbus (fast runtime) and HTTP (discovery/battery).
+
+        Hybrid mode provides the best of both worlds:
+        - Fast 1-second runtime updates via local Modbus
+        - Device discovery and individual battery data via HTTP cloud API
+
+        Returns:
+            Dictionary containing merged data from both sources.
+        """
+        from pylxpweb.transports.exceptions import TransportError
+
+        # First, get runtime data from Modbus (fast path)
+        modbus_data: dict[str, Any] | None = None
+        if self._modbus_transport is not None:
+            try:
+                if not self._modbus_transport.is_connected:
+                    await self._modbus_transport.connect()
+
+                runtime_data, energy_data = await asyncio.gather(
+                    self._modbus_transport.read_runtime(),
+                    self._modbus_transport.read_energy(),
+                )
+                modbus_data = {
+                    "runtime": runtime_data,
+                    "energy": energy_data,
+                }
+                _LOGGER.debug(
+                    "Hybrid: Modbus runtime - PV: %.0fW, SOC: %d%%",
+                    runtime_data.pv_total_power,
+                    runtime_data.battery_soc,
+                )
+            except TransportError as e:
+                _LOGGER.warning(
+                    "Hybrid: Modbus read failed, falling back to HTTP: %s", e
+                )
+                modbus_data = None
+
+        # Get HTTP data for discovery, batteries, and features not in Modbus
+        http_data = await self._async_update_http_data()
+
+        # If we have Modbus data, merge it with HTTP data for the matching inverter
+        if modbus_data is not None and self._modbus_serial in http_data.get(
+            "devices", {}
+        ):
+            device = http_data["devices"][self._modbus_serial]
+            runtime = modbus_data["runtime"]
+            energy = modbus_data["energy"]
+
+            # Override runtime sensors with faster Modbus values
+            device["sensors"].update(
+                {
+                    "pv1_voltage": runtime.pv1_voltage,
+                    "pv1_power": runtime.pv1_power,
+                    "pv2_voltage": runtime.pv2_voltage,
+                    "pv2_power": runtime.pv2_power,
+                    "ppv": runtime.pv_total_power,
+                    "vBat": runtime.battery_voltage,
+                    "soc": runtime.battery_soc,
+                    "pCharge": runtime.battery_charge_power,
+                    "pDisCharge": runtime.battery_discharge_power,
+                    "vacr": runtime.grid_voltage_r,
+                    "fac": runtime.grid_frequency,
+                    "prec": runtime.grid_power,
+                    "pToGrid": runtime.power_to_grid,
+                    "pinv": runtime.inverter_power,
+                    "pToUser": runtime.load_power,
+                    "peps": runtime.eps_power,
+                    "tinner": runtime.internal_temperature,
+                }
+            )
+
+            # Override energy sensors with Modbus values
+            device["sensors"].update(
+                {
+                    "todayYielding": energy.pv_energy_today,
+                    "todayCharging": energy.charge_energy_today,
+                    "todayDischarging": energy.discharge_energy_today,
+                    "todayImport": energy.grid_import_today,
+                    "todayExport": energy.grid_export_today,
+                    "todayUsage": energy.load_energy_today,
+                }
+            )
+
+            _LOGGER.debug(
+                "Hybrid: Merged Modbus runtime with HTTP data for %s",
+                self._modbus_serial,
+            )
+
+        http_data["connection_type"] = CONNECTION_TYPE_HYBRID
+        return http_data
+
+    async def _async_update_http_data(self) -> dict[str, Any]:
+        """Fetch data from HTTP cloud API using device objects.
+
+        This is the original HTTP-based update method using LuxpowerClient
+        and Station/Inverter device objects.
+
+        Returns:
+            Dictionary containing all device data, sensors, and station information.
+
+        Raises:
+            ConfigEntryAuthFailed: If authentication fails.
+            UpdateFailed: If connection or API errors occur.
+        """
+        if self.client is None:
+            raise UpdateFailed("HTTP client not initialized")
+
+        try:
+            _LOGGER.debug("Fetching HTTP data for plant %s", self.plant_id)
 
             # Check if hourly parameter refresh is due
             if self._should_refresh_parameters():
@@ -218,6 +554,7 @@ class EG4DataUpdateCoordinator(
 
             # Process and structure the device data
             processed_data = await self._process_station_data()
+            processed_data["connection_type"] = CONNECTION_TYPE_HTTP
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)
