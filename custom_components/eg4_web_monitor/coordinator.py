@@ -243,12 +243,11 @@ class EG4DataUpdateCoordinator(
             if not self._modbus_transport.is_connected:
                 await self._modbus_transport.connect()
 
-            # Read runtime and energy data concurrently
-            runtime_data, energy_data, battery_data = await asyncio.gather(
-                self._modbus_transport.read_runtime(),
-                self._modbus_transport.read_energy(),
-                self._modbus_transport.read_battery(),
-            )
+            # Read data sequentially to avoid transaction ID desync issues
+            # See: https://github.com/joyfulhouse/pylxpweb/issues/95
+            runtime_data = await self._modbus_transport.read_runtime()
+            energy_data = await self._modbus_transport.read_energy()
+            battery_data = await self._modbus_transport.read_battery()
 
             # Build device data structure from transport data models
             processed = {
@@ -411,10 +410,9 @@ class EG4DataUpdateCoordinator(
                 if not self._modbus_transport.is_connected:
                     await self._modbus_transport.connect()
 
-                runtime_data, energy_data = await asyncio.gather(
-                    self._modbus_transport.read_runtime(),
-                    self._modbus_transport.read_energy(),
-                )
+                # Read sequentially to avoid transaction ID desync issues
+                runtime_data = await self._modbus_transport.read_runtime()
+                energy_data = await self._modbus_transport.read_energy()
                 modbus_data = {
                     "runtime": runtime_data,
                     "energy": energy_data,
@@ -683,13 +681,28 @@ class EG4DataUpdateCoordinator(
 
         # Process parallel group data if available
         if hasattr(self.station, "parallel_groups") and self.station.parallel_groups:
+            _LOGGER.debug(
+                "Processing %d parallel groups", len(self.station.parallel_groups)
+            )
             for group in self.station.parallel_groups:
                 try:
                     await group.refresh()
+                    _LOGGER.debug(
+                        "Parallel group %s refreshed: energy=%s, today_yielding=%.2f kWh",
+                        group.name,
+                        group._energy is not None,
+                        group.today_yielding,
+                    )
 
+                    group_data = await self._process_parallel_group_object(group)
+                    _LOGGER.debug(
+                        "Parallel group %s sensors: %s",
+                        group.name,
+                        list(group_data.get("sensors", {}).keys()),
+                    )
                     processed["devices"][
                         f"parallel_group_{group.first_device_serial}"
-                    ] = await self._process_parallel_group_object(group)
+                    ] = group_data
 
                     if hasattr(group, "mid_device") and group.mid_device:
                         try:
