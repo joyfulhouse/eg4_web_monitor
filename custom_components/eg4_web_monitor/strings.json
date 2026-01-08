@@ -146,6 +146,78 @@
         "data_description": {
           "plant_id": "Select the solar installation you want to monitor"
         }
+      },
+      "reconfigure_http": {
+        "title": "Reconfigure {brand_name} Cloud API",
+        "description": "Update your {brand_name} Web Monitor cloud API credentials. Current station: {current_station}",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization"
+        },
+        "data_description": {
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "Reconfigure {brand_name} Modbus Connection",
+        "description": "Update your local Modbus TCP connection settings. Current host: {current_host}",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_model": "Inverter Model (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "10-digit serial number of your inverter",
+          "inverter_model": "Model name for display purposes"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "Reconfigure {brand_name} Hybrid Connection",
+        "description": "Update both cloud API and local Modbus settings. Current station: {current_station}, Modbus host: {current_host}",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number"
+        },
+        "data_description": {
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Serial number of the inverter to poll via Modbus"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "Change Station (Hybrid)",
+        "description": "Select a different solar station/plant to monitor. Current station: {current_station}",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Select the solar installation you want to monitor"
+        }
       }
     },
     "error": {

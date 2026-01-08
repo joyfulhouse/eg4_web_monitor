@@ -134,7 +134,7 @@ async def test_reconfigure_flow_same_account(
     )
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "reconfigure"
+    assert result["step_id"] == "reconfigure_http"
 
     # Reconfigure with same username but new password
     result = await hass.config_entries.flow.async_configure(
@@ -275,7 +275,7 @@ async def test_reconfigure_flow_invalid_auth(
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "reconfigure"
+        assert result["step_id"] == "reconfigure_http"
         assert result["errors"] == {"base": "invalid_auth"}
 
 
@@ -317,7 +317,7 @@ async def test_reconfigure_flow_cannot_connect(
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "reconfigure"
+        assert result["step_id"] == "reconfigure_http"
         assert result["errors"] == {"base": "cannot_connect"}
 
 

@@ -784,10 +784,30 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle reconfiguration flow.
+        """Handle reconfiguration flow - routes based on connection type.
 
         Gold tier requirement: Reconfiguration available through UI.
         """
+        # Get the current entry being reconfigured
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
+
+        # Route to appropriate reconfigure flow based on connection type
+        connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
+
+        if connection_type == CONNECTION_TYPE_MODBUS:
+            return await self.async_step_reconfigure_modbus(user_input)
+        if connection_type == CONNECTION_TYPE_HYBRID:
+            return await self.async_step_reconfigure_hybrid(user_input)
+        # Default to HTTP reconfigure
+        return await self.async_step_reconfigure_http(user_input)
+
+    async def async_step_reconfigure_http(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle HTTP (cloud) reconfiguration flow."""
         errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
@@ -814,7 +834,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     assert self._plants is not None, "Plants must be loaded"
                     if len(self._plants) == 1:
                         plant = self._plants[0]
-                        return await self._update_entry(
+                        return await self._update_http_entry(
                             entry=entry,
                             plant_id=plant["plantId"],
                             plant_name=plant["name"],
@@ -827,7 +847,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 assert plant_id is not None and plant_name is not None, (
                     "Plant ID and name must be set"
                 )
-                return await self._update_entry(
+                return await self._update_http_entry(
                     entry=entry,
                     plant_id=plant_id,
                     plant_name=plant_name,
@@ -863,11 +883,274 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
         return self.async_show_form(
-            step_id="reconfigure",
+            step_id="reconfigure_http",
             data_schema=reconfigure_schema,
             errors=errors,
             description_placeholders={
                 "brand_name": BRAND_NAME,
+                "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+            },
+        )
+
+    async def async_step_reconfigure_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Modbus reconfiguration flow."""
+        errors: dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
+
+        if user_input is not None:
+            self._modbus_host = user_input[CONF_MODBUS_HOST]
+            self._modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            self._modbus_unit_id = user_input.get(
+                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
+            )
+            self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
+            self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
+
+            # Test Modbus connection
+            try:
+                await self._test_modbus_connection()
+                return await self._update_modbus_entry(entry)
+
+            except ImportError:
+                errors["base"] = "modbus_not_installed"
+            except TimeoutError:
+                errors["base"] = "modbus_timeout"
+            except OSError as e:
+                _LOGGER.error("Modbus connection error: %s", e)
+                errors["base"] = "modbus_connection_failed"
+            except Exception as e:
+                _LOGGER.exception("Unexpected Modbus error: %s", e)
+                errors["base"] = "unknown"
+
+        # Build Modbus reconfiguration schema with current values
+        modbus_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_MODBUS_HOST, default=entry.data.get(CONF_MODBUS_HOST, "")
+                ): str,
+                vol.Optional(
+                    CONF_MODBUS_PORT,
+                    default=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                ): int,
+                vol.Optional(
+                    CONF_MODBUS_UNIT_ID,
+                    default=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                ): int,
+                vol.Required(
+                    CONF_INVERTER_SERIAL,
+                    default=entry.data.get(CONF_INVERTER_SERIAL, ""),
+                ): str,
+                vol.Optional(
+                    CONF_INVERTER_MODEL,
+                    default=entry.data.get(CONF_INVERTER_MODEL, ""),
+                ): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_modbus",
+            data_schema=modbus_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "current_host": entry.data.get(CONF_MODBUS_HOST, "Unknown"),
+            },
+        )
+
+    async def async_step_reconfigure_hybrid(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Hybrid reconfiguration flow - update both HTTP and Modbus settings."""
+        errors: dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
+
+        if user_input is not None:
+            # Store HTTP credentials
+            self._username = user_input[CONF_USERNAME]
+            self._password = user_input[CONF_PASSWORD]
+            self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+            self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+            self._dst_sync = user_input.get(CONF_DST_SYNC, True)
+
+            # Store Modbus settings
+            self._modbus_host = user_input[CONF_MODBUS_HOST]
+            self._modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            self._modbus_unit_id = user_input.get(
+                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
+            )
+            self._inverter_serial = user_input.get(
+                CONF_INVERTER_SERIAL, entry.data.get(CONF_INVERTER_SERIAL, "")
+            )
+
+            try:
+                # Test HTTP credentials
+                await self._test_credentials()
+
+                # Test Modbus connection
+                await self._test_modbus_connection()
+
+                # Check if we're changing accounts (username changed)
+                if self._username != entry.data.get(CONF_USERNAME):
+                    # Changing accounts - need to select plant again
+                    assert self._plants is not None, "Plants must be loaded"
+                    if len(self._plants) == 1:
+                        plant = self._plants[0]
+                        self._plant_id = plant["plantId"]
+                        return await self._update_hybrid_entry_from_reconfigure(
+                            entry=entry,
+                            plant_id=plant["plantId"],
+                            plant_name=plant["name"],
+                        )
+                    # Multiple plants - show selection step
+                    return await self.async_step_reconfigure_hybrid_plant()
+
+                # Same account - keep existing plant
+                plant_id = entry.data.get(CONF_PLANT_ID)
+                plant_name = entry.data.get(CONF_PLANT_NAME)
+                assert plant_id is not None and plant_name is not None, (
+                    "Plant ID and name must be set"
+                )
+                return await self._update_hybrid_entry_from_reconfigure(
+                    entry=entry,
+                    plant_id=plant_id,
+                    plant_name=plant_name,
+                )
+
+            except LuxpowerAuthError:
+                errors["base"] = "invalid_auth"
+            except LuxpowerConnectionError:
+                errors["base"] = "cannot_connect"
+            except ImportError:
+                errors["base"] = "modbus_not_installed"
+            except TimeoutError:
+                errors["base"] = "modbus_timeout"
+            except OSError as e:
+                _LOGGER.error("Modbus connection error: %s", e)
+                errors["base"] = "modbus_connection_failed"
+            except LuxpowerAPIError as e:
+                _LOGGER.error("API error during reconfiguration: %s", e)
+                errors["base"] = "unknown"
+            except Exception as e:
+                _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
+                errors["base"] = "unknown"
+
+        # Build hybrid reconfiguration schema with current values
+        hybrid_schema = vol.Schema(
+            {
+                # HTTP settings
+                vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME)): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Optional(
+                    CONF_BASE_URL,
+                    default=entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL),
+                ): str,
+                vol.Optional(
+                    CONF_VERIFY_SSL, default=entry.data.get(CONF_VERIFY_SSL, True)
+                ): bool,
+                vol.Optional(
+                    CONF_DST_SYNC, default=entry.data.get(CONF_DST_SYNC, True)
+                ): bool,
+                # Modbus settings
+                vol.Required(
+                    CONF_MODBUS_HOST, default=entry.data.get(CONF_MODBUS_HOST, "")
+                ): str,
+                vol.Optional(
+                    CONF_MODBUS_PORT,
+                    default=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                ): int,
+                vol.Optional(
+                    CONF_MODBUS_UNIT_ID,
+                    default=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                ): int,
+                vol.Optional(
+                    CONF_INVERTER_SERIAL,
+                    default=entry.data.get(CONF_INVERTER_SERIAL, ""),
+                ): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid",
+            data_schema=hybrid_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+                "current_host": entry.data.get(CONF_MODBUS_HOST, "Unknown"),
+            },
+        )
+
+    async def async_step_reconfigure_hybrid_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle plant selection during hybrid reconfiguration."""
+        errors: dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
+
+        if user_input is not None:
+            try:
+                plant_id = user_input[CONF_PLANT_ID]
+
+                # Find the selected plant
+                selected_plant = None
+                assert self._plants is not None, "Plants must be loaded"
+                for plant in self._plants:
+                    if plant["plantId"] == plant_id:
+                        selected_plant = plant
+                        break
+
+                if not selected_plant:
+                    errors["base"] = "invalid_plant"
+                else:
+                    return await self._update_hybrid_entry_from_reconfigure(
+                        entry=entry,
+                        plant_id=selected_plant["plantId"],
+                        plant_name=selected_plant["name"],
+                    )
+
+            except AbortFlow:
+                raise
+            except Exception as e:
+                _LOGGER.exception("Error during plant selection: %s", e)
+                errors["base"] = "unknown"
+
+        # Build plant selection schema
+        plant_options = {
+            plant["plantId"]: plant["name"] for plant in self._plants or []
+        }
+
+        plant_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_PLANT_ID, default=entry.data.get(CONF_PLANT_ID)
+                ): vol.In(plant_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_plant",
+            data_schema=plant_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "plant_count": str(len(plant_options)),
                 "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
             },
         )
@@ -902,7 +1185,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not selected_plant:
                     errors["base"] = "invalid_plant"
                 else:
-                    return await self._update_entry(
+                    return await self._update_http_entry(
                         entry=entry,
                         plant_id=selected_plant["plantId"],
                         plant_name=selected_plant["name"],
@@ -939,11 +1222,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def _update_entry(
+    async def _update_http_entry(
         self, entry: config_entries.ConfigEntry[Any], plant_id: str, plant_name: str
     ) -> ConfigFlowResult:
-        """Update the config entry with new data."""
-        # Update unique ID if username changed
+        """Update the HTTP config entry with new data."""
         assert self._username is not None
         assert self._password is not None
         assert self._base_url is not None
@@ -966,10 +1248,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Update entry title
         title = f"{BRAND_NAME} Web Monitor - {plant_name}"
 
-        # Preserve existing connection type and Modbus settings if they exist
+        # Update entry data - preserve connection type
         connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
 
-        # Update entry data
         data = {
             CONF_CONNECTION_TYPE: connection_type,
             CONF_USERNAME: self._username,
@@ -991,6 +1272,105 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
             )
             data[CONF_INVERTER_SERIAL] = entry.data.get(CONF_INVERTER_SERIAL, "")
+
+        self.hass.config_entries.async_update_entry(
+            entry,
+            title=title,
+            data=data,
+        )
+
+        await self.hass.config_entries.async_reload(entry.entry_id)
+
+        return self.async_abort(reason="reconfigure_successful")
+
+    async def _update_modbus_entry(
+        self, entry: config_entries.ConfigEntry[Any]
+    ) -> ConfigFlowResult:
+        """Update the Modbus config entry with new data."""
+        assert self._modbus_host is not None
+        assert self._modbus_port is not None
+        assert self._modbus_unit_id is not None
+        assert self._inverter_serial is not None
+
+        # Use inverter serial as unique ID
+        unique_id = f"modbus_{self._inverter_serial}"
+
+        # Check for conflicts
+        existing_entry = await self.async_set_unique_id(unique_id)
+        if existing_entry and existing_entry.entry_id != entry.entry_id:
+            _LOGGER.warning(
+                "Cannot reconfigure to serial %s - already configured",
+                self._inverter_serial,
+            )
+            return self.async_abort(reason="already_configured")
+
+        # Update title
+        model_suffix = f" ({self._inverter_model})" if self._inverter_model else ""
+        title = f"{BRAND_NAME} Modbus - {self._inverter_serial}{model_suffix}"
+
+        data = {
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_MODBUS,
+            CONF_MODBUS_HOST: self._modbus_host,
+            CONF_MODBUS_PORT: self._modbus_port,
+            CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
+            CONF_INVERTER_SERIAL: self._inverter_serial,
+            CONF_INVERTER_MODEL: self._inverter_model or "",
+        }
+
+        self.hass.config_entries.async_update_entry(
+            entry,
+            title=title,
+            data=data,
+        )
+
+        await self.hass.config_entries.async_reload(entry.entry_id)
+
+        return self.async_abort(reason="reconfigure_successful")
+
+    async def _update_hybrid_entry_from_reconfigure(
+        self, entry: config_entries.ConfigEntry[Any], plant_id: str, plant_name: str
+    ) -> ConfigFlowResult:
+        """Update the Hybrid config entry with new HTTP and Modbus data."""
+        assert self._username is not None
+        assert self._password is not None
+        assert self._base_url is not None
+        assert self._verify_ssl is not None
+        assert self._dst_sync is not None
+        assert self._modbus_host is not None
+        assert self._modbus_port is not None
+        assert self._modbus_unit_id is not None
+
+        unique_id = f"hybrid_{self._username}_{plant_id}"
+
+        # Check for conflicts
+        existing_entry = await self.async_set_unique_id(unique_id)
+        if existing_entry and existing_entry.entry_id != entry.entry_id:
+            _LOGGER.warning(
+                "Cannot reconfigure to account %s with plant %s - already configured",
+                self._username,
+                plant_name,
+            )
+            return self.async_abort(reason="already_configured")
+
+        # Update title
+        title = f"{BRAND_NAME} Hybrid - {plant_name}"
+
+        data = {
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+            # HTTP settings
+            CONF_USERNAME: self._username,
+            CONF_PASSWORD: self._password,
+            CONF_BASE_URL: self._base_url,
+            CONF_VERIFY_SSL: self._verify_ssl,
+            CONF_DST_SYNC: self._dst_sync,
+            CONF_PLANT_ID: plant_id,
+            CONF_PLANT_NAME: plant_name,
+            # Modbus settings
+            CONF_MODBUS_HOST: self._modbus_host,
+            CONF_MODBUS_PORT: self._modbus_port,
+            CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
+            CONF_INVERTER_SERIAL: self._inverter_serial or "",
+        }
 
         self.hass.config_entries.async_update_entry(
             entry,
