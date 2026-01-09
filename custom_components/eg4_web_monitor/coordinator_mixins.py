@@ -753,47 +753,7 @@ class DeviceProcessingMixin:
             "smart_port2_status": "smart_port2_status",
             "smart_port3_status": "smart_port3_status",
             "smart_port4_status": "smart_port4_status",
-            # UPS Energy sensors (today)
-            "e_ups_today_l1": "ups_l1",
-            "e_ups_today_l2": "ups_l2",
-            # UPS Energy sensors (lifetime/total)
-            "e_ups_total_l1": "ups_lifetime_l1",
-            "e_ups_total_l2": "ups_lifetime_l2",
-            # Grid Energy sensors (today)
-            "e_to_grid_today_l1": "grid_export_l1",
-            "e_to_grid_today_l2": "grid_export_l2",
-            "e_to_user_today_l1": "grid_import_l1",
-            "e_to_user_today_l2": "grid_import_l2",
-            # Grid Energy sensors (lifetime/total)
-            "e_to_grid_total_l1": "grid_export_lifetime_l1",
-            "e_to_grid_total_l2": "grid_export_lifetime_l2",
-            "e_to_user_total_l1": "grid_import_lifetime_l1",
-            "e_to_user_total_l2": "grid_import_lifetime_l2",
-            # Load Energy sensors (today)
-            "e_load_today_l1": "load_l1",
-            "e_load_today_l2": "load_l2",
-            # Load Energy sensors (lifetime/total)
-            "e_load_total_l1": "load_lifetime_l1",
-            "e_load_total_l2": "load_lifetime_l2",
-            # AC Couple Energy sensors (today)
-            "e_ac_couple1_today_l1": "ac_couple1_l1",
-            "e_ac_couple1_today_l2": "ac_couple1_l2",
-            "e_ac_couple2_today_l1": "ac_couple2_l1",
-            "e_ac_couple2_today_l2": "ac_couple2_l2",
-            "e_ac_couple3_today_l1": "ac_couple3_l1",
-            "e_ac_couple3_today_l2": "ac_couple3_l2",
-            "e_ac_couple4_today_l1": "ac_couple4_l1",
-            "e_ac_couple4_today_l2": "ac_couple4_l2",
-            # AC Couple Energy sensors (lifetime/total)
-            "e_ac_couple1_total_l1": "ac_couple1_lifetime_l1",
-            "e_ac_couple1_total_l2": "ac_couple1_lifetime_l2",
-            "e_ac_couple2_total_l1": "ac_couple2_lifetime_l1",
-            "e_ac_couple2_total_l2": "ac_couple2_lifetime_l2",
-            "e_ac_couple3_total_l1": "ac_couple3_lifetime_l1",
-            "e_ac_couple3_total_l2": "ac_couple3_lifetime_l2",
-            "e_ac_couple4_total_l1": "ac_couple4_lifetime_l1",
-            "e_ac_couple4_total_l2": "ac_couple4_lifetime_l2",
-            # Smart Load Power sensors (runtime data)
+            # Smart Load Power sensors (runtime data - L1/L2 have valid data)
             "smart_load1_l1_active_power": "smart_load1_power_l1",
             "smart_load1_l2_active_power": "smart_load1_power_l2",
             "smart_load2_l1_active_power": "smart_load2_power_l1",
@@ -802,37 +762,19 @@ class DeviceProcessingMixin:
             "smart_load3_l2_active_power": "smart_load3_power_l2",
             "smart_load4_l1_active_power": "smart_load4_power_l1",
             "smart_load4_l2_active_power": "smart_load4_power_l2",
-            # Smart Load Energy sensors (today)
-            "e_smart_load1_today_l1": "smart_load1_l1",
-            "e_smart_load1_today_l2": "smart_load1_l2",
-            "e_smart_load2_today_l1": "smart_load2_l1",
-            "e_smart_load2_today_l2": "smart_load2_l2",
-            "e_smart_load3_today_l1": "smart_load3_l1",
-            "e_smart_load3_today_l2": "smart_load3_l2",
-            "e_smart_load4_today_l1": "smart_load4_l1",
-            "e_smart_load4_today_l2": "smart_load4_l2",
-            # Smart Load Energy sensors (lifetime/total)
-            "e_smart_load1_total_l1": "smart_load1_lifetime_l1",
-            "e_smart_load1_total_l2": "smart_load1_lifetime_l2",
-            "e_smart_load2_total_l1": "smart_load2_lifetime_l1",
-            "e_smart_load2_total_l2": "smart_load2_lifetime_l2",
-            "e_smart_load3_total_l1": "smart_load3_lifetime_l1",
-            "e_smart_load3_total_l2": "smart_load3_lifetime_l2",
-            "e_smart_load4_total_l1": "smart_load4_lifetime_l1",
-            "e_smart_load4_total_l2": "smart_load4_lifetime_l2",
-            # Aggregate Energy sensors (L1 + L2 combined) - pylxpweb 0.5.2+
-            # UPS aggregates
+            # Energy sensors - aggregate only (L2 energy registers always read 0)
+            # UPS energy
             "e_ups_today": "ups_today",
             "e_ups_total": "ups_total",
-            # Grid aggregates
+            # Grid energy
             "e_to_grid_today": "grid_export_today",
             "e_to_grid_total": "grid_export_total",
             "e_to_user_today": "grid_import_today",
             "e_to_user_total": "grid_import_total",
-            # Load aggregates
+            # Load energy
             "e_load_today": "load_today",
             "e_load_total": "load_total",
-            # AC Couple aggregates (all 4 ports)
+            # AC Couple energy (all 4 ports)
             "e_ac_couple1_today": "ac_couple1_today",
             "e_ac_couple1_total": "ac_couple1_total",
             "e_ac_couple2_today": "ac_couple2_today",
@@ -841,7 +783,7 @@ class DeviceProcessingMixin:
             "e_ac_couple3_total": "ac_couple3_total",
             "e_ac_couple4_today": "ac_couple4_today",
             "e_ac_couple4_total": "ac_couple4_total",
-            # Smart Load aggregates (all 4 ports)
+            # Smart Load energy (all 4 ports)
             "e_smart_load1_today": "smart_load1_today",
             "e_smart_load1_total": "smart_load1_total",
             "e_smart_load2_today": "smart_load2_today",
@@ -876,14 +818,11 @@ class DeviceProcessingMixin:
             if status == 0:
                 sensors_to_remove.extend(
                     [
-                        # Per-phase sensors
+                        # Power sensors (L1/L2 have valid data)
                         f"smart_load{port}_power_l1",
                         f"smart_load{port}_power_l2",
-                        f"smart_load{port}_l1",
-                        f"smart_load{port}_l2",
-                        f"smart_load{port}_lifetime_l1",
-                        f"smart_load{port}_lifetime_l2",
-                        # Aggregate sensors (pylxpweb 0.5.2+)
+                        f"smart_load{port}_power",
+                        # Energy sensors (aggregate only)
                         f"smart_load{port}_today",
                         f"smart_load{port}_total",
                     ]
@@ -894,7 +833,11 @@ class DeviceProcessingMixin:
 
     @staticmethod
     def _calculate_gridboss_aggregates(sensors: dict[str, Any]) -> None:
-        """Calculate aggregate sensor values from individual L1/L2 values.
+        """Calculate aggregate power sensor values from individual L1/L2 values.
+
+        Note: Energy aggregates are provided directly by pylxpweb 0.5.2+
+        since L2 energy registers always read 0. Only power sensors need
+        aggregation here as they have valid L1/L2 data.
 
         Modifies the sensors dictionary in place.
 
@@ -939,78 +882,6 @@ class DeviceProcessingMixin:
             gen_l1 = _safe_numeric(sensors["generator_power_l1"])
             gen_l2 = _safe_numeric(sensors["generator_power_l2"])
             sensors["generator_power"] = gen_l1 + gen_l2
-
-        # Calculate AC Couple aggregate today values for each port
-        for port in range(1, 5):
-            l1_key = f"ac_couple{port}_today_l1"
-            l2_key = f"ac_couple{port}_today_l2"
-            if l1_key in sensors and l2_key in sensors:
-                l1_val = _safe_numeric(sensors[l1_key])
-                l2_val = _safe_numeric(sensors[l2_key])
-                sensors[f"ac_couple{port}_today"] = l1_val + l2_val
-
-        # Calculate AC Couple aggregate total values for each port
-        for port in range(1, 5):
-            l1_key = f"ac_couple{port}_total_l1"
-            l2_key = f"ac_couple{port}_total_l2"
-            if l1_key in sensors and l2_key in sensors:
-                l1_val = _safe_numeric(sensors[l1_key])
-                l2_val = _safe_numeric(sensors[l2_key])
-                sensors[f"ac_couple{port}_total"] = l1_val + l2_val
-
-        # Calculate UPS consumption aggregates (today)
-        if "ups_l1" in sensors and "ups_l2" in sensors:
-            ups_l1 = _safe_numeric(sensors["ups_l1"])
-            ups_l2 = _safe_numeric(sensors["ups_l2"])
-            sensors["ups_consumption"] = ups_l1 + ups_l2
-
-        # Calculate UPS consumption aggregates (lifetime)
-        if "ups_lifetime_l1" in sensors and "ups_lifetime_l2" in sensors:
-            ups_l1 = _safe_numeric(sensors["ups_lifetime_l1"])
-            ups_l2 = _safe_numeric(sensors["ups_lifetime_l2"])
-            sensors["ups_consumption_lifetime"] = ups_l1 + ups_l2
-
-        # Calculate Load energy aggregates (today)
-        if "load_l1" in sensors and "load_l2" in sensors:
-            load_l1 = _safe_numeric(sensors["load_l1"])
-            load_l2 = _safe_numeric(sensors["load_l2"])
-            sensors["load"] = load_l1 + load_l2
-
-        # Calculate Load energy aggregates (lifetime)
-        if "load_lifetime_l1" in sensors and "load_lifetime_l2" in sensors:
-            load_l1 = _safe_numeric(sensors["load_lifetime_l1"])
-            load_l2 = _safe_numeric(sensors["load_lifetime_l2"])
-            sensors["load_lifetime"] = load_l1 + load_l2
-
-        # Calculate Grid Import aggregates (today)
-        if "grid_import_l1" in sensors and "grid_import_l2" in sensors:
-            import_l1 = _safe_numeric(sensors["grid_import_l1"])
-            import_l2 = _safe_numeric(sensors["grid_import_l2"])
-            sensors["grid_import"] = import_l1 + import_l2
-
-        # Calculate Grid Import aggregates (lifetime)
-        if (
-            "grid_import_lifetime_l1" in sensors
-            and "grid_import_lifetime_l2" in sensors
-        ):
-            import_l1 = _safe_numeric(sensors["grid_import_lifetime_l1"])
-            import_l2 = _safe_numeric(sensors["grid_import_lifetime_l2"])
-            sensors["grid_import_lifetime"] = import_l1 + import_l2
-
-        # Calculate Grid Export aggregates (today)
-        if "grid_export_l1" in sensors and "grid_export_l2" in sensors:
-            export_l1 = _safe_numeric(sensors["grid_export_l1"])
-            export_l2 = _safe_numeric(sensors["grid_export_l2"])
-            sensors["grid_export"] = export_l1 + export_l2
-
-        # Calculate Grid Export aggregates (lifetime)
-        if (
-            "grid_export_lifetime_l1" in sensors
-            and "grid_export_lifetime_l2" in sensors
-        ):
-            export_l1 = _safe_numeric(sensors["grid_export_lifetime_l1"])
-            export_l2 = _safe_numeric(sensors["grid_export_lifetime_l2"])
-            sensors["grid_export_lifetime"] = export_l1 + export_l2
 
 
 class DeviceInfoMixin:
