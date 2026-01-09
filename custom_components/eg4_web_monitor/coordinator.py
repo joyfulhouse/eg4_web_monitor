@@ -35,7 +35,6 @@ from pylxpweb.exceptions import (
 )
 
 from .const import (
-    BATTERY_KEY_SEPARATOR,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
@@ -718,57 +717,54 @@ class EG4DataUpdateCoordinator(
                 except Exception as e:
                     _LOGGER.error("Error processing parallel group: %s", e)
 
-        # Process all batteries from station (pylxpweb 0.3.3+)
-        if hasattr(self.station, "all_batteries"):
-            for battery in self.station.all_batteries:
+        # Process batteries through inverter hierarchy (fixes #76)
+        # This approach uses the known parent serial from the inverter object,
+        # rather than trying to parse it from batteryKey (which may not contain it)
+        for serial, device_data in processed["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+
+            inverter = self.get_inverter_object(serial)
+            if not inverter:
+                continue
+
+            # Access battery_bank through the inverter object
+            battery_bank = getattr(inverter, "_battery_bank", None)
+            if not battery_bank:
+                continue
+
+            batteries = getattr(battery_bank, "batteries", None)
+            if not batteries:
+                continue
+
+            for battery in batteries:
                 try:
-                    parent_serial = (
-                        getattr(battery, "parent_serial", None)
-                        or getattr(battery, "inverter_serial", None)
-                        or getattr(battery, "inverter_sn", None)
+                    battery_key = clean_battery_display_name(
+                        getattr(
+                            battery,
+                            "battery_key",
+                            f"BAT{battery.battery_index:03d}",
+                        ),
+                        serial,  # Parent serial is known from inverter iteration
                     )
+                    battery_sensors = self._extract_battery_from_object(battery)
 
-                    if not parent_serial:
-                        battery_key_raw = getattr(battery, "battery_key", "")
-                        if battery_key_raw and BATTERY_KEY_SEPARATOR in battery_key_raw:
-                            parent_serial = battery_key_raw.split(
-                                BATTERY_KEY_SEPARATOR
-                            )[0]
-                        elif battery_key_raw and "_" in battery_key_raw:
-                            parts = battery_key_raw.split("_")
-                            if len(parts) > 0 and parts[0].isdigit():
-                                parent_serial = parts[0]
+                    if "batteries" not in device_data:
+                        device_data["batteries"] = {}
+                    device_data["batteries"][battery_key] = battery_sensors
 
-                    if parent_serial and parent_serial in processed["devices"]:
-                        battery_key = clean_battery_display_name(
-                            getattr(
-                                battery,
-                                "battery_key",
-                                f"BAT{battery.battery_index:03d}",
-                            ),
-                            parent_serial,
-                        )
-                        battery_sensors = self._extract_battery_from_object(battery)
-
-                        if "batteries" not in processed["devices"][parent_serial]:
-                            processed["devices"][parent_serial]["batteries"] = {}
-                        processed["devices"][parent_serial]["batteries"][
-                            battery_key
-                        ] = battery_sensors
-                    else:
-                        _LOGGER.warning(
-                            "Battery %s parent inverter '%s' not found in processed devices",
-                            getattr(battery, "battery_sn", "unknown"),
-                            parent_serial,
-                        )
+                    _LOGGER.debug(
+                        "Processed battery %s for inverter %s",
+                        battery_key,
+                        serial,
+                    )
                 except Exception as e:
                     _LOGGER.error(
-                        "Error processing battery %s: %s",
+                        "Error processing battery %s for inverter %s: %s",
                         getattr(battery, "battery_sn", "unknown"),
+                        serial,
                         e,
                     )
-        else:
-            _LOGGER.warning("Station does not have 'all_batteries' attribute")
 
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:
