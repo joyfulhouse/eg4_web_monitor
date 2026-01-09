@@ -526,8 +526,16 @@ class EG4DataUpdateCoordinator(
 
             # Log inverter data status after refresh
             for inverter in self.station.all_inverters:
+                battery_bank = getattr(inverter, "_battery_bank", None)
+                battery_count = 0
+                battery_array_len = 0
+                if battery_bank:
+                    battery_count = getattr(battery_bank, "battery_count", 0)
+                    batteries = getattr(battery_bank, "batteries", [])
+                    battery_array_len = len(batteries) if batteries else 0
                 _LOGGER.debug(
-                    "Inverter %s (%s): has_data=%s, _runtime=%s, _energy=%s",
+                    "Inverter %s (%s): has_data=%s, _runtime=%s, _energy=%s, "
+                    "_battery_bank=%s, battery_count=%s, batteries_len=%s",
                     inverter.serial_number,
                     getattr(inverter, "model", "Unknown"),
                     inverter.has_data,
@@ -537,6 +545,9 @@ class EG4DataUpdateCoordinator(
                     "present"
                     if getattr(inverter, "_energy", None) is not None
                     else "None",
+                    "present" if battery_bank else "None",
+                    battery_count,
+                    battery_array_len,
                 )
 
             # Perform DST sync if enabled and due
@@ -726,16 +737,33 @@ class EG4DataUpdateCoordinator(
 
             inverter = self.get_inverter_object(serial)
             if not inverter:
+                _LOGGER.debug("No inverter object found for serial %s", serial)
                 continue
 
             # Access battery_bank through the inverter object
             battery_bank = getattr(inverter, "_battery_bank", None)
             if not battery_bank:
+                _LOGGER.debug(
+                    "No battery_bank for inverter %s (battery_bank=%s)",
+                    serial,
+                    battery_bank,
+                )
                 continue
 
             batteries = getattr(battery_bank, "batteries", None)
             if not batteries:
+                _LOGGER.debug(
+                    "No batteries in battery_bank for inverter %s (batteries=%s, "
+                    "battery_bank.data=%s)",
+                    serial,
+                    batteries,
+                    getattr(battery_bank, "data", None),
+                )
                 continue
+
+            _LOGGER.debug(
+                "Found %d batteries for inverter %s", len(batteries), serial
+            )
 
             for battery in batteries:
                 try:
