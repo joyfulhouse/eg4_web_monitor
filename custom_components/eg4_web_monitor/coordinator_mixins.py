@@ -263,8 +263,10 @@ class DeviceProcessingMixin:
             )
 
         # Process battery bank aggregate data if available
+        # Note: Aggregate data (soc, voltage, power) can exist even when totalNumber=0
+        # (i.e., no individual batteries in batteryArray but aggregate stats are present)
         battery_bank = getattr(inverter, "_battery_bank", None)
-        if battery_bank and battery_bank.battery_count > 0:
+        if battery_bank:
             try:
                 battery_bank_sensors = self._extract_battery_bank_from_object(
                     battery_bank
@@ -1090,14 +1092,19 @@ class DeviceInfoMixin:
             return None
 
         sensors = device_data.get("sensors", {})
-        battery_count = sensors.get("battery_bank_count", 0)
 
-        if battery_count == 0:
+        # Check if any battery_bank sensors exist (not just count > 0)
+        # Aggregate data like soc, voltage can exist even when totalNumber=0
+        has_battery_bank_data = any(
+            key.startswith("battery_bank_") for key in sensors.keys()
+        )
+        if not has_battery_bank_data:
             _LOGGER.debug(
-                "get_battery_bank_device_info(%s): No batteries (count=0)", serial
+                "get_battery_bank_device_info(%s): No battery bank sensors", serial
             )
             return None
 
+        battery_count = sensors.get("battery_bank_count", 0)
         model = device_data.get("model", "Unknown")
 
         device_info: DeviceInfo = {
