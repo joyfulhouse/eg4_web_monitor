@@ -818,6 +818,11 @@ class DeviceProcessingMixin:
                 status_value = getattr(mid_device, status_property)
                 smart_port_statuses[port] = status_value
 
+        _LOGGER.debug(
+            "Smart Port statuses for filtering: %s (0=Unused, 1=SmartLoad, 2=ACCouple)",
+            smart_port_statuses,
+        )
+
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():
             if status == 0:
@@ -853,6 +858,12 @@ class DeviceProcessingMixin:
                     ]
                 )
 
+        if sensors_to_remove:
+            _LOGGER.debug(
+                "Removing %d Smart Port sensors based on status: %s",
+                len(sensors_to_remove),
+                sensors_to_remove,
+            )
         for sensor_key in sensors_to_remove:
             sensors.pop(sensor_key, None)
 
