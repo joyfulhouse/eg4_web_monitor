@@ -754,14 +754,25 @@ class DeviceProcessingMixin:
             "smart_port3_status": "smart_port3_status",
             "smart_port4_status": "smart_port4_status",
             # Smart Load Power sensors (runtime data - L1/L2 have valid data)
-            "smart_load1_l1_active_power": "smart_load1_power_l1",
-            "smart_load1_l2_active_power": "smart_load1_power_l2",
-            "smart_load2_l1_active_power": "smart_load2_power_l1",
-            "smart_load2_l2_active_power": "smart_load2_power_l2",
-            "smart_load3_l1_active_power": "smart_load3_power_l1",
-            "smart_load3_l2_active_power": "smart_load3_power_l2",
-            "smart_load4_l1_active_power": "smart_load4_power_l1",
-            "smart_load4_l2_active_power": "smart_load4_power_l2",
+            # Property names match MIDRuntimePropertiesMixin in pylxpweb 0.5.5+
+            "smart_load1_l1_power": "smart_load1_power_l1",
+            "smart_load1_l2_power": "smart_load1_power_l2",
+            "smart_load2_l1_power": "smart_load2_power_l1",
+            "smart_load2_l2_power": "smart_load2_power_l2",
+            "smart_load3_l1_power": "smart_load3_power_l1",
+            "smart_load3_l2_power": "smart_load3_power_l2",
+            "smart_load4_l1_power": "smart_load4_power_l1",
+            "smart_load4_l2_power": "smart_load4_power_l2",
+            # AC Couple Power sensors (runtime data - L1/L2 have valid data)
+            # Property names match MIDRuntimePropertiesMixin in pylxpweb 0.5.5+
+            "ac_couple1_l1_power": "ac_couple1_power_l1",
+            "ac_couple1_l2_power": "ac_couple1_power_l2",
+            "ac_couple2_l1_power": "ac_couple2_power_l1",
+            "ac_couple2_l2_power": "ac_couple2_power_l2",
+            "ac_couple3_l1_power": "ac_couple3_power_l1",
+            "ac_couple3_l2_power": "ac_couple3_power_l2",
+            "ac_couple4_l1_power": "ac_couple4_power_l1",
+            "ac_couple4_l2_power": "ac_couple4_power_l2",
             # Energy sensors - aggregate only (L2 energy registers always read 0)
             # UPS energy
             "e_ups_today": "ups_today",
@@ -829,30 +840,40 @@ class DeviceProcessingMixin:
                 # Unused port - remove all sensors
                 sensors_to_remove.extend(
                     [
-                        # Smart Load sensors
+                        # Smart Load power sensors
                         f"smart_load{port}_power_l1",
                         f"smart_load{port}_power_l2",
                         f"smart_load{port}_power",
+                        # Smart Load energy sensors
                         f"smart_load{port}_today",
                         f"smart_load{port}_total",
-                        # AC Couple sensors
+                        # AC Couple power sensors
+                        f"ac_couple{port}_power_l1",
+                        f"ac_couple{port}_power_l2",
+                        f"ac_couple{port}_power",
+                        # AC Couple energy sensors
                         f"ac_couple{port}_today",
                         f"ac_couple{port}_total",
                     ]
                 )
             elif status == 1:
-                # Smart Load mode - remove AC Couple sensors
+                # Smart Load mode - remove AC Couple sensors (power and energy)
                 sensors_to_remove.extend(
                     [
+                        f"ac_couple{port}_power_l1",
+                        f"ac_couple{port}_power_l2",
+                        f"ac_couple{port}_power",
                         f"ac_couple{port}_today",
                         f"ac_couple{port}_total",
                     ]
                 )
             elif status == 2:
-                # AC Couple mode - remove Smart Load energy sensors
-                # Note: Keep smart_load power sensors as they measure the port's power
+                # AC Couple mode - remove Smart Load sensors (power and energy)
                 sensors_to_remove.extend(
                     [
+                        f"smart_load{port}_power_l1",
+                        f"smart_load{port}_power_l2",
+                        f"smart_load{port}_power",
                         f"smart_load{port}_today",
                         f"smart_load{port}_total",
                     ]
@@ -894,6 +915,21 @@ class DeviceProcessingMixin:
 
         if smart_load_powers:
             sensors["smart_load_power"] = sum(smart_load_powers)
+
+        # Calculate AC Couple aggregate power from individual ports
+        ac_couple_powers = []
+        for port in range(1, 5):
+            l1_key = f"ac_couple{port}_power_l1"
+            l2_key = f"ac_couple{port}_power_l2"
+            if l1_key in sensors and l2_key in sensors:
+                l1_power = _safe_numeric(sensors[l1_key])
+                l2_power = _safe_numeric(sensors[l2_key])
+                port_power = l1_power + l2_power
+                sensors[f"ac_couple{port}_power"] = port_power
+                ac_couple_powers.append(port_power)
+
+        if ac_couple_powers:
+            sensors["ac_couple_power"] = sum(ac_couple_powers)
 
         # Calculate total grid power from L1/L2
         if "grid_power_l1" in sensors and "grid_power_l2" in sensors:

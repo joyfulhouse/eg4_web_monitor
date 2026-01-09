@@ -10,6 +10,6 @@
   "issue_tracker": "https://github.com/joyfulhouse/eg4_web_monitor/issues",
   "loggers": ["eg4_web_monitor"],
   "quality_scale": "platinum",
-  "requirements": ["pylxpweb>=0.5.4", "pymodbus>=3.6.0"],
-  "version": "3.1.0-beta.10"
+  "requirements": ["pylxpweb>=0.5.5", "pymodbus>=3.6.0"],
+  "version": "3.1.0-beta.11"
 }

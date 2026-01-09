@@ -761,9 +761,7 @@ class EG4DataUpdateCoordinator(
                 )
                 continue
 
-            _LOGGER.debug(
-                "Found %d batteries for inverter %s", len(batteries), serial
-            )
+            _LOGGER.debug("Found %d batteries for inverter %s", len(batteries), serial)
 
             for battery in batteries:
                 try:
