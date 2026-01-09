@@ -798,7 +798,12 @@ class DeviceProcessingMixin:
     def _filter_unused_smart_port_sensors(
         sensors: dict[str, Any], mid_device: Any
     ) -> None:
-        """Filter out sensors for unused Smart Ports from MID device.
+        """Filter out sensors based on Smart Port status from MID device.
+
+        Smart Port Status determines what type of device is connected:
+        - Status 0: Unused - remove all sensors for this port
+        - Status 1: Smart Load - keep Smart Load sensors, remove AC Couple sensors
+        - Status 2: AC Couple - keep AC Couple sensors, remove Smart Load sensors
 
         Modifies the sensors dictionary in place.
 
@@ -816,13 +821,33 @@ class DeviceProcessingMixin:
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():
             if status == 0:
+                # Unused port - remove all sensors
                 sensors_to_remove.extend(
                     [
-                        # Power sensors (L1/L2 have valid data)
+                        # Smart Load sensors
                         f"smart_load{port}_power_l1",
                         f"smart_load{port}_power_l2",
                         f"smart_load{port}_power",
-                        # Energy sensors (aggregate only)
+                        f"smart_load{port}_today",
+                        f"smart_load{port}_total",
+                        # AC Couple sensors
+                        f"ac_couple{port}_today",
+                        f"ac_couple{port}_total",
+                    ]
+                )
+            elif status == 1:
+                # Smart Load mode - remove AC Couple sensors
+                sensors_to_remove.extend(
+                    [
+                        f"ac_couple{port}_today",
+                        f"ac_couple{port}_total",
+                    ]
+                )
+            elif status == 2:
+                # AC Couple mode - remove Smart Load energy sensors
+                # Note: Keep smart_load power sensors as they measure the port's power
+                sensors_to_remove.extend(
+                    [
                         f"smart_load{port}_today",
                         f"smart_load{port}_total",
                     ]
