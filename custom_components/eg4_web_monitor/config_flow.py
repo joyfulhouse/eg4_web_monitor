@@ -102,14 +102,8 @@ def _build_user_data_schema(dst_sync_default: bool = True) -> vol.Schema:
     )
 
 
-class EG4WebMonitorConfigFlow(  # type: ignore[call-arg]
-    config_entries.ConfigFlow, domain=DOMAIN
-):
-    """Handle a config flow for EG4 Web Monitor.
-
-    Note: The type: ignore is needed because mypy doesn't understand
-    Home Assistant's metaclass magic for the domain keyword argument.
-    """
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
 
