@@ -1281,7 +1281,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         await self.hass.config_entries.async_reload(entry.entry_id)
 
-        return self.async_abort(reason="reconfigure_successful")
+        return self.async_abort(
+            reason="reconfigure_successful",
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
 
     async def _update_modbus_entry(
         self, entry: config_entries.ConfigEntry[Any]
@@ -1325,7 +1328,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         await self.hass.config_entries.async_reload(entry.entry_id)
 
-        return self.async_abort(reason="reconfigure_successful")
+        return self.async_abort(
+            reason="reconfigure_successful",
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
 
     async def _update_hybrid_entry_from_reconfigure(
         self, entry: config_entries.ConfigEntry[Any], plant_id: str, plant_name: str
@@ -1380,7 +1386,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         await self.hass.config_entries.async_reload(entry.entry_id)
 
-        return self.async_abort(reason="reconfigure_successful")
+        return self.async_abort(
+            reason="reconfigure_successful",
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
 
 
 class CannotConnectError(HomeAssistantError):
