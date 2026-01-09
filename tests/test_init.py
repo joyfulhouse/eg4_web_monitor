@@ -16,10 +16,12 @@ from custom_components.eg4_web_monitor import (
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
     DOMAIN,
 )
 
@@ -34,6 +36,8 @@ def mock_coordinator():
     coordinator.async_shutdown = AsyncMock()
     coordinator.client = MagicMock()
     coordinator.client.close = AsyncMock()
+    # Modbus transport is None for HTTP-only connections
+    coordinator._modbus_transport = None
     # Add minimal data structure for platforms to work with
     coordinator.data = {
         "devices": {},
@@ -50,6 +54,7 @@ def mock_config_entry(mock_coordinator):
         domain=DOMAIN,
         title="EG4 Electronics Web Monitor - Test Plant",
         data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
             CONF_USERNAME: "test_user",
             CONF_PASSWORD: "test_pass",
             CONF_BASE_URL: "https://monitor.eg4electronics.com",
@@ -169,14 +174,24 @@ class TestAsyncSetup:
         # Create config entries
         entry1 = MockConfigEntry(
             domain=DOMAIN,
-            data={CONF_USERNAME: "user1", CONF_PASSWORD: "pass1", CONF_PLANT_ID: "1"},
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_USERNAME: "user1",
+                CONF_PASSWORD: "pass1",
+                CONF_PLANT_ID: "1",
+            },
             entry_id="entry_1",
         )
         entry1.add_to_hass(hass)
 
         entry2 = MockConfigEntry(
             domain=DOMAIN,
-            data={CONF_USERNAME: "user2", CONF_PASSWORD: "pass2", CONF_PLANT_ID: "2"},
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_USERNAME: "user2",
+                CONF_PASSWORD: "pass2",
+                CONF_PLANT_ID: "2",
+            },
             entry_id="entry_2",
         )
         entry2.add_to_hass(hass)

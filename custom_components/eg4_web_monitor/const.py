@@ -112,6 +112,27 @@ CONF_PLANT_NAME = "plant_name"
 CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"
 
+# Connection type configuration
+CONF_CONNECTION_TYPE = "connection_type"
+CONNECTION_TYPE_HTTP = "http"
+CONNECTION_TYPE_MODBUS = "modbus"
+CONNECTION_TYPE_HYBRID = "hybrid"  # Local Modbus + Cloud HTTP for best of both
+
+# Modbus configuration keys
+CONF_MODBUS_HOST = "modbus_host"
+CONF_MODBUS_PORT = "modbus_port"
+CONF_MODBUS_UNIT_ID = "modbus_unit_id"
+CONF_INVERTER_SERIAL = "inverter_serial"
+CONF_INVERTER_MODEL = "inverter_model"
+
+# Modbus default values
+DEFAULT_MODBUS_PORT = 502
+DEFAULT_MODBUS_UNIT_ID = 1
+DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
+
+# Modbus update interval (can be much faster than HTTP due to local network)
+MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
+
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
 DEVICE_TYPE_GRIDBOSS = "gridboss"
@@ -1314,6 +1335,63 @@ SENSOR_TYPES = {
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
     },
+    # GridBOSS Aggregate Energy sensors (L1 + L2 combined)
+    "ups_today": {
+        "name": "UPS Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging-100",
+    },
+    "ups_total": {
+        "name": "UPS Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:battery-charging-100",
+    },
+    "grid_export_today": {
+        "name": "Grid Export Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:transmission-tower-export",
+    },
+    "grid_export_total": {
+        "name": "Grid Export Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:transmission-tower-export",
+    },
+    "grid_import_today": {
+        "name": "Grid Import Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:transmission-tower-import",
+    },
+    "grid_import_total": {
+        "name": "Grid Import Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:transmission-tower-import",
+    },
+    "load_today": {
+        "name": "Load Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    "load_total": {
+        "name": "Load Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:home-lightning-bolt",
+    },
     # GridBOSS AC Couple energy sensors
     "ac_couple1_today": {
         "name": "AC Couple 1 Today",
@@ -1370,6 +1448,63 @@ SENSOR_TYPES = {
         "device_class": "energy",
         "state_class": "total_increasing",
         "icon": "mdi:solar-power",
+    },
+    # GridBOSS Smart Load aggregate energy sensors (L1 + L2 combined)
+    "smart_load1_today": {
+        "name": "Smart Load 1 Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load1_total": {
+        "name": "Smart Load 1 Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load2_today": {
+        "name": "Smart Load 2 Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load2_total": {
+        "name": "Smart Load 2 Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load3_today": {
+        "name": "Smart Load 3 Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load3_total": {
+        "name": "Smart Load 3 Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load4_today": {
+        "name": "Smart Load 4 Energy Today",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
+    },
+    "smart_load4_total": {
+        "name": "Smart Load 4 Energy Total",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:electric-switch",
     },
     # GridBOSS Generator sensors
     "generator_voltage": {
@@ -2151,12 +2286,37 @@ CURRENT_SENSORS = {
 }
 
 GRIDBOSS_ENERGY_SENSORS = {
-    # UPS energy sensors
+    # Aggregate energy sensors (L1 + L2 combined)
+    "ups_today",
+    "ups_total",
+    "grid_export_today",
+    "grid_export_total",
+    "grid_import_today",
+    "grid_import_total",
+    "load_today",
+    "load_total",
+    "ac_couple1_today",
+    "ac_couple1_total",
+    "ac_couple2_today",
+    "ac_couple2_total",
+    "ac_couple3_today",
+    "ac_couple3_total",
+    "ac_couple4_today",
+    "ac_couple4_total",
+    "smart_load1_today",
+    "smart_load1_total",
+    "smart_load2_today",
+    "smart_load2_total",
+    "smart_load3_today",
+    "smart_load3_total",
+    "smart_load4_today",
+    "smart_load4_total",
+    # UPS energy sensors (per-phase)
     "ups_l1",
     "ups_l2",
     "ups_lifetime_l1",
     "ups_lifetime_l2",
-    # Grid export/import energy sensors
+    # Grid export/import energy sensors (per-phase)
     "grid_export_l1",
     "grid_export_l2",
     "grid_import_l1",
@@ -2165,12 +2325,12 @@ GRIDBOSS_ENERGY_SENSORS = {
     "grid_export_lifetime_l2",
     "grid_import_lifetime_l1",
     "grid_import_lifetime_l2",
-    # Load energy sensors
+    # Load energy sensors (per-phase)
     "load_l1",
     "load_l2",
     "load_lifetime_l1",
     "load_lifetime_l2",
-    # AC Couple energy sensors
+    # AC Couple energy sensors (per-phase)
     "ac_couple1_l1",
     "ac_couple1_l2",
     "ac_couple1_lifetime_l1",
@@ -2187,7 +2347,7 @@ GRIDBOSS_ENERGY_SENSORS = {
     "ac_couple4_l2",
     "ac_couple4_lifetime_l1",
     "ac_couple4_lifetime_l2",
-    # Smart Load energy sensors
+    # Smart Load energy sensors (per-phase)
     "smart_load1_l1",
     "smart_load1_l2",
     "smart_load1_lifetime_l1",

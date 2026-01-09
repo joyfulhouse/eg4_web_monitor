@@ -11,11 +11,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
     DEFAULT_BASE_URL,
     DOMAIN,
 )
@@ -53,6 +55,7 @@ def mock_config_entry(hass: HomeAssistant) -> MockConfigEntry:
         domain=DOMAIN,
         title="EG4 Electronics Web Monitor - Test Plant",
         data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
@@ -131,7 +134,7 @@ async def test_reconfigure_flow_same_account(
     )
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "reconfigure"
+    assert result["step_id"] == "reconfigure_http"
 
     # Reconfigure with same username but new password
     result = await hass.config_entries.flow.async_configure(
@@ -272,7 +275,7 @@ async def test_reconfigure_flow_invalid_auth(
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "reconfigure"
+        assert result["step_id"] == "reconfigure_http"
         assert result["errors"] == {"base": "invalid_auth"}
 
 
@@ -314,7 +317,7 @@ async def test_reconfigure_flow_cannot_connect(
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "reconfigure"
+        assert result["step_id"] == "reconfigure_http"
         assert result["errors"] == {"base": "cannot_connect"}
 
 

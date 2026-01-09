@@ -820,6 +820,36 @@ class DeviceProcessingMixin:
             "e_smart_load3_total_l2": "smart_load3_lifetime_l2",
             "e_smart_load4_total_l1": "smart_load4_lifetime_l1",
             "e_smart_load4_total_l2": "smart_load4_lifetime_l2",
+            # Aggregate Energy sensors (L1 + L2 combined) - pylxpweb 0.5.2+
+            # UPS aggregates
+            "e_ups_today": "ups_today",
+            "e_ups_total": "ups_total",
+            # Grid aggregates
+            "e_to_grid_today": "grid_export_today",
+            "e_to_grid_total": "grid_export_total",
+            "e_to_user_today": "grid_import_today",
+            "e_to_user_total": "grid_import_total",
+            # Load aggregates
+            "e_load_today": "load_today",
+            "e_load_total": "load_total",
+            # AC Couple aggregates (all 4 ports)
+            "e_ac_couple1_today": "ac_couple1_today",
+            "e_ac_couple1_total": "ac_couple1_total",
+            "e_ac_couple2_today": "ac_couple2_today",
+            "e_ac_couple2_total": "ac_couple2_total",
+            "e_ac_couple3_today": "ac_couple3_today",
+            "e_ac_couple3_total": "ac_couple3_total",
+            "e_ac_couple4_today": "ac_couple4_today",
+            "e_ac_couple4_total": "ac_couple4_total",
+            # Smart Load aggregates (all 4 ports)
+            "e_smart_load1_today": "smart_load1_today",
+            "e_smart_load1_total": "smart_load1_total",
+            "e_smart_load2_today": "smart_load2_today",
+            "e_smart_load2_total": "smart_load2_total",
+            "e_smart_load3_today": "smart_load3_today",
+            "e_smart_load3_total": "smart_load3_total",
+            "e_smart_load4_today": "smart_load4_today",
+            "e_smart_load4_total": "smart_load4_total",
         }
 
     @staticmethod
@@ -846,12 +876,16 @@ class DeviceProcessingMixin:
             if status == 0:
                 sensors_to_remove.extend(
                     [
+                        # Per-phase sensors
                         f"smart_load{port}_power_l1",
                         f"smart_load{port}_power_l2",
                         f"smart_load{port}_l1",
                         f"smart_load{port}_l2",
                         f"smart_load{port}_lifetime_l1",
                         f"smart_load{port}_lifetime_l2",
+                        # Aggregate sensors (pylxpweb 0.5.2+)
+                        f"smart_load{port}_today",
+                        f"smart_load{port}_total",
                     ]
                 )
 
@@ -1156,8 +1190,14 @@ class DeviceInfoMixin:
             "name": f"Station {station_name}",
             "manufacturer": MANUFACTURER,
             "model": "Station",
-            "configuration_url": f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}",
         }
+
+        # Add configuration URL if HTTP client is available
+        if self.client is not None:
+            device_info["configuration_url"] = (
+                f"{self.client.base_url}/WManage/web/config/plant/edit/{self.plant_id}"
+            )
+
         return device_info
 
 
@@ -1446,6 +1486,10 @@ class DongleStatusMixin:
         if not hasattr(self, "_datalog_serials"):
             self._datalog_serials = {}
 
+        # Skip if HTTP client is not available (Modbus-only mode)
+        if self.client is None:
+            return
+
         if not self.station:
             return
 
@@ -1480,6 +1524,10 @@ class DongleStatusMixin:
         """
         if not hasattr(self, "_dongle_statuses"):
             self._dongle_statuses = {}
+
+        # Skip if HTTP client is not available (Modbus-only mode)
+        if self.client is None:
+            return
 
         if not hasattr(self, "_dongle_status_cache_time"):
             self._dongle_status_cache_time = None
