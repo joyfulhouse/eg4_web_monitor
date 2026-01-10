@@ -34,10 +34,21 @@ async def async_setup_entry(
     entry: EG4ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up EG4 Web Monitor button entities."""
+    """Set up EG4 Web Monitor button entities.
+
+    Entity registration is split into two phases to ensure proper device hierarchy:
+    1. Phase 1: Station and device refresh buttons (creates parent devices first)
+    2. Phase 2: Individual battery refresh buttons (can safely reference battery bank)
+
+    This ordering prevents HA warning about non-existing via_device references.
+    See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
+    """
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: list[ButtonEntity] = []
+    # Phase 1 entities: devices that don't reference battery bank via via_device
+    phase1_entities: list[ButtonEntity] = []
+    # Phase 2 entities: individual batteries that reference battery bank via via_device
+    phase2_entities: list[ButtonEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for button setup")
@@ -45,18 +56,18 @@ async def async_setup_entry(
 
     # Create station refresh button if station data is available
     if "station" in coordinator.data:
-        entities.append(EG4StationRefreshButton(coordinator))
+        phase1_entities.append(EG4StationRefreshButton(coordinator))
 
     # Skip device buttons if no device data
     if "devices" not in coordinator.data:
         _LOGGER.warning(
             "No device data available for button setup, only creating station buttons"
         )
-        if entities:
-            async_add_entities(entities)
+        if phase1_entities:
+            async_add_entities(phase1_entities)
         return
 
-    # Create refresh diagnostic buttons for all devices
+    # Create refresh diagnostic buttons for all devices (phase 1)
     for serial, device_data in coordinator.data["devices"].items():
         # Get device info for proper naming
         device_type = device_data.get("type", "unknown")
@@ -69,9 +80,11 @@ async def async_setup_entry(
             model = device_info.get("deviceTypeText4APP", "Unknown")
 
         # Create refresh button for all device types
-        entities.append(EG4RefreshButton(coordinator, serial, device_data, model))
+        phase1_entities.append(
+            EG4RefreshButton(coordinator, serial, device_data, model)
+        )
 
-    # Also create refresh buttons for individual batteries
+    # Create refresh buttons for individual batteries (phase 2)
     for serial, device_data in coordinator.data["devices"].items():
         # Check if this device has individual batteries
         if "batteries" in device_data:
@@ -80,7 +93,7 @@ async def async_setup_entry(
 
             for battery_key in device_data["batteries"]:
                 # Create refresh button for each individual battery
-                entities.append(
+                phase2_entities.append(
                     EG4BatteryRefreshButton(
                         coordinator=coordinator,
                         parent_serial=serial,
@@ -90,8 +103,20 @@ async def async_setup_entry(
                     )
                 )
 
-    if entities:
-        async_add_entities(entities)
+    # Phase 1: Register parent device buttons first
+    # This ensures battery bank devices exist before individual batteries reference them
+    if phase1_entities:
+        async_add_entities(phase1_entities)
+        _LOGGER.debug(
+            "Phase 1: Added %d button entities (station, devices)", len(phase1_entities)
+        )
+
+    # Phase 2: Register individual battery buttons (reference battery bank via via_device)
+    if phase2_entities:
+        async_add_entities(phase2_entities)
+        _LOGGER.debug(
+            "Phase 2: Added %d individual battery button entities", len(phase2_entities)
+        )
 
 
 class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):

@@ -80,10 +80,22 @@ async def async_setup_entry(
     entry: EG4ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up EG4 Web Monitor sensor entities."""
+    """Set up EG4 Web Monitor sensor entities.
+
+    Entity registration is split into two phases to ensure proper device hierarchy:
+    1. Phase 1: Station, inverter, gridboss, parallel group, and battery bank entities
+       (creates parent devices first)
+    2. Phase 2: Individual battery entities (can safely reference battery bank via_device)
+
+    This ordering prevents HA warning about non-existing via_device references.
+    See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
+    """
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: list[SensorEntity] = []
+    # Phase 1 entities: devices that don't reference other custom devices via via_device
+    phase1_entities: list[SensorEntity] = []
+    # Phase 2 entities: individual batteries that reference battery bank via via_device
+    phase2_entities: list[SensorEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for sensor setup")
@@ -91,8 +103,10 @@ async def async_setup_entry(
 
     # Create station sensors if station data is available
     if "station" in coordinator.data:
-        entities.extend(_create_station_sensors(coordinator))
-        station_count = len([e for e in entities if isinstance(e, EG4StationSensor)])
+        phase1_entities.extend(_create_station_sensors(coordinator))
+        station_count = len(
+            [e for e in phase1_entities if isinstance(e, EG4StationSensor)]
+        )
         _LOGGER.info("Created %d station sensors", station_count)
 
     # Skip device sensors if no devices data
@@ -100,8 +114,8 @@ async def async_setup_entry(
         _LOGGER.warning(
             "No device data available for sensor setup, only creating station sensors"
         )
-        if entities:
-            async_add_entities(entities, True)
+        if phase1_entities:
+            async_add_entities(phase1_entities, True)
         return
 
     # Create sensor entities for each device
@@ -117,17 +131,24 @@ async def async_setup_entry(
         )
 
         if device_type == "inverter":
-            inverter_entities = _create_inverter_sensors(
+            inverter_entities, battery_entities = _create_inverter_sensors(
                 coordinator, serial, device_data
             )
             _LOGGER.debug(
-                "Created %d entities for inverter %s", len(inverter_entities), serial
+                "Created %d inverter/battery-bank entities and %d individual battery "
+                "entities for inverter %s",
+                len(inverter_entities),
+                len(battery_entities),
+                serial,
             )
-            entities.extend(inverter_entities)
+            phase1_entities.extend(inverter_entities)
+            phase2_entities.extend(battery_entities)
         elif device_type == "gridboss":
-            entities.extend(_create_gridboss_sensors(coordinator, serial, device_data))
+            phase1_entities.extend(
+                _create_gridboss_sensors(coordinator, serial, device_data)
+            )
         elif device_type == "parallel_group":
-            entities.extend(
+            phase1_entities.extend(
                 _create_parallel_group_sensors(coordinator, serial, device_data)
             )
         else:
@@ -135,18 +156,42 @@ async def async_setup_entry(
                 "Unknown device type '%s' for device %s", device_type, serial
             )
 
-    if entities:
-        async_add_entities(entities, True)
-        _LOGGER.info("Added %d sensor entities", len(entities))
-    else:
+    # Phase 1: Register parent devices first (inverters, battery banks, etc.)
+    # This ensures battery bank devices exist before individual batteries reference them
+    if phase1_entities:
+        async_add_entities(phase1_entities, True)
+        _LOGGER.info(
+            "Phase 1: Added %d sensor entities (inverters, battery banks, etc.)",
+            len(phase1_entities),
+        )
+
+    # Phase 2: Register individual battery entities (reference battery bank via via_device)
+    if phase2_entities:
+        async_add_entities(phase2_entities, True)
+        _LOGGER.info(
+            "Phase 2: Added %d individual battery sensor entities", len(phase2_entities)
+        )
+
+    if not phase1_entities and not phase2_entities:
         _LOGGER.warning("No sensor entities created")
 
 
 def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
-) -> list[SensorEntity]:
-    """Create sensor entities for an inverter device."""
-    entities: list[SensorEntity] = []
+) -> tuple[list[SensorEntity], list[SensorEntity]]:
+    """Create sensor entities for an inverter device.
+
+    Returns a tuple of two lists:
+    - First list: Inverter and battery bank entities (phase 1 - parent devices)
+    - Second list: Individual battery entities (phase 2 - reference battery bank)
+
+    This separation ensures battery bank devices are registered before individual
+    batteries that reference them via via_device.
+    """
+    # Phase 1: Inverter sensors and battery bank sensors
+    inverter_entities: list[SensorEntity] = []
+    # Phase 2: Individual battery sensors (reference battery bank via via_device)
+    battery_entities: list[SensorEntity] = []
 
     # Get device features for capability-based filtering
     features = device_data.get("features")
@@ -159,7 +204,7 @@ def _create_inverter_sensors(
             if not sensor_key.startswith("battery_bank_"):
                 # Check if sensor should be created based on device features
                 if _should_create_sensor(sensor_key, features):
-                    entities.append(
+                    inverter_entities.append(
                         EG4InverterSensor(
                             coordinator=coordinator,
                             serial=serial,
@@ -178,11 +223,12 @@ def _create_inverter_sensors(
             skipped_sensors,
         )
 
-    # Create battery bank sensors (separate device)
+    # Create battery bank sensors (separate device, but still phase 1)
+    # Battery bank is a parent device for individual batteries
     battery_bank_sensor_count = 0
     for sensor_key in device_data.get("sensors", {}):
         if sensor_key.startswith("battery_bank_") and sensor_key in SENSOR_TYPES:
-            entities.append(
+            inverter_entities.append(
                 EG4BatteryBankSensor(
                     coordinator=coordinator,
                     serial=serial,
@@ -208,7 +254,7 @@ def _create_inverter_sensors(
                 "No battery_bank device_info returned for inverter %s", serial
             )
 
-    # Create individual battery sensors
+    # Create individual battery sensors (phase 2 - these reference battery bank)
     batteries = device_data.get("batteries", {})
     _LOGGER.debug(
         "Creating battery sensors for %s: found %d batteries",
@@ -241,7 +287,7 @@ def _create_inverter_sensors(
 
         for sensor_key in battery_sensors:
             if sensor_key in SENSOR_TYPES:
-                entities.append(
+                battery_entities.append(
                     EG4BatterySensor(
                         coordinator=coordinator,
                         serial=serial,
@@ -250,8 +296,13 @@ def _create_inverter_sensors(
                     )
                 )
 
-    _LOGGER.debug("Total entities created for inverter %s: %d", serial, len(entities))
-    return entities
+    _LOGGER.debug(
+        "Total entities for inverter %s: %d inverter/battery-bank + %d individual battery",
+        serial,
+        len(inverter_entities),
+        len(battery_entities),
+    )
+    return inverter_entities, battery_entities
 
 
 def _create_gridboss_sensors(
