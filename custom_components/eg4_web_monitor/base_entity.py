@@ -4,6 +4,7 @@ This module provides base classes that eliminate code duplication across platfor
 All entity classes should inherit from these bases to ensure consistent behavior.
 """
 
+import asyncio
 from contextlib import contextmanager
 import logging
 from typing import TYPE_CHECKING, Any, Generator, cast
@@ -838,15 +839,21 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         disable_method: str,
         turn_on: bool,
         refresh_params: bool = False,
+        api_delay: float = 1.0,
     ) -> None:
         """Execute a switch action with optimistic state handling.
 
         This is a helper method that handles the common pattern of:
-        1. Setting optimistic state
+        1. Setting optimistic state for immediate UI feedback
         2. Getting inverter object
         3. Calling enable/disable method
-        4. Refreshing data
-        5. Clearing optimistic state
+        4. Waiting for API to propagate changes
+        5. Refreshing coordinator data (blocking)
+        6. Clearing optimistic state only after refresh completes
+
+        The optimistic state is cleared AFTER the coordinator refresh completes
+        to prevent the "bounce" effect where the switch briefly shows the wrong
+        state while waiting for API data to propagate.
 
         Args:
             action_name: Human-readable name of the action for logging.
@@ -854,6 +861,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             disable_method: Name of the method to call when turning off.
             turn_on: True to enable, False to disable.
             refresh_params: If True, refresh parameters instead of just data.
+            api_delay: Seconds to wait for API to propagate changes (default 1.0).
 
         Raises:
             HomeAssistantError: If the action fails.
@@ -864,39 +872,55 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         try:
             _LOGGER.debug("%s %s for device %s", action_verb, action_name, self._serial)
 
-            with optimistic_state_context(self, turn_on):
-                inverter = self._get_inverter_or_raise()
+            # Set optimistic state immediately for UI feedback
+            self._optimistic_state = turn_on
+            self.async_write_ha_state()
 
-                # Call the appropriate method
-                method = getattr(inverter, method_name, None)
-                if method is None:
-                    raise HomeAssistantError(
-                        f"Method {method_name} not found on inverter"
-                    )
+            inverter = self._get_inverter_or_raise()
 
-                success = await method()
-                if not success:
-                    raise HomeAssistantError(
-                        f"Failed to {action_verb.lower()} {action_name}"
-                    )
+            # Call the appropriate method
+            method = getattr(inverter, method_name, None)
+            if method is None:
+                self._optimistic_state = None
+                self.async_write_ha_state()
+                raise HomeAssistantError(f"Method {method_name} not found on inverter")
 
-                _LOGGER.info(
-                    "Successfully %s %s for device %s",
-                    action_verb.lower()[:-3] + "ed",  # Enabling -> enabled
-                    action_name,
-                    self._serial,
+            success = await method()
+            if not success:
+                self._optimistic_state = None
+                self.async_write_ha_state()
+                raise HomeAssistantError(
+                    f"Failed to {action_verb.lower()} {action_name}"
                 )
 
-                # Refresh inverter data
-                await inverter.refresh()
+            _LOGGER.info(
+                "Successfully %s %s for device %s",
+                action_verb.lower()[:-3] + "ed",  # Enabling -> enabled
+                action_name,
+                self._serial,
+            )
 
-                # Request coordinator refresh
-                if refresh_params:
-                    await self.coordinator.async_refresh_device_parameters(self._serial)
-                else:
-                    await self.coordinator.async_request_refresh()
+            # Refresh inverter data from API
+            await inverter.refresh()
+
+            # Wait for API to propagate changes before refreshing coordinator
+            # This prevents reading stale data during the coordinator refresh
+            await asyncio.sleep(api_delay)
+
+            # Request coordinator refresh (blocking wait for completion)
+            if refresh_params:
+                await self.coordinator.async_refresh_device_parameters(self._serial)
+            else:
+                await self.coordinator.async_refresh()
+
+            # Clear optimistic state AFTER refresh completes
+            # At this point coordinator data should reflect the new state
+            self._optimistic_state = None
+            self.async_write_ha_state()
 
         except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
             raise
         except Exception as e:
             _LOGGER.error(
@@ -906,6 +930,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self._serial,
                 e,
             )
+            self._optimistic_state = None
+            self.async_write_ha_state()
             raise HomeAssistantError(
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e
