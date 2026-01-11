@@ -601,6 +601,63 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:transmission-tower-import",
     },
+    # Parallel Group aggregate battery sensors (calculated from all inverters)
+    "parallel_battery_charge_power": {
+        "name": "Battery Charge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+    },
+    "parallel_battery_discharge_power": {
+        "name": "Battery Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+    },
+    "parallel_battery_power": {
+        "name": "Battery Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "parallel_battery_soc": {
+        "name": "Battery State of Charge",
+        "unit": "%",
+        "device_class": "battery",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "parallel_battery_max_capacity": {
+        "name": "Battery Max Capacity",
+        "unit": "Ah",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:battery-high",
+    },
+    "parallel_battery_current_capacity": {
+        "name": "Battery Current Capacity",
+        "unit": "Ah",
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
+    "parallel_battery_voltage": {
+        "name": "Battery Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:flash",
+    },
+    "parallel_battery_count": {
+        "name": "Battery Count",
+        "unit": None,
+        "device_class": None,
+        "state_class": "measurement",
+        "icon": "mdi:battery-multiple",
+    },
     # Battery charge/discharge energy sensors (pylxpweb 0.3.3+)
     "battery_charge": {
         "name": "Battery Charge",

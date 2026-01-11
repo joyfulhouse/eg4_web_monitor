@@ -5,6 +5,26 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2025-01-11
+
+### Added
+
+- **Parallel Group Aggregate Battery Sensors**: New sensors for parallel groups that aggregate battery data across all inverters:
+  - Battery Charge Power (W)
+  - Battery Discharge Power (W)
+  - Battery Power (net W)
+  - Battery State of Charge (weighted average %)
+  - Battery Max Capacity (Ah)
+  - Battery Current Capacity (Ah)
+  - Battery Voltage (average V)
+  - Battery Count (total modules)
+
+  > **Note**: SOC is calculated as a capacity-weighted average: `(total_current_capacity / total_max_capacity) * 100`. This is more accurate than a simple average when batteries have different capacities.
+
+### Dependencies
+
+- Requires `pylxpweb>=0.5.7` (adds aggregate battery properties to ParallelGroup)
+
 ## [3.1.0] - 2025-01-11
 
 ### Added
@@ -80,5 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Requires `pylxpweb>=0.4.4`
 
+[3.1.1]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.1
 [3.1.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.0
 [3.0.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.0.0

@@ -655,6 +655,15 @@ class DeviceProcessingMixin:
             "total_export": "grid_export_lifetime",
             "total_import": "grid_import_lifetime",
             "total_usage": "consumption_lifetime",
+            # Aggregate battery properties (calculated from all inverters)
+            "battery_charge_power": "parallel_battery_charge_power",
+            "battery_discharge_power": "parallel_battery_discharge_power",
+            "battery_power": "parallel_battery_power",
+            "battery_soc": "parallel_battery_soc",
+            "battery_max_capacity": "parallel_battery_max_capacity",
+            "battery_current_capacity": "parallel_battery_current_capacity",
+            "battery_voltage": "parallel_battery_voltage",
+            "battery_count": "parallel_battery_count",
         }
 
     async def _process_mid_device_object(self, mid_device: Any) -> dict[str, Any]:
