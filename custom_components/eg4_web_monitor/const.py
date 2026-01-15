@@ -1782,7 +1782,7 @@ SENSOR_TYPES = {
         "icon": "mdi:access-point-network-off",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
-    "off_grid_status": {
+    "off_grid": {
         "name": "Off Grid",
         "unit": None,
         "device_class": None,
@@ -1956,8 +1956,6 @@ GRIDBOSS_FIELD_MAPPING = {
     "eUpsEnergy": "ups_energy",
     # Connection status (same as inverter)
     "lost": "inverter_lost_status",
-    # Grid status - true when operating off-grid (grid outage/EPS mode)
-    "isOffGrid": "off_grid_status",
 }
 
 PARALLEL_GROUP_FIELD_MAPPING = {

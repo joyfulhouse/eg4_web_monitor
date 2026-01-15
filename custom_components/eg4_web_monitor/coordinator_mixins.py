@@ -760,6 +760,7 @@ class DeviceProcessingMixin:
             # Other sensors
             "hybrid_power": "hybrid_power",
             "phase_lock_frequency": "phase_lock_frequency",
+            "is_off_grid": "off_grid",
             "smart_port1_status": "smart_port1_status",
             "smart_port2_status": "smart_port2_status",
             "smart_port3_status": "smart_port3_status",
