@@ -59,7 +59,6 @@ from .coordinator_mixins import (
     BackgroundTaskMixin,
     DeviceInfoMixin,
     DeviceProcessingMixin,
-    DongleStatusMixin,
     DSTSyncMixin,
     FirmwareUpdateMixin,
     ParameterManagementMixin,
@@ -79,7 +78,6 @@ class EG4DataUpdateCoordinator(
     DSTSyncMixin,
     BackgroundTaskMixin,
     FirmwareUpdateMixin,
-    DongleStatusMixin,
     DataUpdateCoordinator[dict[str, Any]],
 ):
     """Class to manage fetching EG4 Web Monitor data from the API using device objects.
@@ -91,7 +89,6 @@ class EG4DataUpdateCoordinator(
     - DSTSyncMixin: Daylight saving time synchronization
     - BackgroundTaskMixin: Background task management
     - FirmwareUpdateMixin: Firmware update information extraction
-    - DongleStatusMixin: Dongle connection status monitoring
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -553,12 +550,6 @@ class EG4DataUpdateCoordinator(
             # Perform DST sync if enabled and due
             if self.dst_sync_enabled and self.station and self._should_sync_dst():
                 await self._perform_dst_sync()
-
-            # Fetch dongle status for connectivity monitoring
-            # First ensure we have datalog serial mappings (cached after first fetch)
-            await self._fetch_datalog_serials()
-            # Then fetch current dongle statuses (60-second cache)
-            await self._fetch_dongle_statuses()
 
             # Process and structure the device data
             processed_data = await self._process_station_data()

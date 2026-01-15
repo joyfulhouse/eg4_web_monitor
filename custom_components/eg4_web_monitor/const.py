@@ -1946,6 +1946,8 @@ GRIDBOSS_FIELD_MAPPING = {
     # Other energy sensors (need division by 10)
     "eEnergyToUser": "energy_to_user",
     "eUpsEnergy": "ups_energy",
+    # Connection status (same as inverter)
+    "lost": "inverter_lost_status",
 }
 
 PARALLEL_GROUP_FIELD_MAPPING = {
