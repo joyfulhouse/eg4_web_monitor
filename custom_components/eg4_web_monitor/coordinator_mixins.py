@@ -1430,7 +1430,7 @@ class DongleStatusMixin:
 
     # Mapping of inverter serial -> datalog serial
     _datalog_serials: dict[str, str]
-    # Mapping of datalog serial -> online status
+    # Mapping of datalog serial -> online status (from lost field: lost=False means online)
     _dongle_statuses: dict[str, bool]
     # Cache time for dongle statuses
     _dongle_status_cache_time: datetime | None
@@ -1476,9 +1476,10 @@ class DongleStatusMixin:
                 )
 
     async def _fetch_dongle_statuses(self) -> None:
-        """Fetch dongle status for all known datalog serials.
+        """Fetch dongle status for all datalogs using a single API call.
 
-        Checks if each dongle is online using get_dongle_status().
+        Uses get_datalog_list() to efficiently fetch all dongle statuses
+        in one request, rather than individual get_dongle_status() calls.
         Results are cached to avoid excessive API calls.
         """
         if not hasattr(self, "_dongle_statuses"):
@@ -1498,26 +1499,34 @@ class DongleStatusMixin:
             if time_since_cache < self._dongle_status_cache_ttl:
                 return  # Use cached data
 
-        if not hasattr(self, "_datalog_serials") or not self._datalog_serials:
+        if not self.station:
             return
 
-        # Get unique datalog serials (multiple inverters may share one dongle)
-        unique_datalogs = set(self._datalog_serials.values())
+        try:
+            # Fetch all datalogs for this plant in a single request
+            datalog_list = await self.client.api.devices.get_datalog_list(
+                plant_id=self.station.plant_id
+            )
 
-        for datalog_sn in unique_datalogs:
-            try:
-                status = await self.client.api.devices.get_dongle_status(datalog_sn)
-                self._dongle_statuses[datalog_sn] = status.is_online
+            # Update status for each datalog
+            for datalog in datalog_list.rows:
+                self._dongle_statuses[datalog.datalogSn] = datalog.is_online
                 _LOGGER.debug(
-                    "Dongle %s status: %s",
-                    datalog_sn,
-                    "online" if status.is_online else "offline",
+                    "Dongle %s status: %s (last update: %s)",
+                    datalog.datalogSn,
+                    "online" if datalog.is_online else "offline",
+                    datalog.lastUpdateTime,
                 )
-            except Exception as e:
-                _LOGGER.debug("Could not fetch dongle status for %s: %s", datalog_sn, e)
-                # Keep previous status if available, otherwise assume offline
-                if datalog_sn not in self._dongle_statuses:
-                    self._dongle_statuses[datalog_sn] = False
+
+            _LOGGER.debug(
+                "Fetched status for %d datalogs in plant %s",
+                datalog_list.total,
+                self.station.plant_id,
+            )
+
+        except Exception as e:
+            _LOGGER.debug("Could not fetch datalog list: %s", e)
+            # Keep previous statuses if available
 
         self._dongle_status_cache_time = dt_util.utcnow()
 

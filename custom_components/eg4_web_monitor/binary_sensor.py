@@ -42,23 +42,24 @@ async def async_setup_entry(
         return
 
     # Create dongle connectivity sensors for each inverter
+    # Dongle status is fetched via get_datalog_list() during coordinator updates
     for serial, device_data in coordinator.data["devices"].items():
         device_type = device_data.get("type", "unknown")
 
         # Only create dongle sensors for inverters (not parallel groups or GridBOSS)
+        # Sensor is created regardless of current dongle status - status will be
+        # updated on coordinator refresh. This ensures sensors exist even if
+        # the first datalog fetch hasn't completed yet.
         if device_type == "inverter":
-            # Check if we have dongle status data for this inverter
-            dongle_status = coordinator.get_dongle_status_for_inverter(serial)
-            if dongle_status is not None:
-                entities.append(
-                    EG4DongleConnectivitySensor(
-                        coordinator=coordinator,
-                        serial=serial,
-                    )
+            entities.append(
+                EG4DongleConnectivitySensor(
+                    coordinator=coordinator,
+                    serial=serial,
                 )
-                _LOGGER.debug(
-                    "Created dongle connectivity sensor for inverter %s", serial
-                )
+            )
+            _LOGGER.debug(
+                "Created dongle connectivity sensor for inverter %s", serial
+            )
 
     if entities:
         async_add_entities(entities, True)
