@@ -116,10 +116,12 @@ cards:
   # Grid Status and Frequency
   - type: horizontal-stack
     cards:
+      # GridBOSS users: use sensor.eg4_gridboss_SERIAL_off_grid
+      # Non-GridBOSS users: create a template binary_sensor (see load_management.yaml)
       - type: entity
-        entity: binary_sensor.eg4_flexboss21_1234567890_grid_status
-        name: Grid Connection
-        icon: mdi:power-plug
+        entity: sensor.eg4_gridboss_1234567890_off_grid
+        name: Off Grid Status
+        icon: mdi:transmission-tower-off
       - type: entity
         entity: sensor.eg4_flexboss21_1234567890_grid_frequency
         name: Grid Frequency

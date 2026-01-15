@@ -1,6 +1,21 @@
 # EG4 Web Monitor - Load Management Automations
 #
 # These automations help manage home loads and optimize power consumption
+#
+# GRID STATUS DETECTION:
+# - GridBOSS users: Use the built-in "Off Grid" sensor (sensor.eg4_gridboss_SERIAL_off_grid)
+#   which shows true when on battery backup, false when grid is available.
+#
+# - Non-GridBOSS users: Create a template binary sensor based on grid voltage:
+#   template:
+#     - binary_sensor:
+#         - name: "EG4 Grid Status"
+#           unique_id: eg4_grid_status
+#           device_class: power
+#           state: >
+#             {{ states('sensor.eg4_flexboss21_SERIAL_grid_voltage_l1') | float(0) > 50 }}
+#
+# Replace SERIAL with your actual device serial number throughout this file.
 
 # High load consumption alert
 - alias: "EG4 - High Load Alert"
@@ -24,7 +39,7 @@
   description: "Reduce non-essential loads during grid outage"
   trigger:
     - platform: state
-      entity_id: binary_sensor.eg4_flexboss21_1234567890_grid_status
+      entity_id: binary_sensor.eg4_grid_status
       to: "off"  # Grid lost
   action:
     # Turn off non-essential loads
@@ -49,7 +64,7 @@
   description: "Restore loads when grid power returns"
   trigger:
     - platform: state
-      entity_id: binary_sensor.eg4_flexboss21_1234567890_grid_status
+      entity_id: binary_sensor.eg4_grid_status
       to: "on"  # Grid restored
       for:
         minutes: 5  # Wait for stability
