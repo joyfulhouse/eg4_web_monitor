@@ -719,6 +719,24 @@ class EG4DataUpdateCoordinator(
                 except Exception as e:
                     _LOGGER.error("Error processing parallel group: %s", e)
 
+        # Process standalone MID devices (GridBOSS without inverters) - fixes #86
+        if hasattr(self.station, "standalone_mid_devices"):
+            for mid_device in self.station.standalone_mid_devices:
+                try:
+                    processed["devices"][
+                        mid_device.serial_number
+                    ] = await self._process_mid_device_object(mid_device)
+                    _LOGGER.debug(
+                        "Processed standalone MID device %s",
+                        mid_device.serial_number,
+                    )
+                except Exception as e:
+                    _LOGGER.error(
+                        "Error processing standalone MID device %s: %s",
+                        mid_device.serial_number,
+                        e,
+                    )
+
         # Process batteries through inverter hierarchy (fixes #76)
         # This approach uses the known parent serial from the inverter object,
         # rather than trying to parse it from batteryKey (which may not contain it)
@@ -859,5 +877,11 @@ class EG4DataUpdateCoordinator(
                 if hasattr(group, "mid_device") and group.mid_device:
                     if group.mid_device.serial_number == serial:
                         return group.mid_device
+
+        # Check standalone MID devices (GridBOSS without inverters)
+        if hasattr(self.station, "standalone_mid_devices"):
+            for mid_device in self.station.standalone_mid_devices:
+                if mid_device.serial_number == serial:
+                    return mid_device
 
         return None
