@@ -1,7 +1,11 @@
 # EG4 Web Monitor - Battery Details Dashboard
 #
-# Detailed battery monitoring including individual battery cells,
-# temperatures, voltages, and health metrics
+# Detailed battery monitoring including cell voltage aggregates,
+# temperatures, and health metrics
+#
+# NOTE: The EG4 web monitoring API provides aggregate cell voltage data
+# (max/min/delta) but does NOT expose individual cell voltages (1-16).
+# This is an upstream API limitation.
 #
 # To use: Copy this configuration to your Lovelace dashboard
 # Adjust entity IDs to match your inverter serial numbers
@@ -56,7 +60,7 @@ cards:
 
   # Individual Battery 1 Details
   - type: entities
-    title: Battery 1 - Cell Details
+    title: Battery 1 - Cell Voltage Analysis
     show_header_toggle: false
     entities:
       - entity: sensor.eg4_flexboss21_1234567890_battery_1_voltage
@@ -66,58 +70,65 @@ cards:
       - entity: sensor.eg4_flexboss21_1234567890_battery_1_power
         name: Pack Power
       - type: divider
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_max_cell_voltage
+        name: Max Cell Voltage
+        icon: mdi:arrow-up-bold
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_min_cell_voltage
+        name: Min Cell Voltage
+        icon: mdi:arrow-down-bold
       - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta
-        name: Cell Imbalance
+        name: Cell Voltage Delta (Imbalance)
         icon: mdi:delta
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_1_voltage
-        name: Cell 1
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_2_voltage
-        name: Cell 2
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_3_voltage
-        name: Cell 3
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_4_voltage
-        name: Cell 4
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_5_voltage
-        name: Cell 5
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_6_voltage
-        name: Cell 6
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_7_voltage
-        name: Cell 7
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_8_voltage
-        name: Cell 8
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_9_voltage
-        name: Cell 9
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_10_voltage
-        name: Cell 10
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_11_voltage
-        name: Cell 11
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_12_voltage
-        name: Cell 12
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_13_voltage
-        name: Cell 13
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_14_voltage
-        name: Cell 14
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_15_voltage
-        name: Cell 15
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_16_voltage
-        name: Cell 16
+      - type: divider
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_max_cell_voltage_num
+        name: Cell # with Max Voltage
+        icon: mdi:numeric
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_min_cell_voltage_num
+        name: Cell # with Min Voltage
+        icon: mdi:numeric
 
-  # Cell Voltage Chart
+  # Cell Temperature Details
+  - type: entities
+    title: Battery 1 - Cell Temperature Analysis
+    show_header_toggle: false
+    entities:
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_max_cell_temperature
+        name: Max Cell Temperature
+        icon: mdi:thermometer-high
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_min_cell_temperature
+        name: Min Cell Temperature
+        icon: mdi:thermometer-low
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_temp_delta
+        name: Cell Temperature Delta
+        icon: mdi:delta
+
+  # Cell Voltage Chart - Using available aggregate data
   - type: custom:apexcharts-card
     header:
       show: true
-      title: Cell Voltage Balance
+      title: Cell Voltage Range (6h)
     graph_span: 6h
     series:
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_1_voltage
-        name: Cell 1
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_8_voltage
-        name: Cell 8
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_16_voltage
-        name: Cell 16
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_max_cell_voltage
+        name: Max Cell
+        color: green
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_min_cell_voltage
+        name: Min Cell
+        color: blue
       - entity: sensor.eg4_flexboss21_1234567890_battery_1_cell_voltage_delta
         name: Delta
         color: red
+        y_axis: secondary
+    yaxis:
+      - id: primary
+        min: 3.0
+        max: 3.6
+        decimals: 3
+      - id: secondary
+        opposite: true
+        min: 0
+        max: 0.1
+        decimals: 3
 
   # Battery Temperature History
   - type: custom:apexcharts-card
@@ -126,8 +137,12 @@ cards:
       title: Battery Temperature (24h)
     graph_span: 24h
     series:
-      - entity: sensor.eg4_flexboss21_1234567890_battery_1_temperature
-        name: Temperature
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_max_cell_temperature
+        name: Max Temp
+        color: red
+      - entity: sensor.eg4_flexboss21_1234567890_battery_1_min_cell_temperature
+        name: Min Temp
+        color: blue
 
   # Battery Power/SOC Chart
   - type: custom:apexcharts-card
@@ -150,6 +165,19 @@ cards:
         opposite: true
         min: 0
         max: 100
+
+  # Battery Health Info Card
+  - type: markdown
+    title: Cell Voltage Health Guide
+    content: |
+      **Cell Voltage Delta (Imbalance) Interpretation:**
+      - **< 0.020V** - Excellent balance
+      - **0.020V - 0.050V** - Good balance
+      - **0.050V - 0.100V** - Monitor closely
+      - **> 0.100V** - Consider top balancing
+
+      *Note: The EG4 API provides aggregate cell data (max/min/delta)
+      but does not expose individual cell voltages.*
 
   # Battery Controls
   - type: entities

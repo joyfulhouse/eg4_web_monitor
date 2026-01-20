@@ -81,11 +81,14 @@ A comprehensive energy monitoring dashboard featuring:
 ### Battery Details (`battery_details.yaml`)
 Detailed battery monitoring dashboard with:
 - Battery SOC and SOH gauges
-- Individual cell voltage monitoring (all 16 cells)
-- Cell voltage imbalance tracking
-- Battery temperature history
+- Cell voltage analysis (max/min/delta - aggregate data from API)
+- Cell voltage imbalance tracking via delta sensor
+- Cell temperature analysis (max/min/delta)
 - Battery power and SOC trends
 - Battery configuration controls
+
+> **Note**: The EG4 API provides aggregate cell voltage data (max, min, delta)
+> but does not expose individual cell voltages (1-16). This is an upstream API limitation.
 
 **Required Custom Cards**:
 - [ApexCharts Card](https://github.com/RomRider/apexcharts-card)
