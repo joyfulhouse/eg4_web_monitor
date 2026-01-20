@@ -28,7 +28,6 @@ from .const import (
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -406,21 +405,16 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         self._mode_key = mode_key
         self._mode_config = mode_config
 
-        # Clean parameter name for entity key
+        # Clean parameter name for entity key (remove func_ prefix for cleaner IDs)
         param_clean = mode_config["param"].lower().replace("func_", "")
 
         super().__init__(
             coordinator=coordinator,
             serial=serial,
-            entity_key=mode_config["param"].lower(),
+            entity_key=param_clean,  # Use cleaned name directly as entity_key
             name=mode_config["name"],
             icon=mode_config.get("icon", "mdi:toggle-switch"),
             entity_category=mode_config.get("entity_category"),
-        )
-
-        # Override entity_id with cleaner parameter name
-        self._attr_entity_id = generate_entity_id(
-            "switch", self._model, serial, param_clean
         )
 
     @property

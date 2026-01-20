@@ -913,15 +913,20 @@ class DeviceProcessingMixin:
         Args:
             sensors: Dictionary of sensor values to modify
         """
-        # Calculate Smart Load aggregate power from individual ports
-        smart_load_powers = []
-        for port in range(1, 5):
-            l1_key = f"smart_load{port}_power_l1"
-            l2_key = f"smart_load{port}_power_l2"
+
+        def sum_l1_l2(l1_key: str, l2_key: str) -> float | None:
+            """Sum L1 and L2 values if both exist, return None otherwise."""
             if l1_key in sensors and l2_key in sensors:
-                l1_power = _safe_numeric(sensors[l1_key])
-                l2_power = _safe_numeric(sensors[l2_key])
-                port_power = l1_power + l2_power
+                return _safe_numeric(sensors[l1_key]) + _safe_numeric(sensors[l2_key])
+            return None
+
+        # Calculate Smart Load aggregate power from individual ports
+        smart_load_powers: list[float] = []
+        for port in range(1, 5):
+            port_power = sum_l1_l2(
+                f"smart_load{port}_power_l1", f"smart_load{port}_power_l2"
+            )
+            if port_power is not None:
                 sensors[f"smart_load{port}_power"] = port_power
                 smart_load_powers.append(port_power)
 
@@ -929,43 +934,29 @@ class DeviceProcessingMixin:
             sensors["smart_load_power"] = sum(smart_load_powers)
 
         # Calculate AC Couple aggregate power from individual ports
-        ac_couple_powers = []
+        ac_couple_powers: list[float] = []
         for port in range(1, 5):
-            l1_key = f"ac_couple{port}_power_l1"
-            l2_key = f"ac_couple{port}_power_l2"
-            if l1_key in sensors and l2_key in sensors:
-                l1_power = _safe_numeric(sensors[l1_key])
-                l2_power = _safe_numeric(sensors[l2_key])
-                port_power = l1_power + l2_power
+            port_power = sum_l1_l2(
+                f"ac_couple{port}_power_l1", f"ac_couple{port}_power_l2"
+            )
+            if port_power is not None:
                 sensors[f"ac_couple{port}_power"] = port_power
                 ac_couple_powers.append(port_power)
 
         if ac_couple_powers:
             sensors["ac_couple_power"] = sum(ac_couple_powers)
 
-        # Calculate total grid power from L1/L2
-        if "grid_power_l1" in sensors and "grid_power_l2" in sensors:
-            grid_l1 = _safe_numeric(sensors["grid_power_l1"])
-            grid_l2 = _safe_numeric(sensors["grid_power_l2"])
-            sensors["grid_power"] = grid_l1 + grid_l2
-
-        # Calculate total UPS power from L1/L2
-        if "ups_power_l1" in sensors and "ups_power_l2" in sensors:
-            ups_l1 = _safe_numeric(sensors["ups_power_l1"])
-            ups_l2 = _safe_numeric(sensors["ups_power_l2"])
-            sensors["ups_power"] = ups_l1 + ups_l2
-
-        # Calculate total load power from L1/L2
-        if "load_power_l1" in sensors and "load_power_l2" in sensors:
-            load_l1 = _safe_numeric(sensors["load_power_l1"])
-            load_l2 = _safe_numeric(sensors["load_power_l2"])
-            sensors["load_power"] = load_l1 + load_l2
-
-        # Calculate total generator power from L1/L2
-        if "generator_power_l1" in sensors and "generator_power_l2" in sensors:
-            gen_l1 = _safe_numeric(sensors["generator_power_l1"])
-            gen_l2 = _safe_numeric(sensors["generator_power_l2"])
-            sensors["generator_power"] = gen_l1 + gen_l2
+        # Calculate aggregate power for simple L1/L2 sensor pairs
+        l1_l2_aggregates = [
+            ("grid_power_l1", "grid_power_l2", "grid_power"),
+            ("ups_power_l1", "ups_power_l2", "ups_power"),
+            ("load_power_l1", "load_power_l2", "load_power"),
+            ("generator_power_l1", "generator_power_l2", "generator_power"),
+        ]
+        for l1_key, l2_key, output_key in l1_l2_aggregates:
+            total = sum_l1_l2(l1_key, l2_key)
+            if total is not None:
+                sensors[output_key] = total
 
 
 class DeviceInfoMixin:

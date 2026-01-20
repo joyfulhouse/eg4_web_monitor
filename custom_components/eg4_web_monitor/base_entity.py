@@ -220,6 +220,25 @@ class EG4StationEntity(CoordinatorEntity):
 # ========== Sensor Base Classes ==========
 
 
+def _get_display_precision(
+    sensor_config: dict[str, Any], device_class: str | None
+) -> int | None:
+    """Get display precision from config or device class defaults.
+
+    Args:
+        sensor_config: Sensor configuration dictionary
+        device_class: Device class string (e.g., "voltage")
+
+    Returns:
+        Suggested display precision or None if not specified
+    """
+    if "suggested_display_precision" in sensor_config:
+        return int(sensor_config["suggested_display_precision"])
+    if device_class == "voltage":
+        return 2
+    return None
+
+
 class EG4BaseSensor(EG4DeviceEntity):
     """Base class for EG4 sensor entities with shared configuration logic.
 
@@ -282,8 +301,10 @@ class EG4BaseSensor(EG4DeviceEntity):
         self._attr_state_class = self._sensor_config.get("state_class")
         self._attr_icon = self._sensor_config.get("icon")
 
-        # Set display precision
-        self._setup_display_precision()
+        # Set display precision using helper function
+        precision = _get_display_precision(self._sensor_config, self._attr_device_class)
+        if precision is not None:
+            self._attr_suggested_display_precision = precision
 
         # Set entity category for diagnostic sensors
         if sensor_key in DIAGNOSTIC_DEVICE_SENSOR_KEYS:
@@ -302,15 +323,6 @@ class EG4BaseSensor(EG4DeviceEntity):
         else:
             model_clean = clean_model_name(model, use_underscores=True)
             self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{self._serial}_{self._sensor_key}"
-
-    def _setup_display_precision(self) -> None:
-        """Set up display precision from config or defaults."""
-        if "suggested_display_precision" in self._sensor_config:
-            self._attr_suggested_display_precision = self._sensor_config[
-                "suggested_display_precision"
-            ]
-        elif self._attr_device_class == "voltage":
-            self._attr_suggested_display_precision = 2
 
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from coordinator data.
@@ -414,13 +426,10 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         self._attr_state_class = self._sensor_config.get("state_class")
         self._attr_icon = self._sensor_config.get("icon")
 
-        # Set display precision
-        if "suggested_display_precision" in self._sensor_config:
-            self._attr_suggested_display_precision = self._sensor_config[
-                "suggested_display_precision"
-            ]
-        elif self._attr_device_class == "voltage":
-            self._attr_suggested_display_precision = 2
+        # Set display precision using helper function
+        precision = _get_display_precision(self._sensor_config, self._attr_device_class)
+        if precision is not None:
+            self._attr_suggested_display_precision = precision
 
         # Set entity category for diagnostic sensors
         if (
