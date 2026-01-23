@@ -173,6 +173,20 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.7 - January 2026: Inverter Family Selection for Modbus
+**New Features:**
+- Add inverter family selection dropdown in Modbus configuration (standalone, hybrid, and reconfigure flows)
+- Support for model-specific Modbus register maps from pylxpweb 0.5.12
+- Available families: PV_SERIES (18kPV/FlexBOSS), SNA (12000XP/6000XP), LXP_EU (European)
+
+**Technical Details:**
+- Different inverter families have different register layouts (32-bit vs 16-bit power values, register offsets)
+- LXP-EU 12K uses 16-bit power registers with 4-register offset vs PV Series 32-bit registers
+- Backward compatible - defaults to PV_SERIES for existing configurations
+
+**Dependency Updates:**
+- Require pylxpweb>=0.5.12 for model-specific register map support
+
 ### v3.0.0-rc.17 - December 2025: GridBOSS Auto-Sync Fix
 **Bug Fixes:**
 - GridBOSS now automatically detected even when parallel group data is not pre-configured (#72)
