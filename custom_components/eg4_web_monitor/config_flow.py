@@ -41,6 +41,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
@@ -54,11 +55,15 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_BASE_URL,
+    DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
+    INVERTER_FAMILY_LXP_EU,
+    INVERTER_FAMILY_PV_SERIES,
+    INVERTER_FAMILY_SNA,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -140,6 +145,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._modbus_unit_id: int | None = None
         self._inverter_serial: str | None = None
         self._inverter_model: str | None = None
+        self._inverter_family: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -250,6 +256,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
             self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
 
             # Test Modbus connection
             try:
@@ -268,6 +277,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         # Build Modbus configuration schema
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
@@ -275,6 +291,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
                 vol.Required(CONF_INVERTER_SERIAL): str,
                 vol.Optional(CONF_INVERTER_MODEL, default=""): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
             }
         )
 
@@ -289,6 +308,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_modbus_connection(self) -> None:
         """Test Modbus TCP connection to the inverter."""
+        from pylxpweb.devices.inverters._features import InverterFamily
         from pylxpweb.transports import create_modbus_transport
         from pylxpweb.transports.exceptions import TransportConnectionError
 
@@ -297,12 +317,23 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._modbus_unit_id is not None
         assert self._inverter_serial is not None
 
+        # Convert string family to InverterFamily enum
+        inverter_family = None
+        if self._inverter_family:
+            try:
+                inverter_family = InverterFamily(self._inverter_family)
+            except ValueError:
+                _LOGGER.warning(
+                    "Unknown inverter family '%s', using default", self._inverter_family
+                )
+
         transport = create_modbus_transport(
             host=self._modbus_host,
             port=self._modbus_port,
             unit_id=self._modbus_unit_id,
             serial=self._inverter_serial,
             timeout=DEFAULT_MODBUS_TIMEOUT,
+            inverter_family=inverter_family,
         )
 
         try:
@@ -343,6 +374,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
             CONF_INVERTER_SERIAL: self._inverter_serial,
             CONF_INVERTER_MODEL: self._inverter_model or "",
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
         return self.async_create_entry(title=title, data=data)
@@ -467,6 +499,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._inverter_serial = user_input.get(
                 CONF_INVERTER_SERIAL, self._inverter_serial or ""
             )
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
 
             # Test Modbus connection
             try:
@@ -501,12 +536,22 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Pre-fill first inverter serial if available
         default_serial = inverter_serials[0] if inverter_serials else ""
 
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
                 vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
                 vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
             }
         )
 
@@ -563,6 +608,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_PORT: self._modbus_port,
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
             CONF_INVERTER_SERIAL: self._inverter_serial,
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
         return self.async_create_entry(title=title, data=data)
@@ -912,6 +958,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
             self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
 
             # Test Modbus connection
             try:
@@ -928,6 +977,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as e:
                 _LOGGER.exception("Unexpected Modbus error: %s", e)
                 errors["base"] = "unknown"
+
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
 
         # Build Modbus reconfiguration schema with current values
         modbus_schema = vol.Schema(
@@ -951,6 +1007,12 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_INVERTER_MODEL,
                     default=entry.data.get(CONF_INVERTER_MODEL, ""),
                 ): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY,
+                    default=entry.data.get(
+                        CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                    ),
+                ): vol.In(inverter_family_options),
             }
         )
 
@@ -992,6 +1054,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self._inverter_serial = user_input.get(
                 CONF_INVERTER_SERIAL, entry.data.get(CONF_INVERTER_SERIAL, "")
+            )
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
             )
 
             try:
@@ -1046,6 +1111,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
         # Build hybrid reconfiguration schema with current values
         hybrid_schema = vol.Schema(
             {
@@ -1078,6 +1150,12 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_INVERTER_SERIAL,
                     default=entry.data.get(CONF_INVERTER_SERIAL, ""),
                 ): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY,
+                    default=entry.data.get(
+                        CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                    ),
+                ): vol.In(inverter_family_options),
             }
         )
 
@@ -1318,6 +1396,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
             CONF_INVERTER_SERIAL: self._inverter_serial,
             CONF_INVERTER_MODEL: self._inverter_model or "",
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
         self.hass.config_entries.async_update_entry(
@@ -1376,6 +1455,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_PORT: self._modbus_port,
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
             CONF_INVERTER_SERIAL: self._inverter_serial or "",
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
         self.hass.config_entries.async_update_entry(

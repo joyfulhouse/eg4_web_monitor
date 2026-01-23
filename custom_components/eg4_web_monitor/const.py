@@ -124,11 +124,13 @@ CONF_MODBUS_PORT = "modbus_port"
 CONF_MODBUS_UNIT_ID = "modbus_unit_id"
 CONF_INVERTER_SERIAL = "inverter_serial"
 CONF_INVERTER_MODEL = "inverter_model"
+CONF_INVERTER_FAMILY = "inverter_family"  # pylxpweb 0.5.12+ for register map selection
 
 # Modbus default values
 DEFAULT_MODBUS_PORT = 502
 DEFAULT_MODBUS_UNIT_ID = 1
 DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
+DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
 
 # Modbus update interval (can be much faster than HTTP due to local network)
 MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)

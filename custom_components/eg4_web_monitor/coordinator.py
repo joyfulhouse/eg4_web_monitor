@@ -38,6 +38,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
@@ -48,6 +49,7 @@ from .const import (
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_MODBUS,
+    DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
@@ -123,7 +125,19 @@ class EG4DataUpdateCoordinator(
         # Initialize Modbus transport for Modbus and Hybrid modes
         self._modbus_transport: ModbusTransport | None = None
         if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
+            from pylxpweb.devices.inverters._features import InverterFamily
             from pylxpweb.transports import create_modbus_transport
+
+            # Convert string family to InverterFamily enum
+            inverter_family = None
+            family_str = entry.data.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY)
+            if family_str:
+                try:
+                    inverter_family = InverterFamily(family_str)
+                except ValueError:
+                    _LOGGER.warning(
+                        "Unknown inverter family '%s', using default", family_str
+                    )
 
             self._modbus_transport = create_modbus_transport(
                 host=entry.data[CONF_MODBUS_HOST],
@@ -131,6 +145,7 @@ class EG4DataUpdateCoordinator(
                 unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
                 serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
                 timeout=DEFAULT_MODBUS_TIMEOUT,
+                inverter_family=inverter_family,
             )
             self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
             self._modbus_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
