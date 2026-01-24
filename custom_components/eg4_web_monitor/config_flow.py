@@ -40,6 +40,9 @@ from .const import (
     BRAND_NAME,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_DONGLE_HOST,
+    CONF_DONGLE_PORT,
+    CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
@@ -51,10 +54,13 @@ from .const import (
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_BASE_URL,
+    DEFAULT_DONGLE_PORT,
+    DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
@@ -147,6 +153,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._inverter_model: str | None = None
         self._inverter_family: str | None = None
 
+        # WiFi Dongle (local) connection fields
+        self._dongle_host: str | None = None
+        self._dongle_port: int | None = None
+        self._dongle_serial: str | None = None
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -159,6 +170,8 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_http_credentials()
             if connection_type == CONNECTION_TYPE_MODBUS:
                 return await self.async_step_modbus()
+            if connection_type == CONNECTION_TYPE_DONGLE:
+                return await self.async_step_dongle()
             # Hybrid mode - start with HTTP credentials
             return await self.async_step_hybrid_http()
 
@@ -170,7 +183,8 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): vol.In(
                     {
                         CONNECTION_TYPE_HTTP: "Cloud API (HTTP)",
-                        CONNECTION_TYPE_MODBUS: "Local Modbus TCP",
+                        CONNECTION_TYPE_MODBUS: "Local Modbus TCP (RS485 adapter)",
+                        CONNECTION_TYPE_DONGLE: "Local WiFi Dongle (no extra hardware)",
                         CONNECTION_TYPE_HYBRID: "Hybrid (Local + Cloud)",
                     }
                 ),
@@ -372,6 +386,139 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_HOST: self._modbus_host,
             CONF_MODBUS_PORT: self._modbus_port,
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
+            CONF_INVERTER_SERIAL: self._inverter_serial,
+            CONF_INVERTER_MODEL: self._inverter_model or "",
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
+        }
+
+        return self.async_create_entry(title=title, data=data)
+
+    async def async_step_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle WiFi Dongle TCP connection configuration step."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._dongle_host = user_input[CONF_DONGLE_HOST]
+            self._dongle_port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            self._dongle_serial = user_input[CONF_DONGLE_SERIAL]
+            self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
+            self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            # Test dongle connection
+            try:
+                await self._test_dongle_connection()
+                return await self._create_dongle_entry()
+
+            except TimeoutError:
+                errors["base"] = "dongle_timeout"
+            except OSError as e:
+                _LOGGER.error("Dongle connection error: %s", e)
+                errors["base"] = "dongle_connection_failed"
+            except Exception as e:
+                _LOGGER.exception("Unexpected dongle error: %s", e)
+                errors["base"] = "unknown"
+
+        # Build dongle configuration schema
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
+        dongle_schema = vol.Schema(
+            {
+                vol.Required(CONF_DONGLE_HOST): str,
+                vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
+                vol.Required(CONF_DONGLE_SERIAL): str,
+                vol.Required(CONF_INVERTER_SERIAL): str,
+                vol.Optional(CONF_INVERTER_MODEL, default=""): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="dongle",
+            data_schema=dongle_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+            },
+        )
+
+    async def _test_dongle_connection(self) -> None:
+        """Test WiFi dongle TCP connection to the inverter."""
+        from pylxpweb.devices.inverters._features import InverterFamily
+        from pylxpweb.transports import create_dongle_transport
+        from pylxpweb.transports.exceptions import TransportConnectionError
+
+        assert self._dongle_host is not None
+        assert self._dongle_port is not None
+        assert self._dongle_serial is not None
+        assert self._inverter_serial is not None
+
+        # Convert string family to InverterFamily enum
+        inverter_family = None
+        if self._inverter_family:
+            try:
+                inverter_family = InverterFamily(self._inverter_family)
+            except ValueError:
+                _LOGGER.warning(
+                    "Unknown inverter family '%s', using default", self._inverter_family
+                )
+
+        transport = create_dongle_transport(
+            host=self._dongle_host,
+            dongle_serial=self._dongle_serial,
+            inverter_serial=self._inverter_serial,
+            port=self._dongle_port,
+            timeout=DEFAULT_DONGLE_TIMEOUT,
+            inverter_family=inverter_family,
+        )
+
+        try:
+            await transport.connect()
+
+            # Try to read runtime data to verify connection
+            runtime = await transport.read_runtime()
+            _LOGGER.info(
+                "Dongle connection successful - PV power: %sW, Battery SOC: %s%%",
+                runtime.pv_total_power,
+                runtime.battery_soc,
+            )
+        except TransportConnectionError:
+            raise
+        finally:
+            await transport.disconnect()
+
+    async def _create_dongle_entry(self) -> ConfigFlowResult:
+        """Create config entry for WiFi dongle connection."""
+        assert self._dongle_host is not None
+        assert self._dongle_port is not None
+        assert self._dongle_serial is not None
+        assert self._inverter_serial is not None
+
+        # Use inverter serial as unique ID
+        unique_id = f"dongle_{self._inverter_serial}"
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured()
+
+        # Create title
+        model_suffix = f" ({self._inverter_model})" if self._inverter_model else ""
+        title = f"{BRAND_NAME} Dongle - {self._inverter_serial}{model_suffix}"
+
+        data = {
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_DONGLE,
+            CONF_DONGLE_HOST: self._dongle_host,
+            CONF_DONGLE_PORT: self._dongle_port,
+            CONF_DONGLE_SERIAL: self._dongle_serial,
             CONF_INVERTER_SERIAL: self._inverter_serial,
             CONF_INVERTER_MODEL: self._inverter_model or "",
             CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,

@@ -51,6 +51,26 @@
           "inverter_family": "Select your inverter family for correct Modbus register mapping. Different inverter models use different register layouts."
         }
       },
+      "dongle": {
+        "title": "{brand_name} WiFi Dongle Setup",
+        "description": "Connect directly to your inverter via its WiFi dongle. No additional hardware required - uses the existing dongle's TCP interface on port 8000. Note: Recent firmware updates may block this access.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_model": "Inverter Model (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle (e.g., BA12345678, found as the dongle's WiFi AP SSID)",
+          "inverter_serial": "10-character serial number of your inverter (found on device label)",
+          "inverter_model": "Model name for display purposes (e.g., 18kPV, 12000XP)",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
       "hybrid_http": {
         "title": "{brand_name} Hybrid Setup - Cloud Credentials",
         "description": "First, enter your cloud API credentials. This enables device discovery and individual battery monitoring. Fast runtime data will come from local Modbus.",
@@ -237,7 +257,9 @@
       "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
       "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
-      "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway."
+      "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
+      "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
+      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this)."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

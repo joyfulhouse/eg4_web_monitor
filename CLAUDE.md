@@ -173,6 +173,27 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.8-beta.3 - January 2026: Modbus Sensor Key Fix & WiFi Dongle Support
+**Bug Fixes:**
+- Fixed "only 8 sensors showing" in Modbus mode - sensor keys now match SENSOR_TYPES definitions (#83)
+- Key mapping alignment: `ppv`→`pv_total_power`, `soc`→`state_of_charge`, `pCharge`→`battery_charge_power`, etc.
+- All Modbus/Dongle/Hybrid modes now create ~40 sensors instead of 8
+
+**New Features:**
+- **WiFi Dongle Support**: Direct local access via inverter's WiFi dongle on port 8000 (no additional hardware)
+- New connection type: "WiFi Dongle" in config flow
+- Requires dongle serial + inverter serial for authentication
+- Pure asyncio TCP implementation (no pymodbus dependency for dongle mode)
+
+**Technical Details:**
+- WiFi dongle protocol is NOT standard Modbus TCP - uses custom LuxPower/EG4 packet format
+- Packet structure: `0xA1 0x1A` prefix + version + length + function code + serials + data + CRC-16
+- TCP function codes: 0xC1 (heartbeat), 0xC2 (Modbus wrap), 0xC3 (read), 0xC4 (write)
+- Note: Recent dongle firmware may block port 8000 access for security reasons
+
+**Dependency Updates:**
+- Require pylxpweb>=0.5.15 for WiFi dongle transport support
+
 ### v3.1.7 - January 2026: Inverter Family Selection for Modbus
 **New Features:**
 - Add inverter family selection dropdown in Modbus configuration (standalone, hybrid, and reconfigure flows)

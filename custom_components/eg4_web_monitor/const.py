@@ -116,6 +116,7 @@ CONF_LIBRARY_DEBUG = "library_debug"
 CONF_CONNECTION_TYPE = "connection_type"
 CONNECTION_TYPE_HTTP = "http"
 CONNECTION_TYPE_MODBUS = "modbus"
+CONNECTION_TYPE_DONGLE = "dongle"  # WiFi dongle local TCP (no additional hardware)
 CONNECTION_TYPE_HYBRID = "hybrid"  # Local Modbus + Cloud HTTP for best of both
 
 # Modbus configuration keys
@@ -126,14 +127,24 @@ CONF_INVERTER_SERIAL = "inverter_serial"
 CONF_INVERTER_MODEL = "inverter_model"
 CONF_INVERTER_FAMILY = "inverter_family"  # pylxpweb 0.5.12+ for register map selection
 
+# WiFi Dongle configuration keys (pylxpweb 0.5.15+)
+CONF_DONGLE_HOST = "dongle_host"
+CONF_DONGLE_PORT = "dongle_port"
+CONF_DONGLE_SERIAL = "dongle_serial"
+
 # Modbus default values
 DEFAULT_MODBUS_PORT = 502
 DEFAULT_MODBUS_UNIT_ID = 1
 DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
 DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
 
-# Modbus update interval (can be much faster than HTTP due to local network)
+# WiFi Dongle default values (pylxpweb 0.5.15+)
+DEFAULT_DONGLE_PORT = 8000
+DEFAULT_DONGLE_TIMEOUT = 10.0  # seconds
+
+# Modbus/Dongle update interval (can be much faster than HTTP due to local network)
 MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
+DONGLE_UPDATE_INTERVAL = 5  # seconds (same as Modbus - local network)
 
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
