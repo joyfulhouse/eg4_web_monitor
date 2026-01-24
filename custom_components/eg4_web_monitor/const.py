@@ -117,7 +117,13 @@ CONF_CONNECTION_TYPE = "connection_type"
 CONNECTION_TYPE_HTTP = "http"
 CONNECTION_TYPE_MODBUS = "modbus"
 CONNECTION_TYPE_DONGLE = "dongle"  # WiFi dongle local TCP (no additional hardware)
-CONNECTION_TYPE_HYBRID = "hybrid"  # Local Modbus + Cloud HTTP for best of both
+CONNECTION_TYPE_HYBRID = "hybrid"  # Local (Modbus/Dongle) + Cloud HTTP for best of both
+
+# Hybrid mode local transport selection (priority: modbus > dongle > cloud-only)
+CONF_HYBRID_LOCAL_TYPE = "hybrid_local_type"
+HYBRID_LOCAL_MODBUS = "modbus"  # RS485 via Waveshare or similar adapter
+HYBRID_LOCAL_DONGLE = "dongle"  # WiFi dongle on port 8000
+HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 
 # Modbus configuration keys
 CONF_MODBUS_HOST = "modbus_host"

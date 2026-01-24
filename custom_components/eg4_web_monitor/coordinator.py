@@ -41,6 +41,7 @@ from .const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
@@ -62,6 +63,8 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     DONGLE_UPDATE_INTERVAL,
+    HYBRID_LOCAL_DONGLE,
+    HYBRID_LOCAL_MODBUS,
     MODBUS_UPDATE_INTERVAL,
 )
 from .coordinator_mixins import (
@@ -129,9 +132,21 @@ class EG4DataUpdateCoordinator(
                 iana_timezone=iana_timezone,
             )
 
-        # Initialize Modbus transport for Modbus and Hybrid modes
+        # Determine hybrid local transport type (modbus > dongle priority)
+        # For hybrid mode, check which local transport is configured
+        self._hybrid_local_type: str | None = None
+        if self.connection_type == CONNECTION_TYPE_HYBRID:
+            self._hybrid_local_type = entry.data.get(
+                CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS
+            )
+
+        # Initialize Modbus transport for Modbus mode or Hybrid with Modbus local
         self._modbus_transport: ModbusTransport | None = None
-        if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
+        should_init_modbus = self.connection_type == CONNECTION_TYPE_MODBUS or (
+            self.connection_type == CONNECTION_TYPE_HYBRID
+            and self._hybrid_local_type == HYBRID_LOCAL_MODBUS
+        )
+        if should_init_modbus:
             from pylxpweb.devices.inverters._features import InverterFamily
             from pylxpweb.transports import create_modbus_transport
 
@@ -157,9 +172,13 @@ class EG4DataUpdateCoordinator(
             self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
             self._modbus_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
 
-        # Initialize Dongle transport for Dongle mode (WiFi dongle local access)
+        # Initialize Dongle transport for Dongle mode or Hybrid with Dongle local
         self._dongle_transport: Any = None
-        if self.connection_type == CONNECTION_TYPE_DONGLE:
+        should_init_dongle = self.connection_type == CONNECTION_TYPE_DONGLE or (
+            self.connection_type == CONNECTION_TYPE_HYBRID
+            and self._hybrid_local_type == HYBRID_LOCAL_DONGLE
+        )
+        if should_init_dongle:
             from pylxpweb.devices.inverters._features import InverterFamily
             from pylxpweb.transports import create_dongle_transport
 
@@ -226,8 +245,14 @@ class EG4DataUpdateCoordinator(
 
         # Determine update interval based on connection type
         # Modbus, Dongle, and Hybrid can poll faster since they use local network
-        if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
+        if self.connection_type == CONNECTION_TYPE_MODBUS:
             update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
+        elif self.connection_type == CONNECTION_TYPE_HYBRID:
+            # Use appropriate interval based on hybrid local transport type
+            if self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
+                update_interval = timedelta(seconds=DONGLE_UPDATE_INTERVAL)
+            else:
+                update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
         elif self.connection_type == CONNECTION_TYPE_DONGLE:
             update_interval = timedelta(seconds=DONGLE_UPDATE_INTERVAL)
         else:
@@ -332,14 +357,18 @@ class EG4DataUpdateCoordinator(
                     "pv_total_power": runtime_data.pv_total_power,
                     # Battery
                     "battery_voltage": runtime_data.battery_voltage,
+                    "battery_current": runtime_data.battery_current,
                     "state_of_charge": runtime_data.battery_soc,
                     "battery_charge_power": runtime_data.battery_charge_power,
                     "battery_discharge_power": runtime_data.battery_discharge_power,
                     "battery_temperature": runtime_data.battery_temperature,
-                    # Grid
+                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
                     "grid_voltage_r": runtime_data.grid_voltage_r,
                     "grid_voltage_s": runtime_data.grid_voltage_s,
                     "grid_voltage_t": runtime_data.grid_voltage_t,
+                    "grid_current_l1": runtime_data.grid_current_r,
+                    "grid_current_l2": runtime_data.grid_current_s,
+                    "grid_current_l3": runtime_data.grid_current_t,
                     "grid_frequency": runtime_data.grid_frequency,
                     "grid_power": runtime_data.grid_power,
                     "grid_export_power": runtime_data.power_to_grid,
@@ -352,6 +381,10 @@ class EG4DataUpdateCoordinator(
                     "eps_voltage_t": runtime_data.eps_voltage_t,
                     "eps_frequency": runtime_data.eps_frequency,
                     "eps_power": runtime_data.eps_power,
+                    # Generator (if available from Modbus)
+                    "generator_voltage": runtime_data.generator_voltage,
+                    "generator_frequency": runtime_data.generator_frequency,
+                    "generator_power": runtime_data.generator_power,
                     # Bus voltages
                     "bus1_voltage": runtime_data.bus_voltage_1,
                     "bus2_voltage": runtime_data.bus_voltage_2,
@@ -516,14 +549,18 @@ class EG4DataUpdateCoordinator(
                     "pv_total_power": runtime_data.pv_total_power,
                     # Battery
                     "battery_voltage": runtime_data.battery_voltage,
+                    "battery_current": runtime_data.battery_current,
                     "state_of_charge": runtime_data.battery_soc,
                     "battery_charge_power": runtime_data.battery_charge_power,
                     "battery_discharge_power": runtime_data.battery_discharge_power,
                     "battery_temperature": runtime_data.battery_temperature,
-                    # Grid
+                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
                     "grid_voltage_r": runtime_data.grid_voltage_r,
                     "grid_voltage_s": runtime_data.grid_voltage_s,
                     "grid_voltage_t": runtime_data.grid_voltage_t,
+                    "grid_current_l1": runtime_data.grid_current_r,
+                    "grid_current_l2": runtime_data.grid_current_s,
+                    "grid_current_l3": runtime_data.grid_current_t,
                     "grid_frequency": runtime_data.grid_frequency,
                     "grid_power": runtime_data.grid_power,
                     "grid_export_power": runtime_data.power_to_grid,
@@ -536,6 +573,10 @@ class EG4DataUpdateCoordinator(
                     "eps_voltage_t": runtime_data.eps_voltage_t,
                     "eps_frequency": runtime_data.eps_frequency,
                     "eps_power": runtime_data.eps_power,
+                    # Generator (if available from Dongle)
+                    "generator_voltage": runtime_data.generator_voltage,
+                    "generator_frequency": runtime_data.generator_frequency,
+                    "generator_power": runtime_data.generator_power,
                     # Bus voltages
                     "bus1_voltage": runtime_data.bus_voltage_1,
                     "bus2_voltage": runtime_data.bus_voltage_2,
@@ -636,20 +677,28 @@ class EG4DataUpdateCoordinator(
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
-        """Fetch data using both Modbus (fast runtime) and HTTP (discovery/battery).
+        """Fetch data using local transport (Modbus/Dongle) + HTTP (discovery/battery).
 
         Hybrid mode provides the best of both worlds:
-        - Fast 1-second runtime updates via local Modbus
+        - Fast 1-5 second runtime updates via local transport (Modbus or Dongle)
         - Device discovery and individual battery data via HTTP cloud API
+
+        Priority: Modbus > Dongle > HTTP-only (based on configured local transport)
 
         Returns:
             Dictionary containing merged data from both sources.
         """
         from pylxpweb.transports.exceptions import TransportError
 
-        # First, get runtime data from Modbus (fast path)
-        modbus_data: dict[str, Any] | None = None
+        # Try to get local data from configured transport (Modbus or Dongle)
+        local_data: dict[str, Any] | None = None
+        local_serial: str = ""
+        local_transport_name: str = ""
+
+        # Priority 1: Try Modbus if configured
         if self._modbus_transport is not None:
+            local_transport_name = "Modbus"
+            local_serial = self._modbus_serial
             try:
                 if not self._modbus_transport.is_connected:
                     await self._modbus_transport.connect()
@@ -657,75 +706,168 @@ class EG4DataUpdateCoordinator(
                 # Read sequentially to avoid transaction ID desync issues
                 runtime_data = await self._modbus_transport.read_runtime()
                 energy_data = await self._modbus_transport.read_energy()
-                modbus_data = {
+                local_data = {
                     "runtime": runtime_data,
                     "energy": energy_data,
                 }
                 _LOGGER.debug(
-                    "Hybrid: Modbus runtime - PV: %.0fW, SOC: %d%%",
+                    "Hybrid: %s runtime - PV: %.0fW, SOC: %d%%",
+                    local_transport_name,
                     runtime_data.pv_total_power,
                     runtime_data.battery_soc,
                 )
             except TransportError as e:
                 _LOGGER.warning(
-                    "Hybrid: Modbus read failed, falling back to HTTP: %s", e
+                    "Hybrid: %s read failed, falling back to HTTP: %s",
+                    local_transport_name,
+                    e,
                 )
-                modbus_data = None
+                local_data = None
 
-        # Get HTTP data for discovery, batteries, and features not in Modbus
+        # Priority 2: Try Dongle if configured and Modbus not available/failed
+        if local_data is None and self._dongle_transport is not None:
+            local_transport_name = "Dongle"
+            local_serial = self._dongle_serial
+            try:
+                if not self._dongle_transport.is_connected:
+                    await self._dongle_transport.connect()
+
+                runtime_data = await self._dongle_transport.read_runtime()
+                energy_data = await self._dongle_transport.read_energy()
+                local_data = {
+                    "runtime": runtime_data,
+                    "energy": energy_data,
+                }
+                _LOGGER.debug(
+                    "Hybrid: %s runtime - PV: %.0fW, SOC: %d%%",
+                    local_transport_name,
+                    runtime_data.pv_total_power,
+                    runtime_data.battery_soc,
+                )
+            except TransportError as e:
+                _LOGGER.warning(
+                    "Hybrid: %s read failed, falling back to HTTP-only: %s",
+                    local_transport_name,
+                    e,
+                )
+                local_data = None
+
+        # Get HTTP data for discovery, batteries, and features not in local transport
         http_data = await self._async_update_http_data()
 
-        # If we have Modbus data, merge it with HTTP data for the matching inverter
-        if modbus_data is not None and self._modbus_serial in http_data.get(
-            "devices", {}
-        ):
-            device = http_data["devices"][self._modbus_serial]
-            runtime = modbus_data["runtime"]
-            energy = modbus_data["energy"]
-
-            # Override runtime sensors with faster Modbus values
-            # Uses SENSOR_TYPES keys to match HTTP data structure
-            device["sensors"].update(
-                {
-                    "pv1_voltage": runtime.pv1_voltage,
-                    "pv1_power": runtime.pv1_power,
-                    "pv2_voltage": runtime.pv2_voltage,
-                    "pv2_power": runtime.pv2_power,
-                    "pv_total_power": runtime.pv_total_power,
-                    "battery_voltage": runtime.battery_voltage,
-                    "state_of_charge": runtime.battery_soc,
-                    "battery_charge_power": runtime.battery_charge_power,
-                    "battery_discharge_power": runtime.battery_discharge_power,
-                    "grid_voltage_r": runtime.grid_voltage_r,
-                    "grid_frequency": runtime.grid_frequency,
-                    "grid_power": runtime.grid_power,
-                    "grid_export_power": runtime.power_to_grid,
-                    "ac_power": runtime.inverter_power,
-                    "load_power": runtime.load_power,
-                    "eps_power": runtime.eps_power,
-                    "internal_temperature": runtime.internal_temperature,
-                }
-            )
-
-            # Override energy sensors with Modbus values
-            device["sensors"].update(
-                {
-                    "yield": energy.pv_energy_today,
-                    "charging": energy.charge_energy_today,
-                    "discharging": energy.discharge_energy_today,
-                    "grid_import": energy.grid_import_today,
-                    "grid_export": energy.grid_export_today,
-                    "load": energy.load_energy_today,
-                }
-            )
-
-            _LOGGER.debug(
-                "Hybrid: Merged Modbus runtime with HTTP data for %s",
-                self._modbus_serial,
+        # If we have local data, merge it with HTTP data for the matching inverter
+        if local_data is not None and local_serial in http_data.get("devices", {}):
+            self._merge_local_data_with_http(
+                http_data["devices"][local_serial],
+                local_data["runtime"],
+                local_data["energy"],
+                local_serial,
+                local_transport_name,
             )
 
         http_data["connection_type"] = CONNECTION_TYPE_HYBRID
         return http_data
+
+    def _merge_local_data_with_http(
+        self,
+        device: dict[str, Any],
+        runtime: Any,
+        energy: Any,
+        serial: str,
+        transport_name: str,
+    ) -> None:
+        """Merge local transport data with HTTP device data.
+
+        This method overrides HTTP sensor values with faster local transport values.
+        All sensors available from local transport are merged, not just a subset.
+
+        Args:
+            device: The device dictionary from HTTP data to update
+            runtime: InverterRuntimeData from local transport
+            energy: InverterEnergyData from local transport
+            serial: Inverter serial number for logging
+            transport_name: Name of local transport for logging (Modbus/Dongle)
+        """
+        # Override runtime sensors with faster local values
+        # Uses SENSOR_TYPES keys to match HTTP data structure
+        # Include ALL available sensors from local transport for maximum coverage
+        device["sensors"].update(
+            {
+                # PV/Solar input - all strings
+                "pv1_voltage": runtime.pv1_voltage,
+                "pv1_power": runtime.pv1_power,
+                "pv2_voltage": runtime.pv2_voltage,
+                "pv2_power": runtime.pv2_power,
+                "pv3_voltage": runtime.pv3_voltage,
+                "pv3_power": runtime.pv3_power,
+                "pv_total_power": runtime.pv_total_power,
+                # Battery
+                "battery_voltage": runtime.battery_voltage,
+                "battery_current": runtime.battery_current,
+                "state_of_charge": runtime.battery_soc,
+                "battery_charge_power": runtime.battery_charge_power,
+                "battery_discharge_power": runtime.battery_discharge_power,
+                "battery_temperature": runtime.battery_temperature,
+                # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
+                "grid_voltage_r": runtime.grid_voltage_r,
+                "grid_voltage_s": runtime.grid_voltage_s,
+                "grid_voltage_t": runtime.grid_voltage_t,
+                "grid_current_l1": runtime.grid_current_r,
+                "grid_current_l2": runtime.grid_current_s,
+                "grid_current_l3": runtime.grid_current_t,
+                "grid_frequency": runtime.grid_frequency,
+                "grid_power": runtime.grid_power,
+                "grid_export_power": runtime.power_to_grid,
+                # Inverter output
+                "ac_power": runtime.inverter_power,
+                "load_power": runtime.load_power,
+                # EPS/Backup - all phases
+                "eps_voltage_r": runtime.eps_voltage_r,
+                "eps_voltage_s": runtime.eps_voltage_s,
+                "eps_voltage_t": runtime.eps_voltage_t,
+                "eps_frequency": runtime.eps_frequency,
+                "eps_power": runtime.eps_power,
+                # Generator (if available from Modbus/Dongle)
+                "generator_voltage": runtime.generator_voltage,
+                "generator_frequency": runtime.generator_frequency,
+                "generator_power": runtime.generator_power,
+                # Bus voltages
+                "bus1_voltage": runtime.bus_voltage_1,
+                "bus2_voltage": runtime.bus_voltage_2,
+                # Temperatures
+                "internal_temperature": runtime.internal_temperature,
+                "radiator1_temperature": runtime.radiator_temperature_1,
+                "radiator2_temperature": runtime.radiator_temperature_2,
+                # Status
+                "status_code": runtime.device_status,
+            }
+        )
+
+        # Override energy sensors with local values
+        device["sensors"].update(
+            {
+                # Daily energy (kWh)
+                "yield": energy.pv_energy_today,
+                "charging": energy.charge_energy_today,
+                "discharging": energy.discharge_energy_today,
+                "grid_import": energy.grid_import_today,
+                "grid_export": energy.grid_export_today,
+                "load": energy.load_energy_today,
+                # Lifetime energy (kWh)
+                "yield_lifetime": energy.pv_energy_total,
+                "charging_lifetime": energy.charge_energy_total,
+                "discharging_lifetime": energy.discharge_energy_total,
+                "grid_import_lifetime": energy.grid_import_total,
+                "grid_export_lifetime": energy.grid_export_total,
+                "load_lifetime": energy.load_energy_total,
+            }
+        )
+
+        _LOGGER.debug(
+            "Hybrid: Merged %s runtime with HTTP data for %s",
+            transport_name,
+            serial,
+        )
 
     async def _async_update_http_data(self) -> dict[str, Any]:
         """Fetch data from HTTP cloud API using device objects.

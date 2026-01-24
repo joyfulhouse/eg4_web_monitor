@@ -44,6 +44,7 @@ from .const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
@@ -67,6 +68,8 @@ from .const import (
     DEFAULT_MODBUS_UNIT_ID,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
+    HYBRID_LOCAL_DONGLE,
+    HYBRID_LOCAL_MODBUS,
     INVERTER_FAMILY_LXP_EU,
     INVERTER_FAMILY_PV_SERIES,
     INVERTER_FAMILY_SNA,
@@ -157,6 +160,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._dongle_host: str | None = None
         self._dongle_port: int | None = None
         self._dongle_serial: str | None = None
+
+        # Hybrid mode local transport type selection
+        self._hybrid_local_type: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -545,11 +551,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Test authentication and get plants
                 await self._test_credentials()
 
-                # If only one plant, auto-select and move to Modbus config
+                # If only one plant, auto-select and move to local type selection
                 if self._plants and len(self._plants) == 1:
                     plant = self._plants[0]
                     self._plant_id = plant["plantId"]
-                    return await self.async_step_hybrid_modbus()
+                    return await self.async_step_hybrid_local_type()
 
                 # Multiple plants - show selection step
                 return await self.async_step_hybrid_plant()
@@ -601,7 +607,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = "invalid_plant"
                 else:
                     self._plant_id = selected_plant["plantId"]
-                    return await self.async_step_hybrid_modbus()
+                    return await self.async_step_hybrid_local_type()
 
             except AbortFlow:
                 raise
@@ -630,11 +636,136 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_hybrid_local_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle local transport type selection for hybrid mode.
+
+        Allows user to choose between Modbus (RS485 adapter) or WiFi Dongle
+        for local real-time data. Priority: Modbus > Dongle > Cloud-only.
+        """
+        if user_input is not None:
+            local_type = user_input[CONF_HYBRID_LOCAL_TYPE]
+            self._hybrid_local_type = local_type
+
+            if local_type == HYBRID_LOCAL_MODBUS:
+                return await self.async_step_hybrid_modbus()
+            if local_type == HYBRID_LOCAL_DONGLE:
+                return await self.async_step_hybrid_dongle()
+            # Should not reach here, but default to modbus with warning
+            _LOGGER.warning(
+                "Unexpected hybrid_local_type value: %s, defaulting to Modbus",
+                local_type,
+            )
+            return await self.async_step_hybrid_modbus()
+
+        # Build local transport type selection schema
+        local_type_options = {
+            HYBRID_LOCAL_MODBUS: "Modbus TCP (RS485 adapter - fastest)",
+            HYBRID_LOCAL_DONGLE: "WiFi Dongle (no extra hardware)",
+        }
+
+        local_type_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_HYBRID_LOCAL_TYPE, default=HYBRID_LOCAL_MODBUS
+                ): vol.In(local_type_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="hybrid_local_type",
+            data_schema=local_type_schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+            },
+        )
+
+    async def async_step_hybrid_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle WiFi Dongle configuration for hybrid mode."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._dongle_host = user_input[CONF_DONGLE_HOST]
+            self._dongle_port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            self._dongle_serial = user_input[CONF_DONGLE_SERIAL]
+            # For hybrid, inverter serial may come from plant discovery or be specified
+            self._inverter_serial = user_input.get(
+                CONF_INVERTER_SERIAL, self._inverter_serial or ""
+            )
+            self._inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            # Test dongle connection
+            try:
+                await self._test_dongle_connection()
+                return await self._create_hybrid_entry()
+
+            except TimeoutError:
+                errors["base"] = "dongle_timeout"
+            except OSError as e:
+                _LOGGER.error("Dongle connection error: %s", e)
+                errors["base"] = "dongle_connection_failed"
+            except Exception as e:
+                _LOGGER.exception("Unexpected dongle error: %s", e)
+                errors["base"] = "unknown"
+
+        # Try to get inverter serials from the discovered plant
+        inverter_serials: list[str] = []
+        if self._plants and self._plant_id:
+            for plant in self._plants:
+                if plant["plantId"] == self._plant_id:
+                    inverters = plant.get("inverters", [])
+                    inverter_serials = [
+                        inv.get("serialNum", "")
+                        for inv in inverters
+                        if inv.get("serialNum")
+                    ]
+                    break
+
+        # Pre-fill first inverter serial if available
+        default_serial = inverter_serials[0] if inverter_serials else ""
+
+        # Inverter family options for register map selection
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
+        dongle_schema = vol.Schema(
+            {
+                vol.Required(CONF_DONGLE_HOST): str,
+                vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
+                vol.Required(CONF_DONGLE_SERIAL): str,
+                vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="hybrid_dongle",
+            data_schema=dongle_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+            },
+        )
+
     async def async_step_hybrid_modbus(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle Modbus configuration for hybrid mode."""
         errors: dict[str, str] = {}
+
+        # Ensure hybrid local type is set (should be set by async_step_hybrid_local_type)
+        if self._hybrid_local_type is None:
+            self._hybrid_local_type = HYBRID_LOCAL_MODBUS
 
         if user_input is not None:
             self._modbus_host = user_input[CONF_MODBUS_HOST]
@@ -712,17 +843,18 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _create_hybrid_entry(self) -> ConfigFlowResult:
-        """Create config entry for hybrid (HTTP + Modbus) connection."""
+        """Create config entry for hybrid (HTTP + local transport) connection.
+
+        Supports both Modbus and WiFi Dongle as local transport options.
+        """
         assert self._username is not None
         assert self._password is not None
         assert self._base_url is not None
         assert self._verify_ssl is not None
         assert self._dst_sync is not None
         assert self._plant_id is not None
-        assert self._modbus_host is not None
-        assert self._modbus_port is not None
-        assert self._modbus_unit_id is not None
         assert self._inverter_serial is not None
+        assert self._hybrid_local_type is not None
 
         # Find plant name
         plant_name = "Unknown"
@@ -739,7 +871,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         title = f"{BRAND_NAME} Hybrid - {plant_name}"
 
-        data = {
+        data: dict[str, Any] = {
             CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
             # HTTP configuration
             CONF_USERNAME: self._username,
@@ -750,13 +882,27 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_LIBRARY_DEBUG: self._library_debug or False,
             CONF_PLANT_ID: self._plant_id,
             CONF_PLANT_NAME: plant_name,
-            # Modbus configuration
-            CONF_MODBUS_HOST: self._modbus_host,
-            CONF_MODBUS_PORT: self._modbus_port,
-            CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
+            # Local transport type (modbus or dongle)
+            CONF_HYBRID_LOCAL_TYPE: self._hybrid_local_type,
             CONF_INVERTER_SERIAL: self._inverter_serial,
             CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
+
+        # Add transport-specific configuration
+        if self._hybrid_local_type == HYBRID_LOCAL_MODBUS:
+            assert self._modbus_host is not None
+            assert self._modbus_port is not None
+            assert self._modbus_unit_id is not None
+            data[CONF_MODBUS_HOST] = self._modbus_host
+            data[CONF_MODBUS_PORT] = self._modbus_port
+            data[CONF_MODBUS_UNIT_ID] = self._modbus_unit_id
+        elif self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
+            assert self._dongle_host is not None
+            assert self._dongle_port is not None
+            assert self._dongle_serial is not None
+            data[CONF_DONGLE_HOST] = self._dongle_host
+            data[CONF_DONGLE_PORT] = self._dongle_port
+            data[CONF_DONGLE_SERIAL] = self._dongle_serial
 
         return self.async_create_entry(title=title, data=data)
 
@@ -1562,7 +1708,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _update_hybrid_entry_from_reconfigure(
         self, entry: config_entries.ConfigEntry[Any], plant_id: str, plant_name: str
     ) -> ConfigFlowResult:
-        """Update the Hybrid config entry with new HTTP and Modbus data."""
+        """Update the Hybrid config entry with new HTTP and local transport data.
+
+        Preserves existing local transport type or defaults to Modbus for
+        backward compatibility with pre-v3.1.8 configurations.
+        """
         assert self._username is not None
         assert self._password is not None
         assert self._base_url is not None
@@ -1587,7 +1737,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Update title
         title = f"{BRAND_NAME} Hybrid - {plant_name}"
 
-        data = {
+        # Preserve existing hybrid local type or default to Modbus
+        hybrid_local_type = entry.data.get(CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS)
+
+        data: dict[str, Any] = {
             CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
             # HTTP settings
             CONF_USERNAME: self._username,
@@ -1597,13 +1750,23 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_DST_SYNC: self._dst_sync,
             CONF_PLANT_ID: plant_id,
             CONF_PLANT_NAME: plant_name,
-            # Modbus settings
+            # Local transport type and common settings
+            CONF_HYBRID_LOCAL_TYPE: hybrid_local_type,
+            CONF_INVERTER_SERIAL: self._inverter_serial or "",
+            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
+            # Modbus settings (current reconfigure flow only supports Modbus)
             CONF_MODBUS_HOST: self._modbus_host,
             CONF_MODBUS_PORT: self._modbus_port,
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
-            CONF_INVERTER_SERIAL: self._inverter_serial or "",
-            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
+
+        # Preserve dongle settings if all required fields exist
+        if CONF_DONGLE_HOST in entry.data and CONF_DONGLE_SERIAL in entry.data:
+            data[CONF_DONGLE_HOST] = entry.data[CONF_DONGLE_HOST]
+            data[CONF_DONGLE_PORT] = entry.data.get(
+                CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT
+            )
+            data[CONF_DONGLE_SERIAL] = entry.data[CONF_DONGLE_SERIAL]
 
         self.hass.config_entries.async_update_entry(
             entry,
