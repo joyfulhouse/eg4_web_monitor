@@ -120,19 +120,21 @@ def _build_transport_configs(
                         "Unknown inverter family '%s', using default", family_str
                     )
 
+            # Build type-specific kwargs
+            extra_kwargs: dict[str, Any] = {}
+            if transport_type == TransportType.MODBUS_TCP:
+                extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+            elif transport_type == TransportType.WIFI_DONGLE:
+                extra_kwargs["dongle_serial"] = item.get("dongle_serial", "")
+
             config = TransportConfig(
                 host=item["host"],
                 port=item["port"],
                 serial=item["serial"],
                 transport_type=transport_type,
                 inverter_family=inverter_family,
+                **extra_kwargs,
             )
-
-            # Add type-specific fields
-            if transport_type == TransportType.MODBUS_TCP:
-                config.unit_id = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
-            elif transport_type == TransportType.WIFI_DONGLE:
-                config.dongle_serial = item.get("dongle_serial", "")
 
             configs.append(config)
             _LOGGER.debug(
