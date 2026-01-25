@@ -607,19 +607,25 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current AC charge SOC limit value from device object."""
+        """Return the current AC charge SOC limit value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
+            # Try to get from inverter object first (HTTP/Hybrid modes)
             inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                return None
+            if inverter:
+                soc_limit = inverter.ac_charge_soc_limit
+                if soc_limit is not None and 0 <= soc_limit <= 100:
+                    return int(soc_limit)
 
-            soc_limit = inverter.ac_charge_soc_limit
-            if soc_limit is not None and 0 <= soc_limit <= 100:
-                return int(soc_limit)
+            # Fallback to parameters (Modbus/Dongle modes)
+            params = self._parameter_data
+            if params:
+                soc_limit = params.get("HOLD_AC_CHARGE_SOC_LIMIT")
+                if soc_limit is not None and 0 <= soc_limit <= 100:
+                    return int(soc_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
@@ -712,18 +718,27 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current on-grid SOC cutoff value from device object."""
+        """Return the current on-grid SOC cutoff value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
+            # Try to get from inverter object first (HTTP/Hybrid modes)
             inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
-                return None
+            if inverter:
+                if (
+                    hasattr(inverter, "battery_soc_limits")
+                    and inverter.battery_soc_limits
+                ):
+                    soc_cutoff = inverter.battery_soc_limits.get("on_grid_limit")
+                    if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
+                        return int(soc_cutoff)
 
-            if hasattr(inverter, "battery_soc_limits") and inverter.battery_soc_limits:
-                soc_cutoff = inverter.battery_soc_limits.get("on_grid_limit")
+            # Fallback to parameters (Modbus/Dongle modes)
+            params = self._parameter_data
+            if params:
+                soc_cutoff = params.get("HOLD_DISCHG_CUT_OFF_SOC_EOD")
                 if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
                     return int(soc_cutoff)
 

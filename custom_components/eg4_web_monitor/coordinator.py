@@ -391,10 +391,11 @@ class EG4DataUpdateCoordinator(
         return params
 
     async def _async_update_modbus_data(self) -> dict[str, Any]:
-        """Fetch data from local Modbus transport.
+        """Fetch data from local Modbus transport using BaseInverter factory.
 
-        This method is used for Modbus-only connections where we have
-        direct access to the inverter but no cloud API access.
+        This method creates a BaseInverter via from_modbus_transport() factory,
+        which enables control operations and provides a consistent data access
+        pattern regardless of transport type.
 
         Returns:
             Dictionary containing device data from Modbus registers.
@@ -410,28 +411,43 @@ class EG4DataUpdateCoordinator(
             raise UpdateFailed("Modbus transport not initialized")
 
         try:
-            _LOGGER.debug("Fetching Modbus data for inverter %s", self._modbus_serial)
+            serial = self._modbus_serial
+            _LOGGER.debug("Fetching Modbus data for inverter %s", serial)
 
             # Ensure transport is connected
             if not self._modbus_transport.is_connected:
                 await self._modbus_transport.connect()
 
-            # Read data sequentially to avoid transaction ID desync issues
-            # See: https://github.com/joyfulhouse/pylxpweb/issues/95
-            runtime_data = await self._modbus_transport.read_runtime()
-            energy_data = await self._modbus_transport.read_energy()
-            battery_data = await self._modbus_transport.read_battery()
+            # Create or reuse BaseInverter via factory
+            # This enables control operations and consistent property access
+            if serial not in self._inverter_cache:
+                _LOGGER.debug(
+                    "Creating BaseInverter from Modbus transport for %s", serial
+                )
+                inverter = await BaseInverter.from_modbus_transport(
+                    self._modbus_transport,
+                    model=self._modbus_model,
+                )
+                self._inverter_cache[serial] = inverter
+            else:
+                inverter = self._inverter_cache[serial]
 
-            # Read configuration parameters from holding registers
-            # Register 21: Function enable bits, 66-67: AC charge, 105-106: SOC limits
-            param_data = await self._read_modbus_parameters(self._modbus_transport)
+            # Refresh data from transport (populates _transport_runtime, etc.)
+            await inverter.refresh(force=True, include_parameters=True)
 
             # Read firmware version from holding registers 7-10
             firmware_version = await self._modbus_transport.read_firmware_version()
             if not firmware_version:
                 firmware_version = "Unknown"
 
-            # Build device data structure from transport data models
+            # Get data from transport via inverter's internal storage
+            runtime_data = inverter._transport_runtime
+            energy_data = inverter._transport_energy
+
+            if runtime_data is None:
+                raise TransportReadError("Failed to read runtime data from Modbus")
+
+            # Build device data structure from inverter data
             processed = {
                 "plant_id": None,  # No plant for Modbus-only
                 "devices": {},
@@ -441,7 +457,6 @@ class EG4DataUpdateCoordinator(
             }
 
             # Create device entry for the inverter
-            serial = self._modbus_serial
             device_data: dict[str, Any] = {
                 "type": "inverter",
                 "model": self._modbus_model,
@@ -506,26 +521,28 @@ class EG4DataUpdateCoordinator(
             )
 
             # Map energy data to sensors using SENSOR_TYPES keys
-            device_data["sensors"].update(
-                {
-                    # Daily energy (kWh)
-                    "yield": energy_data.pv_energy_today,
-                    "charging": energy_data.charge_energy_today,
-                    "discharging": energy_data.discharge_energy_today,
-                    "grid_import": energy_data.grid_import_today,
-                    "grid_export": energy_data.grid_export_today,
-                    "load": energy_data.load_energy_today,
-                    # Lifetime energy (kWh)
-                    "yield_lifetime": energy_data.pv_energy_total,
-                    "charging_lifetime": energy_data.charge_energy_total,
-                    "discharging_lifetime": energy_data.discharge_energy_total,
-                    "grid_import_lifetime": energy_data.grid_import_total,
-                    "grid_export_lifetime": energy_data.grid_export_total,
-                    "load_lifetime": energy_data.load_energy_total,
-                }
-            )
+            if energy_data:
+                device_data["sensors"].update(
+                    {
+                        # Daily energy (kWh)
+                        "yield": energy_data.pv_energy_today,
+                        "charging": energy_data.charge_energy_today,
+                        "discharging": energy_data.discharge_energy_today,
+                        "grid_import": energy_data.grid_import_today,
+                        "grid_export": energy_data.grid_export_today,
+                        "load": energy_data.load_energy_today,
+                        # Lifetime energy (kWh)
+                        "yield_lifetime": energy_data.pv_energy_total,
+                        "charging_lifetime": energy_data.charge_energy_total,
+                        "discharging_lifetime": energy_data.discharge_energy_total,
+                        "grid_import_lifetime": energy_data.grid_import_total,
+                        "grid_export_lifetime": energy_data.grid_export_total,
+                        "load_lifetime": energy_data.load_energy_total,
+                    }
+                )
 
             # Add battery bank data if available
+            battery_data = inverter._transport_battery
             if battery_data:
                 device_data["sensors"]["battery_bank_soc"] = battery_data.soc
                 device_data["sensors"]["battery_bank_voltage"] = battery_data.voltage
@@ -541,7 +558,8 @@ class EG4DataUpdateCoordinator(
 
             processed["devices"][serial] = device_data
 
-            # Add parameters for this device
+            # Get parameters from inverter's cached parameters
+            param_data = inverter.parameters or {}
             processed["parameters"] = {serial: param_data}
 
             # Silver tier logging
@@ -600,11 +618,11 @@ class EG4DataUpdateCoordinator(
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
     async def _async_update_dongle_data(self) -> dict[str, Any]:
-        """Fetch data from local WiFi dongle transport.
+        """Fetch data from local WiFi dongle transport using BaseInverter factory.
 
-        This method is used for Dongle-only connections where we have
-        direct access to the inverter via the WiFi dongle's TCP interface
-        on port 8000, without requiring additional RS485 hardware.
+        This method creates a BaseInverter via from_modbus_transport() factory,
+        which enables control operations and provides a consistent data access
+        pattern regardless of transport type.
 
         Returns:
             Dictionary containing device data from dongle registers.
@@ -620,26 +638,43 @@ class EG4DataUpdateCoordinator(
             raise UpdateFailed("Dongle transport not initialized")
 
         try:
-            _LOGGER.debug("Fetching dongle data for inverter %s", self._dongle_serial)
+            serial = self._dongle_serial
+            _LOGGER.debug("Fetching dongle data for inverter %s", serial)
 
             # Ensure transport is connected
             if not self._dongle_transport.is_connected:
                 await self._dongle_transport.connect()
 
-            # Read data from dongle
-            runtime_data = await self._dongle_transport.read_runtime()
-            energy_data = await self._dongle_transport.read_energy()
-            battery_data = await self._dongle_transport.read_battery()
+            # Create or reuse BaseInverter via factory
+            # This enables control operations and consistent property access
+            if serial not in self._inverter_cache:
+                _LOGGER.debug(
+                    "Creating BaseInverter from dongle transport for %s", serial
+                )
+                inverter = await BaseInverter.from_modbus_transport(
+                    self._dongle_transport,
+                    model=self._dongle_model,
+                )
+                self._inverter_cache[serial] = inverter
+            else:
+                inverter = self._inverter_cache[serial]
 
-            # Read configuration parameters from holding registers
-            param_data = await self._read_modbus_parameters(self._dongle_transport)
+            # Refresh data from transport (populates _transport_runtime, etc.)
+            await inverter.refresh(force=True, include_parameters=True)
 
             # Read firmware version from holding registers 7-10
             firmware_version = await self._dongle_transport.read_firmware_version()
             if not firmware_version:
                 firmware_version = "Unknown"
 
-            # Build device data structure from transport data models
+            # Get data from transport via inverter's internal storage
+            runtime_data = inverter._transport_runtime
+            energy_data = inverter._transport_energy
+
+            if runtime_data is None:
+                raise TransportReadError("Failed to read runtime data from dongle")
+
+            # Build device data structure from inverter data
             processed = {
                 "plant_id": None,  # No plant for Dongle-only
                 "devices": {},
@@ -649,7 +684,6 @@ class EG4DataUpdateCoordinator(
             }
 
             # Create device entry for the inverter
-            serial = self._dongle_serial
             device_data: dict[str, Any] = {
                 "type": "inverter",
                 "model": self._dongle_model,
@@ -714,26 +748,28 @@ class EG4DataUpdateCoordinator(
             )
 
             # Map energy data to sensors using SENSOR_TYPES keys
-            device_data["sensors"].update(
-                {
-                    # Daily energy (kWh)
-                    "yield": energy_data.pv_energy_today,
-                    "charging": energy_data.charge_energy_today,
-                    "discharging": energy_data.discharge_energy_today,
-                    "grid_import": energy_data.grid_import_today,
-                    "grid_export": energy_data.grid_export_today,
-                    "load": energy_data.load_energy_today,
-                    # Lifetime energy (kWh)
-                    "yield_lifetime": energy_data.pv_energy_total,
-                    "charging_lifetime": energy_data.charge_energy_total,
-                    "discharging_lifetime": energy_data.discharge_energy_total,
-                    "grid_import_lifetime": energy_data.grid_import_total,
-                    "grid_export_lifetime": energy_data.grid_export_total,
-                    "load_lifetime": energy_data.load_energy_total,
-                }
-            )
+            if energy_data:
+                device_data["sensors"].update(
+                    {
+                        # Daily energy (kWh)
+                        "yield": energy_data.pv_energy_today,
+                        "charging": energy_data.charge_energy_today,
+                        "discharging": energy_data.discharge_energy_today,
+                        "grid_import": energy_data.grid_import_today,
+                        "grid_export": energy_data.grid_export_today,
+                        "load": energy_data.load_energy_today,
+                        # Lifetime energy (kWh)
+                        "yield_lifetime": energy_data.pv_energy_total,
+                        "charging_lifetime": energy_data.charge_energy_total,
+                        "discharging_lifetime": energy_data.discharge_energy_total,
+                        "grid_import_lifetime": energy_data.grid_import_total,
+                        "grid_export_lifetime": energy_data.grid_export_total,
+                        "load_lifetime": energy_data.load_energy_total,
+                    }
+                )
 
             # Add battery bank data if available
+            battery_data = inverter._transport_battery
             if battery_data:
                 device_data["sensors"]["battery_bank_soc"] = battery_data.soc
                 device_data["sensors"]["battery_bank_voltage"] = battery_data.voltage
@@ -749,7 +785,8 @@ class EG4DataUpdateCoordinator(
 
             processed["devices"][serial] = device_data
 
-            # Add parameters for this device
+            # Get parameters from inverter's cached parameters
+            param_data = inverter.parameters or {}
             processed["parameters"] = {serial: param_data}
 
             # Silver tier logging
