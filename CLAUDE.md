@@ -173,6 +173,24 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.8-beta.7 - January 2026: Firmware Version Reading & Dongle Retry Logic
+**Bug Fixes:**
+- Fixed firmware version reading for Modbus/Dongle transports
+  - Registers 7-8 contain firmware prefix as byte-swapped ASCII (e.g., "FAAB")
+  - v1 extracted from high byte of register 9, v2 from low byte of register 10
+  - Now returns full firmware code matching web API format (e.g., "FAAB-2525")
+- Improved WiFi dongle reliability with retry logic (#83)
+  - Added 2 retries with 0.5s delay for empty responses
+  - Enhanced error messages explaining potential firmware blocking
+  - Better diagnostic information for troubleshooting
+
+**New Features:**
+- Added `read_firmware_version()` and `read_serial_number()` methods to DongleTransport
+- New diagnostic script: `utils/read_firmware_registers.py` for debugging firmware register data
+
+**Dependency Updates:**
+- Require pylxpweb>=0.5.17 for firmware reading and dongle retry fixes
+
 ### v3.1.8-beta.3 - January 2026: Modbus Sensor Key Fix & WiFi Dongle Support
 **Bug Fixes:**
 - Fixed "only 8 sensors showing" in Modbus mode - sensor keys now match SENSOR_TYPES definitions (#83)

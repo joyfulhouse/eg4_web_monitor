@@ -292,6 +292,82 @@ class EG4DataUpdateCoordinator(
         # Default to HTTP
         return await self._async_update_http_data()
 
+    async def _read_modbus_parameters(
+        self, transport: Any
+    ) -> dict[str, Any]:
+        """Read configuration parameters from Modbus holding registers.
+
+        Reads key holding registers and extracts bit fields to match
+        the same parameter format returned by the HTTP API.
+
+        Args:
+            transport: ModbusTransport or DongleTransport instance
+
+        Returns:
+            Dictionary of parameter keys to values matching HTTP API format
+        """
+        params: dict[str, Any] = {}
+
+        try:
+            # Read function enable register (21) - contains multiple bit fields
+            func_regs = await transport.read_parameters(21, 1)
+            if 21 in func_regs:
+                func_en = func_regs[21]
+                # Extract bit fields from register 21
+                params["FUNC_EPS_EN"] = bool(func_en & (1 << 0))
+                params["FUNC_AC_CHARGE"] = bool(func_en & (1 << 7))
+                params["FUNC_SET_TO_STANDBY"] = bool(func_en & (1 << 9))
+                params["FUNC_FORCED_DISCHG_EN"] = bool(func_en & (1 << 10))
+                params["FUNC_FORCED_CHG_EN"] = bool(func_en & (1 << 11))
+
+            # Read AC charge settings (registers 66-73)
+            ac_regs = await transport.read_parameters(66, 8)
+            if ac_regs:
+                params["HOLD_AC_CHARGE_POWER_CMD"] = ac_regs.get(66, 0)
+                params["HOLD_AC_CHARGE_SOC_LIMIT"] = ac_regs.get(67, 0)
+                params["HOLD_AC_CHARGE_START_HOUR_1"] = ac_regs.get(68, 0)
+                params["HOLD_AC_CHARGE_START_MIN_1"] = ac_regs.get(69, 0)
+                params["HOLD_AC_CHARGE_END_HOUR_1"] = ac_regs.get(70, 0)
+                params["HOLD_AC_CHARGE_END_MIN_1"] = ac_regs.get(71, 0)
+                params["HOLD_AC_CHARGE_ENABLE_1"] = ac_regs.get(72, 0)
+                params["HOLD_AC_CHARGE_ENABLE_2"] = ac_regs.get(73, 0)
+
+            # Read discharge settings (registers 74-79)
+            dischg_regs = await transport.read_parameters(74, 6)
+            if dischg_regs:
+                params["HOLD_DISCHG_POWER_CMD"] = dischg_regs.get(74, 0)
+                params["HOLD_DISCHG_START_HOUR_1"] = dischg_regs.get(75, 0)
+                params["HOLD_DISCHG_START_MIN_1"] = dischg_regs.get(76, 0)
+                params["HOLD_DISCHG_END_HOUR_1"] = dischg_regs.get(77, 0)
+                params["HOLD_DISCHG_END_MIN_1"] = dischg_regs.get(78, 0)
+                params["HOLD_DISCHG_ENABLE_1"] = dischg_regs.get(79, 0)
+
+            # Read SOC limit settings (registers 105-106)
+            soc_regs = await transport.read_parameters(105, 2)
+            if soc_regs:
+                params["HOLD_DISCHG_CUT_OFF_SOC_EOD"] = soc_regs.get(105, 0)
+                params["HOLD_SOC_LOW_LIMIT_EPS_DISCHG"] = soc_regs.get(106, 0)
+
+            # Read system function register (110) - additional bit fields
+            sys_regs = await transport.read_parameters(110, 1)
+            if 110 in sys_regs:
+                sys_func = sys_regs[110]
+                params["FUNC_PV_GRID_OFF_EN"] = bool(sys_func & (1 << 0))
+                params["FUNC_RUN_WITHOUT_GRID"] = bool(sys_func & (1 << 1))
+                params["FUNC_MICRO_GRID_EN"] = bool(sys_func & (1 << 2))
+                params["FUNC_BAT_SHARED"] = bool(sys_func & (1 << 3))
+                params["FUNC_CHARGE_LAST"] = bool(sys_func & (1 << 4))
+                params["FUNC_BUZZER_EN"] = bool(sys_func & (1 << 5))
+                params["FUNC_GREEN_EN"] = bool(sys_func & (1 << 8))
+                params["FUNC_BATTERY_ECO_EN"] = bool(sys_func & (1 << 9))
+
+            _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
+
+        except Exception as err:
+            _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
+
+        return params
+
     async def _async_update_modbus_data(self) -> dict[str, Any]:
         """Fetch data from local Modbus transport.
 
@@ -324,13 +400,9 @@ class EG4DataUpdateCoordinator(
             energy_data = await self._modbus_transport.read_energy()
             battery_data = await self._modbus_transport.read_battery()
 
-            # Read device info for firmware version (holding registers 9-10)
-            try:
-                device_info = await self._modbus_transport.read_device_info()
-                firmware_version = device_info.firmware_version or "Unknown"
-            except Exception as err:
-                _LOGGER.debug("Failed to read device info: %s", err)
-                firmware_version = "Unknown"
+            # Read configuration parameters from holding registers
+            # Register 21: Function enable bits, 66-67: AC charge, 105-106: SOC limits
+            param_data = await self._read_modbus_parameters(self._modbus_transport)
 
             # Build device data structure from transport data models
             processed = {
@@ -347,7 +419,6 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._modbus_model,
                 "serial": serial,
-                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }
@@ -439,6 +510,9 @@ class EG4DataUpdateCoordinator(
 
             processed["devices"][serial] = device_data
 
+            # Add parameters for this device
+            processed["parameters"] = {serial: param_data}
+
             # Silver tier logging
             if not self._last_available_state:
                 _LOGGER.warning(
@@ -525,13 +599,8 @@ class EG4DataUpdateCoordinator(
             energy_data = await self._dongle_transport.read_energy()
             battery_data = await self._dongle_transport.read_battery()
 
-            # Read device info for firmware version (holding registers 9-10)
-            try:
-                device_info = await self._dongle_transport.read_device_info()
-                firmware_version = device_info.firmware_version or "Unknown"
-            except Exception as err:
-                _LOGGER.debug("Failed to read device info from dongle: %s", err)
-                firmware_version = "Unknown"
+            # Read configuration parameters from holding registers
+            param_data = await self._read_modbus_parameters(self._dongle_transport)
 
             # Build device data structure from transport data models
             processed = {
@@ -548,7 +617,6 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._dongle_model,
                 "serial": serial,
-                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }
@@ -639,6 +707,9 @@ class EG4DataUpdateCoordinator(
                 )
 
             processed["devices"][serial] = device_data
+
+            # Add parameters for this device
+            processed["parameters"] = {serial: param_data}
 
             # Silver tier logging
             if not self._last_available_state:
