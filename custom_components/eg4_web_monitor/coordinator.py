@@ -404,6 +404,11 @@ class EG4DataUpdateCoordinator(
             # Register 21: Function enable bits, 66-67: AC charge, 105-106: SOC limits
             param_data = await self._read_modbus_parameters(self._modbus_transport)
 
+            # Read firmware version from holding registers 7-10
+            firmware_version = await self._modbus_transport.read_firmware_version()
+            if not firmware_version:
+                firmware_version = "Unknown"
+
             # Build device data structure from transport data models
             processed = {
                 "plant_id": None,  # No plant for Modbus-only
@@ -419,6 +424,7 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._modbus_model,
                 "serial": serial,
+                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }
@@ -508,6 +514,9 @@ class EG4DataUpdateCoordinator(
                     battery_data.discharge_power
                 )
 
+            # Add firmware version as diagnostic sensor
+            device_data["sensors"]["firmware_version"] = firmware_version
+
             processed["devices"][serial] = device_data
 
             # Add parameters for this device
@@ -522,7 +531,8 @@ class EG4DataUpdateCoordinator(
                 self._last_available_state = True
 
             _LOGGER.debug(
-                "Modbus update complete - PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                "Modbus update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                firmware_version,
                 runtime_data.pv_total_power,
                 runtime_data.battery_soc,
                 runtime_data.grid_power,
@@ -602,6 +612,11 @@ class EG4DataUpdateCoordinator(
             # Read configuration parameters from holding registers
             param_data = await self._read_modbus_parameters(self._dongle_transport)
 
+            # Read firmware version from holding registers 7-10
+            firmware_version = await self._dongle_transport.read_firmware_version()
+            if not firmware_version:
+                firmware_version = "Unknown"
+
             # Build device data structure from transport data models
             processed = {
                 "plant_id": None,  # No plant for Dongle-only
@@ -617,6 +632,7 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._dongle_model,
                 "serial": serial,
+                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }
@@ -706,6 +722,9 @@ class EG4DataUpdateCoordinator(
                     battery_data.discharge_power
                 )
 
+            # Add firmware version as diagnostic sensor
+            device_data["sensors"]["firmware_version"] = firmware_version
+
             processed["devices"][serial] = device_data
 
             # Add parameters for this device
@@ -720,7 +739,8 @@ class EG4DataUpdateCoordinator(
                 self._last_available_state = True
 
             _LOGGER.debug(
-                "Dongle update complete - PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                "Dongle update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                firmware_version,
                 runtime_data.pv_total_power,
                 runtime_data.battery_soc,
                 runtime_data.grid_power,
