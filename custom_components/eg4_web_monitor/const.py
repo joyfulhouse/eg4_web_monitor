@@ -140,6 +140,11 @@ HYBRID_LOCAL_MODBUS = "modbus"  # RS485 via Waveshare or similar adapter
 HYBRID_LOCAL_DONGLE = "dongle"  # WiFi dongle on port 8000
 HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 
+# Multi-transport configuration for hybrid mode (list of transport configs)
+# Each item is a dict with: serial, type (modbus/dongle), and transport-specific fields
+# Example: [{"serial": "CE12345", "type": "modbus", "host": "192.168.1.100", ...}]
+CONF_LOCAL_TRANSPORTS = "local_transports"
+
 # Modbus configuration keys
 CONF_MODBUS_HOST = "modbus_host"
 CONF_MODBUS_PORT = "modbus_port"
