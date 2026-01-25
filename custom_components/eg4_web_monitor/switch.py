@@ -24,6 +24,13 @@ from .base_entity import EG4BaseSwitch
 from .const import (
     FUNCTION_PARAM_MAPPING,
     INVERTER_FAMILY_SNA,
+    MODBUS_BIT_AC_CHARGE_EN,
+    MODBUS_BIT_EPS_EN,
+    MODBUS_BIT_FORCED_CHG_EN,
+    MODBUS_BIT_FORCED_DISCHG_EN,
+    MODBUS_BIT_GREEN_EN,
+    MODBUS_REG_FUNC_EN,
+    MODBUS_REG_SYS_FUNC,
     SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
@@ -110,8 +117,14 @@ async def async_setup_entry(
 
             # Check if device model is known to support switch functions
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
-                # Add quick charge switch
-                entities.append(EG4QuickChargeSwitch(coordinator, serial))
+                # Add quick charge switch (HTTP API only - requires cloud API)
+                if coordinator.has_http_api():
+                    entities.append(EG4QuickChargeSwitch(coordinator, serial))
+                else:
+                    _LOGGER.debug(
+                        "Skipping Quick Charge switch for %s (no HTTP API available)",
+                        serial,
+                    )
 
                 # Add battery backup switch (EPS) based on feature detection
                 if _supports_eps_battery_backup(device_data):
@@ -127,6 +140,24 @@ async def async_setup_entry(
 
                 # Add working mode switches
                 for mode_key, mode_config in WORKING_MODES.items():
+                    # For local-only mode, skip working modes without Modbus register support
+                    if coordinator.is_local_only():
+                        param = mode_config.get("param", "")
+                        # Check if this mode has Modbus register support
+                        # These are defined in _WORKING_MODE_REGISTERS later in this file
+                        modbus_supported_params = {
+                            "FUNC_AC_CHARGE",
+                            "FUNC_FORCED_CHG_EN",
+                            "FUNC_FORCED_DISCHG_EN",
+                        }
+                        if param not in modbus_supported_params:
+                            _LOGGER.debug(
+                                "Skipping working mode %s for %s (no Modbus support)",
+                                param,
+                                serial,
+                            )
+                            continue
+
                     entities.append(
                         EG4WorkingModeSwitch(
                             coordinator=coordinator,
@@ -285,23 +316,43 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable battery backup."""
-        await self._execute_switch_action(
-            action_name="battery backup",
-            enable_method="enable_battery_backup",
-            disable_method="disable_battery_backup",
-            turn_on=True,
-            refresh_params=True,
-        )
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            await self._execute_switch_action(
+                action_name="battery backup",
+                enable_method="enable_battery_backup",
+                disable_method="disable_battery_backup",
+                turn_on=True,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode
+            await self._execute_register_bit_action(
+                action_name="battery backup (EPS)",
+                register=MODBUS_REG_FUNC_EN,
+                bit=MODBUS_BIT_EPS_EN,
+                turn_on=True,
+            )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable battery backup."""
-        await self._execute_switch_action(
-            action_name="battery backup",
-            enable_method="enable_battery_backup",
-            disable_method="disable_battery_backup",
-            turn_on=False,
-            refresh_params=True,
-        )
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            await self._execute_switch_action(
+                action_name="battery backup",
+                enable_method="enable_battery_backup",
+                disable_method="disable_battery_backup",
+                turn_on=False,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode
+            await self._execute_register_bit_action(
+                action_name="battery backup (EPS)",
+                register=MODBUS_REG_FUNC_EN,
+                bit=MODBUS_BIT_EPS_EN,
+                turn_on=False,
+            )
 
 
 class EG4OffGridModeSwitch(EG4BaseSwitch):
@@ -359,26 +410,46 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable off-grid mode."""
-        await self._execute_switch_action(
-            action_name="off-grid mode",
-            enable_method="enable_green_mode",
-            disable_method="disable_green_mode",
-            turn_on=True,
-            refresh_params=True,
-        )
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            await self._execute_switch_action(
+                action_name="off-grid mode",
+                enable_method="enable_green_mode",
+                disable_method="disable_green_mode",
+                turn_on=True,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode (register 110, bit 8)
+            await self._execute_register_bit_action(
+                action_name="off-grid mode (Green Mode)",
+                register=MODBUS_REG_SYS_FUNC,
+                bit=MODBUS_BIT_GREEN_EN,
+                turn_on=True,
+            )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable off-grid mode."""
-        await self._execute_switch_action(
-            action_name="off-grid mode",
-            enable_method="enable_green_mode",
-            disable_method="disable_green_mode",
-            turn_on=False,
-            refresh_params=True,
-        )
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            await self._execute_switch_action(
+                action_name="off-grid mode",
+                enable_method="enable_green_mode",
+                disable_method="disable_green_mode",
+                turn_on=False,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode (register 110, bit 8)
+            await self._execute_register_bit_action(
+                action_name="off-grid mode (Green Mode)",
+                register=MODBUS_REG_SYS_FUNC,
+                bit=MODBUS_BIT_GREEN_EN,
+                turn_on=False,
+            )
 
 
-# Mapping of working mode parameters to inverter method names
+# Mapping of working mode parameters to inverter method names (HTTP API)
 _WORKING_MODE_METHODS = {
     "FUNC_AC_CHARGE": ("enable_ac_charge_mode", "disable_ac_charge_mode"),
     "FUNC_FORCED_CHG_EN": ("enable_pv_charge_priority", "disable_pv_charge_priority"),
@@ -388,6 +459,17 @@ _WORKING_MODE_METHODS = {
         "enable_battery_backup_ctrl",
         "disable_battery_backup_ctrl",
     ),
+}
+
+# Mapping of working mode parameters to Modbus register/bit pairs (local mode)
+# Format: param_key -> (register_address, bit_position)
+_WORKING_MODE_REGISTERS: dict[str, tuple[int, int] | None] = {
+    "FUNC_AC_CHARGE": (MODBUS_REG_FUNC_EN, MODBUS_BIT_AC_CHARGE_EN),
+    "FUNC_FORCED_CHG_EN": (MODBUS_REG_FUNC_EN, MODBUS_BIT_FORCED_CHG_EN),
+    "FUNC_FORCED_DISCHG_EN": (MODBUS_REG_FUNC_EN, MODBUS_BIT_FORCED_DISCHG_EN),
+    # These modes don't have direct Modbus register equivalents
+    "FUNC_GRID_PEAK_SHAVING": None,  # Not available via Modbus
+    "FUNC_BATTERY_BACKUP_CTRL": None,  # Not available via Modbus
 }
 
 
@@ -488,34 +570,68 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         param = self._mode_config["param"]
-        methods = _WORKING_MODE_METHODS.get(param)
 
-        if not methods:
-            raise HomeAssistantError(f"Unknown working mode parameter: {param}")
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            methods = _WORKING_MODE_METHODS.get(param)
+            if not methods:
+                raise HomeAssistantError(f"Unknown working mode parameter: {param}")
 
-        await self._execute_switch_action(
-            action_name=f"working mode {param}",
-            enable_method=methods[0],
-            disable_method=methods[1],
-            turn_on=True,
-            refresh_params=True,
-        )
+            await self._execute_switch_action(
+                action_name=f"working mode {param}",
+                enable_method=methods[0],
+                disable_method=methods[1],
+                turn_on=True,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode
+            register_info = _WORKING_MODE_REGISTERS.get(param)
+            if not register_info:
+                raise HomeAssistantError(
+                    f"Working mode {param} not available via Modbus"
+                )
+
+            register, bit = register_info
+            await self._execute_register_bit_action(
+                action_name=f"working mode {param}",
+                register=register,
+                bit=bit,
+                turn_on=True,
+            )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         param = self._mode_config["param"]
-        methods = _WORKING_MODE_METHODS.get(param)
 
-        if not methods:
-            raise HomeAssistantError(f"Unknown working mode parameter: {param}")
+        if self.coordinator.has_http_api():
+            # Use HTTP API for HTTP and Hybrid modes
+            methods = _WORKING_MODE_METHODS.get(param)
+            if not methods:
+                raise HomeAssistantError(f"Unknown working mode parameter: {param}")
 
-        await self._execute_switch_action(
-            action_name=f"working mode {param}",
-            enable_method=methods[0],
-            disable_method=methods[1],
-            turn_on=False,
-            refresh_params=True,
-        )
+            await self._execute_switch_action(
+                action_name=f"working mode {param}",
+                enable_method=methods[0],
+                disable_method=methods[1],
+                turn_on=False,
+                refresh_params=True,
+            )
+        else:
+            # Use Modbus register write for local-only mode
+            register_info = _WORKING_MODE_REGISTERS.get(param)
+            if not register_info:
+                raise HomeAssistantError(
+                    f"Working mode {param} not available via Modbus"
+                )
+
+            register, bit = register_info
+            await self._execute_register_bit_action(
+                action_name=f"working mode {param}",
+                register=register,
+                bit=bit,
+                turn_on=False,
+            )
 
 
 class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):

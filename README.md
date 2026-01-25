@@ -99,6 +99,107 @@ Restart Home Assistant after installation.
 
 > **Note:** The repository contains a `custom_components/eg4_web_monitor/` subdirectory. You must copy this inner directory to your Home Assistant `custom_components` folder, not the entire repository.
 
+## Connection Types
+
+This integration supports four connection methods:
+
+| Connection Type | Description | Update Speed | Internet Required |
+|-----------------|-------------|--------------|-------------------|
+| **Cloud API (HTTP)** | Connect via EG4's cloud service | 30 seconds | Yes |
+| **Local Modbus TCP** | Direct RS485 connection via adapter | 5 seconds | No |
+| **WiFi Dongle** | Direct connection via inverter's WiFi dongle | 5 seconds | No |
+| **Hybrid** | Local polling + Cloud for battery data | 5 seconds | Yes (for batteries) |
+
+### Cloud API (HTTP) - Easiest Setup
+
+The default connection method. Uses your EG4 Monitor account credentials to communicate with EG4's cloud servers. Best for most users.
+
+**Pros:** No additional hardware needed, works anywhere with internet
+**Cons:** Requires internet, 30-second update interval, depends on EG4 servers
+
+### Local Modbus TCP with Waveshare RS485 Adapter
+
+For users who want faster updates and local-only operation, you can connect directly to your inverter using an RS485-to-Ethernet adapter like the Waveshare RS485 to ETH (B).
+
+#### Hardware Requirements
+
+- **RS485 to Ethernet Adapter** - Choose one:
+  - **Waveshare RS485 to ETH (B)** - 1 channel (~$25) - [Amazon](https://amzn.to/3NPanIx)
+  - **Waveshare RS485 to ETH (B) 4CH** - 4 channels (~$45) - [Amazon](https://amzn.to/45whonI) - *Best for multiple inverters*
+- **RS485 cable** - 2-wire twisted pair, options:
+  - Use spare CAT5/CAT6 cable (1 twisted pair)
+  - **Shielded RS485 cable** (recommended for long runs) - [Amazon](https://amzn.to/4sSOUyp)
+- **Ethernet cable** - To connect adapter to your network
+
+> **Tip:** The 4-channel version allows you to connect multiple inverters or other RS485 devices (like energy meters) to a single adapter. For cable runs over 50 feet, use shielded cable to reduce interference.
+
+#### Wiring Diagram
+
+```
+EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
+┌─────────────────────┐          ┌─────────────────────┐
+│  RS485-A (Pin 1) ───┼──────────┼── A+ (Terminal)     │
+│  RS485-B (Pin 2) ───┼──────────┼── B- (Terminal)     │
+│  GND (Pin 3) ───────┼──────────┼── GND (Terminal)    │
+└─────────────────────┘          └─────────────────────┘
+                                         │
+                                         │ Ethernet
+                                         ▼
+                                   Your Network
+```
+
+> **Important:** On EG4 18kPV inverters, the RS485 port is labeled "BMS/Meter" and is located on the bottom of the inverter. Use pins 1 (A), 2 (B), and 3 (GND).
+
+#### Waveshare Configuration
+
+1. Connect the Waveshare adapter to your network via Ethernet
+2. Access the web configuration at `http://192.168.1.200` (default IP)
+3. Configure the following settings:
+
+**Network Settings:**
+- Set a static IP address on your network (e.g., `192.168.1.100`)
+- Subnet mask: `255.255.255.0`
+- Gateway: Your router IP
+
+**Serial Port Settings:**
+- Baud Rate: `9600`
+- Data Bits: `8`
+- Stop Bits: `1`
+- Parity: `None`
+
+**Working Mode:**
+- Mode: `TCP Server`
+- Local Port: `502` (standard Modbus TCP port)
+
+4. Save and restart the adapter
+
+#### Home Assistant Configuration
+
+During integration setup:
+1. Select **"Local Modbus TCP (RS485 adapter)"** as the connection type
+2. Enter the Waveshare adapter's IP address (e.g., `192.168.1.100`)
+3. Port: `502`
+4. Unit ID: `1` (default for most inverters)
+5. Enter your inverter's serial number
+6. Select your inverter family (PV Series, SNA, or LXP-EU)
+
+### WiFi Dongle Connection
+
+If your inverter has a WiFi dongle, you can connect directly to it on port 8000.
+
+**Requirements:**
+- Inverter with WiFi dongle installed
+- Dongle connected to your local network
+- Dongle serial number (found on the dongle sticker)
+
+> **Note:** Some newer dongle firmware versions may block port 8000 access for security reasons. If connection fails, try the Modbus or Cloud API method instead.
+
+### Hybrid Connection
+
+Combines local polling (Modbus or Dongle) for fast sensor updates with Cloud API for individual battery data.
+
+**Best for:** Users who want fast local updates but also need detailed per-battery monitoring (the cloud API provides individual battery cell data that isn't available via Modbus).
+
 ## Configuration
 
 ### Initial Setup
@@ -138,6 +239,22 @@ Need to change your credentials or switch to a different station? No problem!
 6. Click **Submit** - your integration will reload with the new settings
 
 The reconfiguration process won't lose any of your existing automations or dashboards!
+
+### Configuring Options (Refresh Intervals)
+
+After initial setup, you can customize polling intervals:
+
+1. Navigate to **Settings** → **Devices & Services**
+2. Find your **EG4 Web Monitor** integration
+3. Click **Configure**
+4. Adjust the settings:
+   - **Sensor Update Interval**: How often to poll for sensor data (5-300 seconds)
+     - Default: 5 seconds for local connections (Modbus/Dongle), 30 seconds for HTTP
+   - **Parameter Refresh Interval**: How often to sync configuration settings (5-1440 minutes)
+     - Default: 60 minutes (1 hour)
+5. Click **Submit** - the integration will reload with your new settings
+
+> **Tip:** Lower sensor intervals provide faster updates but increase network/API load. For local connections (Modbus/Dongle), 5 seconds is recommended. For cloud API (HTTP), 30 seconds balances responsiveness with server load.
 
 > **⚠️ Important Note About Changing Stations:**
 >
@@ -309,9 +426,16 @@ automation:
 
 ### How often does the data update?
 
-Data updates every 30 seconds by default. You can force an immediate update using the "Refresh Data" button or the `eg4_web_monitor.refresh_data` service.
+Update intervals depend on your connection type:
+- **Cloud API (HTTP)**: 30 seconds by default
+- **Local Modbus/Dongle**: 5 seconds by default
+- **Hybrid**: 5 seconds for sensors, cloud API for battery details
 
-**Note:** If you change settings directly on the EG4 monitoring website (not through Home Assistant), parameter data like working mode switches may take up to an hour to refresh. Press the `button.<model>_<serial>_refresh_data` button to force an immediate parameter sync.
+You can customize these intervals in the integration options (Settings → Integrations → EG4 → Configure). Range: 5-300 seconds for sensors.
+
+You can also force an immediate update using the "Refresh Data" button or the `eg4_web_monitor.refresh_data` service.
+
+**Note:** If you change settings directly on the EG4 monitoring website (not through Home Assistant), parameter data like working mode switches may take up to an hour to refresh (configurable in options). Press the `button.<model>_<serial>_refresh_data` button to force an immediate parameter sync.
 
 ### Can I monitor multiple solar installations?
 
@@ -326,18 +450,32 @@ This is normal! The integration only creates sensors for features your equipment
 
 ### Will this work if my internet goes down?
 
-No - this integration requires internet access because it communicates with EG4's cloud service. It cannot communicate directly with your inverters. If your internet connection is down, the integration will mark entities as "unavailable" and will automatically reconnect when internet is restored.
+**It depends on your connection type:**
+
+- **Cloud API (HTTP)**: No - requires internet to communicate with EG4's cloud service
+- **Local Modbus TCP**: Yes - communicates directly with your inverter via RS485 adapter
+- **WiFi Dongle**: Yes - communicates directly with your inverter's WiFi dongle
+- **Hybrid**: Partial - sensor data works locally, but battery details require internet
+
+If using cloud API and your internet is down, entities will be marked "unavailable" and will automatically reconnect when internet is restored.
+
+> **Tip:** For maximum reliability, use **Local Modbus TCP** with a Waveshare RS485 adapter. This provides the fastest updates (5 seconds) and works completely offline.
 
 ### Does this integration control my inverter?
 
 Yes, for supported features like:
-- Quick charge on/off
+- Quick charge on/off (Cloud API only)
 - Battery backup (EPS) mode
 - Operating mode (Normal/Standby)
 - SOC charge limits
 - AC and PV charge power settings
+- Charge/discharge current limits
 
-All control commands are sent through the official EG4 API, the same one used by the EG4 Monitor mobile app.
+**How controls work by connection type:**
+- **Cloud API/Hybrid**: Commands sent through EG4's cloud API (same as mobile app)
+- **Local Modbus/Dongle**: Direct register writes to inverter (faster, works offline)
+
+> **Note:** Quick Charge is only available with Cloud API or Hybrid modes because it's a cloud-scheduled task feature, not a local register setting.
 
 ### Is this integration secure?
 

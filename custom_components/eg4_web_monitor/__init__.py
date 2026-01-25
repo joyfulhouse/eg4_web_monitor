@@ -182,7 +182,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # Update device registry with current firmware versions AFTER devices are created
     await _async_update_device_registry(hass, coordinator)
 
+    # Register options update listener - reload when options change
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: EG4ConfigEntry) -> None:
+    """Handle options update - reload the integration to apply new settings."""
+    _LOGGER.info("Options updated for %s, reloading integration", entry.title)
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:

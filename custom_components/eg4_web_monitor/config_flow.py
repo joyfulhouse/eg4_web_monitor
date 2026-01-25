@@ -52,8 +52,10 @@ from .const import (
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
+    CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
+    CONF_SENSOR_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
@@ -66,6 +68,9 @@ from .const import (
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
+    DEFAULT_PARAMETER_REFRESH_INTERVAL,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
     HYBRID_LOCAL_DONGLE,
@@ -73,6 +78,10 @@ from .const import (
     INVERTER_FAMILY_LXP_EU,
     INVERTER_FAMILY_PV_SERIES,
     INVERTER_FAMILY_SNA,
+    MAX_PARAMETER_REFRESH_INTERVAL,
+    MAX_SENSOR_UPDATE_INTERVAL,
+    MIN_PARAMETER_REFRESH_INTERVAL,
+    MIN_SENSOR_UPDATE_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -163,6 +172,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Hybrid mode local transport type selection
         self._hybrid_local_type: str | None = None
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return EG4OptionsFlow(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -1802,6 +1818,80 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_abort(
             reason="reconfigure_successful",
             description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+
+class EG4OptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow for EG4 Web Monitor."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        # Determine default sensor update interval based on connection type
+        connection_type = self.config_entry.data.get(
+            CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
+        )
+        is_local_connection = connection_type in (
+            CONNECTION_TYPE_MODBUS,
+            CONNECTION_TYPE_DONGLE,
+        )
+        default_sensor_interval = (
+            DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+            if is_local_connection
+            else DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
+        )
+
+        # Get current values from options, falling back to defaults
+        current_sensor_interval = self.config_entry.options.get(
+            CONF_SENSOR_UPDATE_INTERVAL, default_sensor_interval
+        )
+        current_param_interval = self.config_entry.options.get(
+            CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
+        )
+
+        options_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SENSOR_UPDATE_INTERVAL,
+                    default=current_sensor_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_SENSOR_UPDATE_INTERVAL,
+                        max=MAX_SENSOR_UPDATE_INTERVAL,
+                    ),
+                ),
+                vol.Required(
+                    CONF_PARAMETER_REFRESH_INTERVAL,
+                    default=current_param_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_PARAMETER_REFRESH_INTERVAL,
+                        max=MAX_PARAMETER_REFRESH_INTERVAL,
+                    ),
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=options_schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "min_sensor_interval": str(MIN_SENSOR_UPDATE_INTERVAL),
+                "max_sensor_interval": str(MAX_SENSOR_UPDATE_INTERVAL),
+                "min_param_interval": str(MIN_PARAMETER_REFRESH_INTERVAL),
+                "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
+            },
         )
 
 

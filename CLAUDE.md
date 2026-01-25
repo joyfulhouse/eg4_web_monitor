@@ -173,6 +173,40 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.9-beta.1 - January 2026: Dual-Mode Control & Configurable Intervals
+**New Features:**
+- **Dual-Mode Control**: Switches and number entities now support both HTTP API and local Modbus register writes
+  - HTTP/Hybrid modes: Use cloud API methods (richer feature set, validation)
+  - Modbus/Dongle modes: Direct register writes for local-only control
+  - Quick Charge remains HTTP-only (cloud task feature)
+- **Configurable Refresh Intervals**: New Options Flow for customizing polling intervals
+  - Sensor Update Interval: 5-300 seconds (default: 5s local, 30s HTTP)
+  - Parameter Refresh Interval: 5-1440 minutes (default: 60 minutes)
+  - Access via Settings → Integrations → EG4 → Configure
+
+**Technical Details:**
+- New coordinator methods: `has_http_api()`, `is_local_only()`, `write_register_bit()`, `write_register_value()`
+- New Modbus register constants in const.py for control operations
+- `EG4OptionsFlow` class for UI-based interval configuration
+- Options update triggers integration reload for immediate effect
+
+**Modbus Register Mapping:**
+| Control | Register | Type |
+|---------|----------|------|
+| EPS/Battery Backup | 21, bit 0 | Bit field |
+| AC Charge Enable | 21, bit 7 | Bit field |
+| Forced Charge | 21, bit 11 | Bit field |
+| Forced Discharge | 21, bit 10 | Bit field |
+| Green/Off-Grid Mode | 110, bit 8 | Bit field |
+| PV Charge Power | 64 | 0-100% |
+| Discharge Power | 65 | 0-100% |
+| AC Charge Power | 66 | 0-100% |
+| AC Charge SOC Limit | 67 | 0-100% |
+| Charge Current | 101 | Amps |
+| Discharge Current | 102 | Amps |
+| On-Grid SOC Cutoff | 105 | 10-90% |
+| Off-Grid SOC Cutoff | 106 | 0-100% |
+
 ### v3.1.8-beta.8 - January 2026: Modbus/Dongle Configuration Entities Fix
 **Bug Fixes:**
 - Fixed configuration entities (switches, numbers) not showing for Modbus/Dongle modes (#89)

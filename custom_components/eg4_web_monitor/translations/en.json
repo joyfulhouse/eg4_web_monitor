@@ -92,12 +92,14 @@
     "step": {
       "init": {
         "title": "{brand_name} Web Monitor Options",
-        "description": "Configure advanced options for your {brand_name} Web Monitor integration.",
+        "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
         "data": {
-          "scan_interval": "Update Interval (seconds)"
+          "sensor_update_interval": "Sensor Update Interval (seconds)",
+          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)"
         },
         "data_description": {
-          "scan_interval": "How often to poll the {brand_name} API for updates (minimum 30 seconds)"
+          "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
+          "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes)."
         }
       }
     }

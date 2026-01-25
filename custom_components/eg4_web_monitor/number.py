@@ -27,6 +27,13 @@ from .const import (
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
+    MODBUS_REG_AC_CHARGE_POWER,
+    MODBUS_REG_AC_CHARGE_SOC_LIMIT,
+    MODBUS_REG_CHARGE_CURRENT,
+    MODBUS_REG_CHARGE_POWER_PERCENT,
+    MODBUS_REG_DISCHARGE_CURRENT,
+    MODBUS_REG_OFFGRID_DISCHG_SOC,
+    MODBUS_REG_ONGRID_DISCHG_SOC,
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
     PV_CHARGE_POWER_STEP,
@@ -336,7 +343,7 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge power value using device object method."""
+        """Set the AC charge power value using device object method or Modbus."""
         if value < 0.0 or value > 15.0:
             raise HomeAssistantError(
                 f"AC charge power must be between 0.0-15.0 kW, got {value}"
@@ -345,19 +352,39 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting AC Charge Power for %s to %.1f kW", self.serial, value)
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API for HTTP and Hybrid modes
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_ac_charge_power(power_kw=value)
-            if not success:
-                raise HomeAssistantError("Failed to set AC charge power")
+                success = await inverter.set_ac_charge_power(power_kw=value)
+                if not success:
+                    raise HomeAssistantError("Failed to set AC charge power")
 
-            _LOGGER.info(
-                "Successfully set AC Charge Power for %s to %.1f kW",
-                self.serial,
-                value,
-            )
+                _LOGGER.info(
+                    "Successfully set AC Charge Power for %s to %.1f kW",
+                    self.serial,
+                    value,
+                )
 
-            await inverter.refresh()
+                await inverter.refresh()
+            else:
+                # Use Modbus register write for local-only mode
+                # Register 66 expects percentage (0-100%) where 100% = 15kW
+                register_value = int(value / 15.0 * 100)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_AC_CHARGE_POWER, register_value
+                )
+
+                _LOGGER.info(
+                    "Successfully set AC Charge Power for %s to %.1f kW (register %d = %d%%)",
+                    self.serial,
+                    value,
+                    MODBUS_REG_AC_CHARGE_POWER,
+                    register_value,
+                )
+
+                # Wait briefly for register write to take effect
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "AC Charge Power changed for %s, refreshing parameters for all inverters",
@@ -413,7 +440,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the PV charge power value using device object method."""
+        """Set the PV charge power value using device object method or Modbus."""
         int_value = int(value)
         if int_value < 0 or int_value > 15:
             raise HomeAssistantError(
@@ -428,19 +455,38 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting PV Charge Power for %s to %d kW", self.serial, int_value)
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API for HTTP and Hybrid modes
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_pv_charge_power(power_kw=int_value)
-            if not success:
-                raise HomeAssistantError("Failed to set PV charge power")
+                success = await inverter.set_pv_charge_power(power_kw=int_value)
+                if not success:
+                    raise HomeAssistantError("Failed to set PV charge power")
 
-            _LOGGER.info(
-                "Successfully set PV Charge Power for %s to %d kW",
-                self.serial,
-                int_value,
-            )
+                _LOGGER.info(
+                    "Successfully set PV Charge Power for %s to %d kW",
+                    self.serial,
+                    int_value,
+                )
 
-            await inverter.refresh()
+                await inverter.refresh()
+            else:
+                # Use Modbus register write for local-only mode
+                # Register 64 expects percentage (0-100%) where 100% = 15kW
+                register_value = int(int_value / 15.0 * 100)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_CHARGE_POWER_PERCENT, register_value
+                )
+
+                _LOGGER.info(
+                    "Successfully set PV Charge Power for %s to %d kW (register %d = %d%%)",
+                    self.serial,
+                    int_value,
+                    MODBUS_REG_CHARGE_POWER_PERCENT,
+                    register_value,
+                )
+
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "PV Charge Power changed for %s, refreshing parameters for all inverters",
@@ -583,7 +629,7 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge SOC limit value using device object method."""
+        """Set the AC charge SOC limit value using device object method or Modbus."""
         int_value = int(value)
         if int_value < 0 or int_value > 100:
             raise HomeAssistantError(
@@ -600,19 +646,35 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API for HTTP and Hybrid modes
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
-            if not success:
-                raise HomeAssistantError("Failed to set AC charge SOC limit")
+                success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
+                if not success:
+                    raise HomeAssistantError("Failed to set AC charge SOC limit")
 
-            _LOGGER.info(
-                "Successfully set AC Charge SOC Limit for %s to %d%%",
-                self.serial,
-                int_value,
-            )
+                _LOGGER.info(
+                    "Successfully set AC Charge SOC Limit for %s to %d%%",
+                    self.serial,
+                    int_value,
+                )
 
-            await inverter.refresh()
+                await inverter.refresh()
+            else:
+                # Use Modbus register write for local-only mode (register 67)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_AC_CHARGE_SOC_LIMIT, int_value
+                )
+
+                _LOGGER.info(
+                    "Successfully set AC Charge SOC Limit for %s to %d%% (register %d)",
+                    self.serial,
+                    int_value,
+                    MODBUS_REG_AC_CHARGE_SOC_LIMIT,
+                )
+
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "AC Charge SOC Limit changed for %s, refreshing parameters for all inverters",
@@ -671,7 +733,7 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the on-grid SOC cutoff value."""
+        """Set the on-grid SOC cutoff value using device object method or Modbus."""
         int_value = int(value)
         if int_value < 0 or int_value > 100:
             raise HomeAssistantError(
@@ -688,16 +750,31 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API for HTTP and Hybrid modes
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
+                success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
 
-            if not success:
-                raise HomeAssistantError(
-                    f"Failed to set on-grid SOC cutoff to {int_value}%"
+                if not success:
+                    raise HomeAssistantError(
+                        f"Failed to set on-grid SOC cutoff to {int_value}%"
+                    )
+
+                await inverter.refresh()
+            else:
+                # Use Modbus register write for local-only mode (register 105)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_ONGRID_DISCHG_SOC, int_value
                 )
 
-            await inverter.refresh()
+                _LOGGER.info(
+                    "Wrote On-Grid SOC Cut-Off to register %d = %d%%",
+                    MODBUS_REG_ONGRID_DISCHG_SOC,
+                    int_value,
+                )
+
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "On-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
@@ -764,7 +841,7 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the off-grid SOC cutoff value."""
+        """Set the off-grid SOC cutoff value using device object method or Modbus."""
         int_value = int(value)
         if int_value < 0 or int_value > 100:
             raise HomeAssistantError(
@@ -781,16 +858,33 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API for HTTP and Hybrid modes
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_battery_soc_limits(off_grid_limit=int_value)
-
-            if not success:
-                raise HomeAssistantError(
-                    f"Failed to set off-grid SOC cutoff to {int_value}%"
+                success = await inverter.set_battery_soc_limits(
+                    off_grid_limit=int_value
                 )
 
-            await inverter.refresh()
+                if not success:
+                    raise HomeAssistantError(
+                        f"Failed to set off-grid SOC cutoff to {int_value}%"
+                    )
+
+                await inverter.refresh()
+            else:
+                # Use Modbus register write for local-only mode (register 106)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_OFFGRID_DISCHG_SOC, int_value
+                )
+
+                _LOGGER.info(
+                    "Wrote Off-Grid SOC Cut-Off to register %d = %d%%",
+                    MODBUS_REG_OFFGRID_DISCHG_SOC,
+                    int_value,
+                )
+
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "Off-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
@@ -856,7 +950,7 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the battery charge current value using device object method."""
+        """Set the battery charge current value using device object method or register."""
         int_value = int(value)
         if int_value < 0 or int_value > 250:
             raise HomeAssistantError(
@@ -873,22 +967,37 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API method
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_battery_charge_current(current_amps=int_value)
-            if not success:
-                raise HomeAssistantError("Failed to set battery charge current")
+                success = await inverter.set_battery_charge_current(
+                    current_amps=int_value
+                )
+                if not success:
+                    raise HomeAssistantError("Failed to set battery charge current")
+
+                _LOGGER.info(
+                    "Successfully set Battery Charge Current for %s to %d A (HTTP)",
+                    self.serial,
+                    int_value,
+                )
+
+                await inverter.refresh()
+            else:
+                # Use Modbus register write (register 101 = charge current in Amps)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_CHARGE_CURRENT, int_value
+                )
+                _LOGGER.info(
+                    "Successfully set Battery Charge Current for %s to %d A (Modbus)",
+                    self.serial,
+                    int_value,
+                )
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
-                "Successfully set Battery Charge Current for %s to %d A",
-                self.serial,
-                int_value,
-            )
-
-            await inverter.refresh()
-
-            _LOGGER.info(
-                "Battery Charge Current changed for %s, refreshing parameters for all inverters",
+                "Battery Charge Current changed for %s, refreshing parameters",
                 self.serial,
             )
 
@@ -945,7 +1054,7 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the battery discharge current value using device object method."""
+        """Set the battery discharge current value using device object method or register."""
         int_value = int(value)
         if int_value < 0 or int_value > 250:
             raise HomeAssistantError(
@@ -959,21 +1068,34 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            if self.coordinator.has_http_api():
+                # Use HTTP API method
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_battery_discharge_current(
-                current_amps=int_value
-            )
-            if not success:
-                raise HomeAssistantError("Failed to set battery discharge current")
+                success = await inverter.set_battery_discharge_current(
+                    current_amps=int_value
+                )
+                if not success:
+                    raise HomeAssistantError("Failed to set battery discharge current")
 
-            _LOGGER.info(
-                "Successfully set Battery Discharge Current for %s to %d A",
-                self.serial,
-                int_value,
-            )
+                _LOGGER.info(
+                    "Successfully set Battery Discharge Current for %s to %d A (HTTP)",
+                    self.serial,
+                    int_value,
+                )
 
-            await inverter.refresh()
+                await inverter.refresh()
+            else:
+                # Use Modbus register write (register 102 = discharge current in Amps)
+                await self.coordinator.write_register_value(
+                    MODBUS_REG_DISCHARGE_CURRENT, int_value
+                )
+                _LOGGER.info(
+                    "Successfully set Battery Discharge Current for %s to %d A (Modbus)",
+                    self.serial,
+                    int_value,
+                )
+                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "Battery Discharge Current changed for %s, refreshing parameters",

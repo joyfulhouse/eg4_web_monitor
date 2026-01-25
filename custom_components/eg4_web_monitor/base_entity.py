@@ -944,3 +944,78 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e
+
+    async def _execute_register_bit_action(
+        self,
+        action_name: str,
+        register: int,
+        bit: int,
+        turn_on: bool,
+    ) -> None:
+        """Execute a switch action by writing to a Modbus register bit.
+
+        Used for local Modbus/Dongle connections where HTTP API is not available.
+        This modifies a single bit in a holding register.
+
+        Args:
+            action_name: Human-readable name of the action for logging.
+            register: Holding register address (e.g., 21 for FUNC_EN, 110 for SYS_FUNC).
+            bit: Bit position within the register (0-15).
+            turn_on: True to set the bit, False to clear it.
+
+        Raises:
+            HomeAssistantError: If the register write fails.
+        """
+        action_verb = "Enabling" if turn_on else "Disabling"
+
+        try:
+            _LOGGER.debug(
+                "%s %s for device %s (register %d, bit %d)",
+                action_verb,
+                action_name,
+                self._serial,
+                register,
+                bit,
+            )
+
+            # Set optimistic state immediately for UI feedback
+            self._optimistic_state = turn_on
+            self.async_write_ha_state()
+
+            # Write the register bit via coordinator
+            await self.coordinator.write_register_bit(register, bit, turn_on)
+
+            _LOGGER.info(
+                "Successfully %s %s for device %s",
+                action_verb.lower()[:-3] + "ed",
+                action_name,
+                self._serial,
+            )
+
+            # Wait briefly for register write to take effect
+            await asyncio.sleep(0.5)
+
+            # Request coordinator refresh
+            await self.coordinator.async_refresh()
+
+            # Clear optimistic state after refresh
+            self._optimistic_state = None
+            self.async_write_ha_state()
+
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to %s %s for device %s: %s",
+                action_verb.lower(),
+                action_name,
+                self._serial,
+                e,
+            )
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action_verb.lower()} {action_name}: {e}"
+            ) from e

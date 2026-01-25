@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
 from homeassistant.util import dt as dt_util
 
@@ -48,7 +48,9 @@ from .const import (
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
+    CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
+    CONF_SENSOR_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
@@ -60,13 +62,13 @@ from .const import (
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
-    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_PARAMETER_REFRESH_INTERVAL,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DOMAIN,
-    DONGLE_UPDATE_INTERVAL,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
     INVERTER_FAMILY_DEFAULT_MODELS,
-    MODBUS_UPDATE_INTERVAL,
 )
 from .coordinator_mixins import (
     BackgroundTaskMixin,
@@ -231,9 +233,12 @@ class EG4DataUpdateCoordinator(
         self.devices: dict[str, dict[str, Any]] = {}
         self.device_sensors: dict[str, list[str]] = {}
 
-        # Parameter refresh tracking
+        # Parameter refresh tracking - read from options or use default
         self._last_parameter_refresh: datetime | None = None
-        self._parameter_refresh_interval = timedelta(hours=1)
+        param_refresh_minutes = entry.options.get(
+            CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
+        )
+        self._parameter_refresh_interval = timedelta(minutes=param_refresh_minutes)
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -260,20 +265,22 @@ class EG4DataUpdateCoordinator(
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 
-        # Determine update interval based on connection type
+        # Determine update interval - read from options or use connection-type default
         # Modbus, Dongle, and Hybrid can poll faster since they use local network
-        if self.connection_type == CONNECTION_TYPE_MODBUS:
-            update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
-        elif self.connection_type == CONNECTION_TYPE_HYBRID:
-            # Use appropriate interval based on hybrid local transport type
-            if self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
-                update_interval = timedelta(seconds=DONGLE_UPDATE_INTERVAL)
-            else:
-                update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
-        elif self.connection_type == CONNECTION_TYPE_DONGLE:
-            update_interval = timedelta(seconds=DONGLE_UPDATE_INTERVAL)
-        else:
-            update_interval = timedelta(seconds=DEFAULT_UPDATE_INTERVAL)
+        is_local_connection = self.connection_type in (
+            CONNECTION_TYPE_MODBUS,
+            CONNECTION_TYPE_DONGLE,
+            CONNECTION_TYPE_HYBRID,
+        )
+        default_interval = (
+            DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+            if is_local_connection
+            else DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
+        )
+        sensor_interval_seconds = entry.options.get(
+            CONF_SENSOR_UPDATE_INTERVAL, default_interval
+        )
+        update_interval = timedelta(seconds=sensor_interval_seconds)
 
         super().__init__(
             hass,
@@ -1373,6 +1380,136 @@ class EG4DataUpdateCoordinator(
                 return cast(Battery, battery)
 
         return None
+
+    def get_local_transport(self) -> Any | None:
+        """Get the Modbus or Dongle transport for local register operations.
+
+        Returns:
+            ModbusTransport, DongleTransport, or None if using HTTP-only mode.
+        """
+        if self._modbus_transport:
+            return self._modbus_transport
+        if self._dongle_transport:
+            return self._dongle_transport
+        return None
+
+    def has_local_transport(self) -> bool:
+        """Check if local Modbus or Dongle transport is available.
+
+        Returns:
+            True if Modbus or Dongle transport is configured.
+        """
+        return self._modbus_transport is not None or self._dongle_transport is not None
+
+    def has_http_api(self) -> bool:
+        """Check if HTTP API is available (HTTP or Hybrid mode).
+
+        Used to determine if HTTP-only features like Quick Charge are available.
+
+        Returns:
+            True if HTTP client is configured (HTTP or Hybrid mode).
+        """
+        return self.client is not None
+
+    def is_local_only(self) -> bool:
+        """Check if using local-only connection (Modbus or Dongle, no HTTP).
+
+        Returns:
+            True if Modbus or Dongle mode without HTTP fallback.
+        """
+        return self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_DONGLE)
+
+    async def write_register_bit(
+        self,
+        register: int,
+        bit: int,
+        value: bool,
+    ) -> bool:
+        """Write a single bit in a holding register.
+
+        Reads the current register value, modifies the specified bit,
+        and writes back the updated value.
+
+        Args:
+            register: Holding register address (e.g., 21 for FUNC_EN, 110 for SYS_FUNC)
+            bit: Bit position (0-15)
+            value: True to set bit, False to clear
+
+        Returns:
+            True if write succeeded, False otherwise.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport()
+        if not transport:
+            raise HomeAssistantError("No local transport available for register write")
+
+        try:
+            # Read current register value
+            current_regs = await transport.read_parameters(register, 1)
+            if register not in current_regs:
+                raise HomeAssistantError(f"Failed to read register {register}")
+
+            current_value = current_regs[register]
+
+            # Modify the bit
+            if value:
+                new_value = current_value | (1 << bit)
+            else:
+                new_value = current_value & ~(1 << bit)
+
+            # Write back if changed
+            if new_value != current_value:
+                await transport.write_parameters({register: new_value})
+                _LOGGER.debug(
+                    "Wrote register %d bit %d = %s (0x%04X -> 0x%04X)",
+                    register,
+                    bit,
+                    value,
+                    current_value,
+                    new_value,
+                )
+
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d bit %d: %s", register, bit, err)
+            raise HomeAssistantError(
+                f"Failed to write register {register} bit {bit}: {err}"
+            ) from err
+
+    async def write_register_value(
+        self,
+        register: int,
+        value: int,
+    ) -> bool:
+        """Write a value directly to a holding register.
+
+        Args:
+            register: Holding register address
+            value: Value to write (0-65535)
+
+        Returns:
+            True if write succeeded, False otherwise.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport()
+        if not transport:
+            raise HomeAssistantError("No local transport available for register write")
+
+        try:
+            await transport.write_parameters({register: value})
+            _LOGGER.debug("Wrote register %d = %d (0x%04X)", register, value, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", register, err)
+            raise HomeAssistantError(
+                f"Failed to write register {register}: {err}"
+            ) from err
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.
