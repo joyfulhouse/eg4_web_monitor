@@ -324,6 +324,14 @@ class EG4DataUpdateCoordinator(
             energy_data = await self._modbus_transport.read_energy()
             battery_data = await self._modbus_transport.read_battery()
 
+            # Read device info for firmware version (holding registers 9-10)
+            try:
+                device_info = await self._modbus_transport.read_device_info()
+                firmware_version = device_info.firmware_version or "Unknown"
+            except Exception as err:
+                _LOGGER.debug("Failed to read device info: %s", err)
+                firmware_version = "Unknown"
+
             # Build device data structure from transport data models
             processed = {
                 "plant_id": None,  # No plant for Modbus-only
@@ -339,6 +347,7 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._modbus_model,
                 "serial": serial,
+                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }
@@ -516,6 +525,14 @@ class EG4DataUpdateCoordinator(
             energy_data = await self._dongle_transport.read_energy()
             battery_data = await self._dongle_transport.read_battery()
 
+            # Read device info for firmware version (holding registers 9-10)
+            try:
+                device_info = await self._dongle_transport.read_device_info()
+                firmware_version = device_info.firmware_version or "Unknown"
+            except Exception as err:
+                _LOGGER.debug("Failed to read device info from dongle: %s", err)
+                firmware_version = "Unknown"
+
             # Build device data structure from transport data models
             processed = {
                 "plant_id": None,  # No plant for Dongle-only
@@ -531,6 +548,7 @@ class EG4DataUpdateCoordinator(
                 "type": "inverter",
                 "model": self._dongle_model,
                 "serial": serial,
+                "firmware_version": firmware_version,
                 "sensors": {},
                 "batteries": {},
             }

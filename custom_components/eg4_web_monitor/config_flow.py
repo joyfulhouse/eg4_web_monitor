@@ -274,15 +274,23 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._modbus_unit_id = user_input.get(
                 CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
             )
-            self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
+            # Serial is now optional - will be auto-detected if not provided
+            self._inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "")
             self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
             self._inverter_family = user_input.get(
                 CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
             )
 
-            # Test Modbus connection
+            # Test Modbus connection and auto-detect serial if not provided
             try:
-                await self._test_modbus_connection()
+                detected_serial = await self._test_modbus_connection()
+                # Use detected serial if user didn't provide one
+                if not self._inverter_serial and detected_serial:
+                    self._inverter_serial = detected_serial
+                    _LOGGER.info(
+                        "Auto-detected inverter serial from Modbus: %s",
+                        detected_serial,
+                    )
                 return await self._create_modbus_entry()
 
             except ImportError:
@@ -304,12 +312,13 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
         }
 
+        # Serial is optional - auto-detected from Modbus registers if not provided
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
                 vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
-                vol.Required(CONF_INVERTER_SERIAL): str,
+                vol.Optional(CONF_INVERTER_SERIAL, default=""): str,
                 vol.Optional(CONF_INVERTER_MODEL, default=""): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
@@ -326,8 +335,12 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def _test_modbus_connection(self) -> None:
-        """Test Modbus TCP connection to the inverter."""
+    async def _test_modbus_connection(self) -> str:
+        """Test Modbus TCP connection and read serial number.
+
+        Returns:
+            The inverter serial number read from Modbus registers.
+        """
         from pylxpweb.devices.inverters._features import InverterFamily
         from pylxpweb.transports import create_modbus_transport
         from pylxpweb.transports.exceptions import TransportConnectionError
@@ -335,7 +348,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._modbus_host is not None
         assert self._modbus_port is not None
         assert self._modbus_unit_id is not None
-        assert self._inverter_serial is not None
 
         # Convert string family to InverterFamily enum
         inverter_family = None
@@ -351,18 +363,26 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host=self._modbus_host,
             port=self._modbus_port,
             unit_id=self._modbus_unit_id,
-            serial=self._inverter_serial,
+            serial=self._inverter_serial or "",
             timeout=DEFAULT_MODBUS_TIMEOUT,
             inverter_family=inverter_family,
         )
 
+        detected_serial = ""
         try:
             await transport.connect()
+
+            # Read serial number from Modbus registers
+            detected_serial = await transport.read_serial_number()
+            _LOGGER.debug(
+                "Read serial number from Modbus registers: %s", detected_serial
+            )
 
             # Try to read runtime data to verify connection
             runtime = await transport.read_runtime()
             _LOGGER.info(
-                "Modbus connection successful - PV power: %sW, Battery SOC: %s%%",
+                "Modbus connection successful - Serial: %s, PV power: %sW, Battery SOC: %s%%",
+                detected_serial,
                 runtime.pv_total_power,
                 runtime.battery_soc,
             )
@@ -371,12 +391,15 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         finally:
             await transport.disconnect()
 
+        return detected_serial
+
     async def _create_modbus_entry(self) -> ConfigFlowResult:
         """Create config entry for Modbus connection."""
         assert self._modbus_host is not None
         assert self._modbus_port is not None
         assert self._modbus_unit_id is not None
-        assert self._inverter_serial is not None
+        # Serial should have been auto-detected if not provided by user
+        assert self._inverter_serial, "Serial number must be provided or auto-detected"
 
         # Use inverter serial as unique ID
         unique_id = f"modbus_{self._inverter_serial}"

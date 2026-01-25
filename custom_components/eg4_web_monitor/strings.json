@@ -38,7 +38,7 @@
           "modbus_host": "Modbus Gateway IP/Hostname",
           "modbus_port": "Modbus TCP Port",
           "modbus_unit_id": "Modbus Unit ID",
-          "inverter_serial": "Inverter Serial Number",
+          "inverter_serial": "Inverter Serial Number (optional)",
           "inverter_model": "Inverter Model (optional)",
           "inverter_family": "Inverter Family"
         },
@@ -46,7 +46,7 @@
           "modbus_host": "IP address or hostname of your Modbus TCP gateway",
           "modbus_port": "TCP port for Modbus communication (default: 502)",
           "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
-          "inverter_serial": "10-digit serial number of your inverter (found on device label)",
+          "inverter_serial": "Leave blank to auto-detect from Modbus registers, or enter manually if auto-detection fails",
           "inverter_model": "Model name for display purposes (e.g., 18kPV, 12000XP)",
           "inverter_family": "Select your inverter family for correct Modbus register mapping. Different inverter models use different register layouts."
         }
