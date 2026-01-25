@@ -49,6 +49,7 @@ from .const import (
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
@@ -137,7 +138,7 @@ def _build_user_data_schema(dst_sync_default: bool = True) -> vol.Schema:
     )
 
 
-class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle a config flow for EG4 Web Monitor."""
 
     VERSION = 1
@@ -389,7 +390,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await transport.connect()
 
             # Read serial number from Modbus registers
-            detected_serial = await transport.read_serial_number()
+            detected_serial = str(await transport.read_serial_number())
             _LOGGER.debug(
                 "Read serial number from Modbus registers: %s", detected_serial
             )
@@ -927,21 +928,54 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
-        # Add transport-specific configuration
+        # Add transport-specific configuration (legacy format for backward compatibility)
+        # Also build the new CONF_LOCAL_TRANSPORTS list for Station.attach_local_transports()
+        local_transports: list[dict[str, Any]] = []
+
         if self._hybrid_local_type == HYBRID_LOCAL_MODBUS:
             assert self._modbus_host is not None
             assert self._modbus_port is not None
             assert self._modbus_unit_id is not None
+            # Legacy format (kept for backward compatibility)
             data[CONF_MODBUS_HOST] = self._modbus_host
             data[CONF_MODBUS_PORT] = self._modbus_port
             data[CONF_MODBUS_UNIT_ID] = self._modbus_unit_id
+            # New format for Station.attach_local_transports()
+            # Uses TransportType enum string values for direct TransportConfig creation
+            local_transports.append(
+                {
+                    "serial": self._inverter_serial,
+                    "transport_type": "modbus_tcp",  # TransportType.MODBUS_TCP.value
+                    "host": self._modbus_host,
+                    "port": self._modbus_port,
+                    "unit_id": self._modbus_unit_id,
+                    "inverter_family": self._inverter_family or DEFAULT_INVERTER_FAMILY,
+                }
+            )
         elif self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
             assert self._dongle_host is not None
             assert self._dongle_port is not None
             assert self._dongle_serial is not None
+            # Legacy format (kept for backward compatibility)
             data[CONF_DONGLE_HOST] = self._dongle_host
             data[CONF_DONGLE_PORT] = self._dongle_port
             data[CONF_DONGLE_SERIAL] = self._dongle_serial
+            # New format for Station.attach_local_transports()
+            # Uses TransportType enum string values for direct TransportConfig creation
+            local_transports.append(
+                {
+                    "serial": self._inverter_serial,
+                    "transport_type": "wifi_dongle",  # TransportType.WIFI_DONGLE.value
+                    "host": self._dongle_host,
+                    "port": self._dongle_port,
+                    "dongle_serial": self._dongle_serial,
+                    "inverter_family": self._inverter_family or DEFAULT_INVERTER_FAMILY,
+                }
+            )
+
+        # Store the new format for coordinator to use with Station.attach_local_transports()
+        if local_transports:
+            data[CONF_LOCAL_TRANSPORTS] = local_transports
 
         return self.async_create_entry(title=title, data=data)
 
@@ -1799,6 +1833,25 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
         }
 
+        # Build new CONF_LOCAL_TRANSPORTS list for Station.attach_local_transports()
+        local_transports: list[dict[str, Any]] = []
+        inverter_serial = self._inverter_serial or ""
+        inverter_family = self._inverter_family or DEFAULT_INVERTER_FAMILY
+
+        # Add Modbus transport config if present
+        # Uses TransportType enum string values for direct TransportConfig creation
+        if hybrid_local_type == HYBRID_LOCAL_MODBUS and self._modbus_host:
+            local_transports.append(
+                {
+                    "serial": inverter_serial,
+                    "transport_type": "modbus_tcp",  # TransportType.MODBUS_TCP.value
+                    "host": self._modbus_host,
+                    "port": self._modbus_port,
+                    "unit_id": self._modbus_unit_id,
+                    "inverter_family": inverter_family,
+                }
+            )
+
         # Preserve dongle settings if all required fields exist
         if CONF_DONGLE_HOST in entry.data and CONF_DONGLE_SERIAL in entry.data:
             data[CONF_DONGLE_HOST] = entry.data[CONF_DONGLE_HOST]
@@ -1806,6 +1859,23 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT
             )
             data[CONF_DONGLE_SERIAL] = entry.data[CONF_DONGLE_SERIAL]
+            # Add dongle to local_transports if it's the configured type
+            # Uses TransportType enum string values for direct TransportConfig creation
+            if hybrid_local_type == HYBRID_LOCAL_DONGLE:
+                local_transports.append(
+                    {
+                        "serial": inverter_serial,
+                        "transport_type": "wifi_dongle",  # TransportType.WIFI_DONGLE.value
+                        "host": entry.data[CONF_DONGLE_HOST],
+                        "port": entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
+                        "dongle_serial": entry.data[CONF_DONGLE_SERIAL],
+                        "inverter_family": inverter_family,
+                    }
+                )
+
+        # Store the new format for coordinator to use with Station.attach_local_transports()
+        if local_transports:
+            data[CONF_LOCAL_TRANSPORTS] = local_transports
 
         self.hass.config_entries.async_update_entry(
             entry,
