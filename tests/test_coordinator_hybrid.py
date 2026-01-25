@@ -38,6 +38,19 @@ if TYPE_CHECKING:
 # ============================================================================
 
 
+# Skip tests that require pylxpweb.transports.config (not yet in published package)
+try:
+    from pylxpweb.transports.config import TransportConfig, TransportType  # noqa: F401
+
+    HAS_TRANSPORT_CONFIG = True
+except ImportError:
+    HAS_TRANSPORT_CONFIG = False
+
+
+@pytest.mark.skipif(
+    not HAS_TRANSPORT_CONFIG,
+    reason="pylxpweb.transports.config not available in published package",
+)
 class TestBuildTransportConfigs:
     """Tests for _build_transport_configs() helper function."""
 
