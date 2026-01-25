@@ -675,6 +675,20 @@ class EG4BaseNumber(CoordinatorEntity):
             raise HomeAssistantError(f"Inverter {self.serial} not found")
         return inverter
 
+    @property
+    def _parameter_data(self) -> dict[str, Any]:
+        """Get parameter data for this device from coordinator.
+
+        Returns:
+            Parameter data dictionary or empty dict if not available.
+        """
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            params: dict[str, Any] = self.coordinator.data["parameters"].get(
+                self.serial, {}
+            )
+            return params
+        return {}
+
 
 # ========== Switch Base Classes ==========
 
