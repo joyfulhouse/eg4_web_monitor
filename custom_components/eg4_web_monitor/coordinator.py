@@ -45,6 +45,7 @@ from .const import (
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
+    CONF_LOCAL_TRANSPORTS,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
@@ -84,6 +85,69 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _build_transport_configs(
+    config_list: list[dict[str, Any]],
+) -> list[Any]:
+    """Convert stored config dicts to TransportConfig objects.
+
+    Args:
+        config_list: List of transport config dicts from CONF_LOCAL_TRANSPORTS.
+            Each dict should have: serial, transport_type, host, port, and
+            type-specific fields (unit_id for modbus, dongle_serial for dongle).
+
+    Returns:
+        List of TransportConfig objects ready for Station.attach_local_transports().
+    """
+    from pylxpweb.devices.inverters._features import InverterFamily
+    from pylxpweb.transports.config import TransportConfig, TransportType
+
+    configs = []
+    for item in config_list:
+        try:
+            transport_type_str = item.get("transport_type", "modbus_tcp")
+            transport_type = TransportType(transport_type_str)
+
+            # Convert inverter family string to enum
+            inverter_family = None
+            family_str = item.get("inverter_family")
+            if family_str:
+                try:
+                    inverter_family = InverterFamily(family_str)
+                except ValueError:
+                    _LOGGER.warning(
+                        "Unknown inverter family '%s', using default", family_str
+                    )
+
+            config = TransportConfig(
+                host=item["host"],
+                port=item["port"],
+                serial=item["serial"],
+                transport_type=transport_type,
+                inverter_family=inverter_family,
+            )
+
+            # Add type-specific fields
+            if transport_type == TransportType.MODBUS_TCP:
+                config.unit_id = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+            elif transport_type == TransportType.WIFI_DONGLE:
+                config.dongle_serial = item.get("dongle_serial", "")
+
+            configs.append(config)
+            _LOGGER.debug(
+                "Built TransportConfig for %s: type=%s, host=%s:%d",
+                item["serial"],
+                transport_type_str,
+                item["host"],
+                item["port"],
+            )
+
+        except (KeyError, ValueError) as err:
+            _LOGGER.warning("Failed to build TransportConfig from %s: %s", item, err)
+            continue
+
+    return configs
 
 
 class EG4DataUpdateCoordinator(
@@ -228,6 +292,13 @@ class EG4DataUpdateCoordinator(
 
         # Station object for device hierarchy (HTTP/Hybrid only)
         self.station: Station | None = None
+
+        # Local transport configs for hybrid mode (new format from CONF_LOCAL_TRANSPORTS)
+        # When present, these will be used with Station.attach_local_transports()
+        self._local_transport_configs: list[dict[str, Any]] = entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
+        )
+        self._local_transports_attached = False
 
         # Device tracking
         self.devices: dict[str, dict[str, Any]] = {}
@@ -1037,6 +1108,66 @@ class EG4DataUpdateCoordinator(
             serial,
         )
 
+    async def _attach_local_transports_to_station(self) -> None:
+        """Attach local transports to HTTP-discovered station devices.
+
+        This method enables hybrid mode by connecting local transports
+        (Modbus TCP or WiFi Dongle) to devices discovered via HTTP API.
+        After attachment, devices will use local transport for data fetching
+        with automatic fallback to HTTP on failure.
+
+        Uses the new Station.attach_local_transports() API from pylxpweb.
+        """
+        if self.station is None or not self._local_transport_configs:
+            return
+
+        _LOGGER.info(
+            "Attaching %d local transport(s) to station devices",
+            len(self._local_transport_configs),
+        )
+
+        # Convert stored config dicts to TransportConfig objects
+        configs = _build_transport_configs(self._local_transport_configs)
+        if not configs:
+            _LOGGER.warning("No valid transport configs to attach")
+            return
+
+        try:
+            result = await self.station.attach_local_transports(configs)
+
+            _LOGGER.info(
+                "Local transport attachment complete: %d matched, %d unmatched, %d failed",
+                result.matched,
+                result.unmatched,
+                result.failed,
+            )
+
+            if result.unmatched_serials:
+                _LOGGER.warning(
+                    "No devices found for serials: %s",
+                    ", ".join(result.unmatched_serials),
+                )
+
+            if result.failed_serials:
+                _LOGGER.warning(
+                    "Failed to connect transports for serials: %s",
+                    ", ".join(result.failed_serials),
+                )
+
+            self._local_transports_attached = True
+
+            # Log hybrid mode status
+            if self.station.is_hybrid_mode:
+                _LOGGER.info(
+                    "Station is now in hybrid mode with %d local transport(s) attached",
+                    result.matched,
+                )
+
+        except Exception as err:
+            _LOGGER.error("Failed to attach local transports: %s", err)
+            # Don't mark as attached so we can retry on next update
+            self._local_transports_attached = False
+
     async def _async_update_http_data(self) -> dict[str, Any]:
         """Fetch data from HTTP cloud API using device objects.
 
@@ -1076,6 +1207,15 @@ class EG4DataUpdateCoordinator(
                 await self.station.refresh_all_data()
                 # Build inverter cache for O(1) lookups
                 self._rebuild_inverter_cache()
+
+                # For hybrid mode: Attach local transports to devices (new API)
+                # This enables devices to use local transport with HTTP fallback
+                if (
+                    self.connection_type == CONNECTION_TYPE_HYBRID
+                    and self._local_transport_configs
+                    and not self._local_transports_attached
+                ):
+                    await self._attach_local_transports_to_station()
             else:
                 _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
                 await self.station.refresh_all_data()

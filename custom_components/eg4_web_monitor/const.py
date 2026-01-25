@@ -141,8 +141,9 @@ HYBRID_LOCAL_DONGLE = "dongle"  # WiFi dongle on port 8000
 HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 
 # Multi-transport configuration for hybrid mode (list of transport configs)
-# Each item is a dict with: serial, type (modbus/dongle), and transport-specific fields
-# Example: [{"serial": "CE12345", "type": "modbus", "host": "192.168.1.100", ...}]
+# Each item is a dict with: serial, transport_type (modbus_tcp/wifi_dongle),
+# and transport-specific fields
+# Example: [{"serial": "CE12345", "transport_type": "modbus_tcp", "host": "192.168.1.100", ...}]
 CONF_LOCAL_TRANSPORTS = "local_transports"
 
 # Modbus configuration keys
