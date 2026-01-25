@@ -173,6 +173,16 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.8-beta.10 - January 2026: WiFi Dongle Connection Reset Fix
+**Bug Fixes:**
+- Fixed WiFi dongle "Connection reset" errors during register reads (#83)
+  - Root cause: Dongle overwhelmed by rapid sequential register group reads
+  - Added 200ms delay between register group reads in pylxpweb
+  - The dongle only supports ONE concurrent TCP connection and has limited processing power
+
+**Dependency Updates:**
+- Require pylxpweb>=0.5.19 for dongle connection stability fix
+
 ### v3.1.8-beta.9 - January 2026: Dual-Mode Control & Configurable Intervals
 **New Features:**
 - **Dual-Mode Control**: Switches and number entities now support both HTTP API and local Modbus register writes
