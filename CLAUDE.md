@@ -173,6 +173,15 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
 
 ## Recent Release History
 
+### v3.1.8-beta.8 - January 2026: Modbus/Dongle Configuration Entities Fix
+**Bug Fixes:**
+- Fixed configuration entities (switches, numbers) not showing for Modbus/Dongle modes (#89)
+  - Root cause: Empty `inverter_model` in config entry caused `SUPPORTED_INVERTER_MODELS` check to fail
+  - Added `INVERTER_FAMILY_DEFAULT_MODELS` mapping to derive model from inverter family
+  - PV_SERIES → "18kPV", SNA → "12000XP", LXP_EU → "LXP-EU"
+  - Added "lxp" to `SUPPORTED_INVERTER_MODELS` for LuxPower EU support
+  - Switches (Quick Charge, Battery Backup, etc.) and Number entities now properly created
+
 ### v3.1.8-beta.7 - January 2026: Firmware Version Reading & Dongle Retry Logic
 **Bug Fixes:**
 - Fixed firmware version reading for Modbus/Dongle transports

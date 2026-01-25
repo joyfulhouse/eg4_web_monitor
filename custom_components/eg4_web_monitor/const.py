@@ -144,6 +144,14 @@ DEFAULT_MODBUS_UNIT_ID = 1
 DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
 DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
 
+# Mapping from inverter family to default model for entity compatibility checks
+# Used when inverter_model is not provided in config entry (Modbus/Dongle modes)
+INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
+    "PV_SERIES": "18kPV",  # Matches "18kpv" in SUPPORTED_INVERTER_MODELS
+    "SNA": "12000XP",  # Matches "xp" in SUPPORTED_INVERTER_MODELS
+    "LXP_EU": "LXP-EU",  # LuxPower EU models - matches "lxp" in SUPPORTED_INVERTER_MODELS
+}
+
 # WiFi Dongle default values (pylxpweb 0.5.15+)
 DEFAULT_DONGLE_PORT = 8000
 DEFAULT_DONGLE_TIMEOUT = 10.0  # seconds
@@ -2330,6 +2338,7 @@ SUPPORTED_INVERTER_MODELS = frozenset(
         "12kpv",
         "12k",
         "xp",
+        "lxp",
     }
 )
 

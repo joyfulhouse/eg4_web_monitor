@@ -65,6 +65,7 @@ from .const import (
     DONGLE_UPDATE_INTERVAL,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
+    INVERTER_FAMILY_DEFAULT_MODELS,
     MODBUS_UPDATE_INTERVAL,
 )
 from .coordinator_mixins import (
@@ -170,7 +171,15 @@ class EG4DataUpdateCoordinator(
                 inverter_family=inverter_family,
             )
             self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-            self._modbus_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
+            # Get model from config, or derive from family for entity compatibility
+            config_model = entry.data.get(CONF_INVERTER_MODEL, "")
+            if config_model:
+                self._modbus_model = config_model
+            else:
+                # Use family to derive default model for SUPPORTED_INVERTER_MODELS check
+                self._modbus_model = INVERTER_FAMILY_DEFAULT_MODELS.get(
+                    family_str, "18kPV"
+                )
 
         # Initialize Dongle transport for Dongle mode or Hybrid with Dongle local
         self._dongle_transport: Any = None
@@ -202,7 +211,15 @@ class EG4DataUpdateCoordinator(
                 inverter_family=inverter_family,
             )
             self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-            self._dongle_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
+            # Get model from config, or derive from family for entity compatibility
+            config_model = entry.data.get(CONF_INVERTER_MODEL, "")
+            if config_model:
+                self._dongle_model = config_model
+            else:
+                # Use family to derive default model for SUPPORTED_INVERTER_MODELS check
+                self._dongle_model = INVERTER_FAMILY_DEFAULT_MODELS.get(
+                    family_str, "18kPV"
+                )
 
         # DST sync configuration (only for HTTP/Hybrid)
         self.dst_sync_enabled = entry.data.get(CONF_DST_SYNC, True)
@@ -292,9 +309,7 @@ class EG4DataUpdateCoordinator(
         # Default to HTTP
         return await self._async_update_http_data()
 
-    async def _read_modbus_parameters(
-        self, transport: Any
-    ) -> dict[str, Any]:
+    async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
         """Read configuration parameters from Modbus holding registers.
 
         Reads key holding registers and extracts bit fields to match
