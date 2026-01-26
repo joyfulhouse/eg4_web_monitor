@@ -758,8 +758,10 @@ class EG4DataUpdateCoordinator(
 
             processed["devices"][serial] = device_data
 
-            # Get parameters from inverter's cached parameters
-            param_data = inverter.parameters or {}
+            # Read parameters with proper HTTP API-style names
+            # Note: inverter.parameters stores raw reg_N values, but entities
+            # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
+            param_data = await self._read_modbus_parameters(self._modbus_transport)
             processed["parameters"] = {serial: param_data}
 
             # Silver tier logging
@@ -909,8 +911,10 @@ class EG4DataUpdateCoordinator(
 
             processed["devices"][serial] = device_data
 
-            # Get parameters from inverter's cached parameters
-            param_data = inverter.parameters or {}
+            # Read parameters with proper HTTP API-style names
+            # Note: inverter.parameters stores raw reg_N values, but entities
+            # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
+            param_data = await self._read_modbus_parameters(self._dongle_transport)
             processed["parameters"] = {serial: param_data}
 
             # Silver tier logging
@@ -1231,8 +1235,14 @@ class EG4DataUpdateCoordinator(
                     processed["devices"][serial] = device_data
                     device_availability[serial] = True
 
-                    # Get parameters from inverter's cached parameters
-                    param_data = inverter.parameters or {}
+                    # Read parameters with proper HTTP API-style names
+                    # Note: inverter.parameters stores raw reg_N values, but entities
+                    # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
+                    transport = inverter._transport
+                    if transport:
+                        param_data = await self._read_modbus_parameters(transport)
+                    else:
+                        param_data = {}
                     processed["parameters"][serial] = param_data
 
                     _LOGGER.debug(
