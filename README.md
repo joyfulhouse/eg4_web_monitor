@@ -162,7 +162,7 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
 - Gateway: Your router IP
 
 **Serial Port Settings:**
-- Baud Rate: `9600`
+- Baud Rate: `19200`
 - Data Bits: `8`
 - Stop Bits: `1`
 - Parity: `None`
