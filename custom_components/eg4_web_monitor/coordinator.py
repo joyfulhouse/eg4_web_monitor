@@ -32,6 +32,7 @@ from pylxpweb.exceptions import (
     LuxpowerAPIError,
     LuxpowerAuthError,
     LuxpowerConnectionError,
+    LuxpowerDeviceError,
 )
 
 from .const import (
@@ -195,6 +196,91 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_voltage": battery_data.voltage,
         "battery_bank_charge_power": battery_data.charge_power,
         "battery_bank_discharge_power": battery_data.discharge_power,
+    }
+
+
+def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
+    """Build sensor mapping from MIDDevice object for GridBOSS.
+
+    This helper extracts data from a MIDDevice's runtime properties
+    and maps it to sensor keys matching SENSOR_TYPES definitions.
+
+    Args:
+        mid_device: MIDDevice object from pylxpweb with runtime data.
+
+    Returns:
+        Dictionary mapping sensor keys to values.
+    """
+    return {
+        # Grid sensors
+        "grid_power": getattr(mid_device, "grid_power", None),
+        "grid_voltage": getattr(mid_device, "grid_voltage", None),
+        "frequency": getattr(mid_device, "grid_frequency", None),
+        "grid_power_l1": getattr(mid_device, "grid_l1_power", None),
+        "grid_power_l2": getattr(mid_device, "grid_l2_power", None),
+        "grid_voltage_l1": getattr(mid_device, "grid_l1_voltage", None),
+        "grid_voltage_l2": getattr(mid_device, "grid_l2_voltage", None),
+        "grid_current_l1": getattr(mid_device, "grid_l1_current", None),
+        "grid_current_l2": getattr(mid_device, "grid_l2_current", None),
+        # UPS sensors
+        "ups_power": getattr(mid_device, "ups_power", None),
+        "ups_voltage": getattr(mid_device, "ups_voltage", None),
+        "ups_power_l1": getattr(mid_device, "ups_l1_power", None),
+        "ups_power_l2": getattr(mid_device, "ups_l2_power", None),
+        "load_voltage_l1": getattr(mid_device, "ups_l1_voltage", None),
+        "load_voltage_l2": getattr(mid_device, "ups_l2_voltage", None),
+        "ups_current_l1": getattr(mid_device, "ups_l1_current", None),
+        "ups_current_l2": getattr(mid_device, "ups_l2_current", None),
+        # Load sensors
+        "load_power": getattr(mid_device, "load_power", None),
+        "load_power_l1": getattr(mid_device, "load_l1_power", None),
+        "load_power_l2": getattr(mid_device, "load_l2_power", None),
+        "load_current_l1": getattr(mid_device, "load_l1_current", None),
+        "load_current_l2": getattr(mid_device, "load_l2_current", None),
+        # Generator sensors
+        "generator_power": getattr(mid_device, "generator_power", None),
+        "generator_voltage": getattr(mid_device, "generator_voltage", None),
+        "generator_frequency": getattr(mid_device, "generator_frequency", None),
+        "generator_power_l1": getattr(mid_device, "generator_l1_power", None),
+        "generator_power_l2": getattr(mid_device, "generator_l2_power", None),
+        "generator_current_l1": getattr(mid_device, "generator_l1_current", None),
+        "generator_current_l2": getattr(mid_device, "generator_l2_current", None),
+        # Other sensors
+        "hybrid_power": getattr(mid_device, "hybrid_power", None),
+        "phase_lock_frequency": getattr(mid_device, "phase_lock_frequency", None),
+        "off_grid": getattr(mid_device, "is_off_grid", None),
+        # Smart port status
+        "smart_port1_status": getattr(mid_device, "smart_port1_status", None),
+        "smart_port2_status": getattr(mid_device, "smart_port2_status", None),
+        "smart_port3_status": getattr(mid_device, "smart_port3_status", None),
+        "smart_port4_status": getattr(mid_device, "smart_port4_status", None),
+        # Smart load power (L1/L2)
+        "smart_load1_power_l1": getattr(mid_device, "smart_load1_l1_power", None),
+        "smart_load1_power_l2": getattr(mid_device, "smart_load1_l2_power", None),
+        "smart_load2_power_l1": getattr(mid_device, "smart_load2_l1_power", None),
+        "smart_load2_power_l2": getattr(mid_device, "smart_load2_l2_power", None),
+        "smart_load3_power_l1": getattr(mid_device, "smart_load3_l1_power", None),
+        "smart_load3_power_l2": getattr(mid_device, "smart_load3_l2_power", None),
+        "smart_load4_power_l1": getattr(mid_device, "smart_load4_l1_power", None),
+        "smart_load4_power_l2": getattr(mid_device, "smart_load4_l2_power", None),
+        # AC couple power (L1/L2)
+        "ac_couple1_power_l1": getattr(mid_device, "ac_couple1_l1_power", None),
+        "ac_couple1_power_l2": getattr(mid_device, "ac_couple1_l2_power", None),
+        "ac_couple2_power_l1": getattr(mid_device, "ac_couple2_l1_power", None),
+        "ac_couple2_power_l2": getattr(mid_device, "ac_couple2_l2_power", None),
+        "ac_couple3_power_l1": getattr(mid_device, "ac_couple3_l1_power", None),
+        "ac_couple3_power_l2": getattr(mid_device, "ac_couple3_l2_power", None),
+        "ac_couple4_power_l1": getattr(mid_device, "ac_couple4_l1_power", None),
+        "ac_couple4_power_l2": getattr(mid_device, "ac_couple4_l2_power", None),
+        # Energy sensors - aggregate only (L2 energy registers always read 0)
+        "ups_today": getattr(mid_device, "e_ups_today", None),
+        "ups_total": getattr(mid_device, "e_ups_total", None),
+        "grid_export_today": getattr(mid_device, "e_to_grid_today", None),
+        "grid_export_total": getattr(mid_device, "e_to_grid_total", None),
+        "grid_import_today": getattr(mid_device, "e_to_user_today", None),
+        "grid_import_total": getattr(mid_device, "e_to_user_total", None),
+        "load_today": getattr(mid_device, "e_load_today", None),
+        "load_total": getattr(mid_device, "e_load_total", None),
     }
 
 
@@ -445,6 +531,9 @@ class EG4DataUpdateCoordinator(
 
         # Inverter lookup cache for O(1) access (rebuilt when station loads)
         self._inverter_cache: dict[str, BaseInverter] = {}
+
+        # MID device (GridBOSS) cache for LOCAL mode
+        self._mid_device_cache: dict[str, Any] = {}
 
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
@@ -904,6 +993,7 @@ class EG4DataUpdateCoordinator(
         Raises:
             UpdateFailed: If no transports configured or ALL devices failed.
         """
+        from pylxpweb.devices import MIDDevice
         from pylxpweb.devices.inverters._features import InverterFamily
         from pylxpweb.transports import create_dongle_transport, create_modbus_transport
         from pylxpweb.transports.exceptions import (
@@ -964,7 +1054,11 @@ class EG4DataUpdateCoordinator(
 
                 # Create or reuse transport based on type
                 # Use plain serial as cache key for get_inverter_object() compatibility
-                if serial not in self._inverter_cache:
+                # Check both inverter and MID device caches
+                is_gridboss = serial in self._mid_device_cache
+                is_inverter = serial in self._inverter_cache
+
+                if not is_gridboss and not is_inverter:
                     # Create transport (type is Any to support both Modbus and Dongle)
                     transport: Any = None
                     if transport_type == "modbus_tcp":
@@ -998,17 +1092,89 @@ class EG4DataUpdateCoordinator(
                     if not transport.is_connected:
                         await transport.connect()
 
-                    # Create BaseInverter via factory
+                    # Try to create device - BaseInverter first, MIDDevice if GridBOSS
+                    try:
+                        _LOGGER.debug(
+                            "LOCAL: Creating device from %s transport for %s",
+                            transport_type,
+                            serial,
+                        )
+                        inverter = await BaseInverter.from_modbus_transport(
+                            transport, model=model
+                        )
+                        self._inverter_cache[serial] = inverter
+                        is_inverter = True
+                    except LuxpowerDeviceError as e:
+                        # Device is a GridBOSS, not an inverter
+                        if "GridBOSS" in str(e) or "MIDbox" in str(e):
+                            _LOGGER.info(
+                                "LOCAL: Device %s is a GridBOSS, creating MIDDevice",
+                                serial,
+                            )
+                            mid_device = await MIDDevice.from_transport(
+                                transport, model="GridBOSS"
+                            )
+                            self._mid_device_cache[serial] = mid_device
+                            is_gridboss = True
+                        else:
+                            raise
+
+                # Process based on device type
+                if is_gridboss:
+                    # GridBOSS/MID device processing
+                    mid_device = self._mid_device_cache[serial]
+
+                    # Ensure transport is connected
+                    transport = mid_device._transport
+                    if transport and not transport.is_connected:
+                        await transport.connect()
+
+                    # Refresh data from transport
+                    await mid_device.refresh()
+
+                    # Read firmware version
+                    firmware_version: str = "Unknown"
+                    if hasattr(mid_device, "firmware_version"):
+                        firmware_version = mid_device.firmware_version or "Unknown"
+
+                    # Check if device has data
+                    if not mid_device.has_data:
+                        raise TransportReadError(
+                            f"Failed to read runtime data for GridBOSS {serial}"
+                        )
+
+                    # Build GridBOSS device data with sensor mappings
+                    sensors = _build_gridboss_sensor_mapping(mid_device)
+                    # Filter out None values
+                    sensors = {k: v for k, v in sensors.items() if v is not None}
+                    sensors["firmware_version"] = firmware_version
+
+                    device_data: dict[str, Any] = {
+                        "type": "gridboss",
+                        "model": "GridBOSS",
+                        "serial": serial,
+                        "firmware_version": firmware_version,
+                        "sensors": sensors,
+                        "binary_sensors": {},
+                    }
+
+                    # Store device data
+                    processed["devices"][serial] = device_data
+                    device_availability[serial] = True
+
+                    # GridBOSS doesn't have parameters like inverters
+                    processed["parameters"][serial] = {}
+
                     _LOGGER.debug(
-                        "LOCAL: Creating BaseInverter from %s transport for %s",
-                        transport_type,
+                        "LOCAL: Updated GridBOSS %s (%s) - FW: %s, Grid: %sW, Load: %sW",
                         serial,
+                        transport_type,
+                        firmware_version,
+                        sensors.get("grid_power", "N/A"),
+                        sensors.get("load_power", "N/A"),
                     )
-                    inverter = await BaseInverter.from_modbus_transport(
-                        transport, model=model
-                    )
-                    self._inverter_cache[serial] = inverter
                 else:
+                    # Inverter processing
                     inverter = self._inverter_cache[serial]
 
                     # Ensure transport is connected
@@ -1016,68 +1182,68 @@ class EG4DataUpdateCoordinator(
                     if transport and not transport.is_connected:
                         await transport.connect()
 
-                # Refresh data from transport
-                await inverter.refresh(force=True, include_parameters=True)
+                    # Refresh data from transport
+                    await inverter.refresh(force=True, include_parameters=True)
 
-                # Read firmware version from transport
-                firmware_version: str = "Unknown"
-                transport = inverter._transport
-                if transport and hasattr(transport, "read_firmware_version"):
-                    read_fw = getattr(transport, "read_firmware_version")
-                    firmware_version = await read_fw() or "Unknown"
+                    # Read firmware version from transport
+                    firmware_version = "Unknown"
+                    transport = inverter._transport
+                    if transport and hasattr(transport, "read_firmware_version"):
+                        read_fw = getattr(transport, "read_firmware_version")
+                        firmware_version = await read_fw() or "Unknown"
 
-                # Get data from transport via inverter's internal storage
-                runtime_data = inverter._transport_runtime
-                energy_data = inverter._transport_energy
+                    # Get data from transport via inverter's internal storage
+                    runtime_data = inverter._transport_runtime
+                    energy_data = inverter._transport_energy
 
-                if runtime_data is None:
-                    raise TransportReadError(
-                        f"Failed to read runtime data for {serial}"
+                    if runtime_data is None:
+                        raise TransportReadError(
+                            f"Failed to read runtime data for {serial}"
+                        )
+
+                    # Build device data structure with sensor mappings
+                    device_data = {
+                        "type": "inverter",
+                        "model": model,
+                        "serial": serial,
+                        "firmware_version": firmware_version,
+                        "sensors": _build_runtime_sensor_mapping(runtime_data),
+                        "batteries": {},
+                    }
+
+                    # Add energy sensors if available
+                    if energy_data:
+                        device_data["sensors"].update(
+                            _build_energy_sensor_mapping(energy_data)
+                        )
+
+                    # Add battery bank data if available
+                    battery_data = inverter._transport_battery
+                    if battery_data:
+                        device_data["sensors"].update(
+                            _build_battery_bank_sensor_mapping(battery_data)
+                        )
+
+                    # Add firmware version as diagnostic sensor
+                    device_data["sensors"]["firmware_version"] = firmware_version
+
+                    # Store device data
+                    processed["devices"][serial] = device_data
+                    device_availability[serial] = True
+
+                    # Get parameters from inverter's cached parameters
+                    param_data = inverter.parameters or {}
+                    processed["parameters"][serial] = param_data
+
+                    _LOGGER.debug(
+                        "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                        serial,
+                        transport_type,
+                        firmware_version,
+                        runtime_data.pv_total_power,
+                        runtime_data.battery_soc,
+                        runtime_data.grid_power,
                     )
-
-                # Build device data structure with sensor mappings
-                device_data: dict[str, Any] = {
-                    "type": "inverter",
-                    "model": model,
-                    "serial": serial,
-                    "firmware_version": firmware_version,
-                    "sensors": _build_runtime_sensor_mapping(runtime_data),
-                    "batteries": {},
-                }
-
-                # Add energy sensors if available
-                if energy_data:
-                    device_data["sensors"].update(
-                        _build_energy_sensor_mapping(energy_data)
-                    )
-
-                # Add battery bank data if available
-                battery_data = inverter._transport_battery
-                if battery_data:
-                    device_data["sensors"].update(
-                        _build_battery_bank_sensor_mapping(battery_data)
-                    )
-
-                # Add firmware version as diagnostic sensor
-                device_data["sensors"]["firmware_version"] = firmware_version
-
-                # Store device data
-                processed["devices"][serial] = device_data
-                device_availability[serial] = True
-
-                # Get parameters from inverter's cached parameters
-                param_data = inverter.parameters or {}
-                processed["parameters"][serial] = param_data
-
-                _LOGGER.debug(
-                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
-                    serial,
-                    transport_type,
-                    firmware_version,
-                    runtime_data.pv_total_power,
-                    runtime_data.battery_soc,
-                    runtime_data.grid_power,
-                )
 
             except (
                 TransportConnectionError,
