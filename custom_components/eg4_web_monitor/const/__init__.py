@@ -195,14 +195,8 @@ from .sensors import (
     PARALLEL_GROUP_FIELD_MAPPING,
     SENSOR_TYPES,
     SensorConfig,
-    VOLTAGE_SENSORS,
-)
-
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Sensor types
     STATION_SENSOR_TYPES,
+    VOLTAGE_SENSORS,
 )
 
 __all__ = [
