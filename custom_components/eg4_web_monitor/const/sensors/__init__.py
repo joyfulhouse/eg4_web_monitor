@@ -13,7 +13,9 @@ Submodules (to be populated during refactoring):
 
 from __future__ import annotations
 
-# Submodules will be imported here as they are created
-# For now, the parent const/__init__.py re-exports from _const_legacy.py
+# Type definitions - extracted to types.py
+from .types import SensorConfig
 
-__all__: list[str] = []
+__all__ = [
+    "SensorConfig",
+]
