@@ -340,6 +340,16 @@
         "data_description": {
           "plant_id": "Select the solar installation you want to monitor"
         }
+      },
+      "reconfigure_local": {
+        "title": "Reconfigure {brand_name} Local Station",
+        "description": "Update station name for your local-only configuration. Current station: {current_station} ({device_count} devices). Use Configure to add/remove devices.",
+        "data": {
+          "station_name": "Station Name"
+        },
+        "data_description": {
+          "station_name": "Display name for this local station"
+        }
       }
     },
     "error": {

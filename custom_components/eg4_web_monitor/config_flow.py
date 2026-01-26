@@ -190,7 +190,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,  # noqa: ARG004
+        _config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
         return EG4OptionsFlow()
@@ -1343,9 +1343,11 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         station_name = self._station_name or DEFAULT_LOCAL_STATION_NAME
 
-        # Create unique ID from all device serials sorted
-        sorted_serials = sorted([d["serial"] for d in self._local_devices])
-        unique_id = f"local_{'_'.join(sorted_serials)}"
+        # Create stable unique ID from first device serial (immutable after creation)
+        # Device list changes in options flow won't affect the unique_id
+        # First serial is stable - even if devices are added/removed, the original first stays
+        first_serial = self._local_devices[0]["serial"]
+        unique_id = f"local_{first_serial}"
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
@@ -1599,6 +1601,8 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_reconfigure_modbus(user_input)
         if connection_type == CONNECTION_TYPE_HYBRID:
             return await self.async_step_reconfigure_hybrid(user_input)
+        if connection_type == CONNECTION_TYPE_LOCAL:
+            return await self.async_step_reconfigure_local(user_input)
         # Default to HTTP reconfigure
         return await self.async_step_reconfigure_http(user_input)
 
@@ -2035,6 +2039,63 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "brand_name": BRAND_NAME,
                 "plant_count": str(len(plant_options)),
                 "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+            },
+        )
+
+    async def async_step_reconfigure_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Local mode reconfiguration flow.
+
+        Allows changing station name. Device management is done through options flow.
+        """
+        errors: dict[str, str] = {}
+
+        # Get the current entry being reconfigured
+        entry_id = self.context.get("entry_id")
+        assert entry_id is not None, "entry_id must be set in context"
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        assert entry is not None, "Config entry not found"
+
+        if user_input is not None:
+            new_station_name = user_input[CONF_STATION_NAME]
+
+            # Update entry with new station name
+            new_data = dict(entry.data)
+            new_data[CONF_STATION_NAME] = new_station_name
+
+            # Update title to reflect new station name
+            device_count = len(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
+            new_title = f"{BRAND_NAME} Local - {new_station_name} ({device_count} device{'s' if device_count != 1 else ''})"
+
+            # Note: unique_id is NOT changed - it's based on first device serial
+            # and is immutable per Home Assistant design
+            self.hass.config_entries.async_update_entry(
+                entry,
+                title=new_title,
+                data=new_data,
+            )
+
+            return self.async_abort(reason="reconfigure_successful")
+
+        # Show reconfigure form with current station name
+        current_station = entry.data.get(CONF_STATION_NAME, DEFAULT_LOCAL_STATION_NAME)
+        device_count = len(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
+
+        reconfigure_schema = vol.Schema(
+            {
+                vol.Required(CONF_STATION_NAME, default=current_station): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_local",
+            data_schema=reconfigure_schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_count": str(device_count),
+                "current_station": current_station,
             },
         )
 
@@ -2670,19 +2731,14 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         """Finish local options and update config entry if needed."""
         if self._devices_modified:
             # Update the config entry data with modified device list
+            # Note: unique_id is immutable per Home Assistant design - it was set
+            # at entry creation and should not change when devices are added/removed
             new_data = dict(self.config_entry.data)
             new_data[CONF_LOCAL_TRANSPORTS] = self._local_devices
-
-            # Update unique ID if device list changed
-            sorted_serials = sorted([d["serial"] for d in self._local_devices])
-            new_unique_id = (
-                f"local_{'_'.join(sorted_serials)}" if sorted_serials else None
-            )
 
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
                 data=new_data,
-                unique_id=new_unique_id,
             )
 
             # Return options with updated intervals
