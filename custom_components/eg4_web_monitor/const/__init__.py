@@ -134,12 +134,8 @@ from .device_types import (
     VOLT_WATT_SENSORS,
 )
 
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Classes
-    SensorConfig,
-    # Number entity limits
+# Number entity limits - extracted to limits.py
+from .limits import (
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
     AC_CHARGE_POWER_STEP,
@@ -158,6 +154,13 @@ from .._const_legacy import (
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
     SYSTEM_CHARGE_SOC_LIMIT_STEP,
+)
+
+# Re-export everything from legacy module for backward compatibility
+# As modules are extracted, imports will be updated to pull from submodules
+from .._const_legacy import (
+    # Classes
+    SensorConfig,
     # Sensor types
     SENSOR_TYPES,
     STATION_SENSOR_TYPES,
