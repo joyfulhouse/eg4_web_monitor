@@ -2,7 +2,17 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} Web Monitor Setup",
+        "title": "{brand_name} Connection Type",
+        "description": "Choose how to connect to your {brand_name} inverter:\n\n**Cloud API**: Requires an EG4 monitor portal account. Best for remote access.\n\n**Local Only**: Direct connection via Modbus or WiFi dongle. No cloud needed. Supports multiple devices.\n\n**Hybrid**: Uses both local (fast updates) and cloud (battery details, remote control).",
+        "data": {
+          "connection_type": "Connection Type"
+        },
+        "data_description": {
+          "connection_type": "Select how to connect to your inverter"
+        }
+      },
+      "http_credentials": {
+        "title": "{brand_name} Cloud API Setup",
         "description": "Connect to your {brand_name} Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
         "data": {
           "username": "Username",
@@ -19,6 +29,122 @@
           "verify_ssl": "Enable SSL certificate verification for secure connections",
           "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
+        }
+      },
+      "modbus": {
+        "title": "{brand_name} Local Modbus Setup",
+        "description": "Connect directly to your inverter via Modbus TCP. This requires a Modbus TCP gateway (e.g., Waveshare RS485-to-Ethernet adapter) connected to your inverter's RS485 port.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number (optional)",
+          "inverter_model": "Inverter Model (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Leave blank to auto-detect from Modbus registers, or enter manually if auto-detection fails",
+          "inverter_model": "Model name for display purposes (e.g., 18kPV, 12000XP)",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping. Different inverter models use different register layouts."
+        }
+      },
+      "dongle": {
+        "title": "{brand_name} WiFi Dongle Setup",
+        "description": "Connect directly to your inverter via its WiFi dongle. No additional hardware required - uses the existing dongle's TCP interface on port 8000. Note: Recent firmware updates may block this access.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_model": "Inverter Model (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle (e.g., BA12345678, found as the dongle's WiFi AP SSID)",
+          "inverter_serial": "10-character serial number of your inverter (found on device label)",
+          "inverter_model": "Model name for display purposes (e.g., 18kPV, 12000XP)",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "hybrid_http": {
+        "title": "{brand_name} Hybrid Setup - Cloud Credentials",
+        "description": "First, enter your cloud API credentials. This enables device discovery and individual battery monitoring. Fast runtime data will come from local Modbus.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
+        },
+        "data_description": {
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library"
+        }
+      },
+      "hybrid_plant": {
+        "title": "{brand_name} Hybrid Setup - Select Station",
+        "description": "Select which station to monitor. The Modbus connection will be configured next.",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Select the solar installation you want to monitor"
+        }
+      },
+      "hybrid_local_type": {
+        "title": "{brand_name} Hybrid Setup - Local Transport",
+        "description": "Select how to connect locally to your inverter for fast real-time data. Modbus uses an RS485 adapter while WiFi Dongle uses the inverter's existing dongle.",
+        "data": {
+          "hybrid_local_type": "Local Transport Type"
+        },
+        "data_description": {
+          "hybrid_local_type": "Choose the local connection method for fast runtime data"
+        }
+      },
+      "hybrid_modbus": {
+        "title": "{brand_name} Hybrid Setup - Local Modbus",
+        "description": "Configure local Modbus connection for fast runtime updates. The inverter serial has been pre-filled from your cloud account.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Serial number of the inverter to poll via Modbus",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping"
+        }
+      },
+      "hybrid_dongle": {
+        "title": "{brand_name} Hybrid Setup - WiFi Dongle",
+        "description": "Configure WiFi dongle connection for fast runtime updates. No additional hardware required. Note: Recent firmware updates may block this access.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle (e.g., BA12345678)",
+          "inverter_serial": "Serial number of the inverter to poll via the dongle",
+          "inverter_family": "Select your inverter family for correct register mapping"
         }
       },
       "plant": {
@@ -72,6 +198,263 @@
         "data_description": {
           "plant_id": "Select the solar installation you want to monitor"
         }
+      },
+      "reconfigure_http": {
+        "title": "Reconfigure {brand_name} Cloud API",
+        "description": "Update your {brand_name} Web Monitor cloud API credentials. Current station: {current_station}",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization"
+        },
+        "data_description": {
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "Reconfigure {brand_name} Modbus Connection",
+        "description": "Update your local Modbus TCP connection settings. Current host: {current_host}",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_model": "Inverter Model (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "10-digit serial number of your inverter",
+          "inverter_model": "Model name for display purposes",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "Reconfigure {brand_name} Hybrid Connection",
+        "description": "Update both cloud API and local Modbus settings. Current station: {current_station}, Modbus host: {current_host}",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Serial number of the inverter to poll via Modbus",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "Change Station (Hybrid)",
+        "description": "Select a different solar station/plant to monitor. Current station: {current_station}",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Select the solar installation you want to monitor"
+        }
+      },
+      "transition_select": {
+        "title": "Change Connection Mode",
+        "description": "You can change how this integration connects to your inverter. Current mode: {current_type}",
+        "data": {
+          "transition_type": "Connection Mode"
+        },
+        "data_description": {
+          "transition_type": "Select a new connection mode or keep the current configuration"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "Select Local Transport Type",
+        "description": "Choose how to connect locally to your inverter. Modbus TCP provides the fastest updates using an RS485 adapter. WiFi Dongle uses the inverter's existing dongle (no extra hardware).",
+        "data": {
+          "hybrid_local_type": "Local Transport Type"
+        },
+        "data_description": {
+          "hybrid_local_type": "Select the local connection method for fast runtime data"
+        }
+      },
+      "transition_modbus": {
+        "title": "Configure Modbus Connection",
+        "description": "Enter your Modbus TCP gateway settings. This will enable fast 5-second polling for runtime data.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Serial number of the inverter (leave blank to auto-detect)",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "transition_dongle": {
+        "title": "Configure WiFi Dongle Connection",
+        "description": "Enter your WiFi dongle connection settings. This enables fast 5-second polling using the inverter's existing dongle.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle",
+          "inverter_serial": "Serial number of the inverter",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "transition_confirm": {
+        "title": "Confirm Connection Mode Change",
+        "description": "You are about to change from {current_type} to {target_type}. Station: {current_plant}\n\n{warnings}",
+        "submit": "Confirm Change"
+      },
+      "transition_confirm_removal": {
+        "title": "Confirm Local Transport Removal",
+        "description": "You are about to remove local transport from your Hybrid setup. Station: {current_plant}, Current local transport: {local_type} ({local_host})\n\n{warnings}",
+        "submit": "Remove Local Transport"
+      },
+      "local_setup": {
+        "title": "{brand_name} Local Setup",
+        "description": "Set up local monitoring without cloud credentials. Device information (serial, model, firmware) is automatically detected.\n\nSelect how your first device is connected:",
+        "data": {
+          "device_type": "Connection Type"
+        },
+        "data_description": {
+          "device_type": "Modbus TCP uses an RS485 adapter (e.g., Waveshare). WiFi Dongle uses the inverter's built-in dongle."
+        }
+      },
+      "local_modbus_connect": {
+        "title": "Connect via Modbus TCP",
+        "description": "Enter the IP address of your Modbus TCP gateway. Everything else is auto-detected.{device_count, plural, =0 {} other { (Adding device #{device_count})}}",
+        "data": {
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit ID (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
+        }
+      },
+      "local_dongle_connect": {
+        "title": "Connect via WiFi Dongle",
+        "description": "Enter the dongle connection details. The dongle serial is printed on the device label (also the WiFi AP name). The inverter/device serial is on the device nameplate.{device_count, plural, =0 {} other { (Adding device #{device_count})}}",
+        "data": {
+          "dongle_host": "Dongle IP Address",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Device Serial Number",
+          "dongle_port": "Port (optional)"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
+        }
+      },
+      "local_device_discovered": {
+        "title": "Device Found: {device_model}",
+        "description": "Successfully connected and detected device information:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**Current PV Power**: {device_pv_power}W\n**Battery SOC**: {device_battery_soc}%\n\nThis will be device #{device_count}. Add another device?",
+        "data": {
+          "add_another": "Add Another Device"
+        },
+        "data_description": {
+          "add_another": "Check to add another inverter or GridBOSS to this installation"
+        }
+      },
+      "local_add_device": {
+        "title": "Add Another Device",
+        "description": "You have {device_count} device(s) configured. Select the connection type for your next device:",
+        "data": {
+          "device_type": "Connection Type"
+        },
+        "data_description": {
+          "device_type": "Choose Modbus TCP or WiFi Dongle"
+        }
+      },
+      "local_name": {
+        "title": "Name Your Installation",
+        "description": "Give your solar installation a friendly name. This is just for display in Home Assistant - it's not a value from your inverter.\n\n**Configured devices**: {device_summary}\n\nExamples: \"Home Solar\", \"Garage System\", \"Main House\"",
+        "data": {
+          "station_name": "Installation Name (optional)"
+        },
+        "data_description": {
+          "station_name": "Leave blank to use the device model and serial as the name"
+        }
+      },
+      "reconfigure_local": {
+        "title": "Reconfigure Local Installation",
+        "description": "Manage devices in your local installation. Current devices: {device_count}",
+        "data": {
+          "action": "Action"
+        },
+        "data_description": {
+          "action": "Select an action to perform on this installation"
+        }
+      },
+      "reconfigure_local_modbus": {
+        "title": "Configure Modbus Device",
+        "description": "Enter the IP address of your Modbus TCP gateway. Device serial, model, and firmware are automatically detected.",
+        "data": {
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit ID (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "Configure WiFi Dongle Device",
+        "description": "Enter the dongle connection details. Device model and firmware are automatically detected.",
+        "data": {
+          "dongle_host": "Dongle IP Address",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Device Serial Number",
+          "dongle_port": "Port (optional)"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "Device Found: {device_model}",
+        "description": "Successfully connected and detected device information:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**Current PV Power**: {device_pv_power}W\n**Battery SOC**: {device_battery_soc}%\n\nClick Submit to add this device to your installation.",
+        "submit": "Add Device"
       }
     },
     "error": {
@@ -80,12 +463,19 @@
       "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
       "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your {brand_name} Web Monitor account.",
       "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
-      "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again."
+      "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
+      "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
+      "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
+      "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
+      "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
+      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
+      "duplicate_serial": "A device with this serial number has already been added to this installation."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
       "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
-      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated."
+      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated.",
+      "entry_not_found": "Configuration entry not found. The integration may have been removed. Please add it again from the Integrations page."
     }
   },
   "options": {

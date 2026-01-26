@@ -2,10 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configuración de {brand_name} Web Monitor",
-        "description": "Conéctese a su cuenta de {brand_name} Web Monitor para administrar sus inversores solares, dispositivos GridBOSS y sistemas de baterías.",
+        "title": "Tipo de conexión {brand_name}",
+        "description": "Elija cómo conectarse a su inversor {brand_name}:\n\n**API en la nube**: Requiere una cuenta del portal de monitoreo EG4. Ideal para acceso remoto.\n\n**Solo local**: Conexión directa vía Modbus o dongle WiFi. Sin necesidad de la nube. Soporta múltiples dispositivos.\n\n**Híbrido**: Usa tanto local (actualizaciones rápidas) como nube (detalles de batería, control remoto).",
         "data": {
-          "username": "Nombre de usuario",
+          "connection_type": "Tipo de conexión"
+        },
+        "data_description": {
+          "connection_type": "Seleccione cómo conectarse a su inversor"
+        }
+      },
+      "http_credentials": {
+        "title": "Configuración de API en la nube {brand_name}",
+        "description": "Conéctese a su cuenta de {brand_name} Web Monitor para gestionar sus inversores solares, dispositivos GridBOSS y sistemas de baterías.",
+        "data": {
+          "username": "Usuario",
           "password": "Contraseña",
           "base_url": "URL base",
           "verify_ssl": "Verificar certificado SSL",
@@ -13,12 +23,128 @@
           "library_debug": "Registro de depuración de biblioteca"
         },
         "data_description": {
-          "username": "Su nombre de usuario de cuenta {brand_name} Web Monitor",
-          "password": "Su contraseña de cuenta {brand_name} Web Monitor",
+          "username": "Su nombre de usuario de la cuenta {brand_name} Web Monitor",
+          "password": "Su contraseña de la cuenta {brand_name} Web Monitor",
           "base_url": "La URL base para la API de {brand_name} Web Monitor",
-          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras",
-          "dst_sync": "Sincronizar automáticamente la configuración de horario de verano con su inversor según la zona horaria de Home Assistant",
+          "verify_ssl": "Habilitar verificación de certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración del horario de verano con su inversor según la zona horaria de Home Assistant",
           "library_debug": "Habilitar registro DEBUG para la biblioteca pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la biblioteca)"
+        }
+      },
+      "modbus": {
+        "title": "Configuración local Modbus {brand_name}",
+        "description": "Conéctese directamente a su inversor vía Modbus TCP. Esto requiere una puerta de enlace Modbus TCP (p. ej., adaptador Waveshare RS485-a-Ethernet) conectada al puerto RS485 de su inversor.",
+        "data": {
+          "modbus_host": "IP/Nombre de host de puerta de enlace Modbus",
+          "modbus_port": "Puerto TCP Modbus",
+          "modbus_unit_id": "ID de unidad Modbus",
+          "inverter_serial": "Número de serie del inversor (opcional)",
+          "inverter_model": "Modelo del inversor (opcional)",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP o nombre de host de su puerta de enlace Modbus TCP",
+          "modbus_port": "Puerto TCP para comunicación Modbus (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo/unidad Modbus del inversor (predeterminado: 1)",
+          "inverter_serial": "Dejar en blanco para detectar automáticamente desde registros Modbus, o ingresar manualmente si la detección automática falla",
+          "inverter_model": "Nombre del modelo para fines de visualización (p. ej., 18kPV, 12000XP)",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros Modbus. Diferentes modelos de inversor usan diferentes diseños de registros."
+        }
+      },
+      "dongle": {
+        "title": "Configuración de dongle WiFi {brand_name}",
+        "description": "Conéctese directamente a su inversor a través de su dongle WiFi. No se requiere hardware adicional - usa la interfaz TCP existente del dongle en el puerto 8000. Nota: Las actualizaciones de firmware recientes pueden bloquear este acceso.",
+        "data": {
+          "dongle_host": "IP/Nombre de host del dongle WiFi",
+          "dongle_port": "Puerto TCP del dongle",
+          "dongle_serial": "Número de serie del dongle",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_model": "Modelo del inversor (opcional)",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "dongle_host": "Dirección IP de su dongle WiFi en su red local",
+          "dongle_port": "Puerto TCP para comunicación con el dongle (predeterminado: 8000)",
+          "dongle_serial": "Número de serie de 10 caracteres del dongle WiFi (p. ej., BA12345678, se encuentra como el SSID del AP WiFi del dongle)",
+          "inverter_serial": "Número de serie de 10 caracteres de su inversor (se encuentra en la etiqueta del dispositivo)",
+          "inverter_model": "Nombre del modelo para fines de visualización (p. ej., 18kPV, 12000XP)",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros"
+        }
+      },
+      "hybrid_http": {
+        "title": "Configuración híbrida {brand_name} - Credenciales en la nube",
+        "description": "Primero, ingrese sus credenciales de API en la nube. Esto permite el descubrimiento de dispositivos y monitoreo individual de baterías. Los datos de tiempo de ejecución rápidos vendrán del Modbus local.",
+        "data": {
+          "username": "Usuario",
+          "password": "Contraseña",
+          "base_url": "URL base",
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronización de horario de verano",
+          "library_debug": "Registro de depuración de biblioteca"
+        },
+        "data_description": {
+          "username": "Su nombre de usuario de la cuenta {brand_name} Web Monitor",
+          "password": "Su contraseña de la cuenta {brand_name} Web Monitor",
+          "base_url": "La URL base para la API de {brand_name} Web Monitor",
+          "verify_ssl": "Habilitar verificación de certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración del horario de verano con su inversor según la zona horaria de Home Assistant",
+          "library_debug": "Habilitar registro DEBUG para la biblioteca pylxpweb"
+        }
+      },
+      "hybrid_plant": {
+        "title": "Configuración híbrida {brand_name} - Seleccionar estación",
+        "description": "Seleccione qué estación monitorear. La conexión Modbus se configurará a continuación.",
+        "data": {
+          "plant_id": "Estación/Planta"
+        },
+        "data_description": {
+          "plant_id": "Seleccione la instalación solar que desea monitorear"
+        }
+      },
+      "hybrid_local_type": {
+        "title": "Configuración híbrida {brand_name} - Transporte local",
+        "description": "Seleccione cómo conectarse localmente a su inversor para datos en tiempo real rápidos. Modbus usa un adaptador RS485 mientras que el dongle WiFi usa el dongle existente del inversor.",
+        "data": {
+          "hybrid_local_type": "Tipo de transporte local"
+        },
+        "data_description": {
+          "hybrid_local_type": "Elija el método de conexión local para datos de tiempo de ejecución rápidos"
+        }
+      },
+      "hybrid_modbus": {
+        "title": "Configuración híbrida {brand_name} - Modbus local",
+        "description": "Configure la conexión Modbus local para actualizaciones de tiempo de ejecución rápidas. El número de serie del inversor ha sido prellenado desde su cuenta en la nube.",
+        "data": {
+          "modbus_host": "IP/Nombre de host de puerta de enlace Modbus",
+          "modbus_port": "Puerto TCP Modbus",
+          "modbus_unit_id": "ID de unidad Modbus",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP o nombre de host de su puerta de enlace Modbus TCP",
+          "modbus_port": "Puerto TCP para comunicación Modbus (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo/unidad Modbus del inversor (predeterminado: 1)",
+          "inverter_serial": "Número de serie del inversor a consultar vía Modbus",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros Modbus"
+        }
+      },
+      "hybrid_dongle": {
+        "title": "Configuración híbrida {brand_name} - Dongle WiFi",
+        "description": "Configure la conexión del dongle WiFi para actualizaciones de tiempo de ejecución rápidas. No se requiere hardware adicional. Nota: Las actualizaciones de firmware recientes pueden bloquear este acceso.",
+        "data": {
+          "dongle_host": "IP/Nombre de host del dongle WiFi",
+          "dongle_port": "Puerto TCP del dongle",
+          "dongle_serial": "Número de serie del dongle",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "dongle_host": "Dirección IP de su dongle WiFi en su red local",
+          "dongle_port": "Puerto TCP para comunicación con el dongle (predeterminado: 8000)",
+          "dongle_serial": "Número de serie de 10 caracteres del dongle WiFi (p. ej., BA12345678)",
+          "inverter_serial": "Número de serie del inversor a consultar a través del dongle",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros"
         }
       },
       "plant": {
@@ -33,9 +159,9 @@
       },
       "reauth": {
         "title": "Reautenticar {brand_name} Web Monitor",
-        "description": "Su sesión ha expirado o las credenciales no son válidas. Por favor, vuelva a ingresar sus credenciales para continuar monitoreando sus dispositivos.",
+        "description": "Su sesión ha expirado o las credenciales son inválidas. Por favor, vuelva a ingresar sus credenciales para continuar monitoreando sus dispositivos.",
         "data": {
-          "username": "Nombre de usuario",
+          "username": "Usuario",
           "password": "Contraseña"
         }
       },
@@ -47,7 +173,7 @@
         "title": "Reconfigurar {brand_name} Web Monitor",
         "description": "Actualice la configuración de su {brand_name} Web Monitor. Puede cambiar los parámetros de conexión o cambiar a una estación diferente.",
         "data": {
-          "username": "Nombre de usuario",
+          "username": "Usuario",
           "password": "Contraseña",
           "base_url": "URL base",
           "verify_ssl": "Verificar certificado SSL",
@@ -55,11 +181,11 @@
           "library_debug": "Registro de depuración de biblioteca"
         },
         "data_description": {
-          "username": "Su nombre de usuario de cuenta {brand_name} Web Monitor",
-          "password": "Su contraseña de cuenta {brand_name} Web Monitor",
+          "username": "Su nombre de usuario de la cuenta {brand_name} Web Monitor",
+          "password": "Su contraseña de la cuenta {brand_name} Web Monitor",
           "base_url": "La URL base para la API de {brand_name} Web Monitor",
-          "verify_ssl": "Habilitar la verificación del certificado SSL para conexiones seguras",
-          "dst_sync": "Sincronizar automáticamente la configuración de horario de verano con su inversor según la zona horaria de Home Assistant",
+          "verify_ssl": "Habilitar verificación de certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración del horario de verano con su inversor según la zona horaria de Home Assistant",
           "library_debug": "Habilitar registro DEBUG para la biblioteca pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la biblioteca)"
         }
       },
@@ -72,32 +198,298 @@
         "data_description": {
           "plant_id": "Seleccione la instalación solar que desea monitorear"
         }
+      },
+      "reconfigure_http": {
+        "title": "Reconfigurar API en la nube {brand_name}",
+        "description": "Actualice sus credenciales de API en la nube de {brand_name} Web Monitor. Estación actual: {current_station}",
+        "data": {
+          "username": "Usuario",
+          "password": "Contraseña",
+          "base_url": "URL base",
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronización de horario de verano"
+        },
+        "data_description": {
+          "username": "Su nombre de usuario de la cuenta {brand_name} Web Monitor",
+          "password": "Su contraseña de la cuenta {brand_name} Web Monitor",
+          "base_url": "La URL base para la API de {brand_name} Web Monitor",
+          "verify_ssl": "Habilitar verificación de certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración del horario de verano"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "Reconfigurar conexión Modbus {brand_name}",
+        "description": "Actualice la configuración de su conexión Modbus TCP local. Host actual: {current_host}",
+        "data": {
+          "modbus_host": "IP/Nombre de host de puerta de enlace Modbus",
+          "modbus_port": "Puerto TCP Modbus",
+          "modbus_unit_id": "ID de unidad Modbus",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_model": "Modelo del inversor (opcional)",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP o nombre de host de su puerta de enlace Modbus TCP",
+          "modbus_port": "Puerto TCP para comunicación Modbus (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo/unidad Modbus del inversor (predeterminado: 1)",
+          "inverter_serial": "Número de serie de 10 dígitos de su inversor",
+          "inverter_model": "Nombre del modelo para fines de visualización",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros Modbus"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "Reconfigurar conexión híbrida {brand_name}",
+        "description": "Actualice tanto la API en la nube como la configuración Modbus local. Estación actual: {current_station}, Host Modbus: {current_host}",
+        "data": {
+          "username": "Usuario",
+          "password": "Contraseña",
+          "base_url": "URL base",
+          "verify_ssl": "Verificar certificado SSL",
+          "dst_sync": "Sincronización de horario de verano",
+          "modbus_host": "IP/Nombre de host de puerta de enlace Modbus",
+          "modbus_port": "Puerto TCP Modbus",
+          "modbus_unit_id": "ID de unidad Modbus",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "username": "Su nombre de usuario de la cuenta {brand_name} Web Monitor",
+          "password": "Su contraseña de la cuenta {brand_name} Web Monitor",
+          "base_url": "La URL base para la API de {brand_name} Web Monitor",
+          "verify_ssl": "Habilitar verificación de certificado SSL para conexiones seguras",
+          "dst_sync": "Sincronizar automáticamente la configuración del horario de verano",
+          "modbus_host": "Dirección IP o nombre de host de su puerta de enlace Modbus TCP",
+          "modbus_port": "Puerto TCP para comunicación Modbus (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo/unidad Modbus del inversor (predeterminado: 1)",
+          "inverter_serial": "Número de serie del inversor a consultar vía Modbus",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros Modbus"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "Cambiar estación (Híbrido)",
+        "description": "Seleccione una estación/planta solar diferente para monitorear. Estación actual: {current_station}",
+        "data": {
+          "plant_id": "Estación/Planta"
+        },
+        "data_description": {
+          "plant_id": "Seleccione la instalación solar que desea monitorear"
+        }
+      },
+      "transition_select": {
+        "title": "Cambiar modo de conexión",
+        "description": "Puede cambiar cómo esta integración se conecta a su inversor. Modo actual: {current_type}",
+        "data": {
+          "transition_type": "Modo de conexión"
+        },
+        "data_description": {
+          "transition_type": "Seleccione un nuevo modo de conexión o mantenga la configuración actual"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "Seleccionar tipo de transporte local",
+        "description": "Elija cómo conectarse localmente a su inversor. Modbus TCP proporciona las actualizaciones más rápidas usando un adaptador RS485. El dongle WiFi usa el dongle existente del inversor (sin hardware adicional).",
+        "data": {
+          "hybrid_local_type": "Tipo de transporte local"
+        },
+        "data_description": {
+          "hybrid_local_type": "Seleccione el método de conexión local para datos de tiempo de ejecución rápidos"
+        }
+      },
+      "transition_modbus": {
+        "title": "Configurar conexión Modbus",
+        "description": "Ingrese la configuración de su puerta de enlace Modbus TCP. Esto habilitará el sondeo rápido de 5 segundos para datos de tiempo de ejecución.",
+        "data": {
+          "modbus_host": "IP/Nombre de host de puerta de enlace Modbus",
+          "modbus_port": "Puerto TCP Modbus",
+          "modbus_unit_id": "ID de unidad Modbus",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP o nombre de host de su puerta de enlace Modbus TCP",
+          "modbus_port": "Puerto TCP para comunicación Modbus (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo/unidad Modbus del inversor (predeterminado: 1)",
+          "inverter_serial": "Número de serie del inversor (dejar en blanco para detectar automáticamente)",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros"
+        }
+      },
+      "transition_dongle": {
+        "title": "Configurar conexión de dongle WiFi",
+        "description": "Ingrese la configuración de conexión de su dongle WiFi. Esto habilita el sondeo rápido de 5 segundos usando el dongle existente del inversor.",
+        "data": {
+          "dongle_host": "IP/Nombre de host del dongle WiFi",
+          "dongle_port": "Puerto TCP del dongle",
+          "dongle_serial": "Número de serie del dongle",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Familia del inversor"
+        },
+        "data_description": {
+          "dongle_host": "Dirección IP de su dongle WiFi en su red local",
+          "dongle_port": "Puerto TCP para comunicación con el dongle (predeterminado: 8000)",
+          "dongle_serial": "Número de serie de 10 caracteres del dongle WiFi",
+          "inverter_serial": "Número de serie del inversor",
+          "inverter_family": "Seleccione su familia de inversor para el mapeo correcto de registros"
+        }
+      },
+      "transition_confirm": {
+        "title": "Confirmar cambio de modo de conexión",
+        "description": "Está a punto de cambiar de {current_type} a {target_type}. Estación: {current_plant}\n\n{warnings}",
+        "submit": "Confirmar cambio"
+      },
+      "transition_confirm_removal": {
+        "title": "Confirmar eliminación de transporte local",
+        "description": "Está a punto de eliminar el transporte local de su configuración híbrida. Estación: {current_plant}, Transporte local actual: {local_type} ({local_host})\n\n{warnings}",
+        "submit": "Eliminar transporte local"
+      },
+      "local_setup": {
+        "title": "Configuración local {brand_name}",
+        "description": "Configure el monitoreo local sin credenciales en la nube. La información del dispositivo (serial, modelo, firmware) se detecta automáticamente.\n\nSeleccione cómo está conectado su primer dispositivo:",
+        "data": {
+          "device_type": "Tipo de conexión"
+        },
+        "data_description": {
+          "device_type": "Modbus TCP usa un adaptador RS485 (p. ej., Waveshare). El dongle WiFi usa el dongle integrado del inversor."
+        }
+      },
+      "local_modbus_connect": {
+        "title": "Conectar vía Modbus TCP",
+        "description": "Ingrese la dirección IP de su puerta de enlace Modbus TCP. Todo lo demás se detecta automáticamente.{device_count, plural, =0 {} other { (Agregando dispositivo #{device_count})}}",
+        "data": {
+          "modbus_host": "Dirección IP de la puerta de enlace",
+          "modbus_port": "Puerto (opcional)",
+          "modbus_unit_id": "ID de unidad (opcional)"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP de su adaptador RS485-a-Ethernet (p. ej., 192.168.1.100)",
+          "modbus_port": "Puerto TCP (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo Modbus (predeterminado: 1)"
+        }
+      },
+      "local_dongle_connect": {
+        "title": "Conectar vía dongle WiFi",
+        "description": "Ingrese los detalles de conexión del dongle. El serial del dongle está impreso en la etiqueta del dispositivo (también es el nombre del AP WiFi). El serial del inversor/dispositivo está en la placa de identificación del dispositivo.{device_count, plural, =0 {} other { (Agregando dispositivo #{device_count})}}",
+        "data": {
+          "dongle_host": "Dirección IP del dongle",
+          "dongle_serial": "Número de serie del dongle",
+          "inverter_serial": "Número de serie del dispositivo",
+          "dongle_port": "Puerto (opcional)"
+        },
+        "data_description": {
+          "dongle_host": "Dirección IP de su dongle WiFi en su red local",
+          "dongle_serial": "Serial de 10 caracteres del dongle (BJ/BA para inversores, DJ para GridBOSS)",
+          "inverter_serial": "Serial de 10 caracteres de la placa de identificación del dispositivo (requerido para autenticación)",
+          "dongle_port": "Puerto TCP (predeterminado: 8000)"
+        }
+      },
+      "local_device_discovered": {
+        "title": "Dispositivo encontrado: {device_model}",
+        "description": "Conexión exitosa y detección de información del dispositivo:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Familia**: {device_family}\n**Firmware**: {device_firmware}\n**Potencia PV actual**: {device_pv_power}W\n**SOC de batería**: {device_battery_soc}%\n\nEste será el dispositivo #{device_count}. ¿Agregar otro dispositivo?",
+        "data": {
+          "add_another": "Agregar otro dispositivo"
+        },
+        "data_description": {
+          "add_another": "Marque para agregar otro inversor o GridBOSS a esta instalación"
+        }
+      },
+      "local_add_device": {
+        "title": "Agregar otro dispositivo",
+        "description": "Tiene {device_count} dispositivo(s) configurado(s). Seleccione el tipo de conexión para su próximo dispositivo:",
+        "data": {
+          "device_type": "Tipo de conexión"
+        },
+        "data_description": {
+          "device_type": "Elija Modbus TCP o dongle WiFi"
+        }
+      },
+      "local_name": {
+        "title": "Nombre de su instalación",
+        "description": "Dé a su instalación solar un nombre amigable. Esto es solo para visualización en Home Assistant - no es un valor de su inversor.\n\n**Dispositivos configurados**: {device_summary}\n\nEjemplos: \"Solar del hogar\", \"Sistema del garaje\", \"Casa principal\"",
+        "data": {
+          "station_name": "Nombre de la instalación (opcional)"
+        },
+        "data_description": {
+          "station_name": "Dejar en blanco para usar el modelo y serial del dispositivo como nombre"
+        }
+      },
+      "reconfigure_local": {
+        "title": "Reconfigurar instalación local",
+        "description": "Gestione dispositivos en su instalación local. Dispositivos actuales: {device_count}",
+        "data": {
+          "action": "Acción"
+        },
+        "data_description": {
+          "action": "Seleccione una acción para realizar en esta instalación"
+        }
+      },
+      "reconfigure_local_modbus": {
+        "title": "Configurar dispositivo Modbus",
+        "description": "Ingrese la dirección IP de su puerta de enlace Modbus TCP. El serial, modelo y firmware del dispositivo se detectan automáticamente.",
+        "data": {
+          "modbus_host": "Dirección IP de la puerta de enlace",
+          "modbus_port": "Puerto (opcional)",
+          "modbus_unit_id": "ID de unidad (opcional)"
+        },
+        "data_description": {
+          "modbus_host": "Dirección IP de su adaptador RS485-a-Ethernet (p. ej., 192.168.1.100)",
+          "modbus_port": "Puerto TCP (predeterminado: 502)",
+          "modbus_unit_id": "ID de esclavo Modbus (predeterminado: 1)"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "Configurar dispositivo dongle WiFi",
+        "description": "Ingrese los detalles de conexión del dongle. El modelo y firmware del dispositivo se detectan automáticamente.",
+        "data": {
+          "dongle_host": "Dirección IP del dongle",
+          "dongle_serial": "Número de serie del dongle",
+          "inverter_serial": "Número de serie del dispositivo",
+          "dongle_port": "Puerto (opcional)"
+        },
+        "data_description": {
+          "dongle_host": "Dirección IP de su dongle WiFi en su red local",
+          "dongle_serial": "Serial de 10 caracteres del dongle (BJ/BA para inversores, DJ para GridBOSS)",
+          "inverter_serial": "Serial de 10 caracteres de la placa de identificación del dispositivo (requerido para autenticación)",
+          "dongle_port": "Puerto TCP (predeterminado: 8000)"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "Dispositivo encontrado: {device_model}",
+        "description": "Conexión exitosa y detección de información del dispositivo:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Familia**: {device_family}\n**Firmware**: {device_firmware}\n**Potencia PV actual**: {device_pv_power}W\n**SOC de batería**: {device_battery_soc}%\n\nHaga clic en Enviar para agregar este dispositivo a su instalación.",
+        "submit": "Agregar dispositivo"
       }
     },
     "error": {
       "cannot_connect": "No se puede conectar a {brand_name} Web Monitor. Por favor, verifique su conexión de red e intente nuevamente.",
-      "invalid_auth": "Nombre de usuario o contraseña no válidos. Por favor, verifique sus credenciales e intente nuevamente.",
-      "unknown": "Ocurrió un error inesperado. Por favor, intente nuevamente o consulte los registros para obtener más detalles.",
+      "invalid_auth": "Usuario o contraseña inválidos. Por favor, verifique sus credenciales e intente nuevamente.",
+      "unknown": "Ocurrió un error inesperado. Por favor, intente nuevamente o verifique los registros para más detalles.",
       "no_plants": "No se encontraron estaciones/plantas solares en su cuenta. Por favor, asegúrese de tener al menos una estación configurada en su cuenta de {brand_name} Web Monitor.",
       "invalid_plant": "La estación/planta seleccionada ya no está disponible. Por favor, seleccione una estación diferente.",
-      "timeout": "Se agotó el tiempo de conexión a {brand_name} Web Monitor. Por favor, verifique su conexión a Internet e intente nuevamente."
+      "timeout": "La conexión a {brand_name} Web Monitor agotó el tiempo de espera. Por favor, verifique su conexión a internet e intente nuevamente.",
+      "modbus_not_installed": "La biblioteca pymodbus no está instalada. Por favor, instálela usando: pip install pymodbus",
+      "modbus_timeout": "La conexión Modbus agotó el tiempo de espera. Por favor, verifique la dirección IP y asegúrese de que la puerta de enlace Modbus esté encendida y conectada.",
+      "modbus_connection_failed": "Error al conectar a la puerta de enlace Modbus. Por favor, verifique: (1) La dirección IP es correcta, (2) el puerto 502 no está bloqueado, (3) Modbus TCP está habilitado en la puerta de enlace.",
+      "dongle_timeout": "La conexión del dongle WiFi agotó el tiempo de espera. Por favor, verifique la dirección IP y asegúrese de que el dongle esté conectado a su red.",
+      "dongle_connection_failed": "Error al conectar al dongle WiFi. Por favor, verifique: (1) La dirección IP es correcta, (2) el puerto 8000 no está bloqueado, (3) el firmware del dongle soporta acceso local (actualizaciones recientes pueden bloquear esto).",
+      "duplicate_serial": "Un dispositivo con este número de serie ya ha sido agregado a esta instalación."
     },
     "abort": {
       "already_configured": "Esta estación de {brand_name} Web Monitor ya está configurada. Cada estación requiere una instancia de integración separada.",
-      "reauth_successful": "¡Reautenticación exitosa! Su integración de {brand_name} Web Monitor ahora está reconectada.",
-      "reconfigure_successful": "¡Reconfiguración exitosa! Su configuración de {brand_name} Web Monitor ha sido actualizada."
+      "reauth_successful": "¡Reautenticación exitosa! Su integración de {brand_name} Web Monitor está ahora reconectada.",
+      "reconfigure_successful": "¡Reconfiguración exitosa! La configuración de su {brand_name} Web Monitor ha sido actualizada.",
+      "entry_not_found": "Entrada de configuración no encontrada. La integración puede haber sido eliminada. Por favor, agréguela nuevamente desde la página de Integraciones."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Opciones de {brand_name} Web Monitor",
-        "description": "Configure opciones avanzadas para su integración de {brand_name} Web Monitor.",
+        "description": "Configure los intervalos de sondeo para su integración de {brand_name} Web Monitor. Las actualizaciones de sensores controlan con qué frecuencia se obtienen los datos del dispositivo. La actualización de parámetros controla con qué frecuencia se sincronizan los ajustes de configuración.",
         "data": {
-          "scan_interval": "Intervalo de actualización (segundos)"
+          "sensor_update_interval": "Intervalo de actualización de sensores (segundos)",
+          "parameter_refresh_interval": "Intervalo de actualización de parámetros (minutos)"
         },
         "data_description": {
-          "scan_interval": "Con qué frecuencia consultar la API de {brand_name} para actualizaciones (mínimo 30 segundos)"
+          "sensor_update_interval": "Con qué frecuencia sondear para actualizaciones de sensores ({min_sensor_interval}-{max_sensor_interval} segundos). Valores más bajos proporcionan actualizaciones más rápidas pero aumentan la carga de la API.",
+          "parameter_refresh_interval": "Con qué frecuencia actualizar los parámetros del inversor como límites de SOC y configuración de carga ({min_param_interval}-{max_param_interval} minutos)."
         }
       }
     }
@@ -111,6 +503,15 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "dongle_connectivity": {
+        "name": "Conectividad del dongle",
+        "state": {
+          "on": "Conectado",
+          "off": "Desconectado"
+        }
+      }
+    },
     "sensor": {
       "ac_power": {"name": "Potencia CA"},
       "ac_voltage": {"name": "Voltaje CA"},
@@ -129,22 +530,38 @@
       "monthly_energy": {"name": "Energía mensual"},
       "yearly_energy": {"name": "Energía anual"},
       "internal_temperature": {"name": "Temperatura interna"},
-      "radiator1_temperature": {"name": "Temperatura radiador 1"},
-      "radiator2_temperature": {"name": "Temperatura radiador 2"},
+      "radiator1_temperature": {"name": "Temperatura del radiador 1"},
+      "radiator2_temperature": {"name": "Temperatura del radiador 2"},
       "status_code": {"name": "Código de estado"},
       "status_text": {"name": "Estado"},
       "grid_power": {"name": "Potencia de red"},
       "load_power": {"name": "Potencia de carga"},
-      "consumption_power": {"name": "Potencia de consumo"},
       "pv_total_power": {"name": "Potencia PV total"},
       "pv1_power": {"name": "Potencia PV1"},
       "pv2_power": {"name": "Potencia PV2"},
       "pv3_power": {"name": "Potencia PV3"},
-      "cell_voltage_max": {"name": "Voltaje celda máximo"},
-      "cell_voltage_min": {"name": "Voltaje celda mínimo"},
-      "cell_voltage_delta": {"name": "Delta voltaje celda"},
-      "cycle_count": {"name": "Contador de ciclos"},
-      "firmware_version": {"name": "Versión de firmware"}
+      "cell_voltage_max": {"name": "Voltaje máximo de celda"},
+      "cell_voltage_min": {"name": "Voltaje mínimo de celda"},
+      "cell_voltage_delta": {"name": "Delta de voltaje de celda"},
+      "cycle_count": {"name": "Conteo de ciclos"},
+      "firmware_version": {"name": "Versión de firmware"},
+      "grid_voltage_r": {"name": "Voltaje de red R"},
+      "grid_voltage_s": {"name": "Voltaje de red S"},
+      "grid_voltage_t": {"name": "Voltaje de red T"},
+      "grid_frequency": {"name": "Frecuencia de red"},
+      "eps_voltage_r": {"name": "Voltaje EPS R"},
+      "eps_voltage_s": {"name": "Voltaje EPS S"},
+      "eps_voltage_t": {"name": "Voltaje EPS T"},
+      "eps_frequency": {"name": "Frecuencia EPS"},
+      "eps_power": {"name": "Potencia EPS"},
+      "eps_power_l1": {"name": "Potencia EPS L1"},
+      "eps_power_l2": {"name": "Potencia EPS L2"},
+      "power_output": {"name": "Potencia de salida"},
+      "rectifier_power": {"name": "Potencia del rectificador"},
+      "ac_couple_power": {"name": "Potencia de acople CA"},
+      "bus1_voltage": {"name": "Voltaje de bus 1"},
+      "bus2_voltage": {"name": "Voltaje de bus 2"},
+      "total_load_power": {"name": "Potencia de carga total"}
     },
     "switch": {
       "quick_charge": {
@@ -152,23 +569,26 @@
       },
       "battery_backup_eps": {
         "name": "Respaldo de batería (EPS)"
+      },
+      "off_grid_mode": {
+        "name": "Modo fuera de red"
       }
     },
     "number": {
       "system_charge_soc_limit": {
-        "name": "Límite SOC carga del sistema"
+        "name": "Límite de SOC de carga del sistema"
       },
       "ac_charge_power": {
-        "name": "Potencia carga CA"
+        "name": "Potencia de carga CA"
       },
       "pv_charge_power": {
-        "name": "Potencia carga PV"
+        "name": "Potencia de carga PV"
       },
       "ac_charge_soc_limit": {
-        "name": "Límite SOC carga CA"
+        "name": "Límite de SOC de carga CA"
       },
       "soc_cutoff": {
-        "name": "Corte SOC"
+        "name": "Corte de SOC"
       }
     },
     "button": {
@@ -189,7 +609,7 @@
   "services": {
     "refresh_data": {
       "name": "Actualizar datos",
-      "description": "Forzar una actualización inmediata de los datos del dispositivo desde la API de {brand_name}, omitiendo el intervalo de consulta normal.",
+      "description": "Forzar una actualización inmediata de los datos del dispositivo desde la API de {brand_name}, omitiendo el intervalo de sondeo normal.",
       "fields": {
         "entry_id": {
           "name": "ID de entrada de configuración",
@@ -203,10 +623,10 @@
       "message": "Entrada de configuración {entry_id} no encontrada. Por favor, verifique que el ID de entrada sea correcto."
     },
     "entry_not_loaded": {
-      "message": "La entrada de configuración {entry_id} no está cargada. Por favor, asegúrese de que la integración esté correctamente configurada y en ejecución."
+      "message": "La entrada de configuración {entry_id} no está cargada. Por favor, asegúrese de que la integración esté correctamente configurada y ejecutándose."
     },
     "no_coordinators": {
-      "message": "No se encontraron coordinadores {brand_name} para actualizar. Por favor, asegúrese de que al menos una integración de {brand_name} Web Monitor esté configurada y cargada."
+      "message": "No se encontraron coordinadores de {brand_name} para actualizar. Por favor, asegúrese de que al menos una integración de {brand_name} Web Monitor esté configurada y cargada."
     }
   }
 }

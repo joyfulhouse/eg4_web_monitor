@@ -2,102 +2,494 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} Web Monitor 設定",
-        "description": "連接到您的 {brand_name} Web Monitor 帳戶以管理您的太陽能逆變器、GridBOSS 設備和電池系統。",
+        "title": "{brand_name} 連接類型",
+        "description": "選擇如何連接到您的 {brand_name} 逆變器：\n\n**Cloud API**：需要 EG4 監控入口帳戶。最適合遠端存取。\n\n**僅本地**：透過 Modbus 或 WiFi 數據棒直接連接。無需雲端。支援多設備。\n\n**混合**：同時使用本地（快速更新）和雲端（電池詳情、遠端控制）。",
+        "data": {
+          "connection_type": "連接類型"
+        },
+        "data_description": {
+          "connection_type": "選擇連接逆變器的方式"
+        }
+      },
+      "http_credentials": {
+        "title": "{brand_name} Cloud API 設定",
+        "description": "連接到您的 {brand_name} Web Monitor 帳戶，管理太陽能逆變器、GridBOSS 設備和電池系統。",
         "data": {
           "username": "使用者名稱",
           "password": "密碼",
           "base_url": "基礎 URL",
           "verify_ssl": "驗證 SSL 憑證",
-          "dst_sync": "夏令時同步",
-          "library_debug": "函式庫偵錯記錄"
+          "dst_sync": "夏令時間同步",
+          "library_debug": "程式庫偵錯日誌"
         },
         "data_description": {
           "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
           "password": "您的 {brand_name} Web Monitor 帳戶密碼",
           "base_url": "{brand_name} Web Monitor API 的基礎 URL",
-          "verify_ssl": "啟用 SSL 憑證驗證以實現安全連接",
-          "dst_sync": "根據 Home Assistant 時區自動同步逆變器的夏令時設定",
-          "library_debug": "為 pylxpweb 函式庫啟用 DEBUG 記錄（顯示 API 請求、回應和內部函式庫操作）"
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連接",
+          "dst_sync": "根據 Home Assistant 時區自動同步逆變器的夏令時間設定",
+          "library_debug": "啟用 pylxpweb 程式庫的偵錯 (DEBUG) 日誌（顯示 API 請求、回應和內部程式庫操作）"
+        }
+      },
+      "modbus": {
+        "title": "{brand_name} 本地 Modbus 設定",
+        "description": "透過 Modbus TCP 直接連接到逆變器。需要一個 Modbus TCP 閘道器（例如 Waveshare RS485 轉乙太網路轉接器）連接到逆變器的 RS485 埠。",
+        "data": {
+          "modbus_host": "Modbus 閘道器 IP/主機名稱",
+          "modbus_port": "Modbus TCP 連接埠",
+          "modbus_unit_id": "Modbus 單元 ID",
+          "inverter_serial": "逆變器序號（可選）",
+          "inverter_model": "逆變器型號（可選）",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "modbus_host": "Modbus TCP 閘道器的 IP 位址或主機名稱",
+          "modbus_port": "Modbus 通訊的 TCP 連接埠（預設：502）",
+          "modbus_unit_id": "逆變器的 Modbus 從機/單元 ID（預設：1）",
+          "inverter_serial": "留空以從 Modbus 暫存器自動偵測，或在自動偵測失敗時手動輸入",
+          "inverter_model": "用於顯示的型號名稱（例如 18kPV、12000XP）",
+          "inverter_family": "選擇您的逆變器系列以正確對應 Modbus 暫存器。不同的逆變器型號使用不同的暫存器配置。"
+        }
+      },
+      "dongle": {
+        "title": "{brand_name} WiFi 數據棒設定",
+        "description": "透過 WiFi 數據棒直接連接到逆變器。無需額外硬體——使用現有數據棒在連接埠 8000 上的 TCP 介面。注意：最近的韌體更新可能會阻止此存取。",
+        "data": {
+          "dongle_host": "WiFi 數據棒 IP/主機名稱",
+          "dongle_port": "數據棒 TCP 連接埠",
+          "dongle_serial": "數據棒序號",
+          "inverter_serial": "逆變器序號",
+          "inverter_model": "逆變器型號（可選）",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "dongle_host": "本地網路中 WiFi 數據棒的 IP 位址",
+          "dongle_port": "數據棒通訊的 TCP 連接埠（預設：8000）",
+          "dongle_serial": "WiFi 數據棒的 10 位序號（例如 BA12345678，即數據棒的 WiFi AP SSID）",
+          "inverter_serial": "逆變器的 10 位序號（在設備標籤上找到）",
+          "inverter_model": "用於顯示的型號名稱（例如 18kPV、12000XP）",
+          "inverter_family": "選擇您的逆變器系列以正確對應暫存器"
+        }
+      },
+      "hybrid_http": {
+        "title": "{brand_name} 混合設定 — 雲端憑證",
+        "description": "首先，輸入您的雲端 API 憑證。這將啟用設備發現和單獨的電池監控。快速執行時資料將來自本地 Modbus。",
+        "data": {
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步",
+          "library_debug": "程式庫偵錯日誌"
+        },
+        "data_description": {
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連接",
+          "dst_sync": "根據 Home Assistant 時區自動同步逆變器的夏令時間設定",
+          "library_debug": "啟用 pylxpweb 程式庫的偵錯 (DEBUG) 日誌"
+        }
+      },
+      "hybrid_plant": {
+        "title": "{brand_name} 混合設定 — 選擇電站",
+        "description": "選擇要監控的電站。接下來將設定 Modbus 連接。",
+        "data": {
+          "plant_id": "電站/裝置"
+        },
+        "data_description": {
+          "plant_id": "選擇您要監控的太陽能裝置"
+        }
+      },
+      "hybrid_local_type": {
+        "title": "{brand_name} 混合設定 — 本地傳輸",
+        "description": "選擇如何在本地連接到逆變器以獲取快速即時資料。Modbus 使用 RS485 轉接器，WiFi 數據棒使用逆變器現有的數據棒。",
+        "data": {
+          "hybrid_local_type": "本地傳輸類型"
+        },
+        "data_description": {
+          "hybrid_local_type": "選擇獲取快速執行時資料的本地連接方式"
+        }
+      },
+      "hybrid_modbus": {
+        "title": "{brand_name} 混合設定 — 本地 Modbus",
+        "description": "設定本地 Modbus 連接以快速更新執行時資料。逆變器序號已從您的雲端帳戶預先填入。",
+        "data": {
+          "modbus_host": "Modbus 閘道器 IP/主機名稱",
+          "modbus_port": "Modbus TCP 連接埠",
+          "modbus_unit_id": "Modbus 單元 ID",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "modbus_host": "Modbus TCP 閘道器的 IP 位址或主機名稱",
+          "modbus_port": "Modbus 通訊的 TCP 連接埠（預設：502）",
+          "modbus_unit_id": "逆變器的 Modbus 從機/單元 ID（預設：1）",
+          "inverter_serial": "透過 Modbus 輪詢的逆變器序號",
+          "inverter_family": "選擇您的逆變器系列以正確對應 Modbus 暫存器"
+        }
+      },
+      "hybrid_dongle": {
+        "title": "{brand_name} 混合設定 — WiFi 數據棒",
+        "description": "設定 WiFi 數據棒連接以快速更新執行時資料。無需額外硬體。注意：最近的韌體更新可能會阻止此存取。",
+        "data": {
+          "dongle_host": "WiFi 數據棒 IP/主機名稱",
+          "dongle_port": "數據棒 TCP 連接埠",
+          "dongle_serial": "數據棒序號",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "dongle_host": "本地網路中 WiFi 數據棒的 IP 位址",
+          "dongle_port": "數據棒通訊的 TCP 連接埠（預設：8000）",
+          "dongle_serial": "WiFi 數據棒的 10 位序號（例如 BA12345678）",
+          "inverter_serial": "透過數據棒輪詢的逆變器序號",
+          "inverter_family": "選擇您的逆變器系列以正確對應暫存器"
         }
       },
       "plant": {
-        "title": "選擇站點",
-        "description": "選擇要監控的太陽能站點/電站。您可以透過建立單獨的整合實例來新增其他站點。",
+        "title": "選擇電站",
+        "description": "選擇要監控的太陽能電站/裝置。您可以透過建立單獨的整合實例來新增其他電站。",
         "data": {
-          "plant_id": "站點/電站"
+          "plant_id": "電站/裝置"
         },
         "data_description": {
           "plant_id": "選擇您要監控的太陽能裝置"
         }
       },
       "reauth": {
-        "title": "重新認證 {brand_name} Web Monitor",
-        "description": "您的工作階段已過期或憑證無效。請重新輸入您的憑證以繼續監控您的裝置。",
+        "title": "重新驗證 {brand_name} Web Monitor",
+        "description": "您的工作階段已過期或憑證無效。請重新輸入憑證以繼續監控設備。",
         "data": {
           "username": "使用者名稱",
           "password": "密碼"
         }
       },
       "reauth_confirm": {
-        "title": "確認重新認證",
-        "description": "請確認您更新的憑證以恢復對 {brand_name} 裝置的存取。"
+        "title": "確認重新驗證",
+        "description": "請確認您更新的憑證以恢復對 {brand_name} 設備的存取。"
       },
       "reconfigure": {
         "title": "重新設定 {brand_name} Web Monitor",
-        "description": "更新您的 {brand_name} Web Monitor 設定。您可以變更連接參數或切換到不同的站點。",
+        "description": "更新您的 {brand_name} Web Monitor 設定。您可以更改連接參數或切換到不同的電站。",
         "data": {
           "username": "使用者名稱",
           "password": "密碼",
           "base_url": "基礎 URL",
           "verify_ssl": "驗證 SSL 憑證",
-          "dst_sync": "夏令時同步",
-          "library_debug": "函式庫偵錯記錄"
+          "dst_sync": "夏令時間同步",
+          "library_debug": "程式庫偵錯日誌"
         },
         "data_description": {
           "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
           "password": "您的 {brand_name} Web Monitor 帳戶密碼",
           "base_url": "{brand_name} Web Monitor API 的基礎 URL",
-          "verify_ssl": "啟用 SSL 憑證驗證以實現安全連接",
-          "dst_sync": "根據 Home Assistant 時區自動同步逆變器的夏令時設定",
-          "library_debug": "為 pylxpweb 函式庫啟用 DEBUG 記錄（顯示 API 請求、回應和內部函式庫操作）"
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連接",
+          "dst_sync": "根據 Home Assistant 時區自動同步逆變器的夏令時間設定",
+          "library_debug": "啟用 pylxpweb 程式庫的偵錯 (DEBUG) 日誌（顯示 API 請求、回應和內部程式庫操作）"
         }
       },
       "reconfigure_plant": {
-        "title": "變更站點",
-        "description": "選擇要使用此整合實例監控的不同太陽能站點/電站。",
+        "title": "更改電站",
+        "description": "選擇不同的太陽能電站/裝置以透過此整合實例進行監控。",
         "data": {
-          "plant_id": "站點/電站"
+          "plant_id": "電站/裝置"
         },
         "data_description": {
           "plant_id": "選擇您要監控的太陽能裝置"
         }
+      },
+      "reconfigure_http": {
+        "title": "重新設定 {brand_name} Cloud API",
+        "description": "更新您的 {brand_name} Web Monitor 雲端 API 憑證。目前電站：{current_station}",
+        "data": {
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步"
+        },
+        "data_description": {
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連接",
+          "dst_sync": "自動同步夏令時間設定"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "重新設定 {brand_name} Modbus 連接",
+        "description": "更新您的本地 Modbus TCP 連接設定。目前主機：{current_host}",
+        "data": {
+          "modbus_host": "Modbus 閘道器 IP/主機名稱",
+          "modbus_port": "Modbus TCP 連接埠",
+          "modbus_unit_id": "Modbus 單元 ID",
+          "inverter_serial": "逆變器序號",
+          "inverter_model": "逆變器型號（可選）",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "modbus_host": "Modbus TCP 閘道器的 IP 位址或主機名稱",
+          "modbus_port": "Modbus 通訊的 TCP 連接埠（預設：502）",
+          "modbus_unit_id": "逆變器的 Modbus 從機/單元 ID（預設：1）",
+          "inverter_serial": "逆變器的 10 位序號",
+          "inverter_model": "用於顯示的型號名稱",
+          "inverter_family": "選擇您的逆變器系列以正確對應 Modbus 暫存器"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "重新設定 {brand_name} 混合連接",
+        "description": "更新雲端 API 和本地 Modbus 設定。目前電站：{current_station}，Modbus 主機：{current_host}",
+        "data": {
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步",
+          "modbus_host": "Modbus 閘道器 IP/主機名稱",
+          "modbus_port": "Modbus TCP 連接埠",
+          "modbus_unit_id": "Modbus 單元 ID",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連接",
+          "dst_sync": "自動同步夏令時間設定",
+          "modbus_host": "Modbus TCP 閘道器的 IP 位址或主機名稱",
+          "modbus_port": "Modbus 通訊的 TCP 連接埠（預設：502）",
+          "modbus_unit_id": "逆變器的 Modbus 從機/單元 ID（預設：1）",
+          "inverter_serial": "透過 Modbus 輪詢的逆變器序號",
+          "inverter_family": "選擇您的逆變器系列以正確對應 Modbus 暫存器"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "更改電站（混合）",
+        "description": "選擇不同的太陽能電站/裝置進行監控。目前電站：{current_station}",
+        "data": {
+          "plant_id": "電站/裝置"
+        },
+        "data_description": {
+          "plant_id": "選擇您要監控的太陽能裝置"
+        }
+      },
+      "transition_select": {
+        "title": "更改連接模式",
+        "description": "您可以更改此整合連接逆變器的方式。目前模式：{current_type}",
+        "data": {
+          "transition_type": "連接模式"
+        },
+        "data_description": {
+          "transition_type": "選擇新的連接模式或保持目前設定"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "選擇本地傳輸類型",
+        "description": "選擇如何在本地連接到逆變器。Modbus TCP 使用 RS485 轉接器提供最快的更新。WiFi 數據棒使用逆變器現有的數據棒（無需額外硬體）。",
+        "data": {
+          "hybrid_local_type": "本地傳輸類型"
+        },
+        "data_description": {
+          "hybrid_local_type": "選擇獲取快速執行時資料的本地連接方式"
+        }
+      },
+      "transition_modbus": {
+        "title": "設定 Modbus 連接",
+        "description": "輸入您的 Modbus TCP 閘道器設定。這將啟用 5 秒間隔的快速執行時資料輪詢。",
+        "data": {
+          "modbus_host": "Modbus 閘道器 IP/主機名稱",
+          "modbus_port": "Modbus TCP 連接埠",
+          "modbus_unit_id": "Modbus 單元 ID",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "modbus_host": "Modbus TCP 閘道器的 IP 位址或主機名稱",
+          "modbus_port": "Modbus 通訊的 TCP 連接埠（預設：502）",
+          "modbus_unit_id": "逆變器的 Modbus 從機/單元 ID（預設：1）",
+          "inverter_serial": "逆變器序號（留空以自動偵測）",
+          "inverter_family": "選擇您的逆變器系列以正確對應暫存器"
+        }
+      },
+      "transition_dongle": {
+        "title": "設定 WiFi 數據棒連接",
+        "description": "輸入您的 WiFi 數據棒連接設定。這將透過逆變器現有的數據棒啟用 5 秒間隔的快速輪詢。",
+        "data": {
+          "dongle_host": "WiFi 數據棒 IP/主機名稱",
+          "dongle_port": "數據棒 TCP 連接埠",
+          "dongle_serial": "數據棒序號",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "逆變器系列"
+        },
+        "data_description": {
+          "dongle_host": "本地網路中 WiFi 數據棒的 IP 位址",
+          "dongle_port": "數據棒通訊的 TCP 連接埠（預設：8000）",
+          "dongle_serial": "WiFi 數據棒的 10 位序號",
+          "inverter_serial": "逆變器序號",
+          "inverter_family": "選擇您的逆變器系列以正確對應暫存器"
+        }
+      },
+      "transition_confirm": {
+        "title": "確認連接模式更改",
+        "description": "您將要從 {current_type} 更改為 {target_type}。電站：{current_plant}\n\n{warnings}",
+        "submit": "確認更改"
+      },
+      "transition_confirm_removal": {
+        "title": "確認移除本地傳輸",
+        "description": "您將要從混合設定中移除本地傳輸。電站：{current_plant}，目前本地傳輸：{local_type}（{local_host}）\n\n{warnings}",
+        "submit": "移除本地傳輸"
+      },
+      "local_setup": {
+        "title": "{brand_name} 本地設定",
+        "description": "無需雲端憑證即可設定本地監控。設備資訊（序號、型號、韌體）會自動偵測。\n\n選擇第一個設備的連接方式：",
+        "data": {
+          "device_type": "連接類型"
+        },
+        "data_description": {
+          "device_type": "Modbus TCP 使用 RS485 轉接器（例如 Waveshare）。WiFi 數據棒使用逆變器內建的數據棒。"
+        }
+      },
+      "local_modbus_connect": {
+        "title": "透過 Modbus TCP 連接",
+        "description": "輸入 Modbus TCP 閘道器的 IP 位址。其他資訊會自動偵測。{device_count, plural, =0 {} other {（正在新增設備 #{device_count}）}}",
+        "data": {
+          "modbus_host": "閘道器 IP 位址",
+          "modbus_port": "連接埠（可選）",
+          "modbus_unit_id": "單元 ID（可選）"
+        },
+        "data_description": {
+          "modbus_host": "RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_port": "TCP 連接埠（預設：502）",
+          "modbus_unit_id": "Modbus 從機 ID（預設：1）"
+        }
+      },
+      "local_dongle_connect": {
+        "title": "透過 WiFi 數據棒連接",
+        "description": "輸入數據棒連接詳情。數據棒序號印在設備標籤上（也是 WiFi AP 名稱）。逆變器/設備序號在設備銘牌上。{device_count, plural, =0 {} other {（正在新增設備 #{device_count}）}}",
+        "data": {
+          "dongle_host": "數據棒 IP 位址",
+          "dongle_serial": "數據棒序號",
+          "inverter_serial": "設備序號",
+          "dongle_port": "連接埠（可選）"
+        },
+        "data_description": {
+          "dongle_host": "本地網路中 WiFi 數據棒的 IP 位址",
+          "dongle_serial": "10 位數據棒序號（逆變器為 BJ/BA，GridBOSS 為 DJ）",
+          "inverter_serial": "設備銘牌上的 10 位序號（身份驗證必需）",
+          "dongle_port": "TCP 連接埠（預設：8000）"
+        }
+      },
+      "local_device_discovered": {
+        "title": "發現設備：{device_model}",
+        "description": "成功連接並偵測到設備資訊：\n\n**{device_type}**：{device_model}\n**序號**：{device_serial}\n**系列**：{device_family}\n**韌體**：{device_firmware}\n**目前 PV 功率**：{device_pv_power}W\n**電池 SOC**：{device_battery_soc}%\n\n這將是設備 #{device_count}。要新增另一個設備嗎？",
+        "data": {
+          "add_another": "新增另一個設備"
+        },
+        "data_description": {
+          "add_another": "勾選以向此裝置新增另一個逆變器或 GridBOSS"
+        }
+      },
+      "local_add_device": {
+        "title": "新增另一個設備",
+        "description": "您已設定 {device_count} 個設備。選擇下一個設備的連接類型：",
+        "data": {
+          "device_type": "連接類型"
+        },
+        "data_description": {
+          "device_type": "選擇 Modbus TCP 或 WiFi 數據棒"
+        }
+      },
+      "local_name": {
+        "title": "命名您的裝置",
+        "description": "為您的太陽能裝置起一個友善的名稱。這只是在 Home Assistant 中顯示——不是來自逆變器的值。\n\n**已設定的設備**：{device_summary}\n\n範例：「家庭太陽能」、「車庫系統」、「主屋」",
+        "data": {
+          "station_name": "裝置名稱（可選）"
+        },
+        "data_description": {
+          "station_name": "留空以使用設備型號和序號作為名稱"
+        }
+      },
+      "reconfigure_local": {
+        "title": "重新設定本地裝置",
+        "description": "管理本地裝置中的設備。目前設備數量：{device_count}",
+        "data": {
+          "action": "操作"
+        },
+        "data_description": {
+          "action": "選擇要對此裝置執行的操作"
+        }
+      },
+      "reconfigure_local_modbus": {
+        "title": "設定 Modbus 設備",
+        "description": "輸入 Modbus TCP 閘道器的 IP 位址。設備序號、型號和韌體會自動偵測。",
+        "data": {
+          "modbus_host": "閘道器 IP 位址",
+          "modbus_port": "連接埠（可選）",
+          "modbus_unit_id": "單元 ID（可選）"
+        },
+        "data_description": {
+          "modbus_host": "RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_port": "TCP 連接埠（預設：502）",
+          "modbus_unit_id": "Modbus 從機 ID（預設：1）"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "設定 WiFi 數據棒設備",
+        "description": "輸入數據棒連接詳情。設備型號和韌體會自動偵測。",
+        "data": {
+          "dongle_host": "數據棒 IP 位址",
+          "dongle_serial": "數據棒序號",
+          "inverter_serial": "設備序號",
+          "dongle_port": "連接埠（可選）"
+        },
+        "data_description": {
+          "dongle_host": "本地網路中 WiFi 數據棒的 IP 位址",
+          "dongle_serial": "10 位數據棒序號（逆變器為 BJ/BA，GridBOSS 為 DJ）",
+          "inverter_serial": "設備銘牌上的 10 位序號（身份驗證必需）",
+          "dongle_port": "TCP 連接埠（預設：8000）"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "發現設備：{device_model}",
+        "description": "成功連接並偵測到設備資訊：\n\n**{device_type}**：{device_model}\n**序號**：{device_serial}\n**系列**：{device_family}\n**韌體**：{device_firmware}\n**目前 PV 功率**：{device_pv_power}W\n**電池 SOC**：{device_battery_soc}%\n\n點擊提交將此設備新增到您的裝置。",
+        "submit": "新增設備"
       }
     },
     "error": {
-      "cannot_connect": "無法連接到 {brand_name} Web Monitor。請檢查您的網路連接並重試。",
-      "invalid_auth": "使用者名稱或密碼無效。請檢查您的憑證並重試。",
-      "unknown": "發生意外錯誤。請重試或查看日誌以獲取更多詳細資訊。",
-      "no_plants": "您的帳戶中未找到太陽能站點/電站。請確保您在 {brand_name} Web Monitor 帳戶中至少設定了一個站點。",
-      "invalid_plant": "所選站點/電站不再可用。請選擇不同的站點。",
-      "timeout": "連接到 {brand_name} Web Monitor 逾時。請檢查您的網際網路連接並重試。"
+      "cannot_connect": "無法連接到 {brand_name} Web Monitor。請檢查網路連接後重試。",
+      "invalid_auth": "使用者名稱或密碼無效。請檢查憑證後重試。",
+      "unknown": "發生意外錯誤。請重試或查看日誌了解更多詳情。",
+      "no_plants": "在您的帳戶中未找到太陽能電站/裝置。請確保在 {brand_name} Web Monitor 帳戶中至少設定了一個電站。",
+      "invalid_plant": "所選電站/裝置不再可用。請選擇其他電站。",
+      "timeout": "連接到 {brand_name} Web Monitor 逾時。請檢查網路連接後重試。",
+      "modbus_not_installed": "未安裝 pymodbus 程式庫。請使用以下命令安裝：pip install pymodbus",
+      "modbus_timeout": "Modbus 連接逾時。請驗證 IP 位址並確保 Modbus 閘道器已通電並連接。",
+      "modbus_connection_failed": "無法連接到 Modbus 閘道器。請檢查：(1) IP 位址是否正確，(2) 連接埠 502 未被阻止，(3) 閘道器上已啟用 Modbus TCP。",
+      "dongle_timeout": "WiFi 數據棒連接逾時。請驗證 IP 位址並確保數據棒已連接到您的網路。",
+      "dongle_connection_failed": "無法連接到 WiFi 數據棒。請檢查：(1) IP 位址是否正確，(2) 連接埠 8000 未被阻止，(3) 數據棒韌體支援本地存取（最近的更新可能會阻止此存取）。",
+      "duplicate_serial": "具有此序號的設備已新增到此裝置。"
     },
     "abort": {
-      "already_configured": "此 {brand_name} Web Monitor 站點已設定。每個站點需要單獨的整合實例。",
-      "reauth_successful": "重新認證成功！您的 {brand_name} Web Monitor 整合現已重新連接。",
-      "reconfigure_successful": "重新設定成功！您的 {brand_name} Web Monitor 設定已更新。"
+      "already_configured": "此 {brand_name} Web Monitor 電站已設定。每個電站需要單獨的整合實例。",
+      "reauth_successful": "重新驗證成功！您的 {brand_name} Web Monitor 整合已重新連接。",
+      "reconfigure_successful": "重新設定成功！您的 {brand_name} Web Monitor 設定已更新。",
+      "entry_not_found": "未找到設定項目。整合可能已被移除。請從整合頁面重新新增。"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "{brand_name} Web Monitor 選項",
-        "description": "設定 {brand_name} Web Monitor 整合的進階選項。",
+        "description": "設定 {brand_name} Web Monitor 整合的輪詢間隔。感測器更新控制獲取設備資料的頻率。參數重新整理控制設定同步的頻率。",
         "data": {
-          "scan_interval": "更新間隔（秒）"
+          "sensor_update_interval": "感測器更新間隔（秒）",
+          "parameter_refresh_interval": "參數重新整理間隔（分鐘）"
         },
         "data_description": {
-          "scan_interval": "輪詢 {brand_name} API 更新的頻率（最少 30 秒）"
+          "sensor_update_interval": "感測器更新的輪詢頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較小的值提供更快的更新，但會增加 API 負載。",
+          "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。"
         }
       }
     }
@@ -111,113 +503,75 @@
     }
   },
   "entity": {
-    "sensor": {
-      "ac_power": {
-        "name": "交流功率"
-      },
-      "ac_voltage": {
-        "name": "交流電壓"
-      },
-      "ac_current": {
-        "name": "交流電流"
-      },
-      "frequency": {
-        "name": "頻率"
-      },
-      "dc_power": {
-        "name": "直流功率"
-      },
-      "dc_voltage": {
-        "name": "直流電壓"
-      },
-      "dc_current": {
-        "name": "直流電流"
-      },
-      "battery_power": {
-        "name": "電池功率"
-      },
-      "battery_voltage": {
-        "name": "電池電壓"
-      },
-      "battery_current": {
-        "name": "電池電流"
-      },
-      "state_of_charge": {
-        "name": "充電狀態"
-      },
-      "state_of_health": {
-        "name": "健康狀態"
-      },
-      "total_energy": {
-        "name": "總能量"
-      },
-      "daily_energy": {
-        "name": "每日能量"
-      },
-      "monthly_energy": {
-        "name": "每月能量"
-      },
-      "yearly_energy": {
-        "name": "每年能量"
-      },
-      "internal_temperature": {
-        "name": "內部溫度"
-      },
-      "radiator1_temperature": {
-        "name": "散熱器 1 溫度"
-      },
-      "radiator2_temperature": {
-        "name": "散熱器 2 溫度"
-      },
-      "status_code": {
-        "name": "狀態碼"
-      },
-      "status_text": {
-        "name": "狀態"
-      },
-      "grid_power": {
-        "name": "電網功率"
-      },
-      "load_power": {
-        "name": "負載功率"
-      },
-      "consumption_power": {
-        "name": "消耗功率"
-      },
-      "pv_total_power": {
-        "name": "光伏總功率"
-      },
-      "pv1_power": {
-        "name": "光伏 1 功率"
-      },
-      "pv2_power": {
-        "name": "光伏 2 功率"
-      },
-      "pv3_power": {
-        "name": "光伏 3 功率"
-      },
-      "cell_voltage_max": {
-        "name": "最大電芯電壓"
-      },
-      "cell_voltage_min": {
-        "name": "最小電芯電壓"
-      },
-      "cell_voltage_delta": {
-        "name": "電芯電壓差"
-      },
-      "cycle_count": {
-        "name": "循環次數"
-      },
-      "firmware_version": {
-        "name": "韌體版本"
+    "binary_sensor": {
+      "dongle_connectivity": {
+        "name": "數據棒連接狀態",
+        "state": {
+          "on": "已連接",
+          "off": "已斷開"
+        }
       }
+    },
+    "sensor": {
+      "ac_power": {"name": "交流功率"},
+      "ac_voltage": {"name": "交流電壓"},
+      "ac_current": {"name": "交流電流"},
+      "frequency": {"name": "頻率"},
+      "dc_power": {"name": "直流功率"},
+      "dc_voltage": {"name": "直流電壓"},
+      "dc_current": {"name": "直流電流"},
+      "battery_power": {"name": "電池功率"},
+      "battery_voltage": {"name": "電池電壓"},
+      "battery_current": {"name": "電池電流"},
+      "state_of_charge": {"name": "充電狀態"},
+      "state_of_health": {"name": "健康狀態"},
+      "total_energy": {"name": "總電量"},
+      "daily_energy": {"name": "日發電量"},
+      "monthly_energy": {"name": "月發電量"},
+      "yearly_energy": {"name": "年發電量"},
+      "internal_temperature": {"name": "內部溫度"},
+      "radiator1_temperature": {"name": "散熱器 1 溫度"},
+      "radiator2_temperature": {"name": "散熱器 2 溫度"},
+      "status_code": {"name": "狀態碼"},
+      "status_text": {"name": "狀態"},
+      "grid_power": {"name": "電網功率"},
+      "load_power": {"name": "負載功率"},
+      "pv_total_power": {"name": "PV 總功率"},
+      "pv1_power": {"name": "PV1 功率"},
+      "pv2_power": {"name": "PV2 功率"},
+      "pv3_power": {"name": "PV3 功率"},
+      "cell_voltage_max": {"name": "最大電芯電壓"},
+      "cell_voltage_min": {"name": "最小電芯電壓"},
+      "cell_voltage_delta": {"name": "電芯電壓差"},
+      "cycle_count": {"name": "循環次數"},
+      "firmware_version": {"name": "韌體版本"},
+      "grid_voltage_r": {"name": "電網電壓 R"},
+      "grid_voltage_s": {"name": "電網電壓 S"},
+      "grid_voltage_t": {"name": "電網電壓 T"},
+      "grid_frequency": {"name": "電網頻率"},
+      "eps_voltage_r": {"name": "EPS 電壓 R"},
+      "eps_voltage_s": {"name": "EPS 電壓 S"},
+      "eps_voltage_t": {"name": "EPS 電壓 T"},
+      "eps_frequency": {"name": "EPS 頻率"},
+      "eps_power": {"name": "EPS 功率"},
+      "eps_power_l1": {"name": "EPS 功率 L1"},
+      "eps_power_l2": {"name": "EPS 功率 L2"},
+      "power_output": {"name": "輸出功率"},
+      "rectifier_power": {"name": "整流器功率"},
+      "ac_couple_power": {"name": "交流耦合功率"},
+      "bus1_voltage": {"name": "母線 1 電壓"},
+      "bus2_voltage": {"name": "母線 2 電壓"},
+      "total_load_power": {"name": "總負載功率"}
     },
     "switch": {
       "quick_charge": {
         "name": "快速充電"
       },
       "battery_backup_eps": {
-        "name": "電池備份 (EPS)"
+        "name": "電池備用 (EPS)"
+      },
+      "off_grid_mode": {
+        "name": "離網模式"
       }
     },
     "number": {
@@ -228,7 +582,7 @@
         "name": "交流充電功率"
       },
       "pv_charge_power": {
-        "name": "光伏充電功率"
+        "name": "PV 充電功率"
       },
       "ac_charge_soc_limit": {
         "name": "交流充電 SOC 限制"
@@ -255,7 +609,7 @@
   "services": {
     "refresh_data": {
       "name": "重新整理資料",
-      "description": "強制立即從 {brand_name} API 重新整理裝置資料，繞過正常輪詢間隔。",
+      "description": "強制從 {brand_name} API 立即重新整理設備資料，繞過正常的輪詢間隔。",
       "fields": {
         "entry_id": {
           "name": "設定項目 ID",
@@ -269,7 +623,7 @@
       "message": "未找到設定項目 {entry_id}。請驗證項目 ID 是否正確。"
     },
     "entry_not_loaded": {
-      "message": "設定項目 {entry_id} 未載入。請確保整合已正確設定並執行。"
+      "message": "設定項目 {entry_id} 未載入。請確保整合已正確設定並正在執行。"
     },
     "no_coordinators": {
       "message": "未找到要重新整理的 {brand_name} 協調器。請確保至少設定並載入了一個 {brand_name} Web Monitor 整合。"

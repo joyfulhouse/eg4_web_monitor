@@ -2,102 +2,494 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} Web Monitor Configuratie",
-        "description": "Verbind met je {brand_name} Web Monitor account om je zonne-omvormers, GridBOSS-apparaten en batterijsystemen te beheren.",
+        "title": "{brand_name} Verbindingstype",
+        "description": "Kies hoe je verbinding wilt maken met je {brand_name} omvormer:\n\n**Cloud API**: Vereist een EG4 monitor portal account. Beste voor toegang op afstand.\n\n**Alleen lokaal**: Directe verbinding via Modbus of WiFi dongle. Geen cloud nodig. Ondersteunt meerdere apparaten.\n\n**Hybride**: Gebruikt zowel lokaal (snelle updates) als cloud (batterijdetails, afstandsbediening).",
+        "data": {
+          "connection_type": "Verbindingstype"
+        },
+        "data_description": {
+          "connection_type": "Selecteer hoe je verbinding wilt maken met je omvormer"
+        }
+      },
+      "http_credentials": {
+        "title": "{brand_name} Cloud API Setup",
+        "description": "Verbind met je {brand_name} Web Monitor account om je zonne-omvormers, GridBOSS apparaten en batterijsystemen te beheren.",
         "data": {
           "username": "Gebruikersnaam",
           "password": "Wachtwoord",
-          "base_url": "Basis-URL",
-          "verify_ssl": "SSL-certificaat verifiëren",
-          "dst_sync": "DST-synchronisatie",
-          "library_debug": "Bibliotheek debug-logging"
+          "base_url": "Basis URL",
+          "verify_ssl": "SSL Certificaat Verifiëren",
+          "dst_sync": "DST Synchronisatie",
+          "library_debug": "Bibliotheek Debug Logging"
         },
         "data_description": {
           "username": "Je {brand_name} Web Monitor account gebruikersnaam",
           "password": "Je {brand_name} Web Monitor account wachtwoord",
-          "base_url": "De basis-URL voor de {brand_name} Web Monitor API",
-          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen",
-          "dst_sync": "Synchroniseer automatisch zomertijdinstellingen met je omvormer op basis van je Home Assistant-tijdzone",
-          "library_debug": "Schakel DEBUG-logging in voor de pylxpweb-bibliotheek (toont API-verzoeken, antwoorden en interne bibliotheekbewerkingen)"
+          "base_url": "De basis URL voor de {brand_name} Web Monitor API",
+          "verify_ssl": "SSL certificaatverificatie inschakelen voor beveiligde verbindingen",
+          "dst_sync": "Automatisch zomer-/wintertijd instellingen synchroniseren naar je omvormer op basis van je Home Assistant tijdzone",
+          "library_debug": "DEBUG logging inschakelen voor de pylxpweb bibliotheek (toont API verzoeken, antwoorden en interne bibliotheekbewerkingen)"
+        }
+      },
+      "modbus": {
+        "title": "{brand_name} Lokale Modbus Setup",
+        "description": "Verbind rechtstreeks met je omvormer via Modbus TCP. Dit vereist een Modbus TCP gateway (bijv. Waveshare RS485-naar-Ethernet adapter) aangesloten op de RS485 poort van je omvormer.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostnaam",
+          "modbus_port": "Modbus TCP Poort",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Omvormer Serienummer (optioneel)",
+          "inverter_model": "Omvormer Model (optioneel)",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres of hostnaam van je Modbus TCP gateway",
+          "modbus_port": "TCP poort voor Modbus communicatie (standaard: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID van de omvormer (standaard: 1)",
+          "inverter_serial": "Laat leeg voor automatische detectie uit Modbus registers, of voer handmatig in als automatische detectie mislukt",
+          "inverter_model": "Modelnaam voor weergavedoeleinden (bijv. 18kPV, 12000XP)",
+          "inverter_family": "Selecteer je omvormer familie voor correcte Modbus register mapping. Verschillende omvormermodellen gebruiken verschillende register layouts."
+        }
+      },
+      "dongle": {
+        "title": "{brand_name} WiFi Dongle Setup",
+        "description": "Verbind rechtstreeks met je omvormer via de WiFi dongle. Geen extra hardware nodig - gebruikt de bestaande TCP interface van de dongle op poort 8000. Let op: Recente firmware updates kunnen deze toegang blokkeren.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostnaam",
+          "dongle_port": "Dongle TCP Poort",
+          "dongle_serial": "Dongle Serienummer",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_model": "Omvormer Model (optioneel)",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-adres van je WiFi dongle op je lokale netwerk",
+          "dongle_port": "TCP poort voor dongle communicatie (standaard: 8000)",
+          "dongle_serial": "10-teken serienummer van de WiFi dongle (bijv. BA12345678, te vinden als WiFi AP SSID van de dongle)",
+          "inverter_serial": "10-teken serienummer van je omvormer (te vinden op apparaatlabel)",
+          "inverter_model": "Modelnaam voor weergavedoeleinden (bijv. 18kPV, 12000XP)",
+          "inverter_family": "Selecteer je omvormer familie voor correcte register mapping"
+        }
+      },
+      "hybrid_http": {
+        "title": "{brand_name} Hybride Setup - Cloud Inloggegevens",
+        "description": "Voer eerst je cloud API inloggegevens in. Dit maakt apparaatdetectie en individuele batterijmonitoring mogelijk. Snelle runtime data komt van lokale Modbus.",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "base_url": "Basis URL",
+          "verify_ssl": "SSL Certificaat Verifiëren",
+          "dst_sync": "DST Synchronisatie",
+          "library_debug": "Bibliotheek Debug Logging"
+        },
+        "data_description": {
+          "username": "Je {brand_name} Web Monitor account gebruikersnaam",
+          "password": "Je {brand_name} Web Monitor account wachtwoord",
+          "base_url": "De basis URL voor de {brand_name} Web Monitor API",
+          "verify_ssl": "SSL certificaatverificatie inschakelen voor beveiligde verbindingen",
+          "dst_sync": "Automatisch zomer-/wintertijd instellingen synchroniseren naar je omvormer op basis van je Home Assistant tijdzone",
+          "library_debug": "DEBUG logging inschakelen voor de pylxpweb bibliotheek"
+        }
+      },
+      "hybrid_plant": {
+        "title": "{brand_name} Hybride Setup - Selecteer Station",
+        "description": "Selecteer welk station te monitoren. De Modbus verbinding wordt hierna geconfigureerd.",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
+        }
+      },
+      "hybrid_local_type": {
+        "title": "{brand_name} Hybride Setup - Lokaal Transport",
+        "description": "Selecteer hoe je lokaal verbinding maakt met je omvormer voor snelle realtime data. Modbus gebruikt een RS485 adapter terwijl WiFi Dongle de bestaande dongle van de omvormer gebruikt.",
+        "data": {
+          "hybrid_local_type": "Lokaal Transport Type"
+        },
+        "data_description": {
+          "hybrid_local_type": "Kies de lokale verbindingsmethode voor snelle runtime data"
+        }
+      },
+      "hybrid_modbus": {
+        "title": "{brand_name} Hybride Setup - Lokale Modbus",
+        "description": "Configureer lokale Modbus verbinding voor snelle runtime updates. Het omvormer serienummer is vooraf ingevuld vanuit je cloud account.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostnaam",
+          "modbus_port": "Modbus TCP Poort",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres of hostnaam van je Modbus TCP gateway",
+          "modbus_port": "TCP poort voor Modbus communicatie (standaard: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID van de omvormer (standaard: 1)",
+          "inverter_serial": "Serienummer van de omvormer om te pollen via Modbus",
+          "inverter_family": "Selecteer je omvormer familie voor correcte Modbus register mapping"
+        }
+      },
+      "hybrid_dongle": {
+        "title": "{brand_name} Hybride Setup - WiFi Dongle",
+        "description": "Configureer WiFi dongle verbinding voor snelle runtime updates. Geen extra hardware nodig. Let op: Recente firmware updates kunnen deze toegang blokkeren.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostnaam",
+          "dongle_port": "Dongle TCP Poort",
+          "dongle_serial": "Dongle Serienummer",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-adres van je WiFi dongle op je lokale netwerk",
+          "dongle_port": "TCP poort voor dongle communicatie (standaard: 8000)",
+          "dongle_serial": "10-teken serienummer van de WiFi dongle (bijv. BA12345678)",
+          "inverter_serial": "Serienummer van de omvormer om te pollen via de dongle",
+          "inverter_family": "Selecteer je omvormer familie voor correcte register mapping"
         }
       },
       "plant": {
-        "title": "Selecteer station",
-        "description": "Kies welk zonnestation/installatie je wilt monitoren. Je kunt extra stations toevoegen door aparte integratie-instanties aan te maken.",
+        "title": "Selecteer Station",
+        "description": "Kies welk zonnestation/plant te monitoren. Je kunt extra stations toevoegen door aparte integratie-instanties te maken.",
         "data": {
-          "plant_id": "Station/Installatie"
+          "plant_id": "Station/Plant"
         },
         "data_description": {
           "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
         }
       },
       "reauth": {
-        "title": "{brand_name} Web Monitor opnieuw authenticeren",
-        "description": "Je sessie is verlopen of de inloggegevens zijn ongeldig. Voer je inloggegevens opnieuw in om je apparaten te blijven monitoren.",
+        "title": "Herauthenticeer {brand_name} Web Monitor",
+        "description": "Je sessie is verlopen of inloggegevens zijn ongeldig. Voer je inloggegevens opnieuw in om je apparaten te blijven monitoren.",
         "data": {
           "username": "Gebruikersnaam",
           "password": "Wachtwoord"
         }
       },
       "reauth_confirm": {
-        "title": "Bevestig opnieuw authenticeren",
-        "description": "Bevestig je bijgewerkte inloggegevens om de toegang tot je {brand_name}-apparaten te herstellen."
+        "title": "Bevestig Herauthenticatie",
+        "description": "Bevestig je bijgewerkte inloggegevens om toegang tot je {brand_name} apparaten te herstellen."
       },
       "reconfigure": {
-        "title": "{brand_name} Web Monitor herconfigureren",
+        "title": "Herconfigureer {brand_name} Web Monitor",
         "description": "Werk je {brand_name} Web Monitor configuratie-instellingen bij. Je kunt verbindingsparameters wijzigen of naar een ander station overschakelen.",
         "data": {
           "username": "Gebruikersnaam",
           "password": "Wachtwoord",
-          "base_url": "Basis-URL",
-          "verify_ssl": "SSL-certificaat verifiëren",
-          "dst_sync": "DST-synchronisatie",
-          "library_debug": "Bibliotheek debug-logging"
+          "base_url": "Basis URL",
+          "verify_ssl": "SSL Certificaat Verifiëren",
+          "dst_sync": "DST Synchronisatie",
+          "library_debug": "Bibliotheek Debug Logging"
         },
         "data_description": {
           "username": "Je {brand_name} Web Monitor account gebruikersnaam",
           "password": "Je {brand_name} Web Monitor account wachtwoord",
-          "base_url": "De basis-URL voor de {brand_name} Web Monitor API",
-          "verify_ssl": "SSL-certificaatverificatie inschakelen voor veilige verbindingen",
-          "dst_sync": "Synchroniseer automatisch zomertijdinstellingen met je omvormer op basis van je Home Assistant-tijdzone",
-          "library_debug": "Schakel DEBUG-logging in voor de pylxpweb-bibliotheek (toont API-verzoeken, antwoorden en interne bibliotheekbewerkingen)"
+          "base_url": "De basis URL voor de {brand_name} Web Monitor API",
+          "verify_ssl": "SSL certificaatverificatie inschakelen voor beveiligde verbindingen",
+          "dst_sync": "Automatisch zomer-/wintertijd instellingen synchroniseren naar je omvormer op basis van je Home Assistant tijdzone",
+          "library_debug": "DEBUG logging inschakelen voor de pylxpweb bibliotheek (toont API verzoeken, antwoorden en interne bibliotheekbewerkingen)"
         }
       },
       "reconfigure_plant": {
-        "title": "Verander station",
-        "description": "Selecteer een ander zonnestation/installatie om te monitoren met deze integratie-instantie.",
+        "title": "Wijzig Station",
+        "description": "Selecteer een ander zonnestation/plant om te monitoren met deze integratie-instantie.",
         "data": {
-          "plant_id": "Station/Installatie"
+          "plant_id": "Station/Plant"
         },
         "data_description": {
           "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
         }
+      },
+      "reconfigure_http": {
+        "title": "Herconfigureer {brand_name} Cloud API",
+        "description": "Werk je {brand_name} Web Monitor cloud API inloggegevens bij. Huidig station: {current_station}",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "base_url": "Basis URL",
+          "verify_ssl": "SSL Certificaat Verifiëren",
+          "dst_sync": "DST Synchronisatie"
+        },
+        "data_description": {
+          "username": "Je {brand_name} Web Monitor account gebruikersnaam",
+          "password": "Je {brand_name} Web Monitor account wachtwoord",
+          "base_url": "De basis URL voor de {brand_name} Web Monitor API",
+          "verify_ssl": "SSL certificaatverificatie inschakelen voor beveiligde verbindingen",
+          "dst_sync": "Automatisch zomer-/wintertijd instellingen synchroniseren"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "Herconfigureer {brand_name} Modbus Verbinding",
+        "description": "Werk je lokale Modbus TCP verbindingsinstellingen bij. Huidige host: {current_host}",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostnaam",
+          "modbus_port": "Modbus TCP Poort",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_model": "Omvormer Model (optioneel)",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres of hostnaam van je Modbus TCP gateway",
+          "modbus_port": "TCP poort voor Modbus communicatie (standaard: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID van de omvormer (standaard: 1)",
+          "inverter_serial": "10-cijferig serienummer van je omvormer",
+          "inverter_model": "Modelnaam voor weergavedoeleinden",
+          "inverter_family": "Selecteer je omvormer familie voor correcte Modbus register mapping"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "Herconfigureer {brand_name} Hybride Verbinding",
+        "description": "Werk zowel cloud API als lokale Modbus instellingen bij. Huidig station: {current_station}, Modbus host: {current_host}",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord",
+          "base_url": "Basis URL",
+          "verify_ssl": "SSL Certificaat Verifiëren",
+          "dst_sync": "DST Synchronisatie",
+          "modbus_host": "Modbus Gateway IP/Hostnaam",
+          "modbus_port": "Modbus TCP Poort",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "username": "Je {brand_name} Web Monitor account gebruikersnaam",
+          "password": "Je {brand_name} Web Monitor account wachtwoord",
+          "base_url": "De basis URL voor de {brand_name} Web Monitor API",
+          "verify_ssl": "SSL certificaatverificatie inschakelen voor beveiligde verbindingen",
+          "dst_sync": "Automatisch zomer-/wintertijd instellingen synchroniseren",
+          "modbus_host": "IP-adres of hostnaam van je Modbus TCP gateway",
+          "modbus_port": "TCP poort voor Modbus communicatie (standaard: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID van de omvormer (standaard: 1)",
+          "inverter_serial": "Serienummer van de omvormer om te pollen via Modbus",
+          "inverter_family": "Selecteer je omvormer familie voor correcte Modbus register mapping"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "Wijzig Station (Hybride)",
+        "description": "Selecteer een ander zonnestation/plant om te monitoren. Huidig station: {current_station}",
+        "data": {
+          "plant_id": "Station/Plant"
+        },
+        "data_description": {
+          "plant_id": "Selecteer de zonne-installatie die je wilt monitoren"
+        }
+      },
+      "transition_select": {
+        "title": "Wijzig Verbindingsmodus",
+        "description": "Je kunt wijzigen hoe deze integratie verbinding maakt met je omvormer. Huidige modus: {current_type}",
+        "data": {
+          "transition_type": "Verbindingsmodus"
+        },
+        "data_description": {
+          "transition_type": "Selecteer een nieuwe verbindingsmodus of behoud de huidige configuratie"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "Selecteer Lokaal Transport Type",
+        "description": "Kies hoe je lokaal verbinding maakt met je omvormer. Modbus TCP biedt de snelste updates met een RS485 adapter. WiFi Dongle gebruikt de bestaande dongle van de omvormer (geen extra hardware).",
+        "data": {
+          "hybrid_local_type": "Lokaal Transport Type"
+        },
+        "data_description": {
+          "hybrid_local_type": "Selecteer de lokale verbindingsmethode voor snelle runtime data"
+        }
+      },
+      "transition_modbus": {
+        "title": "Configureer Modbus Verbinding",
+        "description": "Voer je Modbus TCP gateway instellingen in. Dit schakelt snelle 5-seconden polling in voor runtime data.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostnaam",
+          "modbus_port": "Modbus TCP Poort",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres of hostnaam van je Modbus TCP gateway",
+          "modbus_port": "TCP poort voor Modbus communicatie (standaard: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID van de omvormer (standaard: 1)",
+          "inverter_serial": "Serienummer van de omvormer (laat leeg voor automatische detectie)",
+          "inverter_family": "Selecteer je omvormer familie voor correcte register mapping"
+        }
+      },
+      "transition_dongle": {
+        "title": "Configureer WiFi Dongle Verbinding",
+        "description": "Voer je WiFi dongle verbindingsinstellingen in. Dit schakelt snelle 5-seconden polling in met de bestaande dongle van de omvormer.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostnaam",
+          "dongle_port": "Dongle TCP Poort",
+          "dongle_serial": "Dongle Serienummer",
+          "inverter_serial": "Omvormer Serienummer",
+          "inverter_family": "Omvormer Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-adres van je WiFi dongle op je lokale netwerk",
+          "dongle_port": "TCP poort voor dongle communicatie (standaard: 8000)",
+          "dongle_serial": "10-teken serienummer van de WiFi dongle",
+          "inverter_serial": "Serienummer van de omvormer",
+          "inverter_family": "Selecteer je omvormer familie voor correcte register mapping"
+        }
+      },
+      "transition_confirm": {
+        "title": "Bevestig Verbindingsmodus Wijziging",
+        "description": "Je staat op het punt te wijzigen van {current_type} naar {target_type}. Station: {current_plant}\n\n{warnings}",
+        "submit": "Bevestig Wijziging"
+      },
+      "transition_confirm_removal": {
+        "title": "Bevestig Lokaal Transport Verwijdering",
+        "description": "Je staat op het punt lokaal transport te verwijderen uit je Hybride setup. Station: {current_plant}, Huidig lokaal transport: {local_type} ({local_host})\n\n{warnings}",
+        "submit": "Verwijder Lokaal Transport"
+      },
+      "local_setup": {
+        "title": "{brand_name} Lokale Setup",
+        "description": "Stel lokale monitoring in zonder cloud inloggegevens. Apparaatinformatie (serienummer, model, firmware) wordt automatisch gedetecteerd.\n\nSelecteer hoe je eerste apparaat is aangesloten:",
+        "data": {
+          "device_type": "Verbindingstype"
+        },
+        "data_description": {
+          "device_type": "Modbus TCP gebruikt een RS485 adapter (bijv. Waveshare). WiFi Dongle gebruikt de ingebouwde dongle van de omvormer."
+        }
+      },
+      "local_modbus_connect": {
+        "title": "Verbind via Modbus TCP",
+        "description": "Voer het IP-adres van je Modbus TCP gateway in. Al het andere wordt automatisch gedetecteerd.{device_count, plural, =0 {} other { (Apparaat #{device_count} toevoegen)}}",
+        "data": {
+          "modbus_host": "Gateway IP-adres",
+          "modbus_port": "Poort (optioneel)",
+          "modbus_unit_id": "Unit ID (optioneel)"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres van je RS485-naar-Ethernet adapter (bijv. 192.168.1.100)",
+          "modbus_port": "TCP poort (standaard: 502)",
+          "modbus_unit_id": "Modbus slave ID (standaard: 1)"
+        }
+      },
+      "local_dongle_connect": {
+        "title": "Verbind via WiFi Dongle",
+        "description": "Voer de dongle verbindingsdetails in. Het dongle serienummer staat op het apparaatlabel (ook de WiFi AP naam). Het omvormer/apparaat serienummer staat op het apparaat typeplaatje.{device_count, plural, =0 {} other { (Apparaat #{device_count} toevoegen)}}",
+        "data": {
+          "dongle_host": "Dongle IP-adres",
+          "dongle_serial": "Dongle Serienummer",
+          "inverter_serial": "Apparaat Serienummer",
+          "dongle_port": "Poort (optioneel)"
+        },
+        "data_description": {
+          "dongle_host": "IP-adres van je WiFi dongle op je lokale netwerk",
+          "dongle_serial": "10-teken dongle serienummer (BJ/BA voor omvormers, DJ voor GridBOSS)",
+          "inverter_serial": "10-teken serienummer van apparaat typeplaatje (vereist voor authenticatie)",
+          "dongle_port": "TCP poort (standaard: 8000)"
+        }
+      },
+      "local_device_discovered": {
+        "title": "Apparaat Gevonden: {device_model}",
+        "description": "Succesvol verbonden en apparaatinformatie gedetecteerd:\n\n**{device_type}**: {device_model}\n**Serienummer**: {device_serial}\n**Familie**: {device_family}\n**Firmware**: {device_firmware}\n**Huidig PV Vermogen**: {device_pv_power}W\n**Batterij SOC**: {device_battery_soc}%\n\nDit wordt apparaat #{device_count}. Nog een apparaat toevoegen?",
+        "data": {
+          "add_another": "Nog een Apparaat Toevoegen"
+        },
+        "data_description": {
+          "add_another": "Vink aan om nog een omvormer of GridBOSS toe te voegen aan deze installatie"
+        }
+      },
+      "local_add_device": {
+        "title": "Nog een Apparaat Toevoegen",
+        "description": "Je hebt {device_count} apparaat/apparaten geconfigureerd. Selecteer het verbindingstype voor je volgende apparaat:",
+        "data": {
+          "device_type": "Verbindingstype"
+        },
+        "data_description": {
+          "device_type": "Kies Modbus TCP of WiFi Dongle"
+        }
+      },
+      "local_name": {
+        "title": "Noem Je Installatie",
+        "description": "Geef je zonne-installatie een vriendelijke naam. Dit is alleen voor weergave in Home Assistant - het is geen waarde van je omvormer.\n\n**Geconfigureerde apparaten**: {device_summary}\n\nVoorbeelden: \"Thuis Zonne-energie\", \"Garage Systeem\", \"Hoofdhuis\"",
+        "data": {
+          "station_name": "Installatienaam (optioneel)"
+        },
+        "data_description": {
+          "station_name": "Laat leeg om het apparaatmodel en serienummer als naam te gebruiken"
+        }
+      },
+      "reconfigure_local": {
+        "title": "Herconfigureer Lokale Installatie",
+        "description": "Beheer apparaten in je lokale installatie. Huidige apparaten: {device_count}",
+        "data": {
+          "action": "Actie"
+        },
+        "data_description": {
+          "action": "Selecteer een actie om uit te voeren op deze installatie"
+        }
+      },
+      "reconfigure_local_modbus": {
+        "title": "Configureer Modbus Apparaat",
+        "description": "Voer het IP-adres van je Modbus TCP gateway in. Apparaat serienummer, model en firmware worden automatisch gedetecteerd.",
+        "data": {
+          "modbus_host": "Gateway IP-adres",
+          "modbus_port": "Poort (optioneel)",
+          "modbus_unit_id": "Unit ID (optioneel)"
+        },
+        "data_description": {
+          "modbus_host": "IP-adres van je RS485-naar-Ethernet adapter (bijv. 192.168.1.100)",
+          "modbus_port": "TCP poort (standaard: 502)",
+          "modbus_unit_id": "Modbus slave ID (standaard: 1)"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "Configureer WiFi Dongle Apparaat",
+        "description": "Voer de dongle verbindingsdetails in. Apparaatmodel en firmware worden automatisch gedetecteerd.",
+        "data": {
+          "dongle_host": "Dongle IP-adres",
+          "dongle_serial": "Dongle Serienummer",
+          "inverter_serial": "Apparaat Serienummer",
+          "dongle_port": "Poort (optioneel)"
+        },
+        "data_description": {
+          "dongle_host": "IP-adres van je WiFi dongle op je lokale netwerk",
+          "dongle_serial": "10-teken dongle serienummer (BJ/BA voor omvormers, DJ voor GridBOSS)",
+          "inverter_serial": "10-teken serienummer van apparaat typeplaatje (vereist voor authenticatie)",
+          "dongle_port": "TCP poort (standaard: 8000)"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "Apparaat Gevonden: {device_model}",
+        "description": "Succesvol verbonden en apparaatinformatie gedetecteerd:\n\n**{device_type}**: {device_model}\n**Serienummer**: {device_serial}\n**Familie**: {device_family}\n**Firmware**: {device_firmware}\n**Huidig PV Vermogen**: {device_pv_power}W\n**Batterij SOC**: {device_battery_soc}%\n\nKlik op Indienen om dit apparaat aan je installatie toe te voegen.",
+        "submit": "Apparaat Toevoegen"
       }
     },
     "error": {
-      "cannot_connect": "Kan geen verbinding maken met {brand_name} Web Monitor. Controleer je netwerkverbinding en probeer het opnieuw.",
-      "invalid_auth": "Ongeldige gebruikersnaam of wachtwoord. Controleer je inloggegevens en probeer het opnieuw.",
-      "unknown": "Er is een onverwachte fout opgetreden. Probeer het opnieuw of controleer de logs voor meer details.",
-      "no_plants": "Geen zonnestations/installaties gevonden in je account. Zorg ervoor dat je minstens één station hebt geconfigureerd in je {brand_name} Web Monitor account.",
-      "invalid_plant": "Het geselecteerde station/installatie is niet meer beschikbaar. Selecteer een ander station.",
-      "timeout": "Verbinding met {brand_name} Web Monitor is verlopen. Controleer je internetverbinding en probeer het opnieuw."
+      "cannot_connect": "Kan geen verbinding maken met {brand_name} Web Monitor. Controleer je netwerkverbinding en probeer opnieuw.",
+      "invalid_auth": "Ongeldige gebruikersnaam of wachtwoord. Controleer je inloggegevens en probeer opnieuw.",
+      "unknown": "Er is een onverwachte fout opgetreden. Probeer opnieuw of controleer de logs voor meer details.",
+      "no_plants": "Geen zonnestations/plants gevonden in je account. Zorg ervoor dat je ten minste één station hebt geconfigureerd in je {brand_name} Web Monitor account.",
+      "invalid_plant": "Het geselecteerde station/plant is niet meer beschikbaar. Selecteer een ander station.",
+      "timeout": "Verbinding met {brand_name} Web Monitor is verlopen. Controleer je internetverbinding en probeer opnieuw.",
+      "modbus_not_installed": "De pymodbus bibliotheek is niet geïnstalleerd. Installeer deze met: pip install pymodbus",
+      "modbus_timeout": "Modbus verbinding is verlopen. Verifieer het IP-adres en zorg ervoor dat de Modbus gateway is ingeschakeld en verbonden.",
+      "modbus_connection_failed": "Kan geen verbinding maken met Modbus gateway. Controleer: (1) IP-adres is correct, (2) poort 502 is niet geblokkeerd, (3) Modbus TCP is ingeschakeld op de gateway.",
+      "dongle_timeout": "WiFi dongle verbinding is verlopen. Verifieer het IP-adres en zorg ervoor dat de dongle is verbonden met je netwerk.",
+      "dongle_connection_failed": "Kan geen verbinding maken met WiFi dongle. Controleer: (1) IP-adres is correct, (2) poort 8000 is niet geblokkeerd, (3) dongle firmware ondersteunt lokale toegang (recente updates kunnen dit blokkeren).",
+      "duplicate_serial": "Een apparaat met dit serienummer is al toegevoegd aan deze installatie."
     },
     "abort": {
       "already_configured": "Dit {brand_name} Web Monitor station is al geconfigureerd. Elk station vereist een aparte integratie-instantie.",
-      "reauth_successful": "Opnieuw authenticeren geslaagd! Je {brand_name} Web Monitor integratie is nu opnieuw verbonden.",
-      "reconfigure_successful": "Herconfiguratie geslaagd! Je {brand_name} Web Monitor instellingen zijn bijgewerkt."
+      "reauth_successful": "Herauthenticatie geslaagd! Je {brand_name} Web Monitor integratie is nu opnieuw verbonden.",
+      "reconfigure_successful": "Herconfiguratie geslaagd! Je {brand_name} Web Monitor instellingen zijn bijgewerkt.",
+      "entry_not_found": "Configuratie-item niet gevonden. De integratie is mogelijk verwijderd. Voeg deze opnieuw toe vanaf de Integraties pagina."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "{brand_name} Web Monitor Opties",
-        "description": "Configureer geavanceerde opties voor je {brand_name} Web Monitor integratie.",
+        "description": "Configureer polling intervallen voor je {brand_name} Web Monitor integratie. Sensor updates bepalen hoe vaak apparaatdata wordt opgehaald. Parameter verversing bepaalt hoe vaak configuratie-instellingen worden gesynchroniseerd.",
         "data": {
-          "scan_interval": "Update-interval (seconden)"
+          "sensor_update_interval": "Sensor Update Interval (seconden)",
+          "parameter_refresh_interval": "Parameter Verversingsinterval (minuten)"
         },
         "data_description": {
-          "scan_interval": "Hoe vaak de {brand_name} API wordt gepolld voor updates (minimaal 30 seconden)"
+          "sensor_update_interval": "Hoe vaak te pollen voor sensor updates ({min_sensor_interval}-{max_sensor_interval} seconden). Lagere waarden bieden snellere updates maar verhogen API belasting.",
+          "parameter_refresh_interval": "Hoe vaak omvormer parameters zoals SOC limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten)."
         }
       }
     }
@@ -106,140 +498,102 @@
     "operating_mode": {
       "options": {
         "normal": "Normaal",
-        "standby": "Standby"
+        "standby": "Stand-by"
       }
     }
   },
   "entity": {
-    "sensor": {
-      "ac_power": {
-        "name": "AC-vermogen"
-      },
-      "ac_voltage": {
-        "name": "AC-spanning"
-      },
-      "ac_current": {
-        "name": "AC-stroom"
-      },
-      "frequency": {
-        "name": "Frequentie"
-      },
-      "dc_power": {
-        "name": "DC-vermogen"
-      },
-      "dc_voltage": {
-        "name": "DC-spanning"
-      },
-      "dc_current": {
-        "name": "DC-stroom"
-      },
-      "battery_power": {
-        "name": "Batterijvermogen"
-      },
-      "battery_voltage": {
-        "name": "Batterijspanning"
-      },
-      "battery_current": {
-        "name": "Batterijstroom"
-      },
-      "state_of_charge": {
-        "name": "Laadtoestand"
-      },
-      "state_of_health": {
-        "name": "Gezondheidstoestand"
-      },
-      "total_energy": {
-        "name": "Totale energie"
-      },
-      "daily_energy": {
-        "name": "Dagelijkse energie"
-      },
-      "monthly_energy": {
-        "name": "Maandelijkse energie"
-      },
-      "yearly_energy": {
-        "name": "Jaarlijkse energie"
-      },
-      "internal_temperature": {
-        "name": "Interne temperatuur"
-      },
-      "radiator1_temperature": {
-        "name": "Radiator 1 temperatuur"
-      },
-      "radiator2_temperature": {
-        "name": "Radiator 2 temperatuur"
-      },
-      "status_code": {
-        "name": "Statuscode"
-      },
-      "status_text": {
-        "name": "Status"
-      },
-      "grid_power": {
-        "name": "Netvermogen"
-      },
-      "load_power": {
-        "name": "Belastingsvermogen"
-      },
-      "consumption_power": {
-        "name": "Verbruiksvermogen"
-      },
-      "pv_total_power": {
-        "name": "Totaal PV-vermogen"
-      },
-      "pv1_power": {
-        "name": "PV1-vermogen"
-      },
-      "pv2_power": {
-        "name": "PV2-vermogen"
-      },
-      "pv3_power": {
-        "name": "PV3-vermogen"
-      },
-      "cell_voltage_max": {
-        "name": "Maximale celspanning"
-      },
-      "cell_voltage_min": {
-        "name": "Minimale celspanning"
-      },
-      "cell_voltage_delta": {
-        "name": "Celspanning delta"
-      },
-      "cycle_count": {
-        "name": "Aantal cycli"
-      },
-      "firmware_version": {
-        "name": "Firmwareversie"
+    "binary_sensor": {
+      "dongle_connectivity": {
+        "name": "Dongle Connectiviteit",
+        "state": {
+          "on": "Verbonden",
+          "off": "Niet verbonden"
+        }
       }
+    },
+    "sensor": {
+      "ac_power": {"name": "AC Vermogen"},
+      "ac_voltage": {"name": "AC Spanning"},
+      "ac_current": {"name": "AC Stroom"},
+      "frequency": {"name": "Frequentie"},
+      "dc_power": {"name": "DC Vermogen"},
+      "dc_voltage": {"name": "DC Spanning"},
+      "dc_current": {"name": "DC Stroom"},
+      "battery_power": {"name": "Batterij Vermogen"},
+      "battery_voltage": {"name": "Batterij Spanning"},
+      "battery_current": {"name": "Batterij Stroom"},
+      "state_of_charge": {"name": "Laadstatus"},
+      "state_of_health": {"name": "Gezondheidsstatus"},
+      "total_energy": {"name": "Totale Energie"},
+      "daily_energy": {"name": "Dagelijkse Energie"},
+      "monthly_energy": {"name": "Maandelijkse Energie"},
+      "yearly_energy": {"name": "Jaarlijkse Energie"},
+      "internal_temperature": {"name": "Interne Temperatuur"},
+      "radiator1_temperature": {"name": "Radiator 1 Temperatuur"},
+      "radiator2_temperature": {"name": "Radiator 2 Temperatuur"},
+      "status_code": {"name": "Statuscode"},
+      "status_text": {"name": "Status"},
+      "grid_power": {"name": "Net Vermogen"},
+      "load_power": {"name": "Belasting Vermogen"},
+      "pv_total_power": {"name": "PV Totaal Vermogen"},
+      "pv1_power": {"name": "PV1 Vermogen"},
+      "pv2_power": {"name": "PV2 Vermogen"},
+      "pv3_power": {"name": "PV3 Vermogen"},
+      "cell_voltage_max": {"name": "Maximale Celspanning"},
+      "cell_voltage_min": {"name": "Minimale Celspanning"},
+      "cell_voltage_delta": {"name": "Celspanning Delta"},
+      "cycle_count": {"name": "Cyclus Aantal"},
+      "firmware_version": {"name": "Firmware Versie"},
+      "grid_voltage_r": {"name": "Net Spanning R"},
+      "grid_voltage_s": {"name": "Net Spanning S"},
+      "grid_voltage_t": {"name": "Net Spanning T"},
+      "grid_frequency": {"name": "Net Frequentie"},
+      "eps_voltage_r": {"name": "EPS Spanning R"},
+      "eps_voltage_s": {"name": "EPS Spanning S"},
+      "eps_voltage_t": {"name": "EPS Spanning T"},
+      "eps_frequency": {"name": "EPS Frequentie"},
+      "eps_power": {"name": "EPS Vermogen"},
+      "eps_power_l1": {"name": "EPS Vermogen L1"},
+      "eps_power_l2": {"name": "EPS Vermogen L2"},
+      "power_output": {"name": "Vermogen Output"},
+      "rectifier_power": {"name": "Gelijkrichter Vermogen"},
+      "ac_couple_power": {"name": "AC Koppeling Vermogen"},
+      "bus1_voltage": {"name": "Bus 1 Spanning"},
+      "bus2_voltage": {"name": "Bus 2 Spanning"},
+      "total_load_power": {"name": "Totaal Belasting Vermogen"}
     },
     "switch": {
       "quick_charge": {
-        "name": "Snelladen"
+        "name": "Snel Laden"
       },
       "battery_backup_eps": {
-        "name": "Batterijback-up (EPS)"
+        "name": "Batterij Backup (EPS)"
+      },
+      "off_grid_mode": {
+        "name": "Off-Grid Modus"
       }
     },
     "number": {
       "system_charge_soc_limit": {
-        "name": "Systeem laad-SOC-limiet"
+        "name": "Systeem Laad SOC Limiet"
       },
       "ac_charge_power": {
-        "name": "AC-laadvermogen"
+        "name": "AC Laadvermogen"
       },
       "pv_charge_power": {
-        "name": "PV-laadvermogen"
+        "name": "PV Laadvermogen"
       },
       "ac_charge_soc_limit": {
-        "name": "AC-laad-SOC-limiet"
+        "name": "AC Laad SOC Limiet"
       },
       "soc_cutoff": {
-        "name": "SOC-afkapwaarde"
+        "name": "SOC Cutoff"
       }
     },
     "button": {
       "refresh_data": {
-        "name": "Gegevens vernieuwen"
+        "name": "Data Verversen"
       }
     },
     "select": {
@@ -247,32 +601,32 @@
         "name": "Bedrijfsmodus",
         "state": {
           "normal": "Normaal",
-          "standby": "Standby"
+          "standby": "Stand-by"
         }
       }
     }
   },
   "services": {
     "refresh_data": {
-      "name": "Gegevens vernieuwen",
-      "description": "Forceer een onmiddellijke verversing van apparaatgegevens van de {brand_name} API, waarbij het normale polling-interval wordt omzeild.",
+      "name": "Data Verversen",
+      "description": "Forceer een onmiddellijke verversing van apparaatdata van de {brand_name} API, waarbij het normale polling interval wordt omzeild.",
       "fields": {
         "entry_id": {
-          "name": "Configuratie-entry ID",
-          "description": "De configuratie-entry ID die moet worden ververst. Indien niet opgegeven, worden alle {brand_name} Web Monitor integraties ververst."
+          "name": "Configuratie Item ID",
+          "description": "Het configuratie item ID om te verversen. Indien niet opgegeven, worden alle {brand_name} Web Monitor integraties ververst."
         }
       }
     }
   },
   "exceptions": {
     "entry_not_found": {
-      "message": "Configuratie-entry {entry_id} niet gevonden. Controleer of de entry ID correct is."
+      "message": "Configuratie item {entry_id} niet gevonden. Verifieer dat het item ID correct is."
     },
     "entry_not_loaded": {
-      "message": "Configuratie-entry {entry_id} is niet geladen. Zorg ervoor dat de integratie correct is geconfigureerd en actief is."
+      "message": "Configuratie item {entry_id} is niet geladen. Zorg ervoor dat de integratie correct is geconfigureerd en draait."
     },
     "no_coordinators": {
-      "message": "Geen {brand_name}-coördinatoren gevonden om te vernieuwen. Zorg ervoor dat minstens één {brand_name} Web Monitor integratie is geconfigureerd en geladen."
+      "message": "Geen {brand_name} coördinatoren gevonden om te verversen. Zorg ervoor dat ten minste één {brand_name} Web Monitor integratie is geconfigureerd en geladen."
     }
   }
 }

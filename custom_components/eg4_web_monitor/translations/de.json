@@ -2,7 +2,17 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} Web Monitor Einrichtung",
+        "title": "{brand_name} Verbindungstyp",
+        "description": "Wählen Sie aus, wie Sie sich mit Ihrem {brand_name} Wechselrichter verbinden möchten:\n\n**Cloud-API**: Erfordert ein EG4 Monitor-Portal-Konto. Optimal für Fernzugriff.\n\n**Nur Lokal**: Direkte Verbindung über Modbus oder WiFi-Dongle. Keine Cloud erforderlich. Unterstützt mehrere Geräte.\n\n**Hybrid**: Nutzt sowohl lokal (schnelle Updates) als auch Cloud (Batteriedetails, Fernsteuerung).",
+        "data": {
+          "connection_type": "Verbindungstyp"
+        },
+        "data_description": {
+          "connection_type": "Wählen Sie aus, wie Sie sich mit Ihrem Wechselrichter verbinden möchten"
+        }
+      },
+      "http_credentials": {
+        "title": "{brand_name} Cloud-API Einrichtung",
         "description": "Verbinden Sie sich mit Ihrem {brand_name} Web Monitor-Konto, um Ihre Solarwechselrichter, GridBOSS-Geräte und Batteriesysteme zu verwalten.",
         "data": {
           "username": "Benutzername",
@@ -18,7 +28,123 @@
           "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
           "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
           "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
-          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren"
+        }
+      },
+      "modbus": {
+        "title": "{brand_name} Lokale Modbus-Einrichtung",
+        "description": "Verbinden Sie sich direkt mit Ihrem Wechselrichter über Modbus TCP. Dies erfordert ein Modbus TCP-Gateway (z.B. Waveshare RS485-zu-Ethernet-Adapter), das mit dem RS485-Port Ihres Wechselrichters verbunden ist.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP-Port",
+          "modbus_unit_id": "Modbus Unit-ID",
+          "inverter_serial": "Wechselrichter-Seriennummer (optional)",
+          "inverter_model": "Wechselrichter-Modell (optional)",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse oder Hostname Ihres Modbus TCP-Gateways",
+          "modbus_port": "TCP-Port für Modbus-Kommunikation (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave/Unit-ID des Wechselrichters (Standard: 1)",
+          "inverter_serial": "Leer lassen für automatische Erkennung aus Modbus-Registern, oder manuell eingeben, wenn die automatische Erkennung fehlschlägt",
+          "inverter_model": "Modellname für Anzeigezwecke (z.B. 18kPV, 12000XP)",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Modbus-Registerzuordnung"
+        }
+      },
+      "dongle": {
+        "title": "{brand_name} WiFi-Dongle Einrichtung",
+        "description": "Verbinden Sie sich direkt mit Ihrem Wechselrichter über seinen WiFi-Dongle. Keine zusätzliche Hardware erforderlich - nutzt die bestehende TCP-Schnittstelle des Dongles auf Port 8000. Hinweis: Neuere Firmware-Updates können diesen Zugang blockieren.",
+        "data": {
+          "dongle_host": "WiFi-Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP-Port",
+          "dongle_serial": "Dongle-Seriennummer",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_model": "Wechselrichter-Modell (optional)",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-Adresse Ihres WiFi-Dongles in Ihrem lokalen Netzwerk",
+          "dongle_port": "TCP-Port für Dongle-Kommunikation (Standard: 8000)",
+          "dongle_serial": "10-stellige Seriennummer des WiFi-Dongles (z.B. BA12345678, als WiFi-AP-SSID des Dongles zu finden)",
+          "inverter_serial": "10-stellige Seriennummer Ihres Wechselrichters (auf dem Geräteetikett zu finden)",
+          "inverter_model": "Modellname für Anzeigezwecke (z.B. 18kPV, 12000XP)",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Registerzuordnung"
+        }
+      },
+      "hybrid_http": {
+        "title": "{brand_name} Hybrid-Einrichtung - Cloud-Anmeldedaten",
+        "description": "Geben Sie zunächst Ihre Cloud-API-Anmeldedaten ein. Dies ermöglicht die Geräteerkennung und individuelle Batterieüberwachung. Schnelle Echtzeitdaten kommen über lokales Modbus.",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "library_debug": "Bibliotheks-Debug-Protokollierung"
+        },
+        "data_description": {
+          "username": "Ihr {brand_name} Web Monitor-Kontobenutzername",
+          "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren"
+        }
+      },
+      "hybrid_plant": {
+        "title": "{brand_name} Hybrid-Einrichtung - Station auswählen",
+        "description": "Wählen Sie aus, welche Station überwacht werden soll. Die Modbus-Verbindung wird als nächstes konfiguriert.",
+        "data": {
+          "plant_id": "Station/Anlage"
+        },
+        "data_description": {
+          "plant_id": "Wählen Sie die Solaranlage aus, die Sie überwachen möchten"
+        }
+      },
+      "hybrid_local_type": {
+        "title": "{brand_name} Hybrid-Einrichtung - Lokaler Transport",
+        "description": "Wählen Sie aus, wie Sie sich lokal mit Ihrem Wechselrichter für schnelle Echtzeitdaten verbinden möchten. Modbus verwendet einen RS485-Adapter, während WiFi-Dongle den bestehenden Dongle des Wechselrichters nutzt.",
+        "data": {
+          "hybrid_local_type": "Lokaler Transporttyp"
+        },
+        "data_description": {
+          "hybrid_local_type": "Wählen Sie die lokale Verbindungsmethode für schnelle Echtzeitdaten"
+        }
+      },
+      "hybrid_modbus": {
+        "title": "{brand_name} Hybrid-Einrichtung - Lokales Modbus",
+        "description": "Konfigurieren Sie die lokale Modbus-Verbindung für schnelle Echtzeit-Updates. Die Wechselrichter-Seriennummer wurde aus Ihrem Cloud-Konto vorausgefüllt.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP-Port",
+          "modbus_unit_id": "Modbus Unit-ID",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse oder Hostname Ihres Modbus TCP-Gateways",
+          "modbus_port": "TCP-Port für Modbus-Kommunikation (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave/Unit-ID des Wechselrichters (Standard: 1)",
+          "inverter_serial": "Seriennummer des Wechselrichters, der über Modbus abgefragt wird",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Modbus-Registerzuordnung"
+        }
+      },
+      "hybrid_dongle": {
+        "title": "{brand_name} Hybrid-Einrichtung - WiFi-Dongle",
+        "description": "Konfigurieren Sie die WiFi-Dongle-Verbindung für schnelle Echtzeit-Updates. Keine zusätzliche Hardware erforderlich. Hinweis: Neuere Firmware-Updates können diesen Zugang blockieren.",
+        "data": {
+          "dongle_host": "WiFi-Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP-Port",
+          "dongle_serial": "Dongle-Seriennummer",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-Adresse Ihres WiFi-Dongles in Ihrem lokalen Netzwerk",
+          "dongle_port": "TCP-Port für Dongle-Kommunikation (Standard: 8000)",
+          "dongle_serial": "10-stellige Seriennummer des WiFi-Dongles (z.B. BA12345678)",
+          "inverter_serial": "Seriennummer des Wechselrichters, der über den Dongle abgefragt wird",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Registerzuordnung"
         }
       },
       "plant": {
@@ -59,8 +185,8 @@
           "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
           "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
           "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
-          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen zu Ihrem Wechselrichter basierend auf Ihrer Home Assistant-Zeitzone",
-          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)"
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen",
+          "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren"
         }
       },
       "reconfigure_plant": {
@@ -72,6 +198,263 @@
         "data_description": {
           "plant_id": "Wählen Sie die Solaranlage aus, die Sie überwachen möchten"
         }
+      },
+      "reconfigure_http": {
+        "title": "{brand_name} Cloud-API neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre {brand_name} Web Monitor Cloud-API-Anmeldedaten. Aktuelle Station: {current_station}",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation"
+        },
+        "data_description": {
+          "username": "Ihr {brand_name} Web Monitor-Kontobenutzername",
+          "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen"
+        }
+      },
+      "reconfigure_modbus": {
+        "title": "{brand_name} Modbus-Verbindung neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre lokalen Modbus TCP-Verbindungseinstellungen. Aktueller Host: {current_host}",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP-Port",
+          "modbus_unit_id": "Modbus Unit-ID",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_model": "Wechselrichter-Modell (optional)",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse oder Hostname Ihres Modbus TCP-Gateways",
+          "modbus_port": "TCP-Port für Modbus-Kommunikation (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave/Unit-ID des Wechselrichters (Standard: 1)",
+          "inverter_serial": "10-stellige Seriennummer Ihres Wechselrichters",
+          "inverter_model": "Modellname für Anzeigezwecke",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Modbus-Registerzuordnung"
+        }
+      },
+      "reconfigure_hybrid": {
+        "title": "{brand_name} Hybrid-Verbindung neu konfigurieren",
+        "description": "Aktualisieren Sie sowohl Cloud-API- als auch lokale Modbus-Einstellungen. Aktuelle Station: {current_station}, Modbus-Host: {current_host}",
+        "data": {
+          "username": "Benutzername",
+          "password": "Passwort",
+          "base_url": "Basis-URL",
+          "verify_ssl": "SSL-Zertifikat überprüfen",
+          "dst_sync": "DST-Synchronisation",
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP-Port",
+          "modbus_unit_id": "Modbus Unit-ID",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "username": "Ihr {brand_name} Web Monitor-Kontobenutzername",
+          "password": "Ihr {brand_name} Web Monitor-Kontopasswort",
+          "base_url": "Die Basis-URL für die {brand_name} Web Monitor-API",
+          "verify_ssl": "SSL-Zertifikatverifizierung für sichere Verbindungen aktivieren",
+          "dst_sync": "Automatische Synchronisierung der Sommerzeiteinstellungen",
+          "modbus_host": "IP-Adresse oder Hostname Ihres Modbus TCP-Gateways",
+          "modbus_port": "TCP-Port für Modbus-Kommunikation (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave/Unit-ID des Wechselrichters (Standard: 1)",
+          "inverter_serial": "Seriennummer des Wechselrichters, der über Modbus abgefragt wird",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Modbus-Registerzuordnung"
+        }
+      },
+      "reconfigure_hybrid_plant": {
+        "title": "Station wechseln (Hybrid)",
+        "description": "Wählen Sie eine andere Solarstation/Anlage aus, die überwacht werden soll. Aktuelle Station: {current_station}",
+        "data": {
+          "plant_id": "Station/Anlage"
+        },
+        "data_description": {
+          "plant_id": "Wählen Sie die Solaranlage aus, die Sie überwachen möchten"
+        }
+      },
+      "transition_select": {
+        "title": "Verbindungsmodus ändern",
+        "description": "Sie können ändern, wie diese Integration sich mit Ihrem Wechselrichter verbindet. Aktueller Modus: {current_type}",
+        "data": {
+          "transition_type": "Verbindungsmodus"
+        },
+        "data_description": {
+          "transition_type": "Wählen Sie einen neuen Verbindungsmodus oder behalten Sie die aktuelle Konfiguration"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "Lokalen Transporttyp auswählen",
+        "description": "Wählen Sie aus, wie Sie sich lokal mit Ihrem Wechselrichter verbinden möchten. Modbus TCP bietet die schnellsten Updates mit einem RS485-Adapter. WiFi-Dongle nutzt den bestehenden Dongle des Wechselrichters (keine zusätzliche Hardware).",
+        "data": {
+          "hybrid_local_type": "Lokaler Transporttyp"
+        },
+        "data_description": {
+          "hybrid_local_type": "Wählen Sie die lokale Verbindungsmethode für schnelle Echtzeitdaten"
+        }
+      },
+      "transition_modbus": {
+        "title": "Modbus-Verbindung konfigurieren",
+        "description": "Geben Sie Ihre Modbus TCP-Gateway-Einstellungen ein. Dies ermöglicht schnelles 5-Sekunden-Polling für Echtzeitdaten.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP-Port",
+          "modbus_unit_id": "Modbus Unit-ID",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse oder Hostname Ihres Modbus TCP-Gateways",
+          "modbus_port": "TCP-Port für Modbus-Kommunikation (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave/Unit-ID des Wechselrichters (Standard: 1)",
+          "inverter_serial": "Seriennummer des Wechselrichters (leer lassen für automatische Erkennung)",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Registerzuordnung"
+        }
+      },
+      "transition_dongle": {
+        "title": "WiFi-Dongle-Verbindung konfigurieren",
+        "description": "Geben Sie Ihre WiFi-Dongle-Verbindungseinstellungen ein. Dies ermöglicht schnelles 5-Sekunden-Polling mit dem bestehenden Dongle des Wechselrichters.",
+        "data": {
+          "dongle_host": "WiFi-Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP-Port",
+          "dongle_serial": "Dongle-Seriennummer",
+          "inverter_serial": "Wechselrichter-Seriennummer",
+          "inverter_family": "Wechselrichter-Familie"
+        },
+        "data_description": {
+          "dongle_host": "IP-Adresse Ihres WiFi-Dongles in Ihrem lokalen Netzwerk",
+          "dongle_port": "TCP-Port für Dongle-Kommunikation (Standard: 8000)",
+          "dongle_serial": "10-stellige Seriennummer des WiFi-Dongles",
+          "inverter_serial": "Seriennummer des Wechselrichters",
+          "inverter_family": "Wählen Sie Ihre Wechselrichter-Familie für die korrekte Registerzuordnung"
+        }
+      },
+      "transition_confirm": {
+        "title": "Verbindungsmodusänderung bestätigen",
+        "description": "Sie sind dabei, von {current_type} zu {target_type} zu wechseln. Station: {current_plant}\n\n{warnings}",
+        "submit": "Änderung bestätigen"
+      },
+      "transition_confirm_removal": {
+        "title": "Entfernung des lokalen Transports bestätigen",
+        "description": "Sie sind dabei, den lokalen Transport aus Ihrem Hybrid-Setup zu entfernen. Station: {current_plant}, Aktueller lokaler Transport: {local_type} ({local_host})\n\n{warnings}",
+        "submit": "Lokalen Transport entfernen"
+      },
+      "local_setup": {
+        "title": "{brand_name} Lokale Einrichtung",
+        "description": "Richten Sie lokale Überwachung ohne Cloud-Anmeldedaten ein. Geräteinformationen (Seriennummer, Modell, Firmware) werden automatisch erkannt.\n\nWählen Sie aus, wie Ihr erstes Gerät verbunden ist:",
+        "data": {
+          "device_type": "Verbindungstyp"
+        },
+        "data_description": {
+          "device_type": "Modbus TCP verwendet einen RS485-Adapter (z.B. Waveshare). WiFi-Dongle nutzt den eingebauten Dongle des Wechselrichters."
+        }
+      },
+      "local_modbus_connect": {
+        "title": "Über Modbus TCP verbinden",
+        "description": "Geben Sie die IP-Adresse Ihres Modbus TCP-Gateways ein. Alles andere wird automatisch erkannt.{device_count, plural, =0 {} other { (Gerät #{device_count} hinzufügen)}}",
+        "data": {
+          "modbus_host": "Gateway IP-Adresse",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit-ID (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.168.1.100)",
+          "modbus_port": "TCP-Port (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave-ID (Standard: 1)"
+        }
+      },
+      "local_dongle_connect": {
+        "title": "Über WiFi-Dongle verbinden",
+        "description": "Geben Sie die Dongle-Verbindungsdetails ein. Die Dongle-Seriennummer ist auf dem Geräteetikett aufgedruckt (auch der WiFi-AP-Name). Die Wechselrichter/Geräte-Seriennummer befindet sich auf dem Typenschild.{device_count, plural, =0 {} other { (Gerät #{device_count} hinzufügen)}}",
+        "data": {
+          "dongle_host": "Dongle IP-Adresse",
+          "dongle_serial": "Dongle-Seriennummer",
+          "inverter_serial": "Geräte-Seriennummer",
+          "dongle_port": "Port (optional)"
+        },
+        "data_description": {
+          "dongle_host": "IP-Adresse Ihres WiFi-Dongles in Ihrem lokalen Netzwerk",
+          "dongle_serial": "10-stellige Dongle-Seriennummer (BJ/BA für Wechselrichter, DJ für GridBOSS)",
+          "inverter_serial": "10-stellige Seriennummer vom Geräte-Typenschild (erforderlich für Authentifizierung)",
+          "dongle_port": "TCP-Port (Standard: 8000)"
+        }
+      },
+      "local_device_discovered": {
+        "title": "Gerät gefunden: {device_model}",
+        "description": "Verbindung erfolgreich und Geräteinformationen erkannt:\n\n**{device_type}**: {device_model}\n**Seriennummer**: {device_serial}\n**Familie**: {device_family}\n**Firmware**: {device_firmware}\n**Aktuelle PV-Leistung**: {device_pv_power}W\n**Batterie-SOC**: {device_battery_soc}%\n\nDies wird Gerät #{device_count}. Ein weiteres Gerät hinzufügen?",
+        "data": {
+          "add_another": "Weiteres Gerät hinzufügen"
+        },
+        "data_description": {
+          "add_another": "Aktivieren Sie dies, um einen weiteren Wechselrichter oder GridBOSS zu dieser Installation hinzuzufügen"
+        }
+      },
+      "local_add_device": {
+        "title": "Weiteres Gerät hinzufügen",
+        "description": "Sie haben {device_count} Gerät(e) konfiguriert. Wählen Sie den Verbindungstyp für Ihr nächstes Gerät:",
+        "data": {
+          "device_type": "Verbindungstyp"
+        },
+        "data_description": {
+          "device_type": "Wählen Sie Modbus TCP oder WiFi-Dongle"
+        }
+      },
+      "local_name": {
+        "title": "Benennen Sie Ihre Installation",
+        "description": "Geben Sie Ihrer Solarinstallation einen freundlichen Namen. Dies ist nur für die Anzeige in Home Assistant - es ist kein Wert von Ihrem Wechselrichter.\n\n**Konfigurierte Geräte**: {device_summary}\n\nBeispiele: \"Haus Solar\", \"Garagen-System\", \"Haupthaus\"",
+        "data": {
+          "station_name": "Installationsname (optional)"
+        },
+        "data_description": {
+          "station_name": "Leer lassen, um das Gerätemodell und die Seriennummer als Namen zu verwenden"
+        }
+      },
+      "reconfigure_local": {
+        "title": "Lokale Installation neu konfigurieren",
+        "description": "Verwalten Sie Geräte in Ihrer lokalen Installation. Aktuelle Geräte: {device_count}",
+        "data": {
+          "action": "Aktion"
+        },
+        "data_description": {
+          "action": "Wählen Sie eine Aktion für diese Installation"
+        }
+      },
+      "reconfigure_local_modbus": {
+        "title": "Modbus-Gerät konfigurieren",
+        "description": "Geben Sie die IP-Adresse Ihres Modbus TCP-Gateways ein. Seriennummer, Modell und Firmware werden automatisch erkannt.",
+        "data": {
+          "modbus_host": "Gateway IP-Adresse",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit-ID (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.168.1.100)",
+          "modbus_port": "TCP-Port (Standard: 502)",
+          "modbus_unit_id": "Modbus Slave-ID (Standard: 1)"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "WiFi-Dongle-Gerät konfigurieren",
+        "description": "Geben Sie die Dongle-Verbindungsdetails ein. Modell und Firmware werden automatisch erkannt.",
+        "data": {
+          "dongle_host": "Dongle IP-Adresse",
+          "dongle_serial": "Dongle-Seriennummer",
+          "inverter_serial": "Geräte-Seriennummer",
+          "dongle_port": "Port (optional)"
+        },
+        "data_description": {
+          "dongle_host": "IP-Adresse Ihres WiFi-Dongles in Ihrem lokalen Netzwerk",
+          "dongle_serial": "10-stellige Dongle-Seriennummer (BJ/BA für Wechselrichter, DJ für GridBOSS)",
+          "inverter_serial": "10-stellige Seriennummer vom Geräte-Typenschild (erforderlich für Authentifizierung)",
+          "dongle_port": "TCP-Port (Standard: 8000)"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "Gerät gefunden: {device_model}",
+        "description": "Verbindung erfolgreich und Geräteinformationen erkannt:\n\n**{device_type}**: {device_model}\n**Seriennummer**: {device_serial}\n**Familie**: {device_family}\n**Firmware**: {device_firmware}\n**Aktuelle PV-Leistung**: {device_pv_power}W\n**Batterie-SOC**: {device_battery_soc}%\n\nKlicken Sie auf Senden, um dieses Gerät zu Ihrer Installation hinzuzufügen.",
+        "submit": "Gerät hinzufügen"
       }
     },
     "error": {
@@ -80,24 +463,33 @@
       "unknown": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut oder überprüfen Sie die Protokolle für weitere Details.",
       "no_plants": "Keine Solarstationen/Anlagen in Ihrem Konto gefunden. Bitte stellen Sie sicher, dass Sie mindestens eine Station in Ihrem {brand_name} Web Monitor-Konto konfiguriert haben.",
       "invalid_plant": "Die ausgewählte Station/Anlage ist nicht mehr verfügbar. Bitte wählen Sie eine andere Station aus.",
-      "timeout": "Zeitüberschreitung bei Verbindung zu {brand_name} Web Monitor. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
+      "timeout": "Zeitüberschreitung bei Verbindung zu {brand_name} Web Monitor. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.",
+      "modbus_not_installed": "Die pymodbus-Bibliothek ist nicht installiert. Bitte installieren Sie sie mit: pip install pymodbus",
+      "modbus_timeout": "Modbus-Verbindungs-Timeout. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass das Modbus-Gateway eingeschaltet und verbunden ist.",
+      "modbus_connection_failed": "Verbindung zum Modbus-Gateway fehlgeschlagen. Bitte prüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 502 ist nicht blockiert, (3) Modbus TCP ist auf dem Gateway aktiviert.",
+      "dongle_timeout": "WiFi-Dongle-Verbindungs-Timeout. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass der Dongle mit Ihrem Netzwerk verbunden ist.",
+      "dongle_connection_failed": "Verbindung zum WiFi-Dongle fehlgeschlagen. Bitte prüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 8000 ist nicht blockiert, (3) Dongle-Firmware unterstützt lokalen Zugriff (neuere Updates können dies blockieren).",
+      "duplicate_serial": "Ein Gerät mit dieser Seriennummer wurde bereits zu dieser Installation hinzugefügt."
     },
     "abort": {
       "already_configured": "Diese {brand_name} Web Monitor-Station ist bereits konfiguriert. Jede Station benötigt eine separate Integrationsinstanz.",
       "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre {brand_name} Web Monitor-Integration ist jetzt wieder verbunden.",
-      "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre {brand_name} Web Monitor-Einstellungen wurden aktualisiert."
+      "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre {brand_name} Web Monitor-Einstellungen wurden aktualisiert.",
+      "entry_not_found": "Konfigurationseintrag nicht gefunden. Die Integration wurde möglicherweise entfernt. Bitte fügen Sie sie erneut über die Integrationsseite hinzu."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "{brand_name} Web Monitor Optionen",
-        "description": "Konfigurieren Sie erweiterte Optionen für Ihre {brand_name} Web Monitor-Integration.",
+        "description": "Konfigurieren Sie Polling-Intervalle für Ihre {brand_name} Web Monitor-Integration. Sensor-Updates steuern, wie oft Gerätedaten abgerufen werden. Parameter-Aktualisierung steuert, wie oft Konfigurationseinstellungen synchronisiert werden.",
         "data": {
-          "scan_interval": "Aktualisierungsintervall (Sekunden)"
+          "sensor_update_interval": "Sensor-Aktualisierungsintervall (Sekunden)",
+          "parameter_refresh_interval": "Parameter-Aktualisierungsintervall (Minuten)"
         },
         "data_description": {
-          "scan_interval": "Wie oft die {brand_name}-API für Updates abgefragt werden soll (mindestens 30 Sekunden)"
+          "sensor_update_interval": "Wie oft nach Sensor-Updates abgefragt werden soll ({min_sensor_interval}-{max_sensor_interval} Sekunden). Niedrigere Werte bieten schnellere Updates, erhöhen aber die API-Last.",
+          "parameter_refresh_interval": "Wie oft Wechselrichter-Parameter wie SOC-Grenzen und Ladeeinstellungen aktualisiert werden sollen ({min_param_interval}-{max_param_interval} Minuten)."
         }
       }
     }
@@ -111,6 +503,15 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "dongle_connectivity": {
+        "name": "Dongle-Verbindung",
+        "state": {
+          "on": "Verbunden",
+          "off": "Getrennt"
+        }
+      }
+    },
     "sensor": {
       "ac_power": {"name": "AC-Leistung"},
       "ac_voltage": {"name": "AC-Spannung"},
@@ -125,33 +526,52 @@
       "state_of_charge": {"name": "Ladezustand"},
       "state_of_health": {"name": "Gesundheitszustand"},
       "total_energy": {"name": "Gesamtenergie"},
-      "daily_energy": {"name": "Tägliche Energie"},
-      "monthly_energy": {"name": "Monatliche Energie"},
-      "yearly_energy": {"name": "Jährliche Energie"},
-      "internal_temperature": {"name": "Innentemperatur"},
+      "daily_energy": {"name": "Tagesenergie"},
+      "monthly_energy": {"name": "Monatsenergie"},
+      "yearly_energy": {"name": "Jahresenergie"},
+      "internal_temperature": {"name": "Interne Temperatur"},
       "radiator1_temperature": {"name": "Kühler 1 Temperatur"},
       "radiator2_temperature": {"name": "Kühler 2 Temperatur"},
       "status_code": {"name": "Statuscode"},
       "status_text": {"name": "Status"},
       "grid_power": {"name": "Netzleistung"},
-      "load_power": {"name": "Lastleistung"},
-      "consumption_power": {"name": "Verbrauchsleistung"},
-      "pv_total_power": {"name": "PV-Gesamtleistung"},
-      "pv1_power": {"name": "PV1-Leistung"},
-      "pv2_power": {"name": "PV2-Leistung"},
-      "pv3_power": {"name": "PV3-Leistung"},
+      "load_power": {"name": "Last-Leistung"},
+      "pv_total_power": {"name": "PV Gesamtleistung"},
+      "pv1_power": {"name": "PV1 Leistung"},
+      "pv2_power": {"name": "PV2 Leistung"},
+      "pv3_power": {"name": "PV3 Leistung"},
       "cell_voltage_max": {"name": "Maximale Zellenspannung"},
       "cell_voltage_min": {"name": "Minimale Zellenspannung"},
-      "cell_voltage_delta": {"name": "Zellenspannungsdifferenz"},
+      "cell_voltage_delta": {"name": "Zellenspannung Delta"},
       "cycle_count": {"name": "Zyklenanzahl"},
-      "firmware_version": {"name": "Firmware-Version"}
+      "firmware_version": {"name": "Firmware-Version"},
+      "grid_voltage_r": {"name": "Netzspannung R"},
+      "grid_voltage_s": {"name": "Netzspannung S"},
+      "grid_voltage_t": {"name": "Netzspannung T"},
+      "grid_frequency": {"name": "Netzfrequenz"},
+      "eps_voltage_r": {"name": "EPS Spannung R"},
+      "eps_voltage_s": {"name": "EPS Spannung S"},
+      "eps_voltage_t": {"name": "EPS Spannung T"},
+      "eps_frequency": {"name": "EPS Frequenz"},
+      "eps_power": {"name": "EPS Leistung"},
+      "eps_power_l1": {"name": "EPS Leistung L1"},
+      "eps_power_l2": {"name": "EPS Leistung L2"},
+      "power_output": {"name": "Ausgangsleistung"},
+      "rectifier_power": {"name": "Gleichrichterleistung"},
+      "ac_couple_power": {"name": "AC-Kopplungsleistung"},
+      "bus1_voltage": {"name": "Bus 1 Spannung"},
+      "bus2_voltage": {"name": "Bus 2 Spannung"},
+      "total_load_power": {"name": "Gesamte Last-Leistung"}
     },
     "switch": {
       "quick_charge": {
         "name": "Schnellladung"
       },
       "battery_backup_eps": {
-        "name": "Batterienotversorgung (EPS)"
+        "name": "Batterie-Backup (EPS)"
+      },
+      "off_grid_mode": {
+        "name": "Off-Grid-Modus"
       }
     },
     "number": {
@@ -189,7 +609,7 @@
   "services": {
     "refresh_data": {
       "name": "Daten aktualisieren",
-      "description": "Sofortige Aktualisierung der Gerätedaten von der {brand_name}-API erzwingen und dabei das normale Abfrageintervall umgehen.",
+      "description": "Erzwingt eine sofortige Aktualisierung der Gerätedaten von der {brand_name}-API unter Umgehung des normalen Polling-Intervalls.",
       "fields": {
         "entry_id": {
           "name": "Konfigurationseintrag-ID",
@@ -203,7 +623,7 @@
       "message": "Konfigurationseintrag {entry_id} nicht gefunden. Bitte überprüfen Sie, ob die Eintrags-ID korrekt ist."
     },
     "entry_not_loaded": {
-      "message": "Konfigurationseintrag {entry_id} ist nicht geladen. Bitte stellen Sie sicher, dass die Integration ordnungsgemäß konfiguriert ist und ausgeführt wird."
+      "message": "Konfigurationseintrag {entry_id} ist nicht geladen. Bitte stellen Sie sicher, dass die Integration korrekt konfiguriert ist und läuft."
     },
     "no_coordinators": {
       "message": "Keine {brand_name}-Koordinatoren zum Aktualisieren gefunden. Bitte stellen Sie sicher, dass mindestens eine {brand_name} Web Monitor-Integration konfiguriert und geladen ist."

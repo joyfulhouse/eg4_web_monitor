@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "{brand_name} Connection Type",
-        "description": "Choose how to connect to your {brand_name} inverter. Cloud API requires an account on the {brand_name} monitoring portal. Local Modbus connects directly via your network. Hybrid uses both for the best experience.",
+        "description": "Choose how to connect to your {brand_name} inverter:\n\n**Cloud API**: Requires an EG4 monitor portal account. Best for remote access.\n\n**Local Only**: Direct connection via Modbus or WiFi dongle. No cloud needed. Supports multiple devices.\n\n**Hybrid**: Uses both local (fast updates) and cloud (battery details, remote control).",
         "data": {
           "connection_type": "Connection Type"
         },
@@ -342,73 +342,73 @@
         "submit": "Remove Local Transport"
       },
       "local_setup": {
-        "title": "{brand_name} Local Multi-Device Setup",
-        "description": "Set up local-only monitoring without cloud credentials. You can add multiple devices (inverters and GridBOSS) using Modbus TCP or WiFi Dongle connections.",
+        "title": "{brand_name} Local Setup",
+        "description": "Set up local monitoring without cloud credentials. Device information (serial, model, firmware) is automatically detected.\n\nSelect how your first device is connected:",
         "data": {
-          "station_name": "Installation Name (optional)"
+          "device_type": "Connection Type"
         },
         "data_description": {
-          "station_name": "A friendly name for this installation (e.g., 'Home Solar System'). Leave blank to use device serial numbers."
+          "device_type": "Modbus TCP uses an RS485 adapter (e.g., Waveshare). WiFi Dongle uses the inverter's built-in dongle."
         }
       },
-      "local_add_device": {
-        "title": "Add Local Device",
-        "description": "Select the connection type for the device you want to add. You have added {device_count} device(s) so far.",
+      "local_modbus_connect": {
+        "title": "Connect via Modbus TCP",
+        "description": "Enter the IP address of your Modbus TCP gateway. Everything else is auto-detected.{device_count, plural, =0 {} other { (Adding device #{device_count})}}",
         "data": {
-          "device_type": "Device Connection Type"
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit ID (optional)"
         },
         "data_description": {
-          "device_type": "Choose Modbus TCP for RS485 adapter connections, or WiFi Dongle for direct dongle connections"
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
         }
       },
-      "local_modbus_device": {
-        "title": "Add Modbus TCP Device",
-        "description": "Configure a Modbus TCP connection for an inverter or GridBOSS. The device type (inverter vs GridBOSS) is automatically detected.",
+      "local_dongle_connect": {
+        "title": "Connect via WiFi Dongle",
+        "description": "Enter the dongle connection details. The dongle serial is printed on the device label (also the WiFi AP name). The inverter/device serial is on the device nameplate.{device_count, plural, =0 {} other { (Adding device #{device_count})}}",
         "data": {
-          "modbus_host": "Modbus Gateway IP/Hostname",
-          "modbus_port": "Modbus TCP Port",
-          "modbus_unit_id": "Modbus Unit ID",
-          "inverter_serial": "Device Serial Number (optional)",
-          "inverter_model": "Device Model (optional)",
-          "inverter_family": "Device Family"
-        },
-        "data_description": {
-          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
-          "modbus_port": "TCP port for Modbus communication (default: 502)",
-          "modbus_unit_id": "Modbus slave/unit ID of the device (default: 1)",
-          "inverter_serial": "Leave blank to auto-detect from Modbus registers",
-          "inverter_model": "Model name for display purposes (e.g., 18kPV, GridBOSS)",
-          "inverter_family": "Select device family for correct register mapping"
-        }
-      },
-      "local_dongle_device": {
-        "title": "Add WiFi Dongle Device",
-        "description": "Configure a WiFi Dongle connection for an inverter or GridBOSS. The device type is automatically detected from the dongle.",
-        "data": {
-          "dongle_host": "WiFi Dongle IP/Hostname",
-          "dongle_port": "Dongle TCP Port",
+          "dongle_host": "Dongle IP Address",
           "dongle_serial": "Dongle Serial Number",
           "inverter_serial": "Device Serial Number",
-          "inverter_model": "Device Model (optional)",
-          "inverter_family": "Device Family"
+          "dongle_port": "Port (optional)"
         },
         "data_description": {
-          "dongle_host": "IP address of the WiFi dongle on your local network",
-          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_host": "IP address of your WiFi dongle on your local network",
           "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
-          "inverter_serial": "10-character device serial number",
-          "inverter_model": "Model name for display purposes",
-          "inverter_family": "Select device family for correct register mapping"
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
         }
       },
-      "local_device_added": {
-        "title": "Device Added Successfully",
-        "description": "Added {device_type} device: {device_serial}\n\nTotal devices configured: {device_count}\n\nWould you like to add another device?",
+      "local_device_discovered": {
+        "title": "Device Found: {device_model}",
+        "description": "Successfully connected and detected device information:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**Current PV Power**: {device_pv_power}W\n**Battery SOC**: {device_battery_soc}%\n\nThis will be device #{device_count}. Add another device?",
         "data": {
           "add_another": "Add Another Device"
         },
         "data_description": {
           "add_another": "Check to add another inverter or GridBOSS to this installation"
+        }
+      },
+      "local_add_device": {
+        "title": "Add Another Device",
+        "description": "You have {device_count} device(s) configured. Select the connection type for your next device:",
+        "data": {
+          "device_type": "Connection Type"
+        },
+        "data_description": {
+          "device_type": "Choose Modbus TCP or WiFi Dongle"
+        }
+      },
+      "local_name": {
+        "title": "Name Your Installation",
+        "description": "Give your solar installation a friendly name. This is just for display in Home Assistant - it's not a value from your inverter.\n\n**Configured devices**: {device_summary}\n\nExamples: \"Home Solar\", \"Garage System\", \"Main House\"",
+        "data": {
+          "station_name": "Installation Name (optional)"
+        },
+        "data_description": {
+          "station_name": "Leave blank to use the device model and serial as the name"
         }
       },
       "reconfigure_local": {
@@ -420,6 +420,41 @@
         "data_description": {
           "action": "Select an action to perform on this installation"
         }
+      },
+      "reconfigure_local_modbus": {
+        "title": "Configure Modbus Device",
+        "description": "Enter the IP address of your Modbus TCP gateway. Device serial, model, and firmware are automatically detected.",
+        "data": {
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port (optional)",
+          "modbus_unit_id": "Unit ID (optional)"
+        },
+        "data_description": {
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
+        }
+      },
+      "reconfigure_local_dongle": {
+        "title": "Configure WiFi Dongle Device",
+        "description": "Enter the dongle connection details. Device model and firmware are automatically detected.",
+        "data": {
+          "dongle_host": "Dongle IP Address",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Device Serial Number",
+          "dongle_port": "Port (optional)"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
+        }
+      },
+      "reconfigure_local_discovered": {
+        "title": "Device Found: {device_model}",
+        "description": "Successfully connected and detected device information:\n\n**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**Current PV Power**: {device_pv_power}W\n**Battery SOC**: {device_battery_soc}%\n\nClick Submit to add this device to your installation.",
+        "submit": "Add Device"
       }
     },
     "error": {
