@@ -183,10 +183,10 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
 
     @staticmethod
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        config_entry: config_entries.ConfigEntry,  # noqa: ARG004
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return EG4OptionsFlow(config_entry)
+        return EG4OptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -2313,19 +2313,28 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
 class EG4OptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for EG4 Web Monitor."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    def __init__(self) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
-        # Track devices for local mode management
-        self._local_devices: list[dict[str, Any]] = list(
-            config_entry.data.get(CONF_LOCAL_TRANSPORTS, [])
-        )
+        # Track devices for local mode management (initialized in async_step_init)
+        self._local_devices: list[dict[str, Any]] = []
         self._devices_modified = False
+        self._initialized = False
+
+    def _ensure_initialized(self) -> None:
+        """Ensure local devices are initialized from config entry."""
+        if not self._initialized:
+            self._local_devices = list(
+                self.config_entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+            )
+            self._initialized = True
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        # Ensure local devices are loaded from config entry
+        self._ensure_initialized()
+
         connection_type = self.config_entry.data.get(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
         )
