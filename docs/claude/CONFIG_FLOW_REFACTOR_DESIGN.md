@@ -2,15 +2,26 @@
 
 ## Overview
 
-This document outlines the refactoring of `config_flow.py` (~2000 lines) into a modular, mixin-based architecture for better maintainability, testability, and extensibility.
+This document outlines the refactoring of `config_flow.py` into a modular, mixin-based architecture for better maintainability, testability, and extensibility.
+
+## Recent Context
+
+The config_flow.py file was recently simplified in commit 9ed44b1 (Jan 26, 2026), reducing code by ~244 lines through helper patterns. However, the file continues to grow due to:
+1. Support for 5 connection types (HTTP, Modbus, Dongle, Hybrid, Local)
+2. Duplicate reconfigure flows for each connection type
+3. Addition of LOCAL multi-device mode (PR #90, PR #94)
+
+This mixin-based refactoring builds upon those improvements while addressing the architectural complexity from supporting multiple connection types.
 
 ## Current State Analysis
 
-### Line Count: ~1973 lines
+### Line Count: ~2000+ lines (varies with pending PRs)
+
+**Note**: The LOCAL multi-device mode (CONNECTION_TYPE_LOCAL) adds significant functionality. This design accounts for all 5 connection types.
 
 ### Current Class Structure
-- `EG4WebMonitorConfigFlow` (lines 141-1891)
-- `EG4OptionsFlow` (lines 1894-1973)
+- `EG4WebMonitorConfigFlow` - Main config flow class
+- `EG4OptionsFlow` - Options/settings flow class
 
 ### Current Methods by Category
 
@@ -55,38 +66,60 @@ This document outlines the refactoring of `config_flow.py` (~2000 lines) into a 
 | `async_step_hybrid_dongle` | 724-798 | Hybrid Dongle config |
 | `_create_hybrid_entry` | 885-980 | Create Hybrid config entry |
 
-#### 6. Reauth
-| Method | Lines | Description |
-|--------|-------|-------------|
-| `async_step_reauth` | 1110-1121 | Reauth entry point |
-| `async_step_reauth_confirm` | 1123-1194 | Reauth confirmation form |
+#### 6. Local Multi-Device Onboarding (No Cloud)
+| Method | Description |
+|--------|-------------|
+| `async_step_local_setup` | Station name configuration |
+| `async_step_local_add_device` | Device type selection (Modbus/Dongle) |
+| `async_step_local_modbus_device` | Configure Modbus device |
+| `async_step_local_dongle_device` | Configure Dongle device |
+| `async_step_local_device_added` | Loop control - add more or finish |
+| `_create_local_entry` | Create Local config entry |
 
-#### 7. HTTP Reconfigure
-| Method | Lines | Description |
-|--------|-------|-------------|
-| `async_step_reconfigure` | 1196-1217 | Reconfigure router |
-| `async_step_reconfigure_http` | 1219-1305 | HTTP reconfigure form |
-| `async_step_reconfigure_plant` | 1602-1667 | Plant selection during reconfig |
-| `_update_http_entry` | 1669-1731 | Update HTTP entry |
+#### 7. Reauth
+| Method | Description |
+|--------|-------------|
+| `async_step_reauth` | Reauth entry point |
+| `async_step_reauth_confirm` | Reauth confirmation form |
 
-#### 8. Modbus Reconfigure
-| Method | Lines | Description |
-|--------|-------|-------------|
-| `async_step_reconfigure_modbus` | 1307-1393 | Modbus reconfigure form |
-| `_update_modbus_entry` | 1733-1779 | Update Modbus entry |
+#### 8. HTTP Reconfigure
+| Method | Description |
+|--------|-------------|
+| `async_step_reconfigure` | Reconfigure router (routes by connection type) |
+| `async_step_reconfigure_http` | HTTP reconfigure form |
+| `async_step_reconfigure_plant` | Plant selection during reconfig |
+| `_update_http_entry` | Update HTTP entry |
 
-#### 9. Hybrid Reconfigure
-| Method | Lines | Description |
-|--------|-------|-------------|
-| `async_step_reconfigure_hybrid` | 1395-1537 | Hybrid reconfigure form |
-| `async_step_reconfigure_hybrid_plant` | 1539-1600 | Hybrid plant selection |
-| `_update_hybrid_entry_from_reconfigure` | 1781-1891 | Update Hybrid entry |
+#### 9. Modbus Reconfigure
+| Method | Description |
+|--------|-------------|
+| `async_step_reconfigure_modbus` | Modbus reconfigure form |
+| `_update_modbus_entry` | Update Modbus entry |
 
-#### 10. Options Flow
-| Method | Lines | Description |
-|--------|-------|-------------|
-| `EG4OptionsFlow.__init__` | 1897-1899 | Initialize options flow |
-| `async_step_init` | 1901-1973 | Options main form (intervals) |
+#### 10. Hybrid Reconfigure
+| Method | Description |
+|--------|-------------|
+| `async_step_reconfigure_hybrid` | Hybrid reconfigure form |
+| `async_step_reconfigure_hybrid_plant` | Hybrid plant selection |
+| `_update_hybrid_entry_from_reconfigure` | Update Hybrid entry |
+
+#### 11. Local Reconfigure
+| Method | Description |
+|--------|-------------|
+| `async_step_reconfigure_local` | Local station name reconfigure |
+
+#### 12. Options Flow
+| Method | Description |
+|--------|-------------|
+| `EG4OptionsFlow.__init__` | Initialize options flow |
+| `async_step_init` | Options main form (routes by type) |
+| `async_step_local_options` | Local mode device management menu |
+| `async_step_local_add_device_type` | Select device type to add |
+| `async_step_local_options_modbus` | Add Modbus device in options |
+| `async_step_local_options_dongle` | Add Dongle device in options |
+| `async_step_local_remove_device` | Remove device selection |
+| `async_step_local_intervals` | Local polling interval config |
+| `_finish_local_options` | Apply local options changes |
 
 ## Target Architecture
 
@@ -106,13 +139,15 @@ custom_components/eg4_web_monitor/
     │   ├── http.py             # HttpOnboardingMixin
     │   ├── modbus.py           # ModbusOnboardingMixin
     │   ├── dongle.py           # DongleOnboardingMixin
-    │   └── hybrid.py           # HybridOnboardingMixin
+    │   ├── hybrid.py           # HybridOnboardingMixin
+    │   └── local.py            # LocalOnboardingMixin
     ├── reconfigure/
     │   ├── __init__.py
     │   ├── reauth.py           # ReauthMixin
     │   ├── http.py             # HttpReconfigureMixin
     │   ├── modbus.py           # ModbusReconfigureMixin
-    │   └── hybrid.py           # HybridReconfigureMixin
+    │   ├── hybrid.py           # HybridReconfigureMixin
+    │   └── local.py            # LocalReconfigureMixin
     └── transitions/
         ├── __init__.py
         ├── base.py             # TransitionBuilder base
@@ -123,21 +158,30 @@ custom_components/eg4_web_monitor/
 ### Mixin Inheritance Order (MRO)
 
 ```python
+# Note: domain=DOMAIN must be on the final class, not the base.
+# Home Assistant's ConfigFlow uses a metaclass that reads domain from
+# the class definition, so we must specify it on the final assembled class.
+
 class EG4WebMonitorConfigFlow(
     # Onboarding mixins (setup flows)
     HttpOnboardingMixin,
     ModbusOnboardingMixin,
     DongleOnboardingMixin,
     HybridOnboardingMixin,
+    LocalOnboardingMixin,
     # Reconfigure mixins
     ReauthMixin,
     HttpReconfigureMixin,
     ModbusReconfigureMixin,
     HybridReconfigureMixin,
+    LocalReconfigureMixin,
     # Transitions (HTTP↔Hybrid)
     TransitionMixin,
-    # Base class (must be last before ConfigFlow)
+    # Base class with shared state/methods
     EG4ConfigFlowBase,
+    # ConfigFlow must be last - domain registration happens here
+    config_entries.ConfigFlow,
+    domain=DOMAIN,
 ):
     """Handle a config flow for EG4 Web Monitor."""
     VERSION = 1
@@ -147,16 +191,27 @@ class EG4WebMonitorConfigFlow(
 
 #### 1. `base.py` - Base Class
 ```python
-class EG4ConfigFlowBase(config_entries.ConfigFlow, domain=DOMAIN):
-    """Base config flow with shared state and utilities."""
+class EG4ConfigFlowBase:
+    """Base config flow mixin with shared state and utilities.
 
-    VERSION = 1
+    Note: This is NOT a ConfigFlow subclass. The domain=DOMAIN parameter
+    must be on the final assembled class (EG4WebMonitorConfigFlow), not here.
+    This class provides shared state and methods that mixins can use.
+    """
 
     # Instance variables (moved from __init__)
     _connection_type: str | None
     _username: str | None
     _password: str | None
     # ... etc
+
+    def __init__(self) -> None:
+        """Initialize shared state for config flow."""
+        super().__init__()
+        self._connection_type = None
+        self._username = None
+        self._password = None
+        # ... etc
 
     # Shared methods
     async def _test_credentials(self) -> None: ...
@@ -262,6 +317,7 @@ The `domain=DOMAIN` parameter must be on the final assembled class, not the base
 - Hybrid: `hybrid_{username}_{plant_id}`
 - Modbus: `modbus_{serial}`
 - Dongle: `dongle_{serial}`
+- Local: `local_{station_name}` (normalized, lowercase, underscores)
 
 ## Testing Strategy
 
@@ -270,10 +326,12 @@ The `domain=DOMAIN` parameter must be on the final assembled class, not the base
 - `test_modbus_onboarding.py`
 - `test_dongle_onboarding.py`
 - `test_hybrid_onboarding.py`
+- `test_local_onboarding.py`
 - `test_reauth.py`
 - `test_http_reconfigure.py`
 - `test_modbus_reconfigure.py`
 - `test_hybrid_reconfigure.py`
+- `test_local_reconfigure.py`
 - `test_options.py`
 - `test_transitions.py`
 
@@ -297,11 +355,13 @@ The `domain=DOMAIN` parameter must be on the final assembled class, not the base
    - `modbus.py`
    - `dongle.py`
    - `hybrid.py`
+   - `local.py`
 6. **Extract reconfigure mixins** (parallel-safe):
    - `reauth.py`
    - `http.py`
    - `modbus.py`
    - `hybrid.py`
+   - `local.py`
 7. **Create transitions module** (new feature):
    - `base.py`
    - `http_to_hybrid.py`
