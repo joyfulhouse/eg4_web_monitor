@@ -183,11 +183,12 @@ from .diagnostics import (
     BACKGROUND_TASK_CLEANUP_TIMEOUT,
 )
 
+# Sensor types - extracted to sensors/ subpackage
+from .sensors import SensorConfig
+
 # Re-export everything from legacy module for backward compatibility
 # As modules are extracted, imports will be updated to pull from submodules
 from .._const_legacy import (
-    # Classes
-    SensorConfig,
     # Sensor types
     SENSOR_TYPES,
     STATION_SENSOR_TYPES,
