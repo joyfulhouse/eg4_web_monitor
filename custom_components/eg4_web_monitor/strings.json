@@ -274,6 +274,72 @@
         "data_description": {
           "plant_id": "Select the solar installation you want to monitor"
         }
+      },
+      "transition_select": {
+        "title": "Change Connection Mode",
+        "description": "You can change how this integration connects to your inverter. Current mode: {current_type}",
+        "data": {
+          "transition_type": "Connection Mode"
+        },
+        "data_description": {
+          "transition_type": "Select a new connection mode or keep the current configuration"
+        }
+      },
+      "transition_select_local_type": {
+        "title": "Select Local Transport Type",
+        "description": "Choose how to connect locally to your inverter. Modbus TCP provides the fastest updates using an RS485 adapter. WiFi Dongle uses the inverter's existing dongle (no extra hardware).",
+        "data": {
+          "hybrid_local_type": "Local Transport Type"
+        },
+        "data_description": {
+          "hybrid_local_type": "Select the local connection method for fast runtime data"
+        }
+      },
+      "transition_modbus": {
+        "title": "Configure Modbus Connection",
+        "description": "Enter your Modbus TCP gateway settings. This will enable fast 5-second polling for runtime data.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the inverter (default: 1)",
+          "inverter_serial": "Serial number of the inverter (leave blank to auto-detect)",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "transition_dongle": {
+        "title": "Configure WiFi Dongle Connection",
+        "description": "Enter your WiFi dongle connection settings. This enables fast 5-second polling using the inverter's existing dongle.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle",
+          "inverter_serial": "Serial number of the inverter",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "transition_confirm": {
+        "title": "Confirm Connection Mode Change",
+        "description": "You are about to change from {current_type} to {target_type}. Station: {current_plant}\n\n{warnings}",
+        "submit": "Confirm Change"
+      },
+      "transition_confirm_removal": {
+        "title": "Confirm Local Transport Removal",
+        "description": "You are about to remove local transport from your Hybrid setup. Station: {current_plant}, Current local transport: {local_type} ({local_host})\n\n{warnings}",
+        "submit": "Remove Local Transport"
       }
     },
     "error": {

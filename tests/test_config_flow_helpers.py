@@ -105,12 +105,16 @@ class TestBuildUniqueId:
 
     def test_http_mode_missing_username(self):
         """Test HTTP mode raises error without username."""
-        with pytest.raises(ValueError, match="HTTP mode requires username and plant_id"):
+        with pytest.raises(
+            ValueError, match="HTTP mode requires username and plant_id"
+        ):
             build_unique_id("http", plant_id="12345")
 
     def test_http_mode_missing_plant_id(self):
         """Test HTTP mode raises error without plant_id."""
-        with pytest.raises(ValueError, match="HTTP mode requires username and plant_id"):
+        with pytest.raises(
+            ValueError, match="HTTP mode requires username and plant_id"
+        ):
             build_unique_id("http", username="user@example.com")
 
     def test_hybrid_mode(self):

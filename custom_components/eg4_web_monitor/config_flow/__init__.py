@@ -69,6 +69,7 @@ from .reconfigure import (
     ModbusReconfigureMixin,
     ReauthMixin,
 )
+from .transitions import TransitionMixin
 from .schemas import (
     INVERTER_FAMILY_OPTIONS,
     build_connection_type_schema,
@@ -142,6 +143,8 @@ class EG4WebMonitorConfigFlow(
     HybridReconfigureMixin,
     LocalReconfigureMixin,
     ReauthMixin,
+    # Transition mixin (provides async_step_transition_* methods)
+    TransitionMixin,
     # Base class (provides shared state and connection testing)
     EG4ConfigFlowBase,
     # Home Assistant ConfigFlow base (must be last for proper MRO)
@@ -154,6 +157,7 @@ class EG4WebMonitorConfigFlow(
     - Initial setup (onboarding) of HTTP, Modbus, Dongle, Hybrid, and Local modes
     - Reconfiguration of existing entries
     - Reauthentication when credentials expire
+    - Connection type transitions (HTTP ↔ Hybrid)
 
     Mixins provide the step methods, while this class provides routing.
 
@@ -161,6 +165,7 @@ class EG4WebMonitorConfigFlow(
         - Onboarding mixins come first (most specific step methods)
         - Reconfigure mixins next
         - ReauthMixin provides reauth steps
+        - TransitionMixin provides connection type transition steps
         - EG4ConfigFlowBase provides shared state and _test_* methods
         - ConfigFlow base must be last for proper method resolution
     """
