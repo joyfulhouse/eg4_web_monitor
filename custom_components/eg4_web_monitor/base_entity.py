@@ -255,6 +255,9 @@ class EG4BaseSensor(EG4DeviceEntity):
         _sensor_config: Configuration dictionary for this sensor.
     """
 
+    # Explicitly declare to match SensorEntity for multiple inheritance compatibility
+    _attr_suggested_display_precision: int | None = None
+
     def __init__(
         self,
         coordinator: EG4DataUpdateCoordinator,
@@ -374,6 +377,9 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
     """
+
+    # Explicitly declare to match SensorEntity for multiple inheritance compatibility
+    _attr_suggested_display_precision: int | None = None
 
     def __init__(
         self,

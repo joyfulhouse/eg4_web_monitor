@@ -527,7 +527,7 @@ class EG4DataUpdateCoordinator(
                 raise TransportReadError("Failed to read runtime data from Modbus")
 
             # Build device data structure from inverter data
-            processed = {
+            processed: dict[str, Any] = {
                 "plant_id": None,  # No plant for Modbus-only
                 "devices": {},
                 "device_info": {},
@@ -754,7 +754,7 @@ class EG4DataUpdateCoordinator(
                 raise TransportReadError("Failed to read runtime data from dongle")
 
             # Build device data structure from inverter data
-            processed = {
+            processed: dict[str, Any] = {
                 "plant_id": None,  # No plant for Dongle-only
                 "devices": {},
                 "device_info": {},
@@ -1419,7 +1419,9 @@ class EG4DataUpdateCoordinator(
             # Load or refresh station data using device objects
             if self.station is None:
                 _LOGGER.info("Loading station data for plant %s", self.plant_id)
-                self.station = await Station.load(self.client, self.plant_id)
+                if self.plant_id is None:
+                    raise UpdateFailed("Plant ID is required for HTTP mode")
+                self.station = await Station.load(self.client, int(self.plant_id))
                 _LOGGER.debug(
                     "Refreshing all data after station load to populate battery details"
                 )
@@ -1535,7 +1537,7 @@ class EG4DataUpdateCoordinator(
         if not self.station:
             raise UpdateFailed("Station not loaded")
 
-        processed = {
+        processed: dict[str, Any] = {
             "plant_id": self.plant_id,
             "devices": {},
             "device_info": {},
