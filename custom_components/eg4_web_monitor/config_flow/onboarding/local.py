@@ -30,11 +30,9 @@ from ...const import (
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
-    INVERTER_FAMILY_LXP_EU,
-    INVERTER_FAMILY_PV_SERIES,
-    INVERTER_FAMILY_SNA,
 )
 from ..helpers import build_unique_id, format_entry_title
+from ..schemas import INVERTER_FAMILY_OPTIONS, LOCAL_DEVICE_TYPE_OPTIONS
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
@@ -42,19 +40,6 @@ if TYPE_CHECKING:
     from ..base import ConfigFlowProtocol
 
 _LOGGER = logging.getLogger(__name__)
-
-# Inverter family options for register map selection
-INVERTER_FAMILY_OPTIONS = {
-    INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-    INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-    INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-}
-
-# Local device type options
-LOCAL_DEVICE_TYPE_OPTIONS = {
-    "modbus": "Modbus TCP (RS485 adapter)",
-    "dongle": "WiFi Dongle",
-}
 
 
 class LocalOnboardingMixin:

@@ -177,8 +177,8 @@ class TestLocalReconfigureDeviceTypeOptions:
     """Tests for local reconfigure device type options."""
 
     def test_device_type_options_exist(self):
-        """Test that device type options are defined."""
-        from custom_components.eg4_web_monitor.config_flow.reconfigure.local import (
+        """Test that device type options are defined in schemas."""
+        from custom_components.eg4_web_monitor.config_flow.schemas import (
             LOCAL_DEVICE_TYPE_OPTIONS,
         )
 

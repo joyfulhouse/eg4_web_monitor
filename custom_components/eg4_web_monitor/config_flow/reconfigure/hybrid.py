@@ -39,11 +39,9 @@ from ...const import (
     DEFAULT_MODBUS_UNIT_ID,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
-    INVERTER_FAMILY_LXP_EU,
-    INVERTER_FAMILY_PV_SERIES,
-    INVERTER_FAMILY_SNA,
 )
-from ..helpers import format_entry_title
+from ..helpers import find_plant_by_id, format_entry_title, get_reconfigure_entry
+from ..schemas import INVERTER_FAMILY_OPTIONS
 
 if TYPE_CHECKING:
     from homeassistant import config_entries
@@ -56,13 +54,6 @@ else:
     from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 _LOGGER = logging.getLogger(__name__)
-
-# Inverter family options for register map selection
-INVERTER_FAMILY_OPTIONS = {
-    INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-    INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-    INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-}
 
 
 class HybridReconfigureMixin:
@@ -139,10 +130,9 @@ class HybridReconfigureMixin:
         errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry_id = self.context.get("entry_id")
-        assert entry_id is not None, "entry_id must be set in context"
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        assert entry is not None, "Config entry not found"
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
             # Store HTTP credentials
@@ -283,22 +273,16 @@ class HybridReconfigureMixin:
         errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry_id = self.context.get("entry_id")
-        assert entry_id is not None, "entry_id must be set in context"
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        assert entry is not None, "Config entry not found"
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
             try:
                 plant_id = user_input[CONF_PLANT_ID]
 
-                # Find the selected plant
-                selected_plant = None
-                assert self._plants is not None, "Plants must be loaded"
-                for plant in self._plants:
-                    if plant["plantId"] == plant_id:
-                        selected_plant = plant
-                        break
+                # Find the selected plant using helper
+                selected_plant = find_plant_by_id(self._plants, plant_id)
 
                 if not selected_plant:
                     errors["base"] = "invalid_plant"

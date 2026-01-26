@@ -66,6 +66,12 @@ HYBRID_LOCAL_TYPE_OPTIONS: dict[str, str] = {
     HYBRID_LOCAL_DONGLE: "WiFi Dongle (no extra hardware)",
 }
 
+# Local device type options
+LOCAL_DEVICE_TYPE_OPTIONS: dict[str, str] = {
+    "modbus": "Modbus TCP (RS485 adapter)",
+    "dongle": "WiFi Dongle",
+}
+
 
 def build_connection_type_schema() -> vol.Schema:
     """Build schema for connection type selection.
