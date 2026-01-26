@@ -1,10 +1,9 @@
 """Constants for the EG4 Web Monitor integration.
 
-This package provides all constants used throughout the integration.
-During the refactoring transition, constants are re-exported from
-_const_legacy.py for backward compatibility.
+This package provides all constants used throughout the integration,
+organized into focused submodules for better maintainability.
 
-Submodules (to be populated during refactoring):
+Submodules:
 - brand: Brand configuration (BrandConfig, BRAND_*, DOMAIN, etc.)
 - config_keys: Configuration keys (CONF_*, defaults, limits)
 - modbus: Modbus register addresses and bit fields
@@ -16,7 +15,6 @@ Submodules (to be populated during refactoring):
   - types: SensorConfig TypedDict
   - inverter: Main SENSOR_TYPES dictionary
   - mappings: Field mappings and sensor lists
-  - gridboss: GridBOSS sensor definitions
   - station: Station/plant sensor definitions
 """
 
