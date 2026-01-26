@@ -37,7 +37,6 @@ from custom_components.eg4_web_monitor.const import (
     CONF_SENSOR_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HTTP,
-    DEFAULT_BASE_URL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
@@ -127,12 +126,8 @@ class TestBuildHttpCredentialsSchema:
         schema_with_false = build_http_credentials_schema(dst_sync_default=False)
 
         # Both should work, just have different defaults
-        result_true = schema_with_true(
-            {CONF_USERNAME: "user", CONF_PASSWORD: "pass"}
-        )
-        result_false = schema_with_false(
-            {CONF_USERNAME: "user", CONF_PASSWORD: "pass"}
-        )
+        result_true = schema_with_true({CONF_USERNAME: "user", CONF_PASSWORD: "pass"})
+        result_false = schema_with_false({CONF_USERNAME: "user", CONF_PASSWORD: "pass"})
 
         assert result_true[CONF_DST_SYNC] is True
         assert result_false[CONF_DST_SYNC] is False
@@ -380,7 +375,9 @@ class TestBuildIntervalOptionsSchema:
 
         # Should reject values below minimum
         with pytest.raises(vol.MultipleInvalid):
-            schema({CONF_SENSOR_UPDATE_INTERVAL: 1, CONF_PARAMETER_REFRESH_INTERVAL: 60})
+            schema(
+                {CONF_SENSOR_UPDATE_INTERVAL: 1, CONF_PARAMETER_REFRESH_INTERVAL: 60}
+            )
 
     def test_validates_param_interval_range(self):
         """Test that parameter interval is validated against range."""
@@ -388,7 +385,9 @@ class TestBuildIntervalOptionsSchema:
 
         # Should reject values below minimum
         with pytest.raises(vol.MultipleInvalid):
-            schema({CONF_SENSOR_UPDATE_INTERVAL: 30, CONF_PARAMETER_REFRESH_INTERVAL: 1})
+            schema(
+                {CONF_SENSOR_UPDATE_INTERVAL: 30, CONF_PARAMETER_REFRESH_INTERVAL: 1}
+            )
 
     def test_accepts_valid_values(self):
         """Test that valid values are accepted."""
