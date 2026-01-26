@@ -81,7 +81,7 @@ def mock_api_single_plant():
 
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -106,7 +106,7 @@ def mock_api_multiple_plants():
 
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -243,7 +243,7 @@ async def test_reconfigure_flow_invalid_auth(
     """Test reconfiguration with invalid credentials shows error."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -285,7 +285,7 @@ async def test_reconfigure_flow_cannot_connect(
     """Test reconfiguration with connection error shows error."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",

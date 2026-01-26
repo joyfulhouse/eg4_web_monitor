@@ -148,7 +148,7 @@ def mock_api():
     # Mock the LuxpowerClient class itself to prevent actual connections
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -175,7 +175,7 @@ def mock_api_single_plant():
     # Mock the LuxpowerClient class itself to prevent actual connections
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -296,7 +296,7 @@ async def test_user_flow_invalid_auth(hass: HomeAssistant):
     """Test flow with invalid authentication."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -339,7 +339,7 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
     """Test flow with connection error."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -382,7 +382,7 @@ async def test_user_flow_api_error(hass: HomeAssistant):
     """Test flow with API error."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -425,7 +425,7 @@ async def test_user_flow_unknown_exception(hass: HomeAssistant):
     """Test flow with unexpected exception."""
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
@@ -469,7 +469,7 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
     # First attempt - invalid auth
     with (
         patch(
-            "custom_components.eg4_web_monitor.config_flow.LuxpowerClient"
+            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
         ) as mock_client_class,
         patch(
             "pylxpweb.devices.Station.load_all",
