@@ -89,12 +89,8 @@ from .config_keys import (
     MODBUS_UPDATE_INTERVAL,
 )
 
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Classes
-    SensorConfig,
-    # Modbus registers
+# Modbus registers - extracted to modbus.py
+from .modbus import (
     MODBUS_BIT_AC_CHARGE_EN,
     MODBUS_BIT_BAT_SHARED,
     MODBUS_BIT_BATTERY_ECO_EN,
@@ -118,6 +114,13 @@ from .._const_legacy import (
     MODBUS_REG_OFFGRID_DISCHG_SOC,
     MODBUS_REG_ONGRID_DISCHG_SOC,
     MODBUS_REG_SYS_FUNC,
+)
+
+# Re-export everything from legacy module for backward compatibility
+# As modules are extracted, imports will be updated to pull from submodules
+from .._const_legacy import (
+    # Classes
+    SensorConfig,
     # Device types
     DEVICE_TYPE_BATTERY,
     DEVICE_TYPE_GRIDBOSS,
