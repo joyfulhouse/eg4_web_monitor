@@ -762,3 +762,294 @@ async def test_user_can_override_dst_sync_default(
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DST_SYNC] is True
+
+
+# ====================
+# Local-Only Multi-Device Mode Tests
+# ====================
+
+
+async def test_local_setup_step_shows_form(hass: HomeAssistant):
+    """Test that local setup step shows the station name form."""
+    from custom_components.eg4_web_monitor.const import CONNECTION_TYPE_LOCAL
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Step 1: Connection type selection
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # Select local multi-device connection type
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL},
+    )
+
+    # Should show local_setup form
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "local_setup"
+
+
+async def test_local_add_device_step(hass: HomeAssistant):
+    """Test that local_add_device step shows device type selection."""
+    from custom_components.eg4_web_monitor.const import (
+        CONF_STATION_NAME,
+        CONNECTION_TYPE_LOCAL,
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL},
+    )
+
+    # Step 2: Station name
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_STATION_NAME: "Test Local Station"},
+    )
+
+    # Should show add device form
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "local_add_device"
+
+
+async def test_local_modbus_device_connection(hass: HomeAssistant):
+    """Test adding a Modbus device in local-only mode."""
+    from custom_components.eg4_web_monitor.const import (
+        CONF_INVERTER_FAMILY,
+        CONF_INVERTER_SERIAL,
+        CONF_MODBUS_HOST,
+        CONF_MODBUS_PORT,
+        CONF_MODBUS_UNIT_ID,
+        CONF_STATION_NAME,
+        CONNECTION_TYPE_LOCAL,
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Step 1: Connection type selection
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL},
+    )
+
+    # Step 2: Station name
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_STATION_NAME: "Test Local Station"},
+    )
+
+    # Step 3: Select device type (modbus)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_type": "modbus"},
+    )
+
+    # Should show modbus device form
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "local_modbus_device"
+
+    # Mock Modbus transport and submit device
+    mock_runtime = AsyncMock()
+    mock_runtime.pv_total_power = 5000
+    mock_runtime.battery_soc = 80
+
+    with patch("pylxpweb.transports.create_modbus_transport") as mock_transport_factory:
+        mock_transport = AsyncMock()
+        mock_transport.connect = AsyncMock()
+        mock_transport.disconnect = AsyncMock()
+        mock_transport.read_serial_number = AsyncMock(return_value="CE12345678")
+        mock_transport.read_runtime = AsyncMock(return_value=mock_runtime)
+        mock_transport_factory.return_value = mock_transport
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_MODBUS_HOST: "192.168.1.100",
+                CONF_MODBUS_PORT: 502,
+                CONF_MODBUS_UNIT_ID: 1,
+                CONF_INVERTER_SERIAL: "",  # Auto-detect
+                CONF_INVERTER_FAMILY: "PV_SERIES",
+            },
+        )
+
+        # Should show device added form
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "local_device_added"
+
+
+async def test_local_complete_flow_single_device(hass: HomeAssistant):
+    """Test complete local-only flow with single device."""
+    from custom_components.eg4_web_monitor.const import (
+        CONF_INVERTER_FAMILY,
+        CONF_INVERTER_SERIAL,
+        CONF_LOCAL_TRANSPORTS,
+        CONF_MODBUS_HOST,
+        CONF_MODBUS_PORT,
+        CONF_MODBUS_UNIT_ID,
+        CONF_STATION_NAME,
+        CONNECTION_TYPE_LOCAL,
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Step 1: Connection type
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL},
+    )
+
+    # Step 2: Station name
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_STATION_NAME: "Home Solar"},
+    )
+
+    # Step 3: Device type
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_type": "modbus"},
+    )
+
+    # Step 4: Modbus device config
+    mock_runtime = AsyncMock()
+    mock_runtime.pv_total_power = 5000
+    mock_runtime.battery_soc = 80
+
+    with patch("pylxpweb.transports.create_modbus_transport") as mock_transport_factory:
+        mock_transport = AsyncMock()
+        mock_transport.connect = AsyncMock()
+        mock_transport.disconnect = AsyncMock()
+        mock_transport.read_serial_number = AsyncMock(return_value="CE12345678")
+        mock_transport.read_runtime = AsyncMock(return_value=mock_runtime)
+        mock_transport_factory.return_value = mock_transport
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_MODBUS_HOST: "192.168.1.100",
+                CONF_MODBUS_PORT: 502,
+                CONF_MODBUS_UNIT_ID: 1,
+                CONF_INVERTER_SERIAL: "",
+                CONF_INVERTER_FAMILY: "PV_SERIES",
+            },
+        )
+
+    # Step 5: Don't add another device (finish)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"add_another": False},
+    )
+
+    # Should create entry
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert "Home Solar" in result["title"]
+    assert "1 device" in result["title"]
+    assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_TYPE_LOCAL
+    assert result["data"][CONF_STATION_NAME] == "Home Solar"
+    assert len(result["data"][CONF_LOCAL_TRANSPORTS]) == 1
+    assert result["data"][CONF_LOCAL_TRANSPORTS][0]["serial"] == "CE12345678"
+    assert result["data"][CONF_LOCAL_TRANSPORTS][0]["transport_type"] == "modbus_tcp"
+
+
+async def test_local_duplicate_serial_error(hass: HomeAssistant):
+    """Test that duplicate serials show an error."""
+    from custom_components.eg4_web_monitor.const import (
+        CONF_INVERTER_FAMILY,
+        CONF_INVERTER_SERIAL,
+        CONF_MODBUS_HOST,
+        CONF_MODBUS_PORT,
+        CONF_MODBUS_UNIT_ID,
+        CONF_STATION_NAME,
+        CONNECTION_TYPE_LOCAL,
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Setup through to first device
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_STATION_NAME: "Test Station"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_type": "modbus"},
+    )
+
+    # Add first device
+    mock_runtime = AsyncMock()
+    mock_runtime.pv_total_power = 5000
+    mock_runtime.battery_soc = 80
+
+    with patch("pylxpweb.transports.create_modbus_transport") as mock_transport_factory:
+        mock_transport = AsyncMock()
+        mock_transport.connect = AsyncMock()
+        mock_transport.disconnect = AsyncMock()
+        mock_transport.read_serial_number = AsyncMock(return_value="CE12345678")
+        mock_transport.read_runtime = AsyncMock(return_value=mock_runtime)
+        mock_transport_factory.return_value = mock_transport
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_MODBUS_HOST: "192.168.1.100",
+                CONF_MODBUS_PORT: 502,
+                CONF_MODBUS_UNIT_ID: 1,
+                CONF_INVERTER_SERIAL: "",
+                CONF_INVERTER_FAMILY: "PV_SERIES",
+            },
+        )
+
+    # Choose to add another device
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"add_another": True},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_type": "modbus"},
+    )
+
+    # Try to add device with same serial
+    with patch("pylxpweb.transports.create_modbus_transport") as mock_transport_factory:
+        mock_transport = AsyncMock()
+        mock_transport.connect = AsyncMock()
+        mock_transport.disconnect = AsyncMock()
+        mock_transport.read_serial_number = AsyncMock(
+            return_value="CE12345678"
+        )  # Same serial
+        mock_transport.read_runtime = AsyncMock(return_value=mock_runtime)
+        mock_transport_factory.return_value = mock_transport
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_MODBUS_HOST: "192.168.1.101",  # Different host
+                CONF_MODBUS_PORT: 502,
+                CONF_MODBUS_UNIT_ID: 1,
+                CONF_INVERTER_SERIAL: "",
+                CONF_INVERTER_FAMILY: "PV_SERIES",
+            },
+        )
+
+    # Should show error for duplicate serial
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "local_modbus_device"
+    assert result["errors"]["base"] == "duplicate_serial"

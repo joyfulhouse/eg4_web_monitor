@@ -133,6 +133,11 @@ CONNECTION_TYPE_HTTP = "http"
 CONNECTION_TYPE_MODBUS = "modbus"
 CONNECTION_TYPE_DONGLE = "dongle"  # WiFi dongle local TCP (no additional hardware)
 CONNECTION_TYPE_HYBRID = "hybrid"  # Local (Modbus/Dongle) + Cloud HTTP for best of both
+CONNECTION_TYPE_LOCAL = "local"  # Multi-device local-only (no cloud API required)
+
+# Local-only station configuration
+CONF_STATION_NAME = "station_name"  # User-specified name for local-only stations
+DEFAULT_LOCAL_STATION_NAME = "Local Solar System"
 
 # Hybrid mode local transport selection (priority: modbus > dongle > cloud-only)
 CONF_HYBRID_LOCAL_TYPE = "hybrid_local_type"

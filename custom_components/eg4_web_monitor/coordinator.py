@@ -52,14 +52,17 @@ from .const import (
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
+    CONF_STATION_NAME,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_INVERTER_FAMILY,
+    DEFAULT_LOCAL_STATION_NAME,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
@@ -339,11 +342,12 @@ class EG4DataUpdateCoordinator(
         self._api_semaphore = asyncio.Semaphore(3)
 
         # Determine update interval - read from options or use connection-type default
-        # Modbus, Dongle, and Hybrid can poll faster since they use local network
+        # Modbus, Dongle, Hybrid, and Local can poll faster since they use local network
         is_local_connection = self.connection_type in (
             CONNECTION_TYPE_MODBUS,
             CONNECTION_TYPE_DONGLE,
             CONNECTION_TYPE_HYBRID,
+            CONNECTION_TYPE_LOCAL,
         )
         default_interval = (
             DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
@@ -386,6 +390,8 @@ class EG4DataUpdateCoordinator(
             return await self._async_update_dongle_data()
         if self.connection_type == CONNECTION_TYPE_HYBRID:
             return await self._async_update_hybrid_data()
+        if self.connection_type == CONNECTION_TYPE_LOCAL:
+            return await self._async_update_local_data()
         # Default to HTTP
         return await self._async_update_http_data()
 
@@ -1008,6 +1014,217 @@ class EG4DataUpdateCoordinator(
 
         http_data["connection_type"] = CONNECTION_TYPE_HYBRID
         return http_data
+
+    async def _async_update_local_data(self) -> dict[str, Any]:
+        """Fetch data from local-only multi-device station.
+
+        This method uses Station.from_local_discovery() to create a station
+        hierarchy from local transports only, without any cloud API dependency.
+
+        The station is created once on first update and then refreshed on
+        subsequent updates using the inverters' refresh methods.
+
+        Returns:
+            Dictionary containing all device data from local transports.
+
+        Raises:
+            UpdateFailed: If connection or transport errors occur.
+        """
+        from pylxpweb.transports.exceptions import (
+            TransportConnectionError,
+            TransportError,
+        )
+
+        if not self._local_transport_configs:
+            raise UpdateFailed("No local transport configs for local-only mode")
+
+        try:
+            # Initialize station from local discovery on first update
+            if self.station is None:
+                _LOGGER.info(
+                    "Creating local-only station with %d device(s)",
+                    len(self._local_transport_configs),
+                )
+                station_name = self.entry.data.get(
+                    CONF_STATION_NAME, DEFAULT_LOCAL_STATION_NAME
+                )
+
+                # Build TransportConfig objects from stored config dicts
+                configs = _build_transport_configs(self._local_transport_configs)
+                if not configs:
+                    raise UpdateFailed("No valid transport configs could be built")
+
+                # Create station from local discovery
+                self.station = await Station.from_local_discovery(
+                    configs,
+                    station_name=station_name,
+                    plant_id=0,  # Local-only stations use plant_id=0
+                    timezone_str=str(self.hass.config.time_zone) or "UTC",
+                )
+
+                # Build inverter cache for O(1) lookups
+                self._rebuild_inverter_cache()
+
+                _LOGGER.info(
+                    "Local station '%s' created: %d inverters, %d parallel groups",
+                    station_name,
+                    len(self.station.all_inverters),
+                    len(self.station.parallel_groups),
+                )
+
+            # Refresh data from all devices using their attached transports
+            await self.station.refresh_all_data()
+
+            # Build result dictionary in same format as HTTP updates
+            result: dict[str, Any] = {
+                "devices": {},
+                "station": {
+                    "name": self.station.name,
+                    "id": self.station.id,
+                    "timezone": self.station.timezone,
+                },
+                "connection_type": CONNECTION_TYPE_LOCAL,
+            }
+
+            # Process each inverter
+            for inverter in self.station.all_inverters:
+                serial = inverter.serial_number
+
+                # Get runtime and energy data from inverter
+                device_data = self._process_inverter_local(inverter)
+                result["devices"][serial] = device_data
+
+                _LOGGER.debug(
+                    "Local update for %s: PV=%.0fW, SOC=%d%%",
+                    serial,
+                    device_data["sensors"].get("pv_total_power", 0),
+                    device_data["sensors"].get("state_of_charge", 0),
+                )
+
+            # Update availability tracking
+            if not self._last_available_state:
+                _LOGGER.info("Local connection restored")
+                self._last_available_state = True
+
+            return result
+
+        except TransportConnectionError as e:
+            if self._last_available_state:
+                _LOGGER.warning("Local transport connection lost: %s", e)
+                self._last_available_state = False
+            raise UpdateFailed(f"Local transport connection failed: {e}") from e
+
+        except TransportError as e:
+            _LOGGER.error("Local transport error: %s", e)
+            raise UpdateFailed(f"Local transport error: {e}") from e
+
+        except Exception as e:
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "Local station now unavailable: %s (type: %s)",
+                    e,
+                    type(e).__name__,
+                )
+                self._last_available_state = False
+            _LOGGER.exception("Unexpected local update error: %s", e)
+            raise UpdateFailed(f"Unexpected error: {e}") from e
+
+    def _process_inverter_local(self, inverter: BaseInverter) -> dict[str, Any]:
+        """Process an inverter from local-only station into sensor dictionary.
+
+        Args:
+            inverter: BaseInverter instance with attached transport.
+
+        Returns:
+            Dictionary with device info and sensor data.
+        """
+        # Get runtime and energy from inverter internal state
+        runtime = getattr(inverter, "_runtime", None)
+        energy = getattr(inverter, "_energy", None)
+
+        device_data: dict[str, Any] = {
+            "serial": inverter.serial_number,
+            "model": inverter.model,
+            "device_type": "inverter",
+            "sensors": {},
+        }
+
+        # Process runtime data if available
+        if runtime is not None:
+            device_data["sensors"].update(
+                {
+                    # PV/Solar input
+                    "pv1_voltage": runtime.pv1_voltage,
+                    "pv1_power": runtime.pv1_power,
+                    "pv2_voltage": runtime.pv2_voltage,
+                    "pv2_power": runtime.pv2_power,
+                    "pv3_voltage": runtime.pv3_voltage,
+                    "pv3_power": runtime.pv3_power,
+                    "pv_total_power": runtime.pv_total_power,
+                    # Battery
+                    "battery_voltage": runtime.battery_voltage,
+                    "battery_current": runtime.battery_current,
+                    "state_of_charge": runtime.battery_soc,
+                    "battery_charge_power": runtime.battery_charge_power,
+                    "battery_discharge_power": runtime.battery_discharge_power,
+                    "battery_temperature": runtime.battery_temperature,
+                    # Grid
+                    "grid_voltage_r": runtime.grid_voltage_r,
+                    "grid_voltage_s": runtime.grid_voltage_s,
+                    "grid_voltage_t": runtime.grid_voltage_t,
+                    "grid_current_l1": runtime.grid_current_r,
+                    "grid_current_l2": runtime.grid_current_s,
+                    "grid_current_l3": runtime.grid_current_t,
+                    "grid_frequency": runtime.grid_frequency,
+                    "grid_power": runtime.grid_power,
+                    "grid_export_power": runtime.power_to_grid,
+                    # Inverter output
+                    "ac_power": runtime.inverter_power,
+                    "load_power": runtime.load_power,
+                    # EPS/Backup
+                    "eps_voltage_r": runtime.eps_voltage_r,
+                    "eps_voltage_s": runtime.eps_voltage_s,
+                    "eps_voltage_t": runtime.eps_voltage_t,
+                    "eps_frequency": runtime.eps_frequency,
+                    "eps_power": runtime.eps_power,
+                    # Generator
+                    "generator_voltage": runtime.generator_voltage,
+                    "generator_frequency": runtime.generator_frequency,
+                    "generator_power": runtime.generator_power,
+                    # Bus voltages
+                    "bus1_voltage": runtime.bus_voltage_1,
+                    "bus2_voltage": runtime.bus_voltage_2,
+                    # Temperatures
+                    "internal_temperature": runtime.internal_temperature,
+                    "radiator1_temperature": runtime.radiator_temperature_1,
+                    "radiator2_temperature": runtime.radiator_temperature_2,
+                    # Status
+                    "status_code": runtime.device_status,
+                }
+            )
+
+        # Process energy data if available
+        if energy is not None:
+            device_data["sensors"].update(
+                {
+                    # Daily energy (kWh)
+                    "yield": energy.pv_energy_today,
+                    "charging": energy.charge_energy_today,
+                    "discharging": energy.discharge_energy_today,
+                    "grid_import": energy.grid_import_today,
+                    "grid_export": energy.grid_export_today,
+                    "load": energy.load_energy_today,
+                    # Lifetime energy (kWh)
+                    "yield_lifetime": energy.pv_energy_total,
+                    "charging_lifetime": energy.charge_energy_total,
+                    "discharging_lifetime": energy.discharge_energy_total,
+                    "grid_import_lifetime": energy.grid_import_total,
+                    "grid_export_lifetime": energy.grid_export_total,
+                    "load_lifetime": energy.load_energy_total,
+                }
+            )
+
+        return device_data
 
     def _merge_local_data_with_http(
         self,

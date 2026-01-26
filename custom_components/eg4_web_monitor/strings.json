@@ -147,6 +147,72 @@
           "inverter_family": "Select your inverter family for correct register mapping"
         }
       },
+      "local_setup": {
+        "title": "{brand_name} Local Multi-Device Setup",
+        "description": "Set up local-only monitoring for multiple inverters without cloud API. Each device will be discovered and connected via local transport (Modbus TCP or WiFi Dongle).",
+        "data": {
+          "station_name": "Station Name"
+        },
+        "data_description": {
+          "station_name": "A friendly name for this installation (e.g., 'Home Solar System')"
+        }
+      },
+      "local_add_device": {
+        "title": "{brand_name} Add Local Device",
+        "description": "Add a device to your local station. You can add multiple devices using different transport types. Devices configured: {device_count}",
+        "data": {
+          "device_type": "Device Transport Type"
+        },
+        "data_description": {
+          "device_type": "Select how this device connects to your network"
+        }
+      },
+      "local_modbus_device": {
+        "title": "{brand_name} Add Modbus Device",
+        "description": "Configure a Modbus TCP connection for this inverter. Devices configured: {device_count}",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of the Modbus TCP gateway for this inverter",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID (default: 1)",
+          "inverter_serial": "Leave blank to auto-detect from Modbus registers",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping"
+        }
+      },
+      "local_dongle_device": {
+        "title": "{brand_name} Add Dongle Device",
+        "description": "Configure a WiFi dongle connection for this inverter. Devices configured: {device_count}",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of the WiFi dongle on your network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle",
+          "inverter_serial": "10-character serial number of the inverter",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "local_device_added": {
+        "title": "{brand_name} Device Added Successfully",
+        "description": "Device added to your local station. Configured devices ({device_count}): {device_serials}. Would you like to add another device?",
+        "data": {
+          "add_another": "Add Another Device"
+        },
+        "data_description": {
+          "add_another": "Enable to add another inverter, disable to finish setup"
+        }
+      },
       "plant": {
         "title": "Select Station",
         "description": "Choose which solar station/plant to monitor. You can add additional stations by creating separate integration instances.",
@@ -287,12 +353,15 @@
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
       "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
-      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this)."
+      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
+      "serial_not_detected": "Could not detect inverter serial number from Modbus registers. Please enter the serial number manually.",
+      "duplicate_serial": "A device with this serial number is already configured in this station. Each device must have a unique serial."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
       "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
-      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated."
+      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated.",
+      "no_devices_configured": "No devices were configured. Please add at least one device to create a local station."
     }
   },
   "options": {
