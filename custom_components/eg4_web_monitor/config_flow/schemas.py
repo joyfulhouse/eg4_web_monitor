@@ -27,6 +27,7 @@ from ..const import (
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_BASE_URL,
     DEFAULT_DONGLE_PORT,
@@ -55,8 +56,9 @@ INVERTER_FAMILY_OPTIONS: dict[str, str] = {
 # Connection type options
 CONNECTION_TYPE_OPTIONS: dict[str, str] = {
     CONNECTION_TYPE_HTTP: "Cloud API (HTTP)",
-    CONNECTION_TYPE_MODBUS: "Local Modbus TCP (RS485 adapter)",
-    CONNECTION_TYPE_DONGLE: "Local WiFi Dongle (no extra hardware)",
+    CONNECTION_TYPE_LOCAL: "Local Only (Multi-device, no cloud)",
+    CONNECTION_TYPE_MODBUS: "Local Modbus TCP (single device)",
+    CONNECTION_TYPE_DONGLE: "Local WiFi Dongle (single device)",
     CONNECTION_TYPE_HYBRID: "Hybrid (Local + Cloud)",
 }
 
