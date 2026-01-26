@@ -2316,11 +2316,24 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.config_entry = config_entry
+        # Track devices for local mode management
+        self._local_devices: list[dict[str, Any]] = list(
+            config_entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+        )
+        self._devices_modified = False
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        connection_type = self.config_entry.data.get(
+            CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
+        )
+
+        # For local mode, show device management options
+        if connection_type == CONNECTION_TYPE_LOCAL:
+            return await self.async_step_local_options()
+
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
@@ -2331,6 +2344,8 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         is_local_connection = connection_type in (
             CONNECTION_TYPE_MODBUS,
             CONNECTION_TYPE_DONGLE,
+            CONNECTION_TYPE_HYBRID,
+            CONNECTION_TYPE_LOCAL,
         )
         default_sensor_interval = (
             DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
@@ -2382,6 +2397,428 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
             },
         )
+
+    # ==========================================================================
+    # Local-only mode options
+    # ==========================================================================
+
+    async def async_step_local_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage local-only mode options."""
+        if user_input is not None:
+            action = user_input.get("action")
+            if action == "add_device":
+                return await self.async_step_local_add_device_type()
+            if action == "remove_device":
+                return await self.async_step_local_remove_device()
+            if action == "update_intervals":
+                return await self.async_step_local_intervals()
+            if action == "done":
+                return await self._finish_local_options()
+
+        # Show options menu
+        device_count = len(self._local_devices)
+        device_serials = ", ".join([d["serial"] for d in self._local_devices])
+
+        options_schema = vol.Schema(
+            {
+                vol.Required("action", default="done"): vol.In(
+                    {
+                        "add_device": "Add Device",
+                        "remove_device": "Remove Device",
+                        "update_intervals": "Update Polling Intervals",
+                        "done": "Done",
+                    }
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_options",
+            data_schema=options_schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_count": str(device_count),
+                "device_serials": device_serials or "None",
+            },
+        )
+
+    async def async_step_local_add_device_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select device type to add in options flow."""
+        if user_input is not None:
+            device_type = user_input.get("device_type", "modbus")
+            if device_type == "modbus":
+                return await self.async_step_local_options_modbus()
+            return await self.async_step_local_options_dongle()
+
+        device_type_schema = vol.Schema(
+            {
+                vol.Required("device_type", default="modbus"): vol.In(
+                    {
+                        "modbus": "Modbus TCP (RS485 adapter)",
+                        "dongle": "WiFi Dongle (port 8000)",
+                    }
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_add_device_type",
+            data_schema=device_type_schema,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_local_options_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a Modbus device in options flow."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            modbus_host = user_input[CONF_MODBUS_HOST]
+            modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            modbus_unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+            inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "")
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            try:
+                # Reuse test method from config flow
+                detected_serial = await self._test_modbus_connection(
+                    modbus_host, modbus_port, modbus_unit_id, inverter_family
+                )
+                final_serial = inverter_serial or detected_serial
+
+                if not final_serial:
+                    errors["base"] = "serial_not_detected"
+                else:
+                    # Check for duplicate
+                    existing_serials = [d["serial"] for d in self._local_devices]
+                    if final_serial in existing_serials:
+                        errors["base"] = "duplicate_serial"
+                    else:
+                        self._local_devices.append(
+                            {
+                                "serial": final_serial,
+                                "transport_type": "modbus_tcp",
+                                "host": modbus_host,
+                                "port": modbus_port,
+                                "unit_id": modbus_unit_id,
+                                "inverter_family": inverter_family,
+                            }
+                        )
+                        self._devices_modified = True
+                        return await self.async_step_local_options()
+
+            except ImportError:
+                errors["base"] = "modbus_not_installed"
+            except TimeoutError:
+                errors["base"] = "modbus_timeout"
+            except OSError as e:
+                _LOGGER.error("Modbus connection error: %s", e)
+                errors["base"] = "modbus_connection_failed"
+            except Exception as e:
+                _LOGGER.exception("Unexpected Modbus error: %s", e)
+                errors["base"] = "unknown"
+
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
+        modbus_schema = vol.Schema(
+            {
+                vol.Required(CONF_MODBUS_HOST): str,
+                vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
+                vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
+                vol.Optional(CONF_INVERTER_SERIAL, default=""): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_options_modbus",
+            data_schema=modbus_schema,
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_local_options_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a WiFi Dongle device in options flow."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            dongle_host = user_input[CONF_DONGLE_HOST]
+            dongle_port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            dongle_serial = user_input[CONF_DONGLE_SERIAL]
+            inverter_serial = user_input[CONF_INVERTER_SERIAL]
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            try:
+                await self._test_dongle_connection(
+                    dongle_host,
+                    dongle_port,
+                    dongle_serial,
+                    inverter_serial,
+                    inverter_family,
+                )
+
+                # Check for duplicate
+                existing_serials = [d["serial"] for d in self._local_devices]
+                if inverter_serial in existing_serials:
+                    errors["base"] = "duplicate_serial"
+                else:
+                    self._local_devices.append(
+                        {
+                            "serial": inverter_serial,
+                            "transport_type": "wifi_dongle",
+                            "host": dongle_host,
+                            "port": dongle_port,
+                            "dongle_serial": dongle_serial,
+                            "inverter_family": inverter_family,
+                        }
+                    )
+                    self._devices_modified = True
+                    return await self.async_step_local_options()
+
+            except TimeoutError:
+                errors["base"] = "dongle_timeout"
+            except OSError as e:
+                _LOGGER.error("Dongle connection error: %s", e)
+                errors["base"] = "dongle_connection_failed"
+            except Exception as e:
+                _LOGGER.exception("Unexpected dongle error: %s", e)
+                errors["base"] = "unknown"
+
+        inverter_family_options = {
+            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+        }
+
+        dongle_schema = vol.Schema(
+            {
+                vol.Required(CONF_DONGLE_HOST): str,
+                vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
+                vol.Required(CONF_DONGLE_SERIAL): str,
+                vol.Required(CONF_INVERTER_SERIAL): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(inverter_family_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_options_dongle",
+            data_schema=dongle_schema,
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_local_remove_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Remove a device from local station."""
+        if not self._local_devices:
+            return await self.async_step_local_options()
+
+        if user_input is not None:
+            serial_to_remove = user_input.get("device_serial")
+            if serial_to_remove:
+                self._local_devices = [
+                    d for d in self._local_devices if d["serial"] != serial_to_remove
+                ]
+                self._devices_modified = True
+            return await self.async_step_local_options()
+
+        # Build device selection
+        device_options = {
+            d["serial"]: f"{d['serial']} ({d['transport_type']})"
+            for d in self._local_devices
+        }
+
+        remove_schema = vol.Schema(
+            {
+                vol.Required("device_serial"): vol.In(device_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_remove_device",
+            data_schema=remove_schema,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_local_intervals(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Update polling intervals for local mode."""
+        if user_input is not None:
+            # Store intervals and return to menu
+            self._sensor_interval = user_input.get(
+                CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+            )
+            self._param_interval = user_input.get(
+                CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
+            )
+            self._devices_modified = True
+            return await self.async_step_local_options()
+
+        current_sensor = self.config_entry.options.get(
+            CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+        )
+        current_param = self.config_entry.options.get(
+            CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
+        )
+
+        interval_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SENSOR_UPDATE_INTERVAL, default=current_sensor
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_SENSOR_UPDATE_INTERVAL, max=MAX_SENSOR_UPDATE_INTERVAL
+                    ),
+                ),
+                vol.Required(
+                    CONF_PARAMETER_REFRESH_INTERVAL, default=current_param
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_PARAMETER_REFRESH_INTERVAL,
+                        max=MAX_PARAMETER_REFRESH_INTERVAL,
+                    ),
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="local_intervals",
+            data_schema=interval_schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "min_sensor_interval": str(MIN_SENSOR_UPDATE_INTERVAL),
+                "max_sensor_interval": str(MAX_SENSOR_UPDATE_INTERVAL),
+                "min_param_interval": str(MIN_PARAMETER_REFRESH_INTERVAL),
+                "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
+            },
+        )
+
+    async def _finish_local_options(self) -> ConfigFlowResult:
+        """Finish local options and update config entry if needed."""
+        if self._devices_modified:
+            # Update the config entry data with modified device list
+            new_data = dict(self.config_entry.data)
+            new_data[CONF_LOCAL_TRANSPORTS] = self._local_devices
+
+            # Update unique ID if device list changed
+            sorted_serials = sorted([d["serial"] for d in self._local_devices])
+            new_unique_id = (
+                f"local_{'_'.join(sorted_serials)}" if sorted_serials else None
+            )
+
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+                unique_id=new_unique_id,
+            )
+
+            # Return options with updated intervals
+            options_data = {
+                CONF_SENSOR_UPDATE_INTERVAL: getattr(
+                    self, "_sensor_interval", DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+                ),
+                CONF_PARAMETER_REFRESH_INTERVAL: getattr(
+                    self, "_param_interval", DEFAULT_PARAMETER_REFRESH_INTERVAL
+                ),
+            }
+            return self.async_create_entry(title="", data=options_data)
+
+        # No changes - just return current options
+        return self.async_create_entry(title="", data=self.config_entry.options)
+
+    async def _test_modbus_connection(
+        self,
+        host: str,
+        port: int,
+        unit_id: int,
+        inverter_family: str,
+    ) -> str:
+        """Test Modbus connection and return detected serial."""
+        from pylxpweb.devices.inverters._features import InverterFamily
+        from pylxpweb.transports import create_modbus_transport
+
+        family_enum = None
+        if inverter_family:
+            try:
+                family_enum = InverterFamily(inverter_family)
+            except ValueError:
+                pass
+
+        transport = create_modbus_transport(
+            host=host,
+            port=port,
+            unit_id=unit_id,
+            serial="",
+            timeout=DEFAULT_MODBUS_TIMEOUT,
+            inverter_family=family_enum,
+        )
+
+        detected_serial = ""
+        try:
+            await transport.connect()
+            detected_serial = str(await transport.read_serial_number())
+            await transport.read_runtime()  # Verify connection
+        finally:
+            await transport.disconnect()
+
+        return detected_serial
+
+    async def _test_dongle_connection(
+        self,
+        host: str,
+        port: int,
+        dongle_serial: str,
+        inverter_serial: str,
+        inverter_family: str,
+    ) -> None:
+        """Test WiFi dongle connection."""
+        from pylxpweb.devices.inverters._features import InverterFamily
+        from pylxpweb.transports import create_dongle_transport
+
+        family_enum = None
+        if inverter_family:
+            try:
+                family_enum = InverterFamily(inverter_family)
+            except ValueError:
+                pass
+
+        transport = create_dongle_transport(
+            host=host,
+            dongle_serial=dongle_serial,
+            inverter_serial=inverter_serial,
+            port=port,
+            timeout=DEFAULT_DONGLE_TIMEOUT,
+            inverter_family=family_enum,
+        )
+
+        try:
+            await transport.connect()
+            await transport.read_runtime()
+        finally:
+            await transport.disconnect()
 
 
 class CannotConnectError(HomeAssistantError):

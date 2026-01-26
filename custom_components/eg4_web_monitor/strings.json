@@ -377,6 +377,84 @@
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes)."
         }
+      },
+      "local_options": {
+        "title": "{brand_name} Local Station Options",
+        "description": "Manage your local station. Devices: {device_count} ({device_serials})",
+        "data": {
+          "action": "Action"
+        },
+        "data_description": {
+          "action": "Select an action to perform"
+        }
+      },
+      "local_add_device_type": {
+        "title": "{brand_name} Add Device",
+        "description": "Select the type of device to add to your local station.",
+        "data": {
+          "device_type": "Device Transport Type"
+        },
+        "data_description": {
+          "device_type": "Select how this device connects to your network"
+        }
+      },
+      "local_options_modbus": {
+        "title": "{brand_name} Add Modbus Device",
+        "description": "Configure a Modbus TCP connection for this inverter.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Inverter Serial Number (optional)",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of the Modbus TCP gateway for this inverter",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID (default: 1)",
+          "inverter_serial": "Leave blank to auto-detect from Modbus registers",
+          "inverter_family": "Select your inverter family for correct Modbus register mapping"
+        }
+      },
+      "local_options_dongle": {
+        "title": "{brand_name} Add Dongle Device",
+        "description": "Configure a WiFi dongle connection for this inverter.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "inverter_family": "Inverter Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of the WiFi dongle on your network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character serial number of the WiFi dongle",
+          "inverter_serial": "10-character serial number of the inverter",
+          "inverter_family": "Select your inverter family for correct register mapping"
+        }
+      },
+      "local_remove_device": {
+        "title": "{brand_name} Remove Device",
+        "description": "Select a device to remove from your local station.",
+        "data": {
+          "device_serial": "Device to Remove"
+        },
+        "data_description": {
+          "device_serial": "Select the device you want to remove"
+        }
+      },
+      "local_intervals": {
+        "title": "{brand_name} Polling Intervals",
+        "description": "Configure polling intervals for your local station.",
+        "data": {
+          "sensor_update_interval": "Sensor Update Interval (seconds)",
+          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)"
+        },
+        "data_description": {
+          "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds).",
+          "parameter_refresh_interval": "How often to refresh inverter parameters ({min_param_interval}-{max_param_interval} minutes)."
+        }
       }
     }
   },
