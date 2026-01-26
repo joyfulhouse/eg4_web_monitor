@@ -156,6 +156,13 @@ from .limits import (
     SYSTEM_CHARGE_SOC_LIMIT_STEP,
 )
 
+# Working modes - extracted to working_modes.py
+from .working_modes import (
+    FUNCTION_PARAM_MAPPING,
+    SOC_LIMIT_PARAMS,
+    WORKING_MODES,
+)
+
 # Re-export everything from legacy module for backward compatibility
 # As modules are extracted, imports will be updated to pull from submodules
 from .._const_legacy import (
@@ -175,10 +182,6 @@ from .._const_legacy import (
     DIVIDE_BY_100_SENSORS,
     GRIDBOSS_ENERGY_SENSORS,
     VOLTAGE_SENSORS,
-    # Working modes
-    FUNCTION_PARAM_MAPPING,
-    SOC_LIMIT_PARAMS,
-    WORKING_MODES,
     # Battery constants
     BATTERY_KEY_PREFIX,
     BATTERY_KEY_SEPARATOR,
