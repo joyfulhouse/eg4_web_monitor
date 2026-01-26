@@ -184,24 +184,25 @@ from .diagnostics import (
 )
 
 # Sensor types - extracted to sensors/ subpackage
-from .sensors import SENSOR_TYPES, SensorConfig
+from .sensors import (
+    CURRENT_SENSORS,
+    DIVIDE_BY_10_SENSORS,
+    DIVIDE_BY_100_SENSORS,
+    GRIDBOSS_ENERGY_SENSORS,
+    GRIDBOSS_FIELD_MAPPING,
+    INVERTER_ENERGY_FIELD_MAPPING,
+    INVERTER_RUNTIME_FIELD_MAPPING,
+    PARALLEL_GROUP_FIELD_MAPPING,
+    SENSOR_TYPES,
+    SensorConfig,
+    VOLTAGE_SENSORS,
+)
 
 # Re-export everything from legacy module for backward compatibility
 # As modules are extracted, imports will be updated to pull from submodules
 from .._const_legacy import (
     # Sensor types
     STATION_SENSOR_TYPES,
-    # Field mappings
-    GRIDBOSS_FIELD_MAPPING,
-    INVERTER_ENERGY_FIELD_MAPPING,
-    INVERTER_RUNTIME_FIELD_MAPPING,
-    PARALLEL_GROUP_FIELD_MAPPING,
-    # Sensor lists
-    CURRENT_SENSORS,
-    DIVIDE_BY_10_SENSORS,
-    DIVIDE_BY_100_SENSORS,
-    GRIDBOSS_ENERGY_SENSORS,
-    VOLTAGE_SENSORS,
 )
 
 __all__ = [

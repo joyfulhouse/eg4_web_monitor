@@ -19,7 +19,31 @@ from .types import SensorConfig
 # Inverter sensor definitions - extracted to inverter.py
 from .inverter import SENSOR_TYPES
 
+# Field mappings and sensor lists - extracted to mappings.py
+from .mappings import (
+    CURRENT_SENSORS,
+    DIVIDE_BY_10_SENSORS,
+    DIVIDE_BY_100_SENSORS,
+    GRIDBOSS_ENERGY_SENSORS,
+    GRIDBOSS_FIELD_MAPPING,
+    INVERTER_ENERGY_FIELD_MAPPING,
+    INVERTER_RUNTIME_FIELD_MAPPING,
+    PARALLEL_GROUP_FIELD_MAPPING,
+    VOLTAGE_SENSORS,
+)
+
 __all__ = [
     "SensorConfig",
     "SENSOR_TYPES",
+    # Field mappings
+    "GRIDBOSS_FIELD_MAPPING",
+    "INVERTER_ENERGY_FIELD_MAPPING",
+    "INVERTER_RUNTIME_FIELD_MAPPING",
+    "PARALLEL_GROUP_FIELD_MAPPING",
+    # Sensor lists
+    "CURRENT_SENSORS",
+    "DIVIDE_BY_10_SENSORS",
+    "DIVIDE_BY_100_SENSORS",
+    "GRIDBOSS_ENERGY_SENSORS",
+    "VOLTAGE_SENSORS",
 ]
