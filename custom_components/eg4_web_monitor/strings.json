@@ -340,6 +340,86 @@
         "title": "Confirm Local Transport Removal",
         "description": "You are about to remove local transport from your Hybrid setup. Station: {current_plant}, Current local transport: {local_type} ({local_host})\n\n{warnings}",
         "submit": "Remove Local Transport"
+      },
+      "local_setup": {
+        "title": "{brand_name} Local Multi-Device Setup",
+        "description": "Set up local-only monitoring without cloud credentials. You can add multiple devices (inverters and GridBOSS) using Modbus TCP or WiFi Dongle connections.",
+        "data": {
+          "station_name": "Installation Name (optional)"
+        },
+        "data_description": {
+          "station_name": "A friendly name for this installation (e.g., 'Home Solar System'). Leave blank to use device serial numbers."
+        }
+      },
+      "local_add_device": {
+        "title": "Add Local Device",
+        "description": "Select the connection type for the device you want to add. You have added {device_count} device(s) so far.",
+        "data": {
+          "device_type": "Device Connection Type"
+        },
+        "data_description": {
+          "device_type": "Choose Modbus TCP for RS485 adapter connections, or WiFi Dongle for direct dongle connections"
+        }
+      },
+      "local_modbus_device": {
+        "title": "Add Modbus TCP Device",
+        "description": "Configure a Modbus TCP connection for an inverter or GridBOSS. The device type (inverter vs GridBOSS) is automatically detected.",
+        "data": {
+          "modbus_host": "Modbus Gateway IP/Hostname",
+          "modbus_port": "Modbus TCP Port",
+          "modbus_unit_id": "Modbus Unit ID",
+          "inverter_serial": "Device Serial Number (optional)",
+          "inverter_model": "Device Model (optional)",
+          "inverter_family": "Device Family"
+        },
+        "data_description": {
+          "modbus_host": "IP address or hostname of your Modbus TCP gateway",
+          "modbus_port": "TCP port for Modbus communication (default: 502)",
+          "modbus_unit_id": "Modbus slave/unit ID of the device (default: 1)",
+          "inverter_serial": "Leave blank to auto-detect from Modbus registers",
+          "inverter_model": "Model name for display purposes (e.g., 18kPV, GridBOSS)",
+          "inverter_family": "Select device family for correct register mapping"
+        }
+      },
+      "local_dongle_device": {
+        "title": "Add WiFi Dongle Device",
+        "description": "Configure a WiFi Dongle connection for an inverter or GridBOSS. The device type is automatically detected from the dongle.",
+        "data": {
+          "dongle_host": "WiFi Dongle IP/Hostname",
+          "dongle_port": "Dongle TCP Port",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Device Serial Number",
+          "inverter_model": "Device Model (optional)",
+          "inverter_family": "Device Family"
+        },
+        "data_description": {
+          "dongle_host": "IP address of the WiFi dongle on your local network",
+          "dongle_port": "TCP port for dongle communication (default: 8000)",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character device serial number",
+          "inverter_model": "Model name for display purposes",
+          "inverter_family": "Select device family for correct register mapping"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added Successfully",
+        "description": "Added {device_type} device: {device_serial}\n\nTotal devices configured: {device_count}\n\nWould you like to add another device?",
+        "data": {
+          "add_another": "Add Another Device"
+        },
+        "data_description": {
+          "add_another": "Check to add another inverter or GridBOSS to this installation"
+        }
+      },
+      "reconfigure_local": {
+        "title": "Reconfigure Local Installation",
+        "description": "Manage devices in your local installation. Current devices: {device_count}",
+        "data": {
+          "action": "Action"
+        },
+        "data_description": {
+          "action": "Select an action to perform on this installation"
+        }
       }
     },
     "error": {
@@ -353,7 +433,8 @@
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
       "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
-      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this)."
+      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
+      "duplicate_serial": "A device with this serial number has already been added to this installation."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
