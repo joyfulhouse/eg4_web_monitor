@@ -6,8 +6,10 @@ import pytest
 
 from custom_components.eg4_web_monitor.config_flow.helpers import (
     build_unique_id,
+    find_plant_by_id,
     format_entry_title,
     get_ha_timezone,
+    get_reconfigure_entry,
     timezone_observes_dst,
 )
 
@@ -170,3 +172,90 @@ class TestBuildUniqueId:
         """Test unknown mode raises error."""
         with pytest.raises(ValueError, match="Unknown mode: invalid"):
             build_unique_id("invalid")
+
+
+class TestGetReconfigureEntry:
+    """Tests for get_reconfigure_entry function."""
+
+    def test_returns_entry_when_found(self):
+        """Test returns config entry when entry_id is valid."""
+        mock_hass = MagicMock()
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test-entry-id"
+        mock_hass.config_entries.async_get_entry.return_value = mock_entry
+
+        context = {"entry_id": "test-entry-id"}
+
+        result = get_reconfigure_entry(mock_hass, context)
+
+        assert result == mock_entry
+        mock_hass.config_entries.async_get_entry.assert_called_once_with("test-entry-id")
+
+    def test_returns_none_when_no_entry_id(self):
+        """Test returns None when entry_id not in context."""
+        mock_hass = MagicMock()
+        context = {}
+
+        result = get_reconfigure_entry(mock_hass, context)
+
+        assert result is None
+        mock_hass.config_entries.async_get_entry.assert_not_called()
+
+    def test_returns_none_when_entry_not_found(self):
+        """Test returns None when entry doesn't exist."""
+        mock_hass = MagicMock()
+        mock_hass.config_entries.async_get_entry.return_value = None
+        context = {"entry_id": "nonexistent-id"}
+
+        result = get_reconfigure_entry(mock_hass, context)
+
+        assert result is None
+
+
+class TestFindPlantById:
+    """Tests for find_plant_by_id function."""
+
+    def test_finds_plant_in_list(self):
+        """Test finding plant by ID in list."""
+        plants = [
+            {"plantId": "plant-1", "name": "Plant One"},
+            {"plantId": "plant-2", "name": "Plant Two"},
+            {"plantId": "plant-3", "name": "Plant Three"},
+        ]
+
+        result = find_plant_by_id(plants, "plant-2")
+
+        assert result == {"plantId": "plant-2", "name": "Plant Two"}
+
+    def test_returns_none_for_missing_plant(self):
+        """Test returns None when plant ID not found."""
+        plants = [
+            {"plantId": "plant-1", "name": "Plant One"},
+        ]
+
+        result = find_plant_by_id(plants, "nonexistent")
+
+        assert result is None
+
+    def test_returns_none_for_empty_list(self):
+        """Test returns None when plant list is empty."""
+        result = find_plant_by_id([], "any-id")
+
+        assert result is None
+
+    def test_returns_none_for_none_list(self):
+        """Test returns None when plant list is None."""
+        result = find_plant_by_id(None, "any-id")
+
+        assert result is None
+
+    def test_returns_first_match_for_duplicates(self):
+        """Test returns first matching plant if duplicates exist."""
+        plants = [
+            {"plantId": "dup", "name": "First"},
+            {"plantId": "dup", "name": "Second"},
+        ]
+
+        result = find_plant_by_id(plants, "dup")
+
+        assert result == {"plantId": "dup", "name": "First"}

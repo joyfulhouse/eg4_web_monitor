@@ -1,12 +1,18 @@
 """Utility functions for config flow operations."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 
 from ..const import BRAND_NAME
+
+if TYPE_CHECKING:
+    from homeassistant import config_entries
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,3 +130,46 @@ def build_unique_id(
         return f"local_{normalized}"
 
     raise ValueError(f"Unknown mode: {mode}")
+
+
+def get_reconfigure_entry(
+    hass: HomeAssistant, context: dict[str, Any]
+) -> config_entries.ConfigEntry[Any] | None:
+    """Get the config entry being reconfigured from context.
+
+    This is a common pattern used in all reconfigure flows:
+    1. Get entry_id from context
+    2. Lookup entry from config_entries
+
+    Args:
+        hass: Home Assistant instance.
+        context: Config flow context containing entry_id.
+
+    Returns:
+        The config entry if found, None otherwise.
+    """
+    entry_id = context.get("entry_id")
+    if not entry_id:
+        return None
+    return hass.config_entries.async_get_entry(entry_id)
+
+
+def find_plant_by_id(
+    plants: list[dict[str, Any]] | None, plant_id: str
+) -> dict[str, Any] | None:
+    """Find a plant in the plants list by its ID.
+
+    Args:
+        plants: List of plant dictionaries with 'plantId' keys.
+        plant_id: The plant ID to search for.
+
+    Returns:
+        The plant dictionary if found, None otherwise.
+    """
+    if not plants:
+        return None
+
+    for plant in plants:
+        if plant.get("plantId") == plant_id:
+            return plant
+    return None

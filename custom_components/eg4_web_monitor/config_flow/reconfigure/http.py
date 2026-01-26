@@ -35,7 +35,7 @@ from ...const import (
     DEFAULT_MODBUS_UNIT_ID,
     CONF_INVERTER_SERIAL,
 )
-from ..helpers import format_entry_title
+from ..helpers import find_plant_by_id, format_entry_title, get_reconfigure_entry
 
 if TYPE_CHECKING:
     from homeassistant import config_entries
@@ -114,10 +114,9 @@ class HttpReconfigureMixin:
         errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry_id = self.context.get("entry_id")
-        assert entry_id is not None, "entry_id must be set in context"
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        assert entry is not None, "Config entry not found"
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
             try:
@@ -211,22 +210,16 @@ class HttpReconfigureMixin:
         errors: dict[str, str] = {}
 
         # Get the current entry being reconfigured
-        entry_id = self.context.get("entry_id")
-        assert entry_id is not None, "entry_id must be set in context"
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        assert entry is not None, "Config entry not found"
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
             try:
                 plant_id = user_input[CONF_PLANT_ID]
 
-                # Find the selected plant
-                selected_plant = None
-                assert self._plants is not None, "Plants must be loaded"
-                for plant in self._plants:
-                    if plant["plantId"] == plant_id:
-                        selected_plant = plant
-                        break
+                # Find the selected plant using helper
+                selected_plant = find_plant_by_id(self._plants, plant_id)
 
                 if not selected_plant:
                     errors["base"] = "invalid_plant"
