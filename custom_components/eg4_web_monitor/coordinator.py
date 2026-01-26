@@ -56,6 +56,7 @@ from .const import (
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
@@ -85,6 +86,116 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
+    """Build sensor mapping from runtime data object.
+
+    This helper extracts runtime data from a transport's RuntimeData object
+    and maps it to sensor keys matching SENSOR_TYPES definitions in const.py.
+
+    Args:
+        runtime_data: RuntimeData object from pylxpweb transport.
+
+    Returns:
+        Dictionary mapping sensor keys to values.
+    """
+    return {
+        # PV/Solar input
+        "pv1_voltage": runtime_data.pv1_voltage,
+        "pv1_power": runtime_data.pv1_power,
+        "pv2_voltage": runtime_data.pv2_voltage,
+        "pv2_power": runtime_data.pv2_power,
+        "pv3_voltage": runtime_data.pv3_voltage,
+        "pv3_power": runtime_data.pv3_power,
+        "pv_total_power": runtime_data.pv_total_power,
+        # Battery
+        "battery_voltage": runtime_data.battery_voltage,
+        "battery_current": runtime_data.battery_current,
+        "state_of_charge": runtime_data.battery_soc,
+        "battery_charge_power": runtime_data.battery_charge_power,
+        "battery_discharge_power": runtime_data.battery_discharge_power,
+        "battery_temperature": runtime_data.battery_temperature,
+        # Grid - all phases
+        "grid_voltage_r": runtime_data.grid_voltage_r,
+        "grid_voltage_s": runtime_data.grid_voltage_s,
+        "grid_voltage_t": runtime_data.grid_voltage_t,
+        "grid_current_l1": runtime_data.grid_current_r,
+        "grid_current_l2": runtime_data.grid_current_s,
+        "grid_current_l3": runtime_data.grid_current_t,
+        "grid_frequency": runtime_data.grid_frequency,
+        "grid_power": runtime_data.grid_power,
+        "grid_export_power": runtime_data.power_to_grid,
+        # Inverter output
+        "ac_power": runtime_data.inverter_power,
+        "load_power": runtime_data.load_power,
+        # EPS/Backup
+        "eps_voltage_r": runtime_data.eps_voltage_r,
+        "eps_voltage_s": runtime_data.eps_voltage_s,
+        "eps_voltage_t": runtime_data.eps_voltage_t,
+        "eps_frequency": runtime_data.eps_frequency,
+        "eps_power": runtime_data.eps_power,
+        # Generator
+        "generator_voltage": runtime_data.generator_voltage,
+        "generator_frequency": runtime_data.generator_frequency,
+        "generator_power": runtime_data.generator_power,
+        # Bus voltages
+        "bus1_voltage": runtime_data.bus_voltage_1,
+        "bus2_voltage": runtime_data.bus_voltage_2,
+        # Temperatures
+        "internal_temperature": runtime_data.internal_temperature,
+        "radiator1_temperature": runtime_data.radiator_temperature_1,
+        "radiator2_temperature": runtime_data.radiator_temperature_2,
+        # Status
+        "status_code": runtime_data.device_status,
+    }
+
+
+def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
+    """Build sensor mapping from energy data object.
+
+    This helper extracts energy data from a transport's EnergyData object
+    and maps it to sensor keys matching SENSOR_TYPES definitions in const.py.
+
+    Args:
+        energy_data: EnergyData object from pylxpweb transport.
+
+    Returns:
+        Dictionary mapping sensor keys to values.
+    """
+    return {
+        # Daily energy (kWh)
+        "yield": energy_data.pv_energy_today,
+        "charging": energy_data.charge_energy_today,
+        "discharging": energy_data.discharge_energy_today,
+        "grid_import": energy_data.grid_import_today,
+        "grid_export": energy_data.grid_export_today,
+        "load": energy_data.load_energy_today,
+        # Lifetime energy (kWh)
+        "yield_lifetime": energy_data.pv_energy_total,
+        "charging_lifetime": energy_data.charge_energy_total,
+        "discharging_lifetime": energy_data.discharge_energy_total,
+        "grid_import_lifetime": energy_data.grid_import_total,
+        "grid_export_lifetime": energy_data.grid_export_total,
+        "load_lifetime": energy_data.load_energy_total,
+    }
+
+
+def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
+    """Build sensor mapping from battery bank data object.
+
+    Args:
+        battery_data: BatteryData object from pylxpweb transport.
+
+    Returns:
+        Dictionary mapping sensor keys to values.
+    """
+    return {
+        "battery_bank_soc": battery_data.soc,
+        "battery_bank_voltage": battery_data.voltage,
+        "battery_bank_charge_power": battery_data.charge_power,
+        "battery_bank_discharge_power": battery_data.discharge_power,
+    }
 
 
 def _build_transport_configs(
@@ -339,11 +450,12 @@ class EG4DataUpdateCoordinator(
         self._api_semaphore = asyncio.Semaphore(3)
 
         # Determine update interval - read from options or use connection-type default
-        # Modbus, Dongle, and Hybrid can poll faster since they use local network
+        # Modbus, Dongle, Hybrid, and Local can poll faster since they use local network
         is_local_connection = self.connection_type in (
             CONNECTION_TYPE_MODBUS,
             CONNECTION_TYPE_DONGLE,
             CONNECTION_TYPE_HYBRID,
+            CONNECTION_TYPE_LOCAL,
         )
         default_interval = (
             DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
@@ -386,6 +498,8 @@ class EG4DataUpdateCoordinator(
             return await self._async_update_dongle_data()
         if self.connection_type == CONNECTION_TYPE_HYBRID:
             return await self._async_update_hybrid_data()
+        if self.connection_type == CONNECTION_TYPE_LOCAL:
+            return await self._async_update_local_data()
         # Default to HTTP
         return await self._async_update_http_data()
 
@@ -529,101 +643,25 @@ class EG4DataUpdateCoordinator(
                 "connection_type": CONNECTION_TYPE_MODBUS,
             }
 
-            # Create device entry for the inverter
+            # Create device entry with sensor mappings
             device_data: dict[str, Any] = {
                 "type": "inverter",
                 "model": self._modbus_model,
                 "serial": serial,
                 "firmware_version": firmware_version,
-                "sensors": {},
+                "sensors": _build_runtime_sensor_mapping(runtime_data),
                 "batteries": {},
             }
 
-            # Map runtime data to sensors using SENSOR_TYPES keys
-            # Note: Keys must match SENSOR_TYPES definitions in const.py
-            device_data["sensors"].update(
-                {
-                    # PV/Solar input
-                    "pv1_voltage": runtime_data.pv1_voltage,
-                    "pv1_power": runtime_data.pv1_power,
-                    "pv2_voltage": runtime_data.pv2_voltage,
-                    "pv2_power": runtime_data.pv2_power,
-                    "pv3_voltage": runtime_data.pv3_voltage,
-                    "pv3_power": runtime_data.pv3_power,
-                    "pv_total_power": runtime_data.pv_total_power,
-                    # Battery
-                    "battery_voltage": runtime_data.battery_voltage,
-                    "battery_current": runtime_data.battery_current,
-                    "state_of_charge": runtime_data.battery_soc,
-                    "battery_charge_power": runtime_data.battery_charge_power,
-                    "battery_discharge_power": runtime_data.battery_discharge_power,
-                    "battery_temperature": runtime_data.battery_temperature,
-                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                    "grid_voltage_r": runtime_data.grid_voltage_r,
-                    "grid_voltage_s": runtime_data.grid_voltage_s,
-                    "grid_voltage_t": runtime_data.grid_voltage_t,
-                    "grid_current_l1": runtime_data.grid_current_r,
-                    "grid_current_l2": runtime_data.grid_current_s,
-                    "grid_current_l3": runtime_data.grid_current_t,
-                    "grid_frequency": runtime_data.grid_frequency,
-                    "grid_power": runtime_data.grid_power,
-                    "grid_export_power": runtime_data.power_to_grid,
-                    # Inverter output
-                    "ac_power": runtime_data.inverter_power,
-                    "load_power": runtime_data.load_power,
-                    # EPS/Backup
-                    "eps_voltage_r": runtime_data.eps_voltage_r,
-                    "eps_voltage_s": runtime_data.eps_voltage_s,
-                    "eps_voltage_t": runtime_data.eps_voltage_t,
-                    "eps_frequency": runtime_data.eps_frequency,
-                    "eps_power": runtime_data.eps_power,
-                    # Generator (if available from Modbus)
-                    "generator_voltage": runtime_data.generator_voltage,
-                    "generator_frequency": runtime_data.generator_frequency,
-                    "generator_power": runtime_data.generator_power,
-                    # Bus voltages
-                    "bus1_voltage": runtime_data.bus_voltage_1,
-                    "bus2_voltage": runtime_data.bus_voltage_2,
-                    # Temperatures
-                    "internal_temperature": runtime_data.internal_temperature,
-                    "radiator1_temperature": runtime_data.radiator_temperature_1,
-                    "radiator2_temperature": runtime_data.radiator_temperature_2,
-                    # Status
-                    "status_code": runtime_data.device_status,
-                }
-            )
-
-            # Map energy data to sensors using SENSOR_TYPES keys
+            # Add energy sensors if available
             if energy_data:
-                device_data["sensors"].update(
-                    {
-                        # Daily energy (kWh)
-                        "yield": energy_data.pv_energy_today,
-                        "charging": energy_data.charge_energy_today,
-                        "discharging": energy_data.discharge_energy_today,
-                        "grid_import": energy_data.grid_import_today,
-                        "grid_export": energy_data.grid_export_today,
-                        "load": energy_data.load_energy_today,
-                        # Lifetime energy (kWh)
-                        "yield_lifetime": energy_data.pv_energy_total,
-                        "charging_lifetime": energy_data.charge_energy_total,
-                        "discharging_lifetime": energy_data.discharge_energy_total,
-                        "grid_import_lifetime": energy_data.grid_import_total,
-                        "grid_export_lifetime": energy_data.grid_export_total,
-                        "load_lifetime": energy_data.load_energy_total,
-                    }
-                )
+                device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
 
             # Add battery bank data if available
             battery_data = inverter._transport_battery
             if battery_data:
-                device_data["sensors"]["battery_bank_soc"] = battery_data.soc
-                device_data["sensors"]["battery_bank_voltage"] = battery_data.voltage
-                device_data["sensors"]["battery_bank_charge_power"] = (
-                    battery_data.charge_power
-                )
-                device_data["sensors"]["battery_bank_discharge_power"] = (
-                    battery_data.discharge_power
+                device_data["sensors"].update(
+                    _build_battery_bank_sensor_mapping(battery_data)
                 )
 
             # Add firmware version as diagnostic sensor
@@ -756,101 +794,25 @@ class EG4DataUpdateCoordinator(
                 "connection_type": CONNECTION_TYPE_DONGLE,
             }
 
-            # Create device entry for the inverter
+            # Create device entry with sensor mappings
             device_data: dict[str, Any] = {
                 "type": "inverter",
                 "model": self._dongle_model,
                 "serial": serial,
                 "firmware_version": firmware_version,
-                "sensors": {},
+                "sensors": _build_runtime_sensor_mapping(runtime_data),
                 "batteries": {},
             }
 
-            # Map runtime data to sensors using SENSOR_TYPES keys (same as Modbus)
-            # Note: Keys must match SENSOR_TYPES definitions in const.py
-            device_data["sensors"].update(
-                {
-                    # PV/Solar input
-                    "pv1_voltage": runtime_data.pv1_voltage,
-                    "pv1_power": runtime_data.pv1_power,
-                    "pv2_voltage": runtime_data.pv2_voltage,
-                    "pv2_power": runtime_data.pv2_power,
-                    "pv3_voltage": runtime_data.pv3_voltage,
-                    "pv3_power": runtime_data.pv3_power,
-                    "pv_total_power": runtime_data.pv_total_power,
-                    # Battery
-                    "battery_voltage": runtime_data.battery_voltage,
-                    "battery_current": runtime_data.battery_current,
-                    "state_of_charge": runtime_data.battery_soc,
-                    "battery_charge_power": runtime_data.battery_charge_power,
-                    "battery_discharge_power": runtime_data.battery_discharge_power,
-                    "battery_temperature": runtime_data.battery_temperature,
-                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                    "grid_voltage_r": runtime_data.grid_voltage_r,
-                    "grid_voltage_s": runtime_data.grid_voltage_s,
-                    "grid_voltage_t": runtime_data.grid_voltage_t,
-                    "grid_current_l1": runtime_data.grid_current_r,
-                    "grid_current_l2": runtime_data.grid_current_s,
-                    "grid_current_l3": runtime_data.grid_current_t,
-                    "grid_frequency": runtime_data.grid_frequency,
-                    "grid_power": runtime_data.grid_power,
-                    "grid_export_power": runtime_data.power_to_grid,
-                    # Inverter output
-                    "ac_power": runtime_data.inverter_power,
-                    "load_power": runtime_data.load_power,
-                    # EPS/Backup
-                    "eps_voltage_r": runtime_data.eps_voltage_r,
-                    "eps_voltage_s": runtime_data.eps_voltage_s,
-                    "eps_voltage_t": runtime_data.eps_voltage_t,
-                    "eps_frequency": runtime_data.eps_frequency,
-                    "eps_power": runtime_data.eps_power,
-                    # Generator (if available from Dongle)
-                    "generator_voltage": runtime_data.generator_voltage,
-                    "generator_frequency": runtime_data.generator_frequency,
-                    "generator_power": runtime_data.generator_power,
-                    # Bus voltages
-                    "bus1_voltage": runtime_data.bus_voltage_1,
-                    "bus2_voltage": runtime_data.bus_voltage_2,
-                    # Temperatures
-                    "internal_temperature": runtime_data.internal_temperature,
-                    "radiator1_temperature": runtime_data.radiator_temperature_1,
-                    "radiator2_temperature": runtime_data.radiator_temperature_2,
-                    # Status
-                    "status_code": runtime_data.device_status,
-                }
-            )
-
-            # Map energy data to sensors using SENSOR_TYPES keys
+            # Add energy sensors if available
             if energy_data:
-                device_data["sensors"].update(
-                    {
-                        # Daily energy (kWh)
-                        "yield": energy_data.pv_energy_today,
-                        "charging": energy_data.charge_energy_today,
-                        "discharging": energy_data.discharge_energy_today,
-                        "grid_import": energy_data.grid_import_today,
-                        "grid_export": energy_data.grid_export_today,
-                        "load": energy_data.load_energy_today,
-                        # Lifetime energy (kWh)
-                        "yield_lifetime": energy_data.pv_energy_total,
-                        "charging_lifetime": energy_data.charge_energy_total,
-                        "discharging_lifetime": energy_data.discharge_energy_total,
-                        "grid_import_lifetime": energy_data.grid_import_total,
-                        "grid_export_lifetime": energy_data.grid_export_total,
-                        "load_lifetime": energy_data.load_energy_total,
-                    }
-                )
+                device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
 
             # Add battery bank data if available
             battery_data = inverter._transport_battery
             if battery_data:
-                device_data["sensors"]["battery_bank_soc"] = battery_data.soc
-                device_data["sensors"]["battery_bank_voltage"] = battery_data.voltage
-                device_data["sensors"]["battery_bank_charge_power"] = (
-                    battery_data.charge_power
-                )
-                device_data["sensors"]["battery_bank_discharge_power"] = (
-                    battery_data.discharge_power
+                device_data["sensors"].update(
+                    _build_battery_bank_sensor_mapping(battery_data)
                 )
 
             # Add firmware version as diagnostic sensor
@@ -916,6 +878,270 @@ class EG4DataUpdateCoordinator(
                 self._last_available_state = False
             _LOGGER.exception("Unexpected Dongle error: %s", e)
             raise UpdateFailed(f"Unexpected error: {e}") from e
+
+    async def _async_update_local_data(self) -> dict[str, Any]:
+        """Fetch data from multiple local transports (Modbus + Dongle mix).
+
+        LOCAL mode allows configuring multiple inverters with different transport
+        types in a single config entry, without any cloud credentials.
+
+        Devices are processed sequentially to avoid overwhelming the local network
+        with concurrent TCP connections (similar to how single-device Modbus/Dongle
+        modes work). Individual device failures are isolated - one device failing
+        doesn't break others. Only if ALL devices fail does this method raise
+        UpdateFailed.
+
+        Returns:
+            Dictionary containing data from all local devices:
+            {
+                "plant_id": None,
+                "devices": {serial1: {...}, serial2: {...}},
+                "parameters": {serial1: {...}, serial2: {...}},
+                "last_update": datetime,
+                "connection_type": "local"
+            }
+
+        Raises:
+            UpdateFailed: If no transports configured or ALL devices failed.
+        """
+        from pylxpweb.devices.inverters._features import InverterFamily
+        from pylxpweb.transports import create_dongle_transport, create_modbus_transport
+        from pylxpweb.transports.exceptions import (
+            TransportConnectionError,
+            TransportError,
+            TransportReadError,
+            TransportTimeoutError,
+        )
+
+        if not self._local_transport_configs:
+            raise UpdateFailed("No local transports configured")
+
+        # Build processed data structure
+        processed: dict[str, Any] = {
+            "plant_id": None,  # No plant for LOCAL mode
+            "devices": {},
+            "device_info": {},
+            "parameters": {},
+            "last_update": dt_util.utcnow(),
+            "connection_type": CONNECTION_TYPE_LOCAL,
+        }
+
+        # Track per-device availability for partial failure handling
+        device_availability: dict[str, bool] = {}
+
+        # Process each local transport configuration
+        for config in self._local_transport_configs:
+            serial = config.get("serial", "")
+            transport_type = config.get("transport_type", "modbus_tcp")
+            host = config.get("host", "")
+            port = config.get("port", DEFAULT_MODBUS_PORT)
+
+            if not serial or not host:
+                _LOGGER.warning(
+                    "LOCAL: Skipping invalid config (missing serial or host): %s",
+                    config,
+                )
+                continue
+
+            try:
+                # Convert inverter family string to enum
+                inverter_family = None
+                family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
+                if family_str:
+                    try:
+                        inverter_family = InverterFamily(family_str)
+                    except ValueError:
+                        _LOGGER.warning(
+                            "LOCAL: Unknown inverter family '%s' for %s, using default",
+                            family_str,
+                            serial,
+                        )
+
+                # Get model from config, or derive from family
+                model = config.get("model", "")
+                if not model:
+                    model = INVERTER_FAMILY_DEFAULT_MODELS.get(family_str, "18kPV")
+
+                # Create or reuse transport based on type
+                # Use plain serial as cache key for get_inverter_object() compatibility
+                if serial not in self._inverter_cache:
+                    # Create transport (type is Any to support both Modbus and Dongle)
+                    transport: Any = None
+                    if transport_type == "modbus_tcp":
+                        transport = create_modbus_transport(
+                            host=host,
+                            port=port,
+                            unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                            serial=serial,
+                            timeout=DEFAULT_MODBUS_TIMEOUT,
+                            inverter_family=inverter_family,
+                        )
+                    elif transport_type == "wifi_dongle":
+                        transport = create_dongle_transport(
+                            host=host,
+                            dongle_serial=config.get("dongle_serial", ""),
+                            inverter_serial=serial,
+                            port=port,
+                            timeout=DEFAULT_DONGLE_TIMEOUT,
+                            inverter_family=inverter_family,
+                        )
+                    else:
+                        _LOGGER.error(
+                            "LOCAL: Unknown transport type '%s' for %s",
+                            transport_type,
+                            serial,
+                        )
+                        device_availability[serial] = False
+                        continue
+
+                    # Connect transport
+                    if not transport.is_connected:
+                        await transport.connect()
+
+                    # Create BaseInverter via factory
+                    _LOGGER.debug(
+                        "LOCAL: Creating BaseInverter from %s transport for %s",
+                        transport_type,
+                        serial,
+                    )
+                    inverter = await BaseInverter.from_modbus_transport(
+                        transport, model=model
+                    )
+                    self._inverter_cache[serial] = inverter
+                else:
+                    inverter = self._inverter_cache[serial]
+
+                    # Ensure transport is connected
+                    transport = inverter._transport
+                    if transport and not transport.is_connected:
+                        await transport.connect()
+
+                # Refresh data from transport
+                await inverter.refresh(force=True, include_parameters=True)
+
+                # Read firmware version from transport
+                firmware_version: str = "Unknown"
+                transport = inverter._transport
+                if transport and hasattr(transport, "read_firmware_version"):
+                    read_fw = getattr(transport, "read_firmware_version")
+                    firmware_version = await read_fw() or "Unknown"
+
+                # Get data from transport via inverter's internal storage
+                runtime_data = inverter._transport_runtime
+                energy_data = inverter._transport_energy
+
+                if runtime_data is None:
+                    raise TransportReadError(
+                        f"Failed to read runtime data for {serial}"
+                    )
+
+                # Build device data structure with sensor mappings
+                device_data: dict[str, Any] = {
+                    "type": "inverter",
+                    "model": model,
+                    "serial": serial,
+                    "firmware_version": firmware_version,
+                    "sensors": _build_runtime_sensor_mapping(runtime_data),
+                    "batteries": {},
+                }
+
+                # Add energy sensors if available
+                if energy_data:
+                    device_data["sensors"].update(
+                        _build_energy_sensor_mapping(energy_data)
+                    )
+
+                # Add battery bank data if available
+                battery_data = inverter._transport_battery
+                if battery_data:
+                    device_data["sensors"].update(
+                        _build_battery_bank_sensor_mapping(battery_data)
+                    )
+
+                # Add firmware version as diagnostic sensor
+                device_data["sensors"]["firmware_version"] = firmware_version
+
+                # Store device data
+                processed["devices"][serial] = device_data
+                device_availability[serial] = True
+
+                # Get parameters from inverter's cached parameters
+                param_data = inverter.parameters or {}
+                processed["parameters"][serial] = param_data
+
+                _LOGGER.debug(
+                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                    serial,
+                    transport_type,
+                    firmware_version,
+                    runtime_data.pv_total_power,
+                    runtime_data.battery_soc,
+                    runtime_data.grid_power,
+                )
+
+            except (
+                TransportConnectionError,
+                TransportTimeoutError,
+                TransportReadError,
+                TransportError,
+            ) as e:
+                _LOGGER.warning(
+                    "LOCAL: Failed to update %s (%s): %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
+                device_availability[serial] = False
+                # Continue with other devices rather than failing entire update
+                continue
+
+            except Exception as e:
+                _LOGGER.exception(
+                    "LOCAL: Unexpected error updating %s (%s): %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
+                device_availability[serial] = False
+                continue
+
+        # Check if we got any device data
+        successful_devices = sum(1 for v in device_availability.values() if v)
+        total_devices = len(self._local_transport_configs)
+
+        if successful_devices == 0:
+            # Silver tier logging: Log when all devices become unavailable
+            if self._last_available_state:
+                _LOGGER.warning(
+                    "LOCAL: All %d devices unavailable",
+                    total_devices,
+                )
+                self._last_available_state = False
+            raise UpdateFailed(f"All {total_devices} local transports failed to update")
+
+        # Silver tier logging: Log when service becomes available again
+        if not self._last_available_state:
+            _LOGGER.warning(
+                "LOCAL: Connection restored - %d/%d devices available",
+                successful_devices,
+                total_devices,
+            )
+            self._last_available_state = True
+
+        # Log partial failure if some devices failed
+        if successful_devices < total_devices:
+            _LOGGER.warning(
+                "LOCAL: Partial update - %d/%d devices updated successfully",
+                successful_devices,
+                total_devices,
+            )
+        else:
+            _LOGGER.debug(
+                "LOCAL: Successfully updated all %d devices",
+                total_devices,
+            )
+
+        return processed
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
         """Fetch data using local transport (Modbus/Dongle) + HTTP (discovery/battery).
