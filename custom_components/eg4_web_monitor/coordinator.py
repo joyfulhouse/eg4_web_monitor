@@ -90,6 +90,101 @@ from .utils import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _map_runtime_to_sensors(runtime: Any) -> dict[str, Any]:
+    """Map InverterRuntimeData to sensor dictionary.
+
+    Maps runtime data attributes to SENSOR_TYPES keys as defined in const.py.
+    This function consolidates the repeated mapping logic used across
+    Modbus, Dongle, and Hybrid data update methods.
+
+    Args:
+        runtime: InverterRuntimeData object from pylxpweb transport.
+
+    Returns:
+        Dictionary mapping sensor keys to runtime values.
+    """
+    return {
+        # PV/Solar input
+        "pv1_voltage": runtime.pv1_voltage,
+        "pv1_power": runtime.pv1_power,
+        "pv2_voltage": runtime.pv2_voltage,
+        "pv2_power": runtime.pv2_power,
+        "pv3_voltage": runtime.pv3_voltage,
+        "pv3_power": runtime.pv3_power,
+        "pv_total_power": runtime.pv_total_power,
+        # Battery
+        "battery_voltage": runtime.battery_voltage,
+        "battery_current": runtime.battery_current,
+        "state_of_charge": runtime.battery_soc,
+        "battery_charge_power": runtime.battery_charge_power,
+        "battery_discharge_power": runtime.battery_discharge_power,
+        "battery_temperature": runtime.battery_temperature,
+        # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
+        "grid_voltage_r": runtime.grid_voltage_r,
+        "grid_voltage_s": runtime.grid_voltage_s,
+        "grid_voltage_t": runtime.grid_voltage_t,
+        "grid_current_l1": runtime.grid_current_r,
+        "grid_current_l2": runtime.grid_current_s,
+        "grid_current_l3": runtime.grid_current_t,
+        "grid_frequency": runtime.grid_frequency,
+        "grid_power": runtime.grid_power,
+        "grid_export_power": runtime.power_to_grid,
+        # Inverter output
+        "ac_power": runtime.inverter_power,
+        "load_power": runtime.load_power,
+        # EPS/Backup
+        "eps_voltage_r": runtime.eps_voltage_r,
+        "eps_voltage_s": runtime.eps_voltage_s,
+        "eps_voltage_t": runtime.eps_voltage_t,
+        "eps_frequency": runtime.eps_frequency,
+        "eps_power": runtime.eps_power,
+        # Generator
+        "generator_voltage": runtime.generator_voltage,
+        "generator_frequency": runtime.generator_frequency,
+        "generator_power": runtime.generator_power,
+        # Bus voltages
+        "bus1_voltage": runtime.bus_voltage_1,
+        "bus2_voltage": runtime.bus_voltage_2,
+        # Temperatures
+        "internal_temperature": runtime.internal_temperature,
+        "radiator1_temperature": runtime.radiator_temperature_1,
+        "radiator2_temperature": runtime.radiator_temperature_2,
+        # Status
+        "status_code": runtime.device_status,
+    }
+
+
+def _map_energy_to_sensors(energy: Any) -> dict[str, Any]:
+    """Map InverterEnergyData to sensor dictionary.
+
+    Maps energy data attributes to SENSOR_TYPES keys as defined in const.py.
+    This function consolidates the repeated mapping logic used across
+    Modbus, Dongle, and Hybrid data update methods.
+
+    Args:
+        energy: InverterEnergyData object from pylxpweb transport.
+
+    Returns:
+        Dictionary mapping sensor keys to energy values.
+    """
+    return {
+        # Daily energy (kWh)
+        "yield": energy.pv_energy_today,
+        "charging": energy.charge_energy_today,
+        "discharging": energy.discharge_energy_today,
+        "grid_import": energy.grid_import_today,
+        "grid_export": energy.grid_export_today,
+        "load": energy.load_energy_today,
+        # Lifetime energy (kWh)
+        "yield_lifetime": energy.pv_energy_total,
+        "charging_lifetime": energy.charge_energy_total,
+        "discharging_lifetime": energy.discharge_energy_total,
+        "grid_import_lifetime": energy.grid_import_total,
+        "grid_export_lifetime": energy.grid_export_total,
+        "load_lifetime": energy.load_energy_total,
+    }
+
+
 def _build_transport_configs(
     config_list: list[dict[str, Any]],
 ) -> list[Any]:
@@ -545,80 +640,10 @@ class EG4DataUpdateCoordinator(
                 "batteries": {},
             }
 
-            # Map runtime data to sensors using SENSOR_TYPES keys
-            # Note: Keys must match SENSOR_TYPES definitions in const.py
-            device_data["sensors"].update(
-                {
-                    # PV/Solar input
-                    "pv1_voltage": runtime_data.pv1_voltage,
-                    "pv1_power": runtime_data.pv1_power,
-                    "pv2_voltage": runtime_data.pv2_voltage,
-                    "pv2_power": runtime_data.pv2_power,
-                    "pv3_voltage": runtime_data.pv3_voltage,
-                    "pv3_power": runtime_data.pv3_power,
-                    "pv_total_power": runtime_data.pv_total_power,
-                    # Battery
-                    "battery_voltage": runtime_data.battery_voltage,
-                    "battery_current": runtime_data.battery_current,
-                    "state_of_charge": runtime_data.battery_soc,
-                    "battery_charge_power": runtime_data.battery_charge_power,
-                    "battery_discharge_power": runtime_data.battery_discharge_power,
-                    "battery_temperature": runtime_data.battery_temperature,
-                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                    "grid_voltage_r": runtime_data.grid_voltage_r,
-                    "grid_voltage_s": runtime_data.grid_voltage_s,
-                    "grid_voltage_t": runtime_data.grid_voltage_t,
-                    "grid_current_l1": runtime_data.grid_current_r,
-                    "grid_current_l2": runtime_data.grid_current_s,
-                    "grid_current_l3": runtime_data.grid_current_t,
-                    "grid_frequency": runtime_data.grid_frequency,
-                    "grid_power": runtime_data.grid_power,
-                    "grid_export_power": runtime_data.power_to_grid,
-                    # Inverter output
-                    "ac_power": runtime_data.inverter_power,
-                    "load_power": runtime_data.load_power,
-                    # EPS/Backup
-                    "eps_voltage_r": runtime_data.eps_voltage_r,
-                    "eps_voltage_s": runtime_data.eps_voltage_s,
-                    "eps_voltage_t": runtime_data.eps_voltage_t,
-                    "eps_frequency": runtime_data.eps_frequency,
-                    "eps_power": runtime_data.eps_power,
-                    # Generator (if available from Modbus)
-                    "generator_voltage": runtime_data.generator_voltage,
-                    "generator_frequency": runtime_data.generator_frequency,
-                    "generator_power": runtime_data.generator_power,
-                    # Bus voltages
-                    "bus1_voltage": runtime_data.bus_voltage_1,
-                    "bus2_voltage": runtime_data.bus_voltage_2,
-                    # Temperatures
-                    "internal_temperature": runtime_data.internal_temperature,
-                    "radiator1_temperature": runtime_data.radiator_temperature_1,
-                    "radiator2_temperature": runtime_data.radiator_temperature_2,
-                    # Status
-                    "status_code": runtime_data.device_status,
-                }
-            )
-
-            # Map energy data to sensors using SENSOR_TYPES keys
+            # Map runtime and energy data to sensors using SENSOR_TYPES keys
+            device_data["sensors"].update(_map_runtime_to_sensors(runtime_data))
             if energy_data:
-                device_data["sensors"].update(
-                    {
-                        # Daily energy (kWh)
-                        "yield": energy_data.pv_energy_today,
-                        "charging": energy_data.charge_energy_today,
-                        "discharging": energy_data.discharge_energy_today,
-                        "grid_import": energy_data.grid_import_today,
-                        "grid_export": energy_data.grid_export_today,
-                        "load": energy_data.load_energy_today,
-                        # Lifetime energy (kWh)
-                        "yield_lifetime": energy_data.pv_energy_total,
-                        "charging_lifetime": energy_data.charge_energy_total,
-                        "discharging_lifetime": energy_data.discharge_energy_total,
-                        "grid_import_lifetime": energy_data.grid_import_total,
-                        "grid_export_lifetime": energy_data.grid_export_total,
-                        "load_lifetime": energy_data.load_energy_total,
-                    }
-                )
+                device_data["sensors"].update(_map_energy_to_sensors(energy_data))
 
             # Add battery bank data if available
             battery_data = inverter._transport_battery
@@ -772,80 +797,10 @@ class EG4DataUpdateCoordinator(
                 "batteries": {},
             }
 
-            # Map runtime data to sensors using SENSOR_TYPES keys (same as Modbus)
-            # Note: Keys must match SENSOR_TYPES definitions in const.py
-            device_data["sensors"].update(
-                {
-                    # PV/Solar input
-                    "pv1_voltage": runtime_data.pv1_voltage,
-                    "pv1_power": runtime_data.pv1_power,
-                    "pv2_voltage": runtime_data.pv2_voltage,
-                    "pv2_power": runtime_data.pv2_power,
-                    "pv3_voltage": runtime_data.pv3_voltage,
-                    "pv3_power": runtime_data.pv3_power,
-                    "pv_total_power": runtime_data.pv_total_power,
-                    # Battery
-                    "battery_voltage": runtime_data.battery_voltage,
-                    "battery_current": runtime_data.battery_current,
-                    "state_of_charge": runtime_data.battery_soc,
-                    "battery_charge_power": runtime_data.battery_charge_power,
-                    "battery_discharge_power": runtime_data.battery_discharge_power,
-                    "battery_temperature": runtime_data.battery_temperature,
-                    # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                    "grid_voltage_r": runtime_data.grid_voltage_r,
-                    "grid_voltage_s": runtime_data.grid_voltage_s,
-                    "grid_voltage_t": runtime_data.grid_voltage_t,
-                    "grid_current_l1": runtime_data.grid_current_r,
-                    "grid_current_l2": runtime_data.grid_current_s,
-                    "grid_current_l3": runtime_data.grid_current_t,
-                    "grid_frequency": runtime_data.grid_frequency,
-                    "grid_power": runtime_data.grid_power,
-                    "grid_export_power": runtime_data.power_to_grid,
-                    # Inverter output
-                    "ac_power": runtime_data.inverter_power,
-                    "load_power": runtime_data.load_power,
-                    # EPS/Backup
-                    "eps_voltage_r": runtime_data.eps_voltage_r,
-                    "eps_voltage_s": runtime_data.eps_voltage_s,
-                    "eps_voltage_t": runtime_data.eps_voltage_t,
-                    "eps_frequency": runtime_data.eps_frequency,
-                    "eps_power": runtime_data.eps_power,
-                    # Generator (if available from Dongle)
-                    "generator_voltage": runtime_data.generator_voltage,
-                    "generator_frequency": runtime_data.generator_frequency,
-                    "generator_power": runtime_data.generator_power,
-                    # Bus voltages
-                    "bus1_voltage": runtime_data.bus_voltage_1,
-                    "bus2_voltage": runtime_data.bus_voltage_2,
-                    # Temperatures
-                    "internal_temperature": runtime_data.internal_temperature,
-                    "radiator1_temperature": runtime_data.radiator_temperature_1,
-                    "radiator2_temperature": runtime_data.radiator_temperature_2,
-                    # Status
-                    "status_code": runtime_data.device_status,
-                }
-            )
-
-            # Map energy data to sensors using SENSOR_TYPES keys
+            # Map runtime and energy data to sensors using SENSOR_TYPES keys
+            device_data["sensors"].update(_map_runtime_to_sensors(runtime_data))
             if energy_data:
-                device_data["sensors"].update(
-                    {
-                        # Daily energy (kWh)
-                        "yield": energy_data.pv_energy_today,
-                        "charging": energy_data.charge_energy_today,
-                        "discharging": energy_data.discharge_energy_today,
-                        "grid_import": energy_data.grid_import_today,
-                        "grid_export": energy_data.grid_export_today,
-                        "load": energy_data.load_energy_today,
-                        # Lifetime energy (kWh)
-                        "yield_lifetime": energy_data.pv_energy_total,
-                        "charging_lifetime": energy_data.charge_energy_total,
-                        "discharging_lifetime": energy_data.discharge_energy_total,
-                        "grid_import_lifetime": energy_data.grid_import_total,
-                        "grid_export_lifetime": energy_data.grid_export_total,
-                        "load_lifetime": energy_data.load_energy_total,
-                    }
-                )
+                device_data["sensors"].update(_map_energy_to_sensors(energy_data))
 
             # Add battery bank data if available
             battery_data = inverter._transport_battery
@@ -1149,80 +1104,11 @@ class EG4DataUpdateCoordinator(
             "sensors": {},
         }
 
-        # Process runtime data if available
+        # Map runtime and energy data to sensors using helper functions
         if runtime is not None:
-            device_data["sensors"].update(
-                {
-                    # PV/Solar input
-                    "pv1_voltage": runtime.pv1_voltage,
-                    "pv1_power": runtime.pv1_power,
-                    "pv2_voltage": runtime.pv2_voltage,
-                    "pv2_power": runtime.pv2_power,
-                    "pv3_voltage": runtime.pv3_voltage,
-                    "pv3_power": runtime.pv3_power,
-                    "pv_total_power": runtime.pv_total_power,
-                    # Battery
-                    "battery_voltage": runtime.battery_voltage,
-                    "battery_current": runtime.battery_current,
-                    "state_of_charge": runtime.battery_soc,
-                    "battery_charge_power": runtime.battery_charge_power,
-                    "battery_discharge_power": runtime.battery_discharge_power,
-                    "battery_temperature": runtime.battery_temperature,
-                    # Grid
-                    "grid_voltage_r": runtime.grid_voltage_r,
-                    "grid_voltage_s": runtime.grid_voltage_s,
-                    "grid_voltage_t": runtime.grid_voltage_t,
-                    "grid_current_l1": runtime.grid_current_r,
-                    "grid_current_l2": runtime.grid_current_s,
-                    "grid_current_l3": runtime.grid_current_t,
-                    "grid_frequency": runtime.grid_frequency,
-                    "grid_power": runtime.grid_power,
-                    "grid_export_power": runtime.power_to_grid,
-                    # Inverter output
-                    "ac_power": runtime.inverter_power,
-                    "load_power": runtime.load_power,
-                    # EPS/Backup
-                    "eps_voltage_r": runtime.eps_voltage_r,
-                    "eps_voltage_s": runtime.eps_voltage_s,
-                    "eps_voltage_t": runtime.eps_voltage_t,
-                    "eps_frequency": runtime.eps_frequency,
-                    "eps_power": runtime.eps_power,
-                    # Generator
-                    "generator_voltage": runtime.generator_voltage,
-                    "generator_frequency": runtime.generator_frequency,
-                    "generator_power": runtime.generator_power,
-                    # Bus voltages
-                    "bus1_voltage": runtime.bus_voltage_1,
-                    "bus2_voltage": runtime.bus_voltage_2,
-                    # Temperatures
-                    "internal_temperature": runtime.internal_temperature,
-                    "radiator1_temperature": runtime.radiator_temperature_1,
-                    "radiator2_temperature": runtime.radiator_temperature_2,
-                    # Status
-                    "status_code": runtime.device_status,
-                }
-            )
-
-        # Process energy data if available
+            device_data["sensors"].update(_map_runtime_to_sensors(runtime))
         if energy is not None:
-            device_data["sensors"].update(
-                {
-                    # Daily energy (kWh)
-                    "yield": energy.pv_energy_today,
-                    "charging": energy.charge_energy_today,
-                    "discharging": energy.discharge_energy_today,
-                    "grid_import": energy.grid_import_today,
-                    "grid_export": energy.grid_export_today,
-                    "load": energy.load_energy_today,
-                    # Lifetime energy (kWh)
-                    "yield_lifetime": energy.pv_energy_total,
-                    "charging_lifetime": energy.charge_energy_total,
-                    "discharging_lifetime": energy.discharge_energy_total,
-                    "grid_import_lifetime": energy.grid_import_total,
-                    "grid_export_lifetime": energy.grid_export_total,
-                    "load_lifetime": energy.load_energy_total,
-                }
-            )
+            device_data["sensors"].update(_map_energy_to_sensors(energy))
 
         return device_data
 
@@ -1246,80 +1132,9 @@ class EG4DataUpdateCoordinator(
             serial: Inverter serial number for logging
             transport_name: Name of local transport for logging (Modbus/Dongle)
         """
-        # Override runtime sensors with faster local values
-        # Uses SENSOR_TYPES keys to match HTTP data structure
-        # Include ALL available sensors from local transport for maximum coverage
-        device["sensors"].update(
-            {
-                # PV/Solar input - all strings
-                "pv1_voltage": runtime.pv1_voltage,
-                "pv1_power": runtime.pv1_power,
-                "pv2_voltage": runtime.pv2_voltage,
-                "pv2_power": runtime.pv2_power,
-                "pv3_voltage": runtime.pv3_voltage,
-                "pv3_power": runtime.pv3_power,
-                "pv_total_power": runtime.pv_total_power,
-                # Battery
-                "battery_voltage": runtime.battery_voltage,
-                "battery_current": runtime.battery_current,
-                "state_of_charge": runtime.battery_soc,
-                "battery_charge_power": runtime.battery_charge_power,
-                "battery_discharge_power": runtime.battery_discharge_power,
-                "battery_temperature": runtime.battery_temperature,
-                # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                "grid_voltage_r": runtime.grid_voltage_r,
-                "grid_voltage_s": runtime.grid_voltage_s,
-                "grid_voltage_t": runtime.grid_voltage_t,
-                "grid_current_l1": runtime.grid_current_r,
-                "grid_current_l2": runtime.grid_current_s,
-                "grid_current_l3": runtime.grid_current_t,
-                "grid_frequency": runtime.grid_frequency,
-                "grid_power": runtime.grid_power,
-                "grid_export_power": runtime.power_to_grid,
-                # Inverter output
-                "ac_power": runtime.inverter_power,
-                "load_power": runtime.load_power,
-                # EPS/Backup - all phases
-                "eps_voltage_r": runtime.eps_voltage_r,
-                "eps_voltage_s": runtime.eps_voltage_s,
-                "eps_voltage_t": runtime.eps_voltage_t,
-                "eps_frequency": runtime.eps_frequency,
-                "eps_power": runtime.eps_power,
-                # Generator (if available from Modbus/Dongle)
-                "generator_voltage": runtime.generator_voltage,
-                "generator_frequency": runtime.generator_frequency,
-                "generator_power": runtime.generator_power,
-                # Bus voltages
-                "bus1_voltage": runtime.bus_voltage_1,
-                "bus2_voltage": runtime.bus_voltage_2,
-                # Temperatures
-                "internal_temperature": runtime.internal_temperature,
-                "radiator1_temperature": runtime.radiator_temperature_1,
-                "radiator2_temperature": runtime.radiator_temperature_2,
-                # Status
-                "status_code": runtime.device_status,
-            }
-        )
-
-        # Override energy sensors with local values
-        device["sensors"].update(
-            {
-                # Daily energy (kWh)
-                "yield": energy.pv_energy_today,
-                "charging": energy.charge_energy_today,
-                "discharging": energy.discharge_energy_today,
-                "grid_import": energy.grid_import_today,
-                "grid_export": energy.grid_export_today,
-                "load": energy.load_energy_today,
-                # Lifetime energy (kWh)
-                "yield_lifetime": energy.pv_energy_total,
-                "charging_lifetime": energy.charge_energy_total,
-                "discharging_lifetime": energy.discharge_energy_total,
-                "grid_import_lifetime": energy.grid_import_total,
-                "grid_export_lifetime": energy.grid_export_total,
-                "load_lifetime": energy.load_energy_total,
-            }
-        )
+        # Override HTTP sensor values with faster local transport values
+        device["sensors"].update(_map_runtime_to_sensors(runtime))
+        device["sensors"].update(_map_energy_to_sensors(energy))
 
         _LOGGER.debug(
             "Hybrid: Merged %s runtime with HTTP data for %s",

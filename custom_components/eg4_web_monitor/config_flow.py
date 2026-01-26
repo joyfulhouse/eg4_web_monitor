@@ -90,6 +90,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Inverter family options for register map selection - used across multiple config steps
+INVERTER_FAMILY_OPTIONS = {
+    INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
+    INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
+    INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+}
+
 
 def _timezone_observes_dst(timezone_name: str | None) -> bool:
     """Check if a timezone observes Daylight Saving Time.
@@ -332,13 +339,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         # Build Modbus configuration schema
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         # Serial is optional - auto-detected from Modbus registers if not provided
         modbus_schema = vol.Schema(
             {
@@ -349,7 +349,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_INVERTER_MODEL, default=""): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -480,13 +480,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         # Build dongle configuration schema
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         dongle_schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
@@ -496,7 +489,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_INVERTER_MODEL, default=""): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -779,13 +772,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Pre-fill first inverter serial if available
         default_serial = inverter_serials[0] if inverter_serials else ""
 
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         dongle_schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
@@ -794,7 +780,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -864,13 +850,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Pre-fill first inverter serial if available
         default_serial = inverter_serials[0] if inverter_serials else ""
 
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
@@ -879,7 +858,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -1129,12 +1108,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         # Build Modbus device schema
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
@@ -1143,7 +1116,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_INVERTER_SERIAL, default=""): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -1216,12 +1189,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         # Build dongle device schema
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         dongle_schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
@@ -1230,7 +1197,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_INVERTER_SERIAL): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -1763,13 +1730,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected Modbus error: %s", e)
                 errors["base"] = "unknown"
 
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         # Build Modbus reconfiguration schema with current values
         modbus_schema = vol.Schema(
             {
@@ -1797,7 +1757,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default=entry.data.get(
                         CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
                     ),
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -1896,13 +1856,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
-        # Inverter family options for register map selection
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         # Build hybrid reconfiguration schema with current values
         hybrid_schema = vol.Schema(
             {
@@ -1940,7 +1893,7 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default=entry.data.get(
                         CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
                     ),
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -2534,12 +2487,6 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected Modbus error: %s", e)
                 errors["base"] = "unknown"
 
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
@@ -2548,7 +2495,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_INVERTER_SERIAL, default=""): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -2610,12 +2557,6 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected dongle error: %s", e)
                 errors["base"] = "unknown"
 
-        inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-        }
-
         dongle_schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
@@ -2624,7 +2565,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 vol.Required(CONF_INVERTER_SERIAL): str,
                 vol.Optional(
                     CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(inverter_family_options),
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
