@@ -15,9 +15,7 @@ This mixin-based refactoring builds upon those improvements while addressing the
 
 ## Current State Analysis
 
-### Line Count: ~2000+ lines (varies with pending PRs)
-
-**Note**: The LOCAL multi-device mode (CONNECTION_TYPE_LOCAL) adds significant functionality. This design accounts for all 5 connection types.
+### Line Count: ~2000+ lines
 
 ### Current Class Structure
 - `EG4WebMonitorConfigFlow` - Main config flow class
@@ -73,7 +71,7 @@ This mixin-based refactoring builds upon those improvements while addressing the
 | `async_step_local_add_device` | Device type selection (Modbus/Dongle) |
 | `async_step_local_modbus_device` | Configure Modbus device |
 | `async_step_local_dongle_device` | Configure Dongle device |
-| `async_step_local_device_added` | Loop control - add more or finish |
+| `async_step_local_device_added` | Loop control: add more devices or finish |
 | `_create_local_entry` | Create Local config entry |
 
 #### 7. Reauth
@@ -151,9 +149,11 @@ custom_components/eg4_web_monitor/
     └── transitions/
         ├── __init__.py
         ├── base.py             # TransitionBuilder base
-        ├── http_to_hybrid.py   # HTTP → Hybrid
-        └── hybrid_to_http.py   # Hybrid → HTTP
+        ├── http_to_hybrid.py   # HTTP → Hybrid (add local control)
+        └── hybrid_to_http.py   # Hybrid → HTTP (remove local control)
 ```
+
+**Transitions Module Purpose**: Allows users to upgrade/downgrade between connection types without deleting and recreating the integration. For example, an HTTP-only user can add local Modbus control (HTTP → Hybrid) while preserving their existing configuration and entity history.
 
 ### Mixin Inheritance Order (MRO)
 
@@ -253,42 +253,35 @@ def format_entry_title(brand: str, mode: str, name: str) -> str: ...
 def build_unique_id(mode: str, username: str | None, plant_id: str | None, serial: str | None) -> str: ...
 ```
 
-### Protocol/ABC for Type Safety
+### Protocol for Type Safety
 
 ```python
 from typing import Protocol
 
 class ConfigFlowProtocol(Protocol):
-    """Protocol defining the interface mixins expect from base class."""
+    """Protocol defining the interface mixins expect from base class.
+
+    Mixins use this protocol for type hints, ensuring they have access to
+    shared state and methods without direct inheritance from ConfigFlow.
+    """
 
     hass: HomeAssistant
     context: dict[str, Any]
 
-    # State
+    # Connection state (set during flow steps)
     _connection_type: str | None
     _username: str | None
     _password: str | None
-    _base_url: str | None
-    _verify_ssl: bool | None
-    _dst_sync: bool | None
-    _library_debug: bool | None
     _plant_id: str | None
     _plants: list[dict[str, Any]] | None
-    _modbus_host: str | None
-    _modbus_port: int | None
-    _modbus_unit_id: int | None
-    _inverter_serial: str | None
-    _inverter_model: str | None
-    _inverter_family: str | None
-    _dongle_host: str | None
-    _dongle_port: int | None
-    _dongle_serial: str | None
-    _hybrid_local_type: str | None
+    # ... additional state variables defined in base.py
 
-    # Required methods
+    # Connection testing methods
     async def _test_credentials(self) -> None: ...
     async def _test_modbus_connection(self) -> str: ...
     async def _test_dongle_connection(self) -> None: ...
+
+    # ConfigFlow methods (inherited from config_entries.ConfigFlow)
     def async_show_form(self, **kwargs) -> ConfigFlowResult: ...
     def async_create_entry(self, **kwargs) -> ConfigFlowResult: ...
     def async_abort(self, **kwargs) -> ConfigFlowResult: ...
@@ -377,7 +370,7 @@ The `domain=DOMAIN` parameter must be on the final assembled class, not the base
 ### 1. Method Resolution Order (MRO)
 - Mixins don't define `__init__` (use base class)
 - No conflicting method names between mixins
-- Base class is always last in inheritance list
+- `EG4ConfigFlowBase` provides shared state; `config_entries.ConfigFlow` must be last for domain registration
 
 ### 2. Type Checking
 - Use Protocol for mixin type hints
