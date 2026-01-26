@@ -22,23 +22,27 @@ Submodules (to be populated during refactoring):
 
 from __future__ import annotations
 
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Classes
+# Brand configuration - extracted to brand.py
+from .brand import (
     BrandConfig,
-    SensorConfig,
-    # Brand configuration
     BRAND_EG4,
     BRAND_FORTRESS,
     BRAND_LUXPOWER,
     BRAND_NAME,
     CURRENT_BRAND,
     DEFAULT_BASE_URL,
+    DEFAULT_UPDATE_INTERVAL,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
     ENTITY_PREFIX,
     MANUFACTURER,
+)
+
+# Re-export everything from legacy module for backward compatibility
+# As modules are extracted, imports will be updated to pull from submodules
+from .._const_legacy import (
+    # Classes
+    SensorConfig,
     # Configuration keys
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -80,7 +84,6 @@ from .._const_legacy import (
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
-    DEFAULT_UPDATE_INTERVAL,
     DONGLE_UPDATE_INTERVAL,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
