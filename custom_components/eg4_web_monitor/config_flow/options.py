@@ -18,6 +18,7 @@ from ..const import (
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_DONGLE,
+    CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
@@ -80,7 +81,9 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         # Determine default sensor update interval based on connection type
-        connection_type = self.config_entry.data.get(CONF_CONNECTION_TYPE)
+        connection_type = self.config_entry.data.get(
+            CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
+        )
         is_local_connection = connection_type in (
             CONNECTION_TYPE_MODBUS,
             CONNECTION_TYPE_DONGLE,
