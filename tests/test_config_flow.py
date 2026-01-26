@@ -1053,3 +1053,67 @@ async def test_local_duplicate_serial_error(hass: HomeAssistant):
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "local_modbus_device"
     assert result["errors"]["base"] == "duplicate_serial"
+
+
+# ====================
+# Options Flow Tests for Local Mode
+# ====================
+
+
+async def test_options_flow_local_mode_shows_local_options(hass: HomeAssistant):
+    """Test that local mode shows local options menu."""
+    from custom_components.eg4_web_monitor.const import (
+        CONF_LOCAL_TRANSPORTS,
+        CONF_STATION_NAME,
+        CONNECTION_TYPE_LOCAL,
+    )
+
+    # Create a local mode config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_STATION_NAME: "Test Local Station",
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "serial": "CE12345678",
+                    "transport_type": "modbus_tcp",
+                    "host": "192.168.1.100",
+                    "port": 502,
+                    "unit_id": 1,
+                    "inverter_family": "PV_SERIES",
+                }
+            ],
+        },
+        unique_id="local_CE12345678",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    # Should show local options menu
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "local_options"
+
+
+async def test_options_flow_http_mode_shows_init(hass: HomeAssistant):
+    """Test that HTTP mode shows standard init options."""
+    # Create an HTTP mode config entry
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_PLANT_ID: "123",
+            CONF_PLANT_NAME: "Test Plant",
+        },
+        unique_id="test@example.com_123",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    # Should show standard init form for HTTP mode
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
