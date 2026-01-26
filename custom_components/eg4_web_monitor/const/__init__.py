@@ -116,28 +116,29 @@ from .modbus import (
     MODBUS_REG_SYS_FUNC,
 )
 
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Classes
-    SensorConfig,
-    # Device types
+# Device types and inverter families - extracted to device_types.py
+from .device_types import (
     DEVICE_TYPE_BATTERY,
     DEVICE_TYPE_GRIDBOSS,
     DEVICE_TYPE_INVERTER,
     DEVICE_TYPE_STATION,
-    # Inverter families
+    DISCHARGE_RECOVERY_SENSORS,
     INVERTER_FAMILY_DEFAULT_MODELS,
     INVERTER_FAMILY_LXP_EU,
     INVERTER_FAMILY_LXP_LV,
     INVERTER_FAMILY_PV_SERIES,
     INVERTER_FAMILY_SNA,
     INVERTER_FAMILY_UNKNOWN,
-    # Feature-based sensor sets
-    DISCHARGE_RECOVERY_SENSORS,
     SPLIT_PHASE_ONLY_SENSORS,
     THREE_PHASE_ONLY_SENSORS,
     VOLT_WATT_SENSORS,
+)
+
+# Re-export everything from legacy module for backward compatibility
+# As modules are extracted, imports will be updated to pull from submodules
+from .._const_legacy import (
+    # Classes
+    SensorConfig,
     # Number entity limits
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
