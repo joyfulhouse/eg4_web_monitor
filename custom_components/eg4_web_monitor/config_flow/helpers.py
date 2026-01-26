@@ -56,13 +56,22 @@ def format_entry_title(mode: str, name: str) -> str:
     """Format the config entry title.
 
     Args:
-        mode: Connection mode (Web Monitor, Modbus, Dongle, Hybrid).
+        mode: Connection type (http, modbus, dongle, hybrid, local).
         name: Station/plant name or serial number.
 
     Returns:
         Formatted entry title.
     """
-    return f"{BRAND_NAME} {mode} - {name}"
+    # Map mode to display text
+    mode_display = {
+        "http": "Web Monitor",
+        "modbus": "Modbus",
+        "dongle": "Dongle",
+        "hybrid": "Hybrid",
+        "local": "Local",
+    }.get(mode, mode.title())
+
+    return f"{BRAND_NAME} {mode_display} - {name}"
 
 
 def build_unique_id(
