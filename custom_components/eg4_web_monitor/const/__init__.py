@@ -38,11 +38,8 @@ from .brand import (
     MANUFACTURER,
 )
 
-# Re-export everything from legacy module for backward compatibility
-# As modules are extracted, imports will be updated to pull from submodules
-from .._const_legacy import (
-    # Classes
-    SensorConfig,
+# Configuration keys - extracted to config_keys.py
+from .config_keys import (
     # Configuration keys
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -90,6 +87,13 @@ from .._const_legacy import (
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
     MODBUS_UPDATE_INTERVAL,
+)
+
+# Re-export everything from legacy module for backward compatibility
+# As modules are extracted, imports will be updated to pull from submodules
+from .._const_legacy import (
+    # Classes
+    SensorConfig,
     # Modbus registers
     MODBUS_BIT_AC_CHARGE_EN,
     MODBUS_BIT_BAT_SHARED,
