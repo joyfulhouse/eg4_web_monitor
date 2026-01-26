@@ -32,9 +32,13 @@ from .mappings import (
     VOLTAGE_SENSORS,
 )
 
+# Station sensor definitions - extracted to station.py
+from .station import STATION_SENSOR_TYPES
+
 __all__ = [
     "SensorConfig",
     "SENSOR_TYPES",
+    "STATION_SENSOR_TYPES",
     # Field mappings
     "GRIDBOSS_FIELD_MAPPING",
     "INVERTER_ENERGY_FIELD_MAPPING",
