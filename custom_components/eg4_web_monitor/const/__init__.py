@@ -184,13 +184,12 @@ from .diagnostics import (
 )
 
 # Sensor types - extracted to sensors/ subpackage
-from .sensors import SensorConfig
+from .sensors import SENSOR_TYPES, SensorConfig
 
 # Re-export everything from legacy module for backward compatibility
 # As modules are extracted, imports will be updated to pull from submodules
 from .._const_legacy import (
     # Sensor types
-    SENSOR_TYPES,
     STATION_SENSOR_TYPES,
     # Field mappings
     GRIDBOSS_FIELD_MAPPING,

@@ -16,6 +16,10 @@ from __future__ import annotations
 # Type definitions - extracted to types.py
 from .types import SensorConfig
 
+# Inverter sensor definitions - extracted to inverter.py
+from .inverter import SENSOR_TYPES
+
 __all__ = [
     "SensorConfig",
+    "SENSOR_TYPES",
 ]
