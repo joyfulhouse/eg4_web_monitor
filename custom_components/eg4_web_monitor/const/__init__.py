@@ -163,6 +163,26 @@ from .working_modes import (
     WORKING_MODES,
 )
 
+# Diagnostics - extracted to diagnostics.py
+from .diagnostics import (
+    # Battery constants
+    BATTERY_KEY_PREFIX,
+    BATTERY_KEY_SEPARATOR,
+    BATTERY_KEY_SHORT_PREFIX,
+    # Diagnostic keys
+    DIAGNOSTIC_BATTERY_SENSOR_KEYS,
+    DIAGNOSTIC_DEVICE_SENSOR_KEYS,
+    # Supported models
+    SUPPORTED_INVERTER_MODELS,
+    # Scaling factors
+    BATTERY_CURRENT_SCALE_DECIAMPS,
+    BATTERY_TEMPERATURE_SCALE_DECIDEGREES,
+    BATTERY_VOLTAGE_SCALE_CENTIVOLTS,
+    BATTERY_VOLTAGE_SCALE_MILLIVOLTS,
+    # Task cleanup
+    BACKGROUND_TASK_CLEANUP_TIMEOUT,
+)
+
 # Re-export everything from legacy module for backward compatibility
 # As modules are extracted, imports will be updated to pull from submodules
 from .._const_legacy import (
@@ -182,22 +202,6 @@ from .._const_legacy import (
     DIVIDE_BY_100_SENSORS,
     GRIDBOSS_ENERGY_SENSORS,
     VOLTAGE_SENSORS,
-    # Battery constants
-    BATTERY_KEY_PREFIX,
-    BATTERY_KEY_SEPARATOR,
-    BATTERY_KEY_SHORT_PREFIX,
-    # Diagnostic keys
-    DIAGNOSTIC_BATTERY_SENSOR_KEYS,
-    DIAGNOSTIC_DEVICE_SENSOR_KEYS,
-    # Supported models
-    SUPPORTED_INVERTER_MODELS,
-    # Scaling factors
-    BATTERY_CURRENT_SCALE_DECIAMPS,
-    BATTERY_TEMPERATURE_SCALE_DECIDEGREES,
-    BATTERY_VOLTAGE_SCALE_CENTIVOLTS,
-    BATTERY_VOLTAGE_SCALE_MILLIVOLTS,
-    # Task cleanup
-    BACKGROUND_TASK_CLEANUP_TIMEOUT,
 )
 
 __all__ = [
