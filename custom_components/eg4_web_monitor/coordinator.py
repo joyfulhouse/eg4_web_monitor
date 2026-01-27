@@ -118,25 +118,25 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "battery_charge_power": runtime_data.battery_charge_power,
         "battery_discharge_power": runtime_data.battery_discharge_power,
         "battery_temperature": runtime_data.battery_temperature,
-        # Grid - all phases
-        "grid_voltage_r": runtime_data.grid_voltage_r,
-        "grid_voltage_s": runtime_data.grid_voltage_s,
-        "grid_voltage_t": runtime_data.grid_voltage_t,
-        "grid_current_l1": runtime_data.grid_current_r,
-        "grid_current_l2": runtime_data.grid_current_s,
-        "grid_current_l3": runtime_data.grid_current_t,
+        # Grid - split-phase L1/L2 (~120V each, ~240V total)
+        # Note: R/S/T (3-phase) registers contain garbage on split-phase systems
+        # Note: Grid current L1/L2 not available via Modbus on PV_SERIES (HTTP API only)
+        "grid_voltage_l1": runtime_data.grid_l1_voltage,
+        "grid_voltage_l2": runtime_data.grid_l2_voltage,
         "grid_frequency": runtime_data.grid_frequency,
         "grid_power": runtime_data.grid_power,
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,
         "load_power": runtime_data.load_power,
-        # EPS/Backup
-        "eps_voltage_r": runtime_data.eps_voltage_r,
-        "eps_voltage_s": runtime_data.eps_voltage_s,
-        "eps_voltage_t": runtime_data.eps_voltage_t,
+        # EPS/Backup - L1/L2 split-phase voltages (~120V each)
+        # Note: R/S/T (3-phase) registers contain garbage on split-phase systems
+        "eps_voltage_l1": runtime_data.eps_l1_voltage,
+        "eps_voltage_l2": runtime_data.eps_l2_voltage,
         "eps_frequency": runtime_data.eps_frequency,
         "eps_power": runtime_data.eps_power,
+        # Output power (split-phase total)
+        "output_power": runtime_data.output_power,
         # Generator
         "generator_voltage": runtime_data.generator_voltage,
         "generator_frequency": runtime_data.generator_frequency,
@@ -1336,6 +1336,20 @@ class EG4DataUpdateCoordinator(
                         runtime_data.grid_power,
                     )
 
+                    # Debug extended sensors
+                    _LOGGER.debug(
+                        "LOCAL: Extended sensors for %s: gen_freq=%s, gen_volt=%s, "
+                        "grid_l1=%s, grid_l2=%s, eps_l1=%s, eps_l2=%s, out_pwr=%s",
+                        serial,
+                        getattr(runtime_data, "generator_frequency", None),
+                        getattr(runtime_data, "generator_voltage", None),
+                        getattr(runtime_data, "grid_l1_voltage", None),
+                        getattr(runtime_data, "grid_l2_voltage", None),
+                        getattr(runtime_data, "eps_l1_voltage", None),
+                        getattr(runtime_data, "eps_l2_voltage", None),
+                        getattr(runtime_data, "output_power", None),
+                    )
+
             except (
                 TransportConnectionError,
                 TransportTimeoutError,
@@ -1744,6 +1758,13 @@ class EG4DataUpdateCoordinator(
                 "generator_voltage": runtime.generator_voltage,
                 "generator_frequency": runtime.generator_frequency,
                 "generator_power": runtime.generator_power,
+                # Split-phase grid/EPS L1/L2 voltages
+                "grid_voltage_l1": runtime.grid_l1_voltage,
+                "grid_voltage_l2": runtime.grid_l2_voltage,
+                "eps_voltage_l1": runtime.eps_l1_voltage,
+                "eps_voltage_l2": runtime.eps_l2_voltage,
+                # Output power (FlexBOSS21)
+                "output_power": runtime.output_power,
                 # Bus voltages
                 "bus1_voltage": runtime.bus_voltage_1,
                 "bus2_voltage": runtime.bus_voltage_2,
@@ -1754,6 +1775,21 @@ class EG4DataUpdateCoordinator(
                 # Status
                 "status_code": runtime.device_status,
             }
+        )
+
+        # Debug: Log extended sensor values
+        _LOGGER.debug(
+            "LOCAL: Extended sensors for %s: gen_freq=%s, gen_volt=%s, gen_pwr=%s, "
+            "grid_l1=%s, grid_l2=%s, eps_l1=%s, eps_l2=%s, out_pwr=%s",
+            serial,
+            runtime.generator_frequency,
+            runtime.generator_voltage,
+            runtime.generator_power,
+            runtime.grid_l1_voltage,
+            runtime.grid_l2_voltage,
+            runtime.eps_l1_voltage,
+            runtime.eps_l2_voltage,
+            runtime.output_power,
         )
 
         # Override energy sensors with local values

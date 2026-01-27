@@ -48,6 +48,11 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
         "eps_power_l1",
         "eps_power_l2",
+        "eps_voltage_l1",
+        "eps_voltage_l2",
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        "output_power",
     }
 )
 

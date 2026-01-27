@@ -40,6 +40,14 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:home-lightning-bolt",
     },
+    # Total output power (split-phase systems)
+    "output_power": {
+        "name": "Output Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
     "consumption_power": {
         "name": "Consumption Power",
         "unit": UnitOfPower.WATT,
@@ -241,6 +249,23 @@ SENSOR_TYPES = {
     },
     "eps_voltage_t": {
         "name": "EPS Voltage T",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug",
+        "suggested_display_precision": 1,
+    },
+    # Split-phase EPS voltages (L1/L2 ~120V each)
+    "eps_voltage_l1": {
+        "name": "EPS Voltage L1",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug",
+        "suggested_display_precision": 1,
+    },
+    "eps_voltage_l2": {
+        "name": "EPS Voltage L2",
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": "voltage",
         "state_class": "measurement",
