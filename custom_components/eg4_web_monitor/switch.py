@@ -24,13 +24,11 @@ from .base_entity import EG4BaseSwitch
 from .const import (
     FUNCTION_PARAM_MAPPING,
     INVERTER_FAMILY_SNA,
-    MODBUS_BIT_AC_CHARGE_EN,
-    MODBUS_BIT_EPS_EN,
-    MODBUS_BIT_FORCED_CHG_EN,
-    MODBUS_BIT_FORCED_DISCHG_EN,
-    MODBUS_BIT_GREEN_EN,
-    MODBUS_REG_FUNC_EN,
-    MODBUS_REG_SYS_FUNC,
+    PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_EPS_EN,
+    PARAM_FUNC_FORCED_CHG_EN,
+    PARAM_FUNC_FORCED_DISCHG_EN,
+    PARAM_FUNC_GREEN_EN,
     SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
@@ -116,6 +114,10 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             # Check if device model is known to support switch functions
+            _LOGGER.debug(
+                "Switch setup for %s: model=%s, model_lower=%s, supported=%s",
+                serial, model, model_lower, SUPPORTED_INVERTER_MODELS,
+            )
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
                 # Add quick charge switch (HTTP API only - requires cloud API)
                 if coordinator.has_http_api():
@@ -127,7 +129,12 @@ async def async_setup_entry(
                     )
 
                 # Add battery backup switch (EPS) based on feature detection
-                if _supports_eps_battery_backup(device_data):
+                eps_supported = _supports_eps_battery_backup(device_data)
+                _LOGGER.debug(
+                    "EPS support check for %s: supported=%s, features=%s",
+                    serial, eps_supported, device_data.get("features"),
+                )
+                if eps_supported:
                     entities.append(EG4BatteryBackupSwitch(coordinator, serial))
                 else:
                     _LOGGER.debug(
@@ -144,11 +151,13 @@ async def async_setup_entry(
                     if coordinator.is_local_only():
                         param = mode_config.get("param", "")
                         # Check if this mode has Modbus register support
-                        # These are defined in _WORKING_MODE_REGISTERS later in this file
+                        # Register 21 bit fields and Register 110 bit fields
                         modbus_supported_params = {
-                            "FUNC_AC_CHARGE",
-                            "FUNC_FORCED_CHG_EN",
-                            "FUNC_FORCED_DISCHG_EN",
+                            "FUNC_AC_CHARGE",  # Register 21, bit 7
+                            "FUNC_FORCED_CHG_EN",  # Register 21, bit 11
+                            "FUNC_FORCED_DISCHG_EN",  # Register 21, bit 10
+                            "FUNC_GRID_PEAK_SHAVING",  # Register 21 (via HTTP API)
+                            "FUNC_BATTERY_BACKUP_CTRL",  # Register 21 (via HTTP API)
                         }
                         if param not in modbus_supported_params:
                             _LOGGER.debug(
@@ -326,12 +335,11 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode
-            await self._execute_register_bit_action(
+            # Use named parameter write for local-only mode
+            await self._execute_named_parameter_action(
                 action_name="battery backup (EPS)",
-                register=MODBUS_REG_FUNC_EN,
-                bit=MODBUS_BIT_EPS_EN,
-                turn_on=True,
+                parameter=PARAM_FUNC_EPS_EN,
+                value=True,
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -346,12 +354,11 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode
-            await self._execute_register_bit_action(
+            # Use named parameter write for local-only mode
+            await self._execute_named_parameter_action(
                 action_name="battery backup (EPS)",
-                register=MODBUS_REG_FUNC_EN,
-                bit=MODBUS_BIT_EPS_EN,
-                turn_on=False,
+                parameter=PARAM_FUNC_EPS_EN,
+                value=False,
             )
 
 
@@ -420,12 +427,11 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode (register 110, bit 8)
-            await self._execute_register_bit_action(
+            # Use named parameter write for local-only mode
+            await self._execute_named_parameter_action(
                 action_name="off-grid mode (Green Mode)",
-                register=MODBUS_REG_SYS_FUNC,
-                bit=MODBUS_BIT_GREEN_EN,
-                turn_on=True,
+                parameter=PARAM_FUNC_GREEN_EN,
+                value=True,
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -440,12 +446,11 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode (register 110, bit 8)
-            await self._execute_register_bit_action(
+            # Use named parameter write for local-only mode
+            await self._execute_named_parameter_action(
                 action_name="off-grid mode (Green Mode)",
-                register=MODBUS_REG_SYS_FUNC,
-                bit=MODBUS_BIT_GREEN_EN,
-                turn_on=False,
+                parameter=PARAM_FUNC_GREEN_EN,
+                value=False,
             )
 
 
@@ -461,15 +466,15 @@ _WORKING_MODE_METHODS = {
     ),
 }
 
-# Mapping of working mode parameters to Modbus register/bit pairs (local mode)
-# Format: param_key -> (register_address, bit_position)
-_WORKING_MODE_REGISTERS: dict[str, tuple[int, int] | None] = {
-    "FUNC_AC_CHARGE": (MODBUS_REG_FUNC_EN, MODBUS_BIT_AC_CHARGE_EN),
-    "FUNC_FORCED_CHG_EN": (MODBUS_REG_FUNC_EN, MODBUS_BIT_FORCED_CHG_EN),
-    "FUNC_FORCED_DISCHG_EN": (MODBUS_REG_FUNC_EN, MODBUS_BIT_FORCED_DISCHG_EN),
-    # These modes don't have direct Modbus register equivalents
-    "FUNC_GRID_PEAK_SHAVING": None,  # Not available via Modbus
-    "FUNC_BATTERY_BACKUP_CTRL": None,  # Not available via Modbus
+# Mapping of working mode function names to HTTP API parameter names (local mode)
+# Format: func_key -> param_name (or None if not available via local transport)
+_WORKING_MODE_PARAMETERS: dict[str, str | None] = {
+    "FUNC_AC_CHARGE": PARAM_FUNC_AC_CHARGE,
+    "FUNC_FORCED_CHG_EN": PARAM_FUNC_FORCED_CHG_EN,
+    "FUNC_FORCED_DISCHG_EN": PARAM_FUNC_FORCED_DISCHG_EN,
+    # These modes don't have direct local transport equivalents
+    "FUNC_GRID_PEAK_SHAVING": None,  # Not available via local transport
+    "FUNC_BATTERY_BACKUP_CTRL": None,  # Not available via local transport
 }
 
 
@@ -585,19 +590,17 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode
-            register_info = _WORKING_MODE_REGISTERS.get(param)
-            if not register_info:
+            # Use named parameter write for local-only mode
+            param_name = _WORKING_MODE_PARAMETERS.get(param)
+            if not param_name:
                 raise HomeAssistantError(
-                    f"Working mode {param} not available via Modbus"
+                    f"Working mode {param} not available via local transport"
                 )
 
-            register, bit = register_info
-            await self._execute_register_bit_action(
+            await self._execute_named_parameter_action(
                 action_name=f"working mode {param}",
-                register=register,
-                bit=bit,
-                turn_on=True,
+                parameter=param_name,
+                value=True,
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -618,19 +621,17 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use Modbus register write for local-only mode
-            register_info = _WORKING_MODE_REGISTERS.get(param)
-            if not register_info:
+            # Use named parameter write for local-only mode
+            param_name = _WORKING_MODE_PARAMETERS.get(param)
+            if not param_name:
                 raise HomeAssistantError(
-                    f"Working mode {param} not available via Modbus"
+                    f"Working mode {param} not available via local transport"
                 )
 
-            register, bit = register_info
-            await self._execute_register_bit_action(
+            await self._execute_named_parameter_action(
                 action_name=f"working mode {param}",
-                register=register,
-                bit=bit,
-                turn_on=False,
+                parameter=param_name,
+                value=False,
             )
 
 

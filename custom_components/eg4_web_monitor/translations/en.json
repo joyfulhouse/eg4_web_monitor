@@ -413,7 +413,7 @@
       },
       "reconfigure_local": {
         "title": "Reconfigure Local Installation",
-        "description": "Manage devices in your local installation. Current devices: {device_count}",
+        "description": "Manage devices in your local installation.\n\n**Current Devices ({device_count}):**\n{device_list}",
         "data": {
           "action": "Action"
         },

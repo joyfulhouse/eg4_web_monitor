@@ -24,11 +24,9 @@ from ..const import (
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
-    CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
-    CONNECTION_TYPE_MODBUS,
     DEFAULT_BASE_URL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_INVERTER_FAMILY,
@@ -54,11 +52,11 @@ INVERTER_FAMILY_OPTIONS: dict[str, str] = {
 }
 
 # Connection type options
+# Note: Modbus and Dongle single-device modes are deprecated.
+# Users should use LOCAL mode which supports 1-N devices with auto-detection.
 CONNECTION_TYPE_OPTIONS: dict[str, str] = {
     CONNECTION_TYPE_HTTP: "Cloud API (HTTP)",
-    CONNECTION_TYPE_LOCAL: "Local Only (Multi-device, no cloud)",
-    CONNECTION_TYPE_MODBUS: "Local Modbus TCP (single device)",
-    CONNECTION_TYPE_DONGLE: "Local WiFi Dongle (single device)",
+    CONNECTION_TYPE_LOCAL: "Local Only (no cloud required)",
     CONNECTION_TYPE_HYBRID: "Hybrid (Local + Cloud)",
 }
 

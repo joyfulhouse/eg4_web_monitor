@@ -280,12 +280,10 @@ class TransitionMixin:
             return await self._transition_builder.collect_input(
                 HttpToHybridBuilder.STEP_CONFIRM, user_input
             )
-        if isinstance(self._transition_builder, HybridToHttpBuilder):
-            return await self._transition_builder.collect_input(
-                HybridToHttpBuilder.STEP_CONFIRM_REMOVAL, user_input
-            )
-
-        return self.async_abort(reason="unknown_transition")
+        # HybridToHttpBuilder is the only remaining possibility
+        return await self._transition_builder.collect_input(
+            HybridToHttpBuilder.STEP_CONFIRM_REMOVAL, user_input
+        )
 
     async def async_step_transition_hybrid_to_http(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None

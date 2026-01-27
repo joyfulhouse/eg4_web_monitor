@@ -2,6 +2,10 @@
 
 This module provides reconfiguration for pure local (no cloud) connections,
 allowing users to manage their local device configurations.
+
+Uses the same simplified auto-detection flow as onboarding:
+- Modbus: Only requires host IP (auto-detects serial, model, family)
+- Dongle: Requires host + dongle serial + inverter serial (auto-detects model, family)
 """
 
 from __future__ import annotations
@@ -17,8 +21,6 @@ from ...const import (
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
-    CONF_INVERTER_FAMILY,
-    CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_LOCAL_TRANSPORTS,
     CONF_MODBUS_HOST,
@@ -26,12 +28,11 @@ from ...const import (
     CONF_MODBUS_UNIT_ID,
     CONNECTION_TYPE_LOCAL,
     DEFAULT_DONGLE_PORT,
-    DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
 )
+from ..discovery import build_device_config
 from ..helpers import build_unique_id, format_entry_title, get_reconfigure_entry
-from ..schemas import INVERTER_FAMILY_OPTIONS
 
 if TYPE_CHECKING:
     from homeassistant import config_entries
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from ..base import ConfigFlowProtocol
+    from ..discovery import DiscoveredDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,10 +48,11 @@ _LOGGER = logging.getLogger(__name__)
 class LocalReconfigureMixin:
     """Mixin providing Local (no cloud) reconfiguration flow steps.
 
-    This mixin handles reconfiguration for pure local connections:
+    This mixin handles reconfiguration for pure local connections using
+    the same simplified auto-detection flow as onboarding:
 
     1. Show current device list with options to add/edit/remove
-    2. Update device configurations as needed
+    2. For new/edited devices: minimal input, auto-detect details
     3. Update config entry and reload
 
     The LOCAL mode is designed for users who want purely local operation
@@ -59,8 +62,8 @@ class LocalReconfigureMixin:
 
     Requires:
         - ConfigFlowProtocol attributes
-        - _test_modbus_connection() method from EG4ConfigFlowBase
-        - _test_dongle_connection() method from EG4ConfigFlowBase
+        - _discover_modbus_device() method from EG4ConfigFlowBase
+        - _discover_dongle_device() method from EG4ConfigFlowBase
         - hass: HomeAssistant instance
     """
 
@@ -68,27 +71,35 @@ class LocalReconfigureMixin:
     if TYPE_CHECKING:
         hass: HomeAssistant
         context: dict[str, Any]
-        # Modbus fields
-        _modbus_host: str | None
-        _modbus_port: int | None
-        _modbus_unit_id: int | None
-        # Dongle fields
-        _dongle_host: str | None
-        _dongle_port: int | None
-        _dongle_serial: str | None
-        # Shared local fields
-        _inverter_serial: str | None
-        _inverter_model: str | None
-        _inverter_family: str | None
-        # Local devices accumulator
-        _local_devices: list[dict[str, Any]]
+        # Local devices accumulator (None until loaded from entry)
+        _local_devices: list[dict[str, Any]] | None
         _local_station_name: str | None
         # Reconfigure state
         _reconfigure_device_index: int | None
         _reconfigure_action: str | None
+        # Pending device from discovery
+        _pending_device: DiscoveredDevice | None
+        _pending_transport_type: str | None
+        _pending_host: str | None
+        _pending_port: int | None
+        _pending_unit_id: int | None
+        _pending_dongle_serial: str | None
 
-        async def _test_modbus_connection(self: ConfigFlowProtocol) -> str: ...
-        async def _test_dongle_connection(self: ConfigFlowProtocol) -> None: ...
+        async def _discover_modbus_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            port: int,
+            unit_id: int,
+        ) -> DiscoveredDevice: ...
+
+        async def _discover_dongle_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            dongle_serial: str,
+            inverter_serial: str,
+            port: int,
+        ) -> DiscoveredDevice: ...
+
         async def async_set_unique_id(
             self: ConfigFlowProtocol, unique_id: str
         ) -> Any: ...
@@ -134,9 +145,14 @@ class LocalReconfigureMixin:
         if entry is None:
             return self.async_abort(reason="entry_not_found")
 
-        # Load current devices from config
-        if not hasattr(self, "_local_devices") or self._local_devices is None:
+        # Load current devices from config entry (only on first entry to reconfigure)
+        # _local_devices is initialized to None in base.py, so we check for None
+        if self._local_devices is None:
             self._local_devices = list(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
+            _LOGGER.debug(
+                "Loaded %d devices from config entry for reconfigure",
+                len(self._local_devices),
+            )
             self._local_station_name = entry.data.get("station_name")
 
         if user_input is not None:
@@ -183,7 +199,24 @@ class LocalReconfigureMixin:
             transport = device.get("transport_type", "unknown")
             serial = device.get("serial", "Unknown")
             host = device.get("host", "Unknown")
-            desc = f"{i + 1}. {transport}: {serial} @ {host}"
+            model = device.get("model", "Unknown")
+            is_gridboss = device.get("is_gridboss", False)
+
+            # Build device type string
+            if is_gridboss:
+                device_type = "GridBOSS"
+            else:
+                device_type = f"Inverter ({model})"
+
+            # Build transport string
+            if transport == "modbus_tcp":
+                transport_str = "Modbus TCP"
+            elif transport == "wifi_dongle":
+                transport_str = "WiFi Dongle"
+            else:
+                transport_str = transport
+
+            desc = f"{i + 1}. {device_type}: {serial} @ {host} [{transport_str}]"
             device_descriptions.append(desc)
             action_options[f"edit_{i}"] = f"Edit device {i + 1} ({serial})"
             action_options[f"remove_{i}"] = f"Remove device {i + 1} ({serial})"
@@ -218,11 +251,14 @@ class LocalReconfigureMixin:
     ) -> ConfigFlowResult:
         """Handle Modbus device configuration during local reconfiguration.
 
+        Uses simplified auto-detection: only requires host IP.
+        Serial, model, and family are auto-detected from device registers.
+
         Args:
             user_input: Form data from user, or None for initial display.
 
         Returns:
-            Form to configure Modbus device, or redirect to main reconfigure.
+            Form to configure Modbus device, or redirect to discovered step.
         """
         errors: dict[str, str] = {}
 
@@ -239,68 +275,36 @@ class LocalReconfigureMixin:
                     CONF_MODBUS_HOST: device.get("host", ""),
                     CONF_MODBUS_PORT: device.get("port", DEFAULT_MODBUS_PORT),
                     CONF_MODBUS_UNIT_ID: device.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                    CONF_INVERTER_SERIAL: device.get("serial", ""),
-                    CONF_INVERTER_MODEL: device.get("model", ""),
-                    CONF_INVERTER_FAMILY: device.get(
-                        "inverter_family", DEFAULT_INVERTER_FAMILY
-                    ),
                 }
             except (IndexError, TypeError):
                 editing = False
 
         if user_input is not None:
-            # Store Modbus configuration temporarily
-            self._modbus_host = user_input[CONF_MODBUS_HOST]
-            self._modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
-            self._modbus_unit_id = user_input.get(
-                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
-            )
-            self._inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "")
-            self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
-            self._inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
+            host = user_input[CONF_MODBUS_HOST]
+            port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
 
-            # Test Modbus connection
+            # Auto-detect device information
             try:
-                detected_serial = await self._test_modbus_connection()
-                # Use detected serial if user didn't provide one
-                if not self._inverter_serial and detected_serial:
-                    self._inverter_serial = detected_serial
+                discovered = await self._discover_modbus_device(host, port, unit_id)
 
                 # Check for duplicate serial (excluding current device if editing)
+                assert self._local_devices is not None
                 for i, device in enumerate(self._local_devices):
                     if editing and i == self._reconfigure_device_index:
                         continue
-                    if device.get("serial") == self._inverter_serial:
+                    if device.get("serial") == discovered.serial:
                         errors["base"] = "duplicate_serial"
                         break
 
                 if not errors:
-                    # Build device config
-                    device_config = {
-                        "serial": self._inverter_serial,
-                        "transport_type": "modbus_tcp",
-                        "host": self._modbus_host,
-                        "port": self._modbus_port,
-                        "unit_id": self._modbus_unit_id,
-                        "model": self._inverter_model or "",
-                        "inverter_family": self._inverter_family
-                        or DEFAULT_INVERTER_FAMILY,
-                    }
-
-                    if editing and self._reconfigure_device_index is not None:
-                        # Update existing device
-                        self._local_devices[self._reconfigure_device_index] = (
-                            device_config
-                        )
-                    else:
-                        # Add new device
-                        self._local_devices.append(device_config)
-
-                    # Reset editing state and return to main reconfigure
-                    self._reconfigure_device_index = None
-                    return await self.async_step_reconfigure_local()
+                    # Store pending device for confirmation
+                    self._pending_device = discovered
+                    self._pending_transport_type = "modbus_tcp"
+                    self._pending_host = host
+                    self._pending_port = port
+                    self._pending_unit_id = unit_id
+                    return await self.async_step_reconfigure_local_discovered()
 
             except ImportError:
                 errors["base"] = "modbus_not_installed"
@@ -313,7 +317,7 @@ class LocalReconfigureMixin:
                 _LOGGER.exception("Unexpected Modbus error: %s", e)
                 errors["base"] = "unknown"
 
-        # Build Modbus configuration schema
+        # Build simplified Modbus schema - only connection params
         modbus_schema = vol.Schema(
             {
                 vol.Required(
@@ -327,16 +331,6 @@ class LocalReconfigureMixin:
                     CONF_MODBUS_UNIT_ID,
                     default=defaults.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
                 ): int,
-                vol.Optional(
-                    CONF_INVERTER_SERIAL, default=defaults.get(CONF_INVERTER_SERIAL, "")
-                ): str,
-                vol.Optional(
-                    CONF_INVERTER_MODEL, default=defaults.get(CONF_INVERTER_MODEL, "")
-                ): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY,
-                    default=defaults.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY),
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -355,11 +349,14 @@ class LocalReconfigureMixin:
     ) -> ConfigFlowResult:
         """Handle WiFi Dongle device configuration during local reconfiguration.
 
+        Uses simplified auto-detection: requires host + dongle serial + inverter serial.
+        Model, family, and firmware are auto-detected from device registers.
+
         Args:
             user_input: Form data from user, or None for initial display.
 
         Returns:
-            Form to configure dongle device, or redirect to main reconfigure.
+            Form to configure dongle device, or redirect to discovered step.
         """
         errors: dict[str, str] = {}
 
@@ -377,62 +374,43 @@ class LocalReconfigureMixin:
                     CONF_DONGLE_PORT: device.get("port", DEFAULT_DONGLE_PORT),
                     CONF_DONGLE_SERIAL: device.get("dongle_serial", ""),
                     CONF_INVERTER_SERIAL: device.get("serial", ""),
-                    CONF_INVERTER_MODEL: device.get("model", ""),
-                    CONF_INVERTER_FAMILY: device.get(
-                        "inverter_family", DEFAULT_INVERTER_FAMILY
-                    ),
                 }
             except (IndexError, TypeError):
                 editing = False
 
         if user_input is not None:
-            # Store dongle configuration temporarily
-            self._dongle_host = user_input[CONF_DONGLE_HOST]
-            self._dongle_port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
-            self._dongle_serial = user_input[CONF_DONGLE_SERIAL]
-            self._inverter_serial = user_input[CONF_INVERTER_SERIAL]
-            self._inverter_model = user_input.get(CONF_INVERTER_MODEL, "")
-            self._inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
+            host = user_input[CONF_DONGLE_HOST]
+            port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            dongle_serial = user_input[CONF_DONGLE_SERIAL]
+            inverter_serial = user_input[CONF_INVERTER_SERIAL]
 
-            # Test dongle connection
+            # Auto-detect device information
             try:
-                await self._test_dongle_connection()
+                discovered = await self._discover_dongle_device(
+                    host=host,
+                    dongle_serial=dongle_serial,
+                    inverter_serial=inverter_serial,
+                    port=port,
+                )
 
                 # Check for duplicate serial (excluding current device if editing)
+                assert self._local_devices is not None
                 for i, device in enumerate(self._local_devices):
                     if editing and i == self._reconfigure_device_index:
                         continue
-                    if device.get("serial") == self._inverter_serial:
+                    if device.get("serial") == discovered.serial:
                         errors["base"] = "duplicate_serial"
                         break
 
                 if not errors:
-                    # Build device config
-                    device_config = {
-                        "serial": self._inverter_serial,
-                        "transport_type": "wifi_dongle",
-                        "host": self._dongle_host,
-                        "port": self._dongle_port,
-                        "dongle_serial": self._dongle_serial,
-                        "model": self._inverter_model or "",
-                        "inverter_family": self._inverter_family
-                        or DEFAULT_INVERTER_FAMILY,
-                    }
-
-                    if editing and self._reconfigure_device_index is not None:
-                        # Update existing device
-                        self._local_devices[self._reconfigure_device_index] = (
-                            device_config
-                        )
-                    else:
-                        # Add new device
-                        self._local_devices.append(device_config)
-
-                    # Reset editing state and return to main reconfigure
-                    self._reconfigure_device_index = None
-                    return await self.async_step_reconfigure_local()
+                    # Store pending device for confirmation
+                    self._pending_device = discovered
+                    self._pending_transport_type = "wifi_dongle"
+                    self._pending_host = host
+                    self._pending_port = port
+                    self._pending_unit_id = None
+                    self._pending_dongle_serial = dongle_serial
+                    return await self.async_step_reconfigure_local_discovered()
 
             except TimeoutError:
                 errors["base"] = "dongle_timeout"
@@ -443,16 +421,12 @@ class LocalReconfigureMixin:
                 _LOGGER.exception("Unexpected dongle error: %s", e)
                 errors["base"] = "unknown"
 
-        # Build dongle configuration schema
+        # Build simplified dongle schema - only connection params
         dongle_schema = vol.Schema(
             {
                 vol.Required(
                     CONF_DONGLE_HOST, default=defaults.get(CONF_DONGLE_HOST, "")
                 ): str,
-                vol.Optional(
-                    CONF_DONGLE_PORT,
-                    default=defaults.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
-                ): int,
                 vol.Required(
                     CONF_DONGLE_SERIAL, default=defaults.get(CONF_DONGLE_SERIAL, "")
                 ): str,
@@ -460,12 +434,9 @@ class LocalReconfigureMixin:
                     CONF_INVERTER_SERIAL, default=defaults.get(CONF_INVERTER_SERIAL, "")
                 ): str,
                 vol.Optional(
-                    CONF_INVERTER_MODEL, default=defaults.get(CONF_INVERTER_MODEL, "")
-                ): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY,
-                    default=defaults.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY),
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
+                    CONF_DONGLE_PORT,
+                    default=defaults.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
+                ): int,
             }
         )
 
@@ -476,6 +447,90 @@ class LocalReconfigureMixin:
             description_placeholders={
                 "brand_name": BRAND_NAME,
                 "editing": "true" if editing else "false",
+            },
+        )
+
+    async def async_step_reconfigure_local_discovered(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show discovered device info and confirm adding to device list.
+
+        This step displays the auto-detected device information and lets the user
+        confirm adding it to their local installation.
+
+        Args:
+            user_input: Form data with confirmation, or None.
+
+        Returns:
+            Form showing discovered device, or back to device list.
+        """
+        if user_input is not None:
+            # Add the pending device to the list
+            assert self._pending_device is not None
+            assert self._pending_transport_type is not None
+            assert self._pending_host is not None
+            assert self._pending_port is not None
+
+            device_config = build_device_config(
+                discovered=self._pending_device,
+                transport_type=self._pending_transport_type,
+                host=self._pending_host,
+                port=self._pending_port,
+                unit_id=self._pending_unit_id,
+                dongle_serial=self._pending_dongle_serial,
+            )
+
+            editing = (
+                hasattr(self, "_reconfigure_device_index")
+                and self._reconfigure_device_index is not None
+            )
+            assert self._local_devices is not None
+            if editing and self._reconfigure_device_index is not None:
+                # Update existing device
+                self._local_devices[self._reconfigure_device_index] = device_config
+            else:
+                # Add new device
+                self._local_devices.append(device_config)
+
+            _LOGGER.info(
+                "Added %s device: serial=%s, model=%s, family=%s",
+                "GridBOSS" if self._pending_device.is_gridboss else "inverter",
+                self._pending_device.serial,
+                self._pending_device.model,
+                self._pending_device.family,
+            )
+
+            # Clear pending state
+            self._pending_device = None
+            self._pending_transport_type = None
+            self._pending_host = None
+            self._pending_port = None
+            self._pending_unit_id = None
+            self._pending_dongle_serial = None
+            self._reconfigure_device_index = None
+
+            # Return to device list
+            return await self.async_step_reconfigure_local()
+
+        # Build simple confirmation schema
+        confirm_schema = vol.Schema({})
+
+        # Get info about the discovered device for display
+        assert self._pending_device is not None
+        device_type = "GridBOSS" if self._pending_device.is_gridboss else "Inverter"
+
+        return self.async_show_form(
+            step_id="reconfigure_local_discovered",
+            data_schema=confirm_schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_type": device_type,
+                "device_serial": self._pending_device.serial,
+                "device_model": self._pending_device.model,
+                "device_family": self._pending_device.family,
+                "device_firmware": self._pending_device.firmware_version,
+                "device_pv_power": str(int(self._pending_device.pv_power)),
+                "device_battery_soc": str(self._pending_device.battery_soc),
             },
         )
 

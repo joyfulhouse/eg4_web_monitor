@@ -55,7 +55,8 @@ def get_ha_timezone(hass: HomeAssistant) -> str | None:
     Returns:
         The timezone name or None if not configured.
     """
-    return hass.config.time_zone
+    time_zone: str | None = hass.config.time_zone
+    return time_zone
 
 
 def format_entry_title(mode: str, name: str) -> str:

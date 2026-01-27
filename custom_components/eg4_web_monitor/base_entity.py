@@ -959,45 +959,44 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e
 
-    async def _execute_register_bit_action(
+    async def _execute_named_parameter_action(
         self,
         action_name: str,
-        register: int,
-        bit: int,
-        turn_on: bool,
+        parameter: str,
+        value: bool,
     ) -> None:
-        """Execute a switch action by writing to a Modbus register bit.
+        """Execute a switch action by writing a named parameter.
 
-        Used for local Modbus/Dongle connections where HTTP API is not available.
-        This modifies a single bit in a holding register.
+        Uses pylxpweb's write_named_parameters() which handles register mapping
+        and bit field combination automatically.
 
         Args:
             action_name: Human-readable name of the action for logging.
-            register: Holding register address (e.g., 21 for FUNC_EN, 110 for SYS_FUNC).
-            bit: Bit position within the register (0-15).
-            turn_on: True to set the bit, False to clear it.
+            parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
+            value: True to enable, False to disable.
 
         Raises:
-            HomeAssistantError: If the register write fails.
+            HomeAssistantError: If the parameter write fails.
         """
-        action_verb = "Enabling" if turn_on else "Disabling"
+        action_verb = "Enabling" if value else "Disabling"
 
         try:
             _LOGGER.debug(
-                "%s %s for device %s (register %d, bit %d)",
+                "%s %s for device %s (parameter %s)",
                 action_verb,
                 action_name,
                 self._serial,
-                register,
-                bit,
+                parameter,
             )
 
             # Set optimistic state immediately for UI feedback
-            self._optimistic_state = turn_on
+            self._optimistic_state = value
             self.async_write_ha_state()
 
-            # Write the register bit via coordinator
-            await self.coordinator.write_register_bit(register, bit, turn_on)
+            # Write the named parameter via coordinator
+            await self.coordinator.write_named_parameter(
+                parameter, value, serial=self._serial
+            )
 
             _LOGGER.info(
                 "Successfully %s %s for device %s",

@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
     from homeassistant.core import HomeAssistant
 
+    from .discovery import DiscoveredDevice
+    from .transitions.http_to_hybrid import HttpToHybridBuilder
+    from .transitions.hybrid_to_http import HybridToHttpBuilder
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -30,6 +34,9 @@ class ConfigFlowProtocol(Protocol):
 
     Mixins use this protocol for type hints, ensuring they have access to
     shared state and methods without direct inheritance from ConfigFlow.
+
+    This protocol declares all attributes and methods that may be accessed
+    across mixins, enabling proper type checking.
     """
 
     hass: "HomeAssistant"
@@ -64,14 +71,43 @@ class ConfigFlowProtocol(Protocol):
 
     # Local multi-device state
     _local_station_name: str | None
-    _local_devices: list[dict[str, Any]]
+    _local_devices: list[dict[str, Any]] | None
 
-    # Connection testing methods
+    # Pending device state (used during local onboarding/reconfigure)
+    _pending_device: "DiscoveredDevice | None"
+    _pending_transport_type: str | None
+    _pending_host: str | None
+    _pending_port: int | None
+    _pending_unit_id: int | None
+    _pending_dongle_serial: str | None
+
+    # Reconfigure state
+    _reconfigure_device_index: int | None
+
+    # Transition builder state
+    _transition_builder: "HttpToHybridBuilder | HybridToHttpBuilder | None"
+
+    # ==========================================================================
+    # Connection testing methods (from EG4ConfigFlowBase)
+    # ==========================================================================
     async def _test_credentials(self) -> None: ...
     async def _test_modbus_connection(self) -> str: ...
     async def _test_dongle_connection(self) -> None: ...
+    def _get_inverter_serials_from_plant(self) -> list[str]: ...
 
+    # ==========================================================================
+    # Discovery methods (from EG4ConfigFlowBase)
+    # ==========================================================================
+    async def _discover_modbus_device(
+        self, host: str, port: int, unit_id: int
+    ) -> "DiscoveredDevice": ...
+    async def _discover_dongle_device(
+        self, host: str, dongle_serial: str, inverter_serial: str, port: int
+    ) -> "DiscoveredDevice": ...
+
+    # ==========================================================================
     # ConfigFlow methods (inherited from config_entries.ConfigFlow)
+    # ==========================================================================
     def async_show_form(self, **kwargs: Any) -> "ConfigFlowResult": ...
     def async_create_entry(self, **kwargs: Any) -> "ConfigFlowResult": ...
     def async_abort(self, **kwargs: Any) -> "ConfigFlowResult": ...
@@ -79,6 +115,134 @@ class ConfigFlowProtocol(Protocol):
         self, unique_id: str
     ) -> "config_entries.ConfigEntry | None": ...
     def _abort_if_unique_id_configured(self) -> None: ...
+
+    # ==========================================================================
+    # Entry creation methods (from onboarding mixins)
+    # ==========================================================================
+    async def _create_http_entry(
+        self, plant_id: str, plant_name: str
+    ) -> "ConfigFlowResult": ...
+    async def _create_modbus_entry(self) -> "ConfigFlowResult": ...
+    async def _create_dongle_entry(self) -> "ConfigFlowResult": ...
+    async def _create_hybrid_entry(self) -> "ConfigFlowResult": ...
+    async def _create_local_entry(self) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Entry update methods (from reconfigure mixins)
+    # ==========================================================================
+    async def _update_http_entry(
+        self,
+        entry: "config_entries.ConfigEntry[Any]",
+        plant_id: str,
+        plant_name: str,
+    ) -> "ConfigFlowResult": ...
+    async def _update_modbus_entry(
+        self, entry: "config_entries.ConfigEntry[Any]"
+    ) -> "ConfigFlowResult": ...
+    async def _update_local_entry(
+        self, entry: "config_entries.ConfigEntry[Any]"
+    ) -> "ConfigFlowResult": ...
+    async def _update_hybrid_entry_from_reconfigure(
+        self,
+        entry: "config_entries.ConfigEntry[Any]",
+        plant_id: str,
+        plant_name: str,
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # HTTP onboarding steps (from HttpOnboardingMixin)
+    # ==========================================================================
+    async def async_step_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Hybrid onboarding steps (from HybridOnboardingMixin)
+    # ==========================================================================
+    async def async_step_hybrid_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_hybrid_local_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_hybrid_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_hybrid_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Local onboarding steps (from LocalOnboardingMixin)
+    # ==========================================================================
+    async def async_step_local_modbus_connect(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_local_dongle_connect(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_local_device_discovered(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_local_add_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_local_name(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # HTTP reconfigure steps (from HttpReconfigureMixin)
+    # ==========================================================================
+    async def async_step_reconfigure_http(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Hybrid reconfigure steps (from HybridReconfigureMixin)
+    # ==========================================================================
+    async def async_step_reconfigure_hybrid(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Local reconfigure steps (from LocalReconfigureMixin)
+    # ==========================================================================
+    async def async_step_reconfigure_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_local_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_local_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_local_discovered(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Reauth steps (from ReauthMixin)
+    # ==========================================================================
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+
+    # ==========================================================================
+    # Transition steps (from TransitionMixin)
+    # ==========================================================================
+    async def async_step_transition_http_to_hybrid(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_transition_hybrid_to_http(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
 
 
 class EG4ConfigFlowBase:
@@ -130,7 +294,23 @@ class EG4ConfigFlowBase:
 
         # Local multi-device mode fields
         self._local_station_name: str | None = None
-        self._local_devices: list[dict[str, Any]] = []
+        # Initialize to None so reconfigure can detect if it needs to load from entry
+        self._local_devices: list[dict[str, Any]] | None = None
+
+        # Pending device state (used during local onboarding flow)
+        # Type is DiscoveredDevice | None but we use Any at runtime
+        self._pending_device: Any = None
+        self._pending_transport_type: str | None = None
+        self._pending_host: str | None = None
+        self._pending_port: int | None = None
+        self._pending_unit_id: int | None = None
+        self._pending_dongle_serial: str | None = None
+
+        # Reconfigure state (used during local reconfigure flow)
+        self._reconfigure_device_index: int | None = None
+
+        # Transition builder state (used during connection type transitions)
+        self._transition_builder: Any = None
 
     async def _test_credentials(self) -> None:
         """Test if we can authenticate with the given credentials.
@@ -317,3 +497,64 @@ class EG4ConfigFlowBase:
             Default inverter family constant.
         """
         return DEFAULT_INVERTER_FAMILY
+
+    async def _discover_modbus_device(
+        self,
+        host: str,
+        port: int,
+        unit_id: int,
+    ) -> "DiscoveredDevice":
+        """Connect to Modbus TCP and auto-detect device information.
+
+        Args:
+            host: IP address of the Modbus TCP gateway.
+            port: TCP port.
+            unit_id: Modbus unit/slave ID.
+
+        Returns:
+            DiscoveredDevice with all auto-detected information.
+
+        Raises:
+            TimeoutError: If connection times out.
+            OSError: If connection fails.
+            Exception: If device discovery fails.
+        """
+        from .discovery import discover_modbus_device
+
+        return await discover_modbus_device(
+            host=host,
+            port=port,
+            unit_id=unit_id,
+        )
+
+    async def _discover_dongle_device(
+        self,
+        host: str,
+        dongle_serial: str,
+        inverter_serial: str,
+        port: int,
+    ) -> "DiscoveredDevice":
+        """Connect to WiFi dongle and auto-detect device information.
+
+        Args:
+            host: IP address of the WiFi dongle.
+            dongle_serial: Serial number printed on the dongle.
+            inverter_serial: Serial number of the inverter (required for auth).
+            port: TCP port.
+
+        Returns:
+            DiscoveredDevice with all auto-detected information.
+
+        Raises:
+            TimeoutError: If connection times out.
+            OSError: If connection fails.
+            Exception: If device discovery fails.
+        """
+        from .discovery import discover_dongle_device
+
+        return await discover_dongle_device(
+            host=host,
+            dongle_serial=dongle_serial,
+            inverter_serial=inverter_serial,
+            port=port,
+        )

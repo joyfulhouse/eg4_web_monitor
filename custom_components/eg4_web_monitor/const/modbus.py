@@ -41,7 +41,7 @@ MODBUS_BIT_BATTERY_ECO_EN = 9  # Battery ECO mode
 
 MODBUS_REG_CHARGE_POWER_PERCENT = 64  # PV/Battery charge power (0-100%)
 MODBUS_REG_DISCHARGE_POWER_PERCENT = 65  # Discharge power (0-100%)
-MODBUS_REG_AC_CHARGE_POWER = 66  # AC charge power (0-100%, represents 0-15kW)
+MODBUS_REG_AC_CHARGE_POWER = 66  # AC charge power in 100W units (120 = 12kW)
 MODBUS_REG_AC_CHARGE_SOC_LIMIT = 67  # AC charge SOC limit (0-100%)
 
 # =============================================================================
@@ -51,4 +51,34 @@ MODBUS_REG_AC_CHARGE_SOC_LIMIT = 67  # AC charge SOC limit (0-100%)
 MODBUS_REG_CHARGE_CURRENT = 101  # Max charge current (A)
 MODBUS_REG_DISCHARGE_CURRENT = 102  # Max discharge current (A)
 MODBUS_REG_ONGRID_DISCHG_SOC = 105  # On-grid discharge cutoff SOC (10-90%)
-MODBUS_REG_OFFGRID_DISCHG_SOC = 106  # Off-grid SOC low limit (0-100%)
+MODBUS_REG_OFFGRID_DISCHG_SOC = (
+    125  # Off-grid SOC low limit (0-100%) - verified 2026-01-27
+)
+
+# =============================================================================
+# HTTP API Parameter Names
+# =============================================================================
+# These names match the HTTP API parameters returned by pylxpweb's
+# read_named_parameters() and accepted by write_named_parameters().
+
+# Bit field parameter names (register 21)
+PARAM_FUNC_EPS_EN = "FUNC_EPS_EN"
+PARAM_FUNC_AC_CHARGE = "FUNC_AC_CHARGE"
+PARAM_FUNC_SET_TO_STANDBY = "FUNC_SET_TO_STANDBY"
+PARAM_FUNC_FORCED_DISCHG_EN = "FUNC_FORCED_DISCHG_EN"
+PARAM_FUNC_FORCED_CHG_EN = "FUNC_FORCED_CHG_EN"
+
+# Bit field parameter names (register 110)
+PARAM_FUNC_GREEN_EN = "FUNC_GREEN_EN"
+PARAM_FUNC_BATTERY_ECO_EN = "FUNC_BATTERY_ECO_EN"
+
+# Direct value parameter names
+PARAM_HOLD_CHG_POWER_PERCENT = "HOLD_CHG_POWER_PERCENT_CMD"
+PARAM_HOLD_DISCHG_POWER_PERCENT = "HOLD_DISCHG_POWER_PERCENT_CMD"
+PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"
+PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
+PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
+PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
+PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"
+PARAM_HOLD_OFFGRID_DISCHG_SOC = "HOLD_SOC_LOW_LIMIT_EPS_DISCHG"
+PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT = "HOLD_SYSTEM_CHARGE_SOC_LIMIT"

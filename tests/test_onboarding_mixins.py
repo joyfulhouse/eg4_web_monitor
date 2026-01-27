@@ -145,9 +145,10 @@ class TestLocalOnboardingMixin:
         """Test that the mixin has the required step methods."""
         assert hasattr(LocalOnboardingMixin, "async_step_local_setup")
         assert hasattr(LocalOnboardingMixin, "async_step_local_add_device")
-        assert hasattr(LocalOnboardingMixin, "async_step_local_modbus_device")
-        assert hasattr(LocalOnboardingMixin, "async_step_local_dongle_device")
-        assert hasattr(LocalOnboardingMixin, "async_step_local_device_added")
+        assert hasattr(LocalOnboardingMixin, "async_step_local_modbus_connect")
+        assert hasattr(LocalOnboardingMixin, "async_step_local_dongle_connect")
+        assert hasattr(LocalOnboardingMixin, "async_step_local_device_discovered")
+        assert hasattr(LocalOnboardingMixin, "async_step_local_name")
         assert hasattr(LocalOnboardingMixin, "_create_local_entry")
 
     def test_step_methods_are_async(self):
@@ -157,14 +158,15 @@ class TestLocalOnboardingMixin:
             LocalOnboardingMixin.async_step_local_add_device
         )
         assert inspect.iscoroutinefunction(
-            LocalOnboardingMixin.async_step_local_modbus_device
+            LocalOnboardingMixin.async_step_local_modbus_connect
         )
         assert inspect.iscoroutinefunction(
-            LocalOnboardingMixin.async_step_local_dongle_device
+            LocalOnboardingMixin.async_step_local_dongle_connect
         )
         assert inspect.iscoroutinefunction(
-            LocalOnboardingMixin.async_step_local_device_added
+            LocalOnboardingMixin.async_step_local_device_discovered
         )
+        assert inspect.iscoroutinefunction(LocalOnboardingMixin.async_step_local_name)
         assert inspect.iscoroutinefunction(LocalOnboardingMixin._create_local_entry)
 
 
@@ -294,8 +296,13 @@ class TestOnboardingMixinInverterFamilyOptions:
         assert INVERTER_FAMILY_LXP_EU in INVERTER_FAMILY_OPTIONS
 
     def test_local_inverter_family_options(self):
-        """Test that Local mixin has inverter family options."""
-        from custom_components.eg4_web_monitor.config_flow.onboarding.local import (
+        """Test that inverter family options are defined in schemas.
+
+        Note: The unified local flow auto-detects inverter family from
+        the device type code register, so it doesn't use INVERTER_FAMILY_OPTIONS
+        directly in the UI. But the options should still exist in schemas.
+        """
+        from custom_components.eg4_web_monitor.config_flow.schemas import (
             INVERTER_FAMILY_OPTIONS,
         )
 

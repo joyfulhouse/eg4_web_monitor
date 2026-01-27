@@ -195,7 +195,7 @@ This notice can be removed starting with v3.0.0, as sufficient time will have pa
   - Access via Settings → Integrations → EG4 → Configure
 
 **Technical Details:**
-- New coordinator methods: `has_http_api()`, `is_local_only()`, `write_register_bit()`, `write_register_value()`
+- New coordinator methods: `has_http_api()`, `is_local_only()`, `write_named_parameter()`
 - New Modbus register constants in const.py for control operations
 - `EG4OptionsFlow` class for UI-based interval configuration
 - Options update triggers integration reload for immediate effect

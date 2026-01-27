@@ -173,7 +173,6 @@ class EG4WebMonitorConfigFlow(
     VERSION = 1
 
     @staticmethod
-    @config_entries.HANDLERS.register(DOMAIN)
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> EG4OptionsFlow:
@@ -187,10 +186,12 @@ class EG4WebMonitorConfigFlow(
 
         Routes to the appropriate onboarding flow based on connection type:
         - HTTP → async_step_http_credentials (HttpOnboardingMixin)
-        - Modbus → async_step_modbus (ModbusOnboardingMixin)
-        - Dongle → async_step_dongle (DongleOnboardingMixin)
+        - Local → async_step_local_setup (LocalOnboardingMixin) - unified flow
         - Hybrid → async_step_hybrid_http (HybridOnboardingMixin)
-        - Local → async_step_local_setup (LocalOnboardingMixin)
+
+        Note: The old CONNECTION_TYPE_MODBUS and CONNECTION_TYPE_DONGLE are
+        deprecated. All local connections now use the unified LOCAL flow which
+        supports 1-N devices with auto-detection.
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -204,14 +205,16 @@ class EG4WebMonitorConfigFlow(
 
             if connection_type == CONNECTION_TYPE_HTTP:
                 return await self.async_step_http_credentials()
-            if connection_type == CONNECTION_TYPE_MODBUS:
-                return await self.async_step_modbus()
-            if connection_type == CONNECTION_TYPE_DONGLE:
-                return await self.async_step_dongle()
             if connection_type == CONNECTION_TYPE_LOCAL:
                 return await self.async_step_local_setup()
-            # CONNECTION_TYPE_HYBRID - start with HTTP credentials
-            return await self.async_step_hybrid_http()
+            if connection_type == CONNECTION_TYPE_HYBRID:
+                return await self.async_step_hybrid_http()
+            # Legacy: route old Modbus/Dongle types to unified LOCAL flow
+            if connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_DONGLE):
+                self._connection_type = CONNECTION_TYPE_LOCAL
+                return await self.async_step_local_setup()
+            # Default fallback
+            return await self.async_step_http_credentials()
 
         # Show connection type selection form
         return self.async_show_form(

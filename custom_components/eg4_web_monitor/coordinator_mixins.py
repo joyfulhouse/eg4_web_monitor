@@ -1001,10 +1001,15 @@ class DeviceInfoMixin:
         return cast(DeviceInfo, device_info)
 
     def _get_parallel_group_for_device(self, device_serial: str) -> str | None:
-        """Get the parallel group serial that contains this device."""
+        """Get the parallel group serial that contains this device.
+
+        Checks both HTTP mode (via Station.parallel_groups) and LOCAL mode
+        (via member_serials list in device data).
+        """
         if not self.data or "devices" not in self.data:
             return None
 
+        # HTTP/Hybrid mode: Check Station's parallel groups
         if self.station and hasattr(self.station, "parallel_groups"):
             for group in self.station.parallel_groups:
                 if hasattr(group, "inverters"):
@@ -1012,9 +1017,12 @@ class DeviceInfoMixin:
                         if inverter.serial_number == device_serial:
                             return f"parallel_group_{group.first_device_serial}"
 
+        # LOCAL mode: Check parallel group device data for member_serials
         for serial, device_data in self.data["devices"].items():
             if device_data.get("type") == "parallel_group":
-                return str(serial)
+                member_serials = device_data.get("member_serials", [])
+                if device_serial in member_serials:
+                    return str(serial)
 
         return None
 
@@ -1059,9 +1067,11 @@ class DeviceInfoMixin:
 
         clean_battery_name = clean_battery_display_name(battery_key, serial)
         battery_bank_identifier = f"{serial}_battery_bank"
+        # Include serial in identifier to distinguish batteries from different inverters
+        battery_identifier = f"{serial}_battery_{battery_key}"
 
         device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, battery_key)},
+            "identifiers": {(DOMAIN, battery_identifier)},
             "name": f"Battery {clean_battery_name}",
             "manufacturer": MANUFACTURER,
             "model": model,
@@ -1075,7 +1085,7 @@ class DeviceInfoMixin:
             battery_key,
             device_info["name"],
             model,
-            battery_key,
+            battery_identifier,
             battery_bank_identifier,
         )
 

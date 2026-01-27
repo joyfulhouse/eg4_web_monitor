@@ -27,13 +27,14 @@ from .const import (
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
-    MODBUS_REG_AC_CHARGE_POWER,
-    MODBUS_REG_AC_CHARGE_SOC_LIMIT,
-    MODBUS_REG_CHARGE_CURRENT,
-    MODBUS_REG_CHARGE_POWER_PERCENT,
-    MODBUS_REG_DISCHARGE_CURRENT,
-    MODBUS_REG_OFFGRID_DISCHG_SOC,
-    MODBUS_REG_ONGRID_DISCHG_SOC,
+    PARAM_HOLD_AC_CHARGE_POWER,
+    PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+    PARAM_HOLD_CHARGE_CURRENT,
+    PARAM_HOLD_CHG_POWER_PERCENT,
+    PARAM_HOLD_DISCHARGE_CURRENT,
+    PARAM_HOLD_OFFGRID_DISCHG_SOC,
+    PARAM_HOLD_ONGRID_DISCHG_SOC,
+    PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
     PV_CHARGE_POWER_STEP,
@@ -150,19 +151,23 @@ async def async_setup_entry(
 
             if any(supported in model_lower for supported in supported_models):
                 # Add number entities for all supported models
+                # Entities with Modbus register support (work in all modes)
                 entities.append(SystemChargeSOCLimitNumber(coordinator, serial))
                 entities.append(ACChargePowerNumber(coordinator, serial))
                 entities.append(PVChargePowerNumber(coordinator, serial))
-                entities.append(GridPeakShavingPowerNumber(coordinator, serial))
-                # Add new SOC cutoff limit entities
                 entities.append(ACChargeSOCLimitNumber(coordinator, serial))
                 entities.append(OnGridSOCCutoffNumber(coordinator, serial))
                 entities.append(OffGridSOCCutoffNumber(coordinator, serial))
-                # Add battery charge/discharge current control entities
                 entities.append(BatteryChargeCurrentNumber(coordinator, serial))
                 entities.append(BatteryDischargeCurrentNumber(coordinator, serial))
+
+                # Grid peak shaving power (available in all modes)
+                entities.append(GridPeakShavingPowerNumber(coordinator, serial))
+
+                entity_count = 9
                 _LOGGER.debug(
-                    "Created 9 number entities for device %s (%s)",
+                    "Created %d number entities for device %s (%s)",
+                    entity_count,
                     serial,
                     model,
                 )
@@ -210,8 +215,8 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
     def native_value(self) -> int | None:
         """Return the current System Charge SOC limit from cached parameters.
 
-        This reads HOLD_SYSTEM_CHARGE_SOC_LIMIT which controls when the battery
-        stops charging:
+        This reads HOLD_SYSTEM_CHARGE_SOC_LIMIT (register 227) which controls
+        when the battery stops charging:
         - 0-100%: Stop charging when battery reaches this SOC
         - 101%: Enable top balancing (full charge with cell balancing)
         """
@@ -220,14 +225,28 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             return int(self._optimistic_value)
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    soc_limit = params.get("HOLD_SYSTEM_CHARGE_SOC_LIMIT")
+                    if soc_limit is not None and 10 <= soc_limit <= 101:
+                        return int(soc_limit)
                 return None
 
-            # Read from cached parameters via public property
-            soc_limit = inverter.system_charge_soc_limit
-            if soc_limit is not None and 10 <= soc_limit <= 101:
-                return int(soc_limit)
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                soc_limit = inverter.system_charge_soc_limit
+                if soc_limit is not None and 10 <= soc_limit <= 101:
+                    return int(soc_limit)
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                soc_limit = params.get("HOLD_SYSTEM_CHARGE_SOC_LIMIT")
+                if soc_limit is not None and 10 <= soc_limit <= 101:
+                    return int(soc_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
@@ -237,7 +256,9 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the System Charge SOC limit using the control API.
+        """Set the System Charge SOC limit.
+
+        Supports both HTTP API and local Modbus (register 227).
 
         Args:
             value: Target SOC limit (10-101%)
@@ -258,28 +279,29 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            # Use the control API to set the system charge SOC limit
-            # This feature requires HTTP cloud API access
-            if self.coordinator.client is None:
-                raise HomeAssistantError(
-                    "Setting SOC limit requires cloud API connection. "
-                    "This feature is not available in Modbus-only mode."
+            if self.coordinator.is_local_only():
+                # Local mode: write via Modbus register 227
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT, int_value, serial=self.serial
                 )
+            else:
+                # HTTP mode: use cloud API
+                if self.coordinator.client is None:
+                    raise HomeAssistantError(
+                        "Setting SOC limit requires cloud API connection."
+                    )
 
-            result = (
-                await self.coordinator.client.api.control.set_system_charge_soc_limit(
+                result = await self.coordinator.client.api.control.set_system_charge_soc_limit(
                     self.serial, int_value
                 )
-            )
 
-            if not result.success:
-                raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
+                if not result.success:
+                    raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
 
-            # Refresh inverter parameters to update cached value
-            # Use force=True to bypass cache since we just changed a parameter
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                await inverter.refresh(force=True, include_parameters=True)
+                # Refresh inverter parameters to update cached value
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
 
             _LOGGER.info(
                 "Parameter changed for %s, refreshing parameters for all inverters",
@@ -323,19 +345,39 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current AC charge power value from device object."""
+        """Return the current AC charge power value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return float(round(self._optimistic_value, 1))
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    raw_value = params.get(PARAM_HOLD_AC_CHARGE_POWER)
+                    if raw_value is not None:
+                        # Convert 100W units to kW (120 → 12.0 kW)
+                        power_kw = float(raw_value) / 10.0
+                        if 0 <= power_kw <= 15:
+                            return float(round(power_kw, 1))
                 return None
 
-            power_limit = inverter.ac_charge_power_limit
-            if power_limit is not None and 0 <= power_limit <= 15:
-                return float(round(power_limit, 1))
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                power_limit = inverter.ac_charge_power_limit
+                if power_limit is not None and 0 <= power_limit <= 15:
+                    return float(round(power_limit, 1))
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                raw_value = params.get(PARAM_HOLD_AC_CHARGE_POWER)
+                if raw_value is not None:
+                    power_kw = float(raw_value) / 10.0
+                    if 0 <= power_kw <= 15:
+                        return float(round(power_kw, 1))
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug("Error getting AC charge power for %s: %s", self.serial, e)
@@ -352,8 +394,22 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting AC Charge Power for %s to %.1f kW", self.serial, value)
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API for HTTP and Hybrid modes
+            if self.coordinator.is_local_only():
+                # Local-only mode: write via Modbus register 66
+                register_value = int(value * 10)
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_POWER, register_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set AC Charge Power for %s to %.1f kW (%s = %d)",
+                    self.serial,
+                    value,
+                    PARAM_HOLD_AC_CHARGE_POWER,
+                    register_value,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_ac_charge_power(power_kw=value)
@@ -367,24 +423,6 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
                 )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write for local-only mode
-                # Register 66 expects percentage (0-100%) where 100% = 15kW
-                register_value = int(value / 15.0 * 100)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_AC_CHARGE_POWER, register_value
-                )
-
-                _LOGGER.info(
-                    "Successfully set AC Charge Power for %s to %.1f kW (register %d = %d%%)",
-                    self.serial,
-                    value,
-                    MODBUS_REG_AC_CHARGE_POWER,
-                    register_value,
-                )
-
-                # Wait briefly for register write to take effect
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "AC Charge Power changed for %s, refreshing parameters for all inverters",
@@ -420,19 +458,39 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current PV charge power value from device object."""
+        """Return the current PV charge power value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    pct_value = params.get(PARAM_HOLD_CHG_POWER_PERCENT)
+                    if pct_value is not None:
+                        # Convert percentage to kW (100% = 15 kW)
+                        power_kw = int(float(pct_value) / 100.0 * 15)
+                        if 0 <= power_kw <= 15:
+                            return power_kw
                 return None
 
-            power_limit = inverter.pv_charge_power_limit
-            if power_limit is not None and 0 <= power_limit <= 15:
-                return int(power_limit)
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                power_limit = inverter.pv_charge_power_limit
+                if power_limit is not None and 0 <= power_limit <= 15:
+                    return int(power_limit)
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                pct_value = params.get(PARAM_HOLD_CHG_POWER_PERCENT)
+                if pct_value is not None:
+                    power_kw = int(float(pct_value) / 100.0 * 15)
+                    if 0 <= power_kw <= 15:
+                        return power_kw
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug("Error getting PV charge power for %s: %s", self.serial, e)
@@ -455,8 +513,23 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting PV Charge Power for %s to %d kW", self.serial, int_value)
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API for HTTP and Hybrid modes
+            if self.coordinator.is_local_only():
+                # Local-only mode: write via Modbus register 64
+                # Parameter expects percentage (0-100%) where 100% = 15kW
+                register_value = int(int_value / 15.0 * 100)
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_CHG_POWER_PERCENT, register_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set PV Charge Power for %s to %d kW (%s = %d%%)",
+                    self.serial,
+                    int_value,
+                    PARAM_HOLD_CHG_POWER_PERCENT,
+                    register_value,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_pv_charge_power(power_kw=int_value)
@@ -470,23 +543,6 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                 )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write for local-only mode
-                # Register 64 expects percentage (0-100%) where 100% = 15kW
-                register_value = int(int_value / 15.0 * 100)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_CHARGE_POWER_PERCENT, register_value
-                )
-
-                _LOGGER.info(
-                    "Successfully set PV Charge Power for %s to %d kW (register %d = %d%%)",
-                    self.serial,
-                    int_value,
-                    MODBUS_REG_CHARGE_POWER_PERCENT,
-                    register_value,
-                )
-
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "PV Charge Power changed for %s, refreshing parameters for all inverters",
@@ -524,19 +580,38 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current grid peak shaving power value from device object."""
+        """Return the current grid peak shaving power value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return float(round(self._optimistic_value, 1))
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    power_limit = params.get("_12K_HOLD_GRID_PEAK_SHAVING_POWER")
+                    if power_limit is not None:
+                        power_kw = float(power_limit)
+                        if 0 <= power_kw <= 25.5:
+                            return float(round(power_kw, 1))
                 return None
 
-            power_limit = inverter.grid_peak_shaving_power_limit
-            if power_limit is not None and 0 <= power_limit <= 25.5:
-                return float(round(power_limit, 1))
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                power_limit = inverter.grid_peak_shaving_power_limit
+                if power_limit is not None and 0 <= power_limit <= 25.5:
+                    return float(round(power_limit, 1))
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                power_limit = params.get("_12K_HOLD_GRID_PEAK_SHAVING_POWER")
+                if power_limit is not None:
+                    power_kw = float(power_limit)
+                    if 0 <= power_kw <= 25.5:
+                        return float(round(power_kw, 1))
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
@@ -546,7 +621,7 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the grid peak shaving power value using device object method."""
+        """Set the grid peak shaving power value using device object method or register."""
         if value < 0.0 or value > 25.5:
             raise HomeAssistantError(
                 f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
@@ -557,22 +632,35 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            inverter = self._get_inverter_or_raise()
+            # Local-only mode: write via Modbus register directly
+            if self.coordinator.is_local_only():
+                await self.coordinator.write_named_parameter(
+                    "_12K_HOLD_GRID_PEAK_SHAVING_POWER", value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set Grid Peak Shaving Power for %s to %.1f kW (local)",
+                    self.serial,
+                    value,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
+                inverter = self._get_inverter_or_raise()
 
-            success = await inverter.set_grid_peak_shaving_power(power_kw=value)
-            if not success:
-                raise HomeAssistantError("Failed to set grid peak shaving power")
+                success = await inverter.set_grid_peak_shaving_power(power_kw=value)
+                if not success:
+                    raise HomeAssistantError("Failed to set grid peak shaving power")
+
+                _LOGGER.info(
+                    "Successfully set Grid Peak Shaving Power for %s to %.1f kW (HTTP)",
+                    self.serial,
+                    value,
+                )
+
+                await inverter.refresh()
 
             _LOGGER.info(
-                "Successfully set Grid Peak Shaving Power for %s to %.1f kW",
-                self.serial,
-                value,
-            )
-
-            await inverter.refresh()
-
-            _LOGGER.info(
-                "Grid Peak Shaving Power changed for %s, refreshing parameters for all inverters",
+                "Grid Peak Shaving Power changed for %s, refreshing parameters",
                 self.serial,
             )
 
@@ -613,14 +701,23 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             return int(self._optimistic_value)
 
         try:
-            # Try to get from inverter object first (HTTP/Hybrid modes)
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    soc_limit = params.get("HOLD_AC_CHARGE_SOC_LIMIT")
+                    if soc_limit is not None and 0 <= soc_limit <= 100:
+                        return int(soc_limit)
+                return None
+
+            # HTTP/Hybrid mode: try inverter object first
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
                 soc_limit = inverter.ac_charge_soc_limit
                 if soc_limit is not None and 0 <= soc_limit <= 100:
                     return int(soc_limit)
 
-            # Fallback to parameters (Modbus/Dongle modes)
+            # Fallback to parameters for Hybrid mode
             params = self._parameter_data
             if params:
                 soc_limit = params.get("HOLD_AC_CHARGE_SOC_LIMIT")
@@ -652,8 +749,20 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API for HTTP and Hybrid modes
+            if self.coordinator.is_local_only():
+                # Local-only mode: write via Modbus register 67
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_SOC_LIMIT, int_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set AC Charge SOC Limit for %s to %d%% (%s)",
+                    self.serial,
+                    int_value,
+                    PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
@@ -667,20 +776,6 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
                 )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write for local-only mode (register 67)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_AC_CHARGE_SOC_LIMIT, int_value
-                )
-
-                _LOGGER.info(
-                    "Successfully set AC Charge SOC Limit for %s to %d%% (register %d)",
-                    self.serial,
-                    int_value,
-                    MODBUS_REG_AC_CHARGE_SOC_LIMIT,
-                )
-
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "AC Charge SOC Limit changed for %s, refreshing parameters for all inverters",
@@ -724,7 +819,16 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
             return int(self._optimistic_value)
 
         try:
-            # Try to get from inverter object first (HTTP/Hybrid modes)
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    soc_cutoff = params.get("HOLD_DISCHG_CUT_OFF_SOC_EOD")
+                    if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
+                        return int(soc_cutoff)
+                return None
+
+            # HTTP/Hybrid mode: try inverter object first
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
                 if (
@@ -735,7 +839,7 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
                     if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
                         return int(soc_cutoff)
 
-            # Fallback to parameters (Modbus/Dongle modes)
+            # Fallback to parameters for Hybrid mode
             params = self._parameter_data
             if params:
                 soc_cutoff = params.get("HOLD_DISCHG_CUT_OFF_SOC_EOD")
@@ -765,8 +869,19 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API for HTTP and Hybrid modes
+            if self.coordinator.is_local_only():
+                # Local-only mode: write via Modbus register 105
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_ONGRID_DISCHG_SOC, int_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Wrote On-Grid SOC Cut-Off via %s = %d%%",
+                    PARAM_HOLD_ONGRID_DISCHG_SOC,
+                    int_value,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
@@ -777,19 +892,6 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
                     )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write for local-only mode (register 105)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_ONGRID_DISCHG_SOC, int_value
-                )
-
-                _LOGGER.info(
-                    "Wrote On-Grid SOC Cut-Off to register %d = %d%%",
-                    MODBUS_REG_ONGRID_DISCHG_SOC,
-                    int_value,
-                )
-
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "On-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
@@ -833,18 +935,36 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current off-grid SOC cutoff value from device object."""
+        """Return the current off-grid SOC cutoff value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    soc_cutoff = params.get("HOLD_SOC_LOW_LIMIT_EPS_DISCHG")
+                    if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
+                        return int(soc_cutoff)
                 return None
 
-            if hasattr(inverter, "battery_soc_limits") and inverter.battery_soc_limits:
-                soc_cutoff = inverter.battery_soc_limits.get("off_grid_limit")
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                if (
+                    hasattr(inverter, "battery_soc_limits")
+                    and inverter.battery_soc_limits
+                ):
+                    soc_cutoff = inverter.battery_soc_limits.get("off_grid_limit")
+                    if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
+                        return int(soc_cutoff)
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                soc_cutoff = params.get("HOLD_SOC_LOW_LIMIT_EPS_DISCHG")
                 if soc_cutoff is not None and 0 <= soc_cutoff <= 100:
                     return int(soc_cutoff)
 
@@ -873,8 +993,20 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API for HTTP and Hybrid modes
+            if self.coordinator.is_local_only():
+                # Local-only mode: write via Modbus register 125
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_OFFGRID_DISCHG_SOC, int_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Wrote Off-Grid SOC Cut-Off via %s = %d%%",
+                    PARAM_HOLD_OFFGRID_DISCHG_SOC,
+                    int_value,
+                )
+
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_soc_limits(
@@ -887,19 +1019,6 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
                     )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write for local-only mode (register 106)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_OFFGRID_DISCHG_SOC, int_value
-                )
-
-                _LOGGER.info(
-                    "Wrote Off-Grid SOC Cut-Off to register %d = %d%%",
-                    MODBUS_REG_OFFGRID_DISCHG_SOC,
-                    int_value,
-                )
-
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "Off-Grid SOC Cut-Off changed for %s, refreshing parameters for all inverters",
@@ -943,19 +1062,34 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current battery charge current value from device object."""
+        """Return the current battery charge current value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    current_limit = params.get("HOLD_LEAD_ACID_CHARGE_RATE")
+                    if current_limit is not None and 0 <= current_limit <= 250:
+                        return int(current_limit)
                 return None
 
-            current_limit = inverter.battery_charge_current_limit
-            if current_limit is not None and 0 <= current_limit <= 250:
-                return int(current_limit)
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                current_limit = inverter.battery_charge_current_limit
+                if current_limit is not None and 0 <= current_limit <= 250:
+                    return int(current_limit)
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                current_limit = params.get("HOLD_LEAD_ACID_CHARGE_RATE")
+                if current_limit is not None and 0 <= current_limit <= 250:
+                    return int(current_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
@@ -982,8 +1116,20 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API method
+            # Local-only mode: write via Modbus register directly
+            if self.coordinator.is_local_only():
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_CHARGE_CURRENT, int_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set Battery Charge Current for %s to %d A (%s)",
+                    self.serial,
+                    int_value,
+                    PARAM_HOLD_CHARGE_CURRENT,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_charge_current(
@@ -999,17 +1145,6 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
                 )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write (register 101 = charge current in Amps)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_CHARGE_CURRENT, int_value
-                )
-                _LOGGER.info(
-                    "Successfully set Battery Charge Current for %s to %d A (Modbus)",
-                    self.serial,
-                    int_value,
-                )
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "Battery Charge Current changed for %s, refreshing parameters",
@@ -1047,19 +1182,34 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return the current battery discharge current value from device object."""
+        """Return the current battery discharge current value from device object or parameters."""
         # Optimistic value takes precedence (set by context manager)
         if self._optimistic_value is not None:
             return int(self._optimistic_value)
 
         try:
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if not inverter:
+            # Local-only mode: read from parameters only (no HTTP)
+            if self.coordinator.is_local_only():
+                params = self._parameter_data
+                if params:
+                    current_limit = params.get("HOLD_LEAD_ACID_DISCHARGE_RATE")
+                    if current_limit is not None and 0 <= current_limit <= 250:
+                        return int(current_limit)
                 return None
 
-            current_limit = inverter.battery_discharge_current_limit
-            if current_limit is not None and 0 <= current_limit <= 250:
-                return int(current_limit)
+            # HTTP/Hybrid mode: try inverter object first
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                current_limit = inverter.battery_discharge_current_limit
+                if current_limit is not None and 0 <= current_limit <= 250:
+                    return int(current_limit)
+
+            # Fallback to parameters for Hybrid mode
+            params = self._parameter_data
+            if params:
+                current_limit = params.get("HOLD_LEAD_ACID_DISCHARGE_RATE")
+                if current_limit is not None and 0 <= current_limit <= 250:
+                    return int(current_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
@@ -1083,8 +1233,20 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.has_http_api():
-                # Use HTTP API method
+            # Local-only mode: write via Modbus register directly
+            if self.coordinator.is_local_only():
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_DISCHARGE_CURRENT, int_value, serial=self.serial
+                )
+                _LOGGER.info(
+                    "Successfully set Battery Discharge Current for %s to %d A (%s)",
+                    self.serial,
+                    int_value,
+                    PARAM_HOLD_DISCHARGE_CURRENT,
+                )
+                await asyncio.sleep(0.5)
+            else:
+                # HTTP/Hybrid mode: use cloud API
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_discharge_current(
@@ -1100,17 +1262,6 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
                 )
 
                 await inverter.refresh()
-            else:
-                # Use Modbus register write (register 102 = discharge current in Amps)
-                await self.coordinator.write_register_value(
-                    MODBUS_REG_DISCHARGE_CURRENT, int_value
-                )
-                _LOGGER.info(
-                    "Successfully set Battery Discharge Current for %s to %d A (Modbus)",
-                    self.serial,
-                    int_value,
-                )
-                await asyncio.sleep(0.5)
 
             _LOGGER.info(
                 "Battery Discharge Current changed for %s, refreshing parameters",

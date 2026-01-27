@@ -162,15 +162,8 @@ class TestReconfigureMixinInverterFamilyOptions:
         assert INVERTER_FAMILY_SNA in INVERTER_FAMILY_OPTIONS
         assert INVERTER_FAMILY_LXP_EU in INVERTER_FAMILY_OPTIONS
 
-    def test_local_inverter_family_options(self):
-        """Test that Local reconfigure mixin has inverter family options."""
-        from custom_components.eg4_web_monitor.config_flow.reconfigure.local import (
-            INVERTER_FAMILY_OPTIONS,
-        )
-
-        assert INVERTER_FAMILY_PV_SERIES in INVERTER_FAMILY_OPTIONS
-        assert INVERTER_FAMILY_SNA in INVERTER_FAMILY_OPTIONS
-        assert INVERTER_FAMILY_LXP_EU in INVERTER_FAMILY_OPTIONS
+    # NOTE: Local reconfigure no longer needs INVERTER_FAMILY_OPTIONS
+    # because it uses auto-detection via _discover_*_device() methods
 
 
 class TestLocalReconfigureDeviceTypeOptions:

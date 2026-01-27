@@ -215,8 +215,7 @@ class TestCoordinatorHybridInit:
         with (
             patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
             patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
-            patch("pylxpweb.transports.create_modbus_transport"),
-            patch("pylxpweb.transports.create_dongle_transport"),
+            patch("pylxpweb.transports.create_transport"),
         ):
             coordinator = EG4DataUpdateCoordinator(
                 mock_hass, hybrid_entry_with_local_transports
@@ -251,8 +250,7 @@ class TestCoordinatorHybridInit:
         with (
             patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
             patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
-            patch("pylxpweb.transports.create_modbus_transport"),
-            patch("pylxpweb.transports.create_dongle_transport"),
+            patch("pylxpweb.transports.create_transport"),
         ):
             coordinator = EG4DataUpdateCoordinator(mock_hass, entry)
 

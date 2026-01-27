@@ -138,8 +138,10 @@ class TestOnboardingStepsFromMixins:
         """Test that ConfigFlow has local steps from LocalOnboardingMixin."""
         assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_setup")
         assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_add_device")
-        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_modbus_device")
-        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_dongle_device")
+        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_modbus_connect")
+        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_dongle_connect")
+        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_device_discovered")
+        assert hasattr(EG4WebMonitorConfigFlow, "async_step_local_name")
 
 
 class TestReconfigureStepsFromMixins:
