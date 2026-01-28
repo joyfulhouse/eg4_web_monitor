@@ -703,10 +703,6 @@ class EG4DataUpdateCoordinator(
     ) -> dict[str, Any]:
         """Build device data structure for local transport (Modbus/Dongle).
 
-        This shared helper eliminates code duplication between Modbus and Dongle
-        update methods. It builds the device data dictionary, adds sensor mappings,
-        and extracts inverter features for capability-based filtering.
-
         Args:
             inverter: BaseInverter with populated transport data
             serial: Device serial number
@@ -717,59 +713,54 @@ class EG4DataUpdateCoordinator(
         Returns:
             Dictionary with device data, sensors, and features
         """
-        runtime_data = inverter._transport_runtime
-        energy_data = inverter._transport_energy
-        battery_data = inverter._transport_battery
-
-        # Create device entry with sensor mappings
         device_data: dict[str, Any] = {
             "type": "inverter",
             "model": model,
             "serial": serial,
             "firmware_version": firmware_version,
-            "sensors": _build_runtime_sensor_mapping(runtime_data),
+            "sensors": _build_runtime_sensor_mapping(inverter._transport_runtime),
             "batteries": {},
         }
 
-        # Add energy sensors if available
-        if energy_data:
+        if energy_data := inverter._transport_energy:
             device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
 
-        # Add battery bank data if available
-        if battery_data:
+        if battery_data := inverter._transport_battery:
             device_data["sensors"].update(
                 _build_battery_bank_sensor_mapping(battery_data)
             )
 
-        # Add firmware version as diagnostic sensor
         device_data["sensors"]["firmware_version"] = firmware_version
 
         # Extract features for capability-based sensor filtering
-        # Features are auto-detected from device type code by from_transport()
-        features = self._extract_inverter_features(inverter)
-        if features:
+        if features := self._extract_inverter_features(inverter):
             device_data["features"] = features
             _LOGGER.debug(
-                "%s: Detected features for %s: family=%s, "
-                "split_phase=%s, three_phase=%s",
+                "%s: Features for %s: %s",
                 connection_type.upper(),
                 serial,
-                features.get("inverter_family"),
-                features.get("supports_split_phase"),
-                features.get("supports_three_phase"),
+                features,
             )
 
         return device_data
 
-    async def _async_update_modbus_data(self) -> dict[str, Any]:
-        """Fetch data from local Modbus transport using BaseInverter factory.
+    async def _async_update_local_transport_data(
+        self,
+        transport: Any,
+        serial: str,
+        model: str,
+        connection_type: str,
+    ) -> dict[str, Any]:
+        """Fetch data from a local transport (Modbus or Dongle).
 
-        This method creates a BaseInverter via from_transport() factory,
-        which enables control operations and provides a consistent data access
-        pattern regardless of transport type.
+        Args:
+            transport: The transport instance to use
+            serial: Device serial number
+            model: Device model name
+            connection_type: CONNECTION_TYPE_MODBUS or CONNECTION_TYPE_DONGLE
 
         Returns:
-            Dictionary containing device data from Modbus registers.
+            Dictionary containing device data from registers.
         """
         from pylxpweb.transports.exceptions import (
             TransportConnectionError,
@@ -778,256 +769,125 @@ class EG4DataUpdateCoordinator(
             TransportTimeoutError,
         )
 
+        transport_name = connection_type.capitalize()
+
+        try:
+            _LOGGER.debug("Fetching %s data for inverter %s", transport_name, serial)
+
+            if not transport.is_connected:
+                await transport.connect()
+
+            # Create or reuse BaseInverter via factory
+            if serial not in self._inverter_cache:
+                _LOGGER.debug(
+                    "Creating BaseInverter from %s transport for %s",
+                    transport_name,
+                    serial,
+                )
+                inverter = await BaseInverter.from_transport(transport, model=model)
+                self._inverter_cache[serial] = inverter
+            else:
+                inverter = self._inverter_cache[serial]
+
+            await inverter.refresh(force=True, include_parameters=True)
+
+            firmware_version = await transport.read_firmware_version() or "Unknown"
+
+            if inverter._transport_runtime is None:
+                raise TransportReadError(
+                    f"Failed to read runtime data from {transport_name}"
+                )
+
+            device_data = self._build_local_device_data(
+                inverter=inverter,
+                serial=serial,
+                model=model,
+                firmware_version=firmware_version,
+                connection_type=connection_type,
+            )
+
+            processed: dict[str, Any] = {
+                "plant_id": None,
+                "devices": {serial: device_data},
+                "device_info": {},
+                "last_update": dt_util.utcnow(),
+                "connection_type": connection_type,
+            }
+
+            param_data = await self._read_modbus_parameters(transport)
+            processed["parameters"] = {serial: param_data}
+
+            if not self._last_available_state:
+                _LOGGER.warning(
+                    "EG4 %s connection restored for inverter %s", transport_name, serial
+                )
+                self._last_available_state = True
+
+            runtime = inverter._transport_runtime
+            _LOGGER.debug(
+                "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                transport_name,
+                firmware_version,
+                runtime.pv_total_power,
+                runtime.battery_soc,
+                runtime.grid_power,
+            )
+
+            return processed
+
+        except TransportConnectionError as e:
+            self._log_transport_error(f"{transport_name} connection lost", serial, e)
+            raise UpdateFailed(f"{transport_name} connection failed: {e}") from e
+
+        except TransportTimeoutError as e:
+            self._log_transport_error(f"{transport_name} timeout", serial, e)
+            raise UpdateFailed(f"{transport_name} timeout: {e}") from e
+
+        except (TransportReadError, TransportError) as e:
+            self._log_transport_error(f"{transport_name} read error", serial, e)
+            raise UpdateFailed(f"{transport_name} read error: {e}") from e
+
+        except Exception as e:
+            self._log_transport_error(
+                f"Unexpected {transport_name} error", serial, e, log_exception=True
+            )
+            raise UpdateFailed(f"Unexpected error: {e}") from e
+
+    def _log_transport_error(
+        self,
+        message: str,
+        serial: str,
+        error: Exception,
+        log_exception: bool = False,
+    ) -> None:
+        """Log transport error and update availability state."""
+        if self._last_available_state:
+            _LOGGER.warning("%s for inverter %s: %s", message, serial, error)
+            self._last_available_state = False
+        if log_exception:
+            _LOGGER.exception("%s: %s", message, error)
+
+    async def _async_update_modbus_data(self) -> dict[str, Any]:
+        """Fetch data from local Modbus transport."""
         if self._modbus_transport is None:
             raise UpdateFailed("Modbus transport not initialized")
-
-        try:
-            serial = self._modbus_serial
-            _LOGGER.debug("Fetching Modbus data for inverter %s", serial)
-
-            # Ensure transport is connected
-            if not self._modbus_transport.is_connected:
-                await self._modbus_transport.connect()
-
-            # Create or reuse BaseInverter via factory
-            # This enables control operations and consistent property access
-            if serial not in self._inverter_cache:
-                _LOGGER.debug(
-                    "Creating BaseInverter from Modbus transport for %s", serial
-                )
-                inverter = await BaseInverter.from_transport(
-                    self._modbus_transport,
-                    model=self._modbus_model,
-                )
-                self._inverter_cache[serial] = inverter
-            else:
-                inverter = self._inverter_cache[serial]
-
-            # Refresh data from transport (populates _transport_runtime, etc.)
-            await inverter.refresh(force=True, include_parameters=True)
-
-            # Read firmware version from holding registers 7-10
-            firmware_version = await self._modbus_transport.read_firmware_version()
-            if not firmware_version:
-                firmware_version = "Unknown"
-
-            # Verify runtime data is available
-            if inverter._transport_runtime is None:
-                raise TransportReadError("Failed to read runtime data from Modbus")
-
-            # Build device data using shared helper (includes feature extraction)
-            device_data = self._build_local_device_data(
-                inverter=inverter,
-                serial=serial,
-                model=self._modbus_model,
-                firmware_version=firmware_version,
-                connection_type=CONNECTION_TYPE_MODBUS,
-            )
-
-            # Build processed data structure
-            processed: dict[str, Any] = {
-                "plant_id": None,  # No plant for Modbus-only
-                "devices": {serial: device_data},
-                "device_info": {},
-                "last_update": dt_util.utcnow(),
-                "connection_type": CONNECTION_TYPE_MODBUS,
-            }
-
-            # Read parameters with proper HTTP API-style names
-            # Note: inverter.parameters stores raw reg_N values, but entities
-            # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
-            param_data = await self._read_modbus_parameters(self._modbus_transport)
-            processed["parameters"] = {serial: param_data}
-
-            # Silver tier logging
-            if not self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Modbus connection restored for inverter %s",
-                    self._modbus_serial,
-                )
-                self._last_available_state = True
-
-            runtime = inverter._transport_runtime
-            _LOGGER.debug(
-                "Modbus update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
-                firmware_version,
-                runtime.pv_total_power,
-                runtime.battery_soc,
-                runtime.grid_power,
-            )
-
-            return processed
-
-        except TransportConnectionError as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Modbus connection lost for inverter %s: %s",
-                    self._modbus_serial,
-                    e,
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Modbus connection failed: {e}") from e
-
-        except TransportTimeoutError as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Modbus timeout for inverter %s: %s", self._modbus_serial, e
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Modbus timeout: {e}") from e
-
-        except (TransportReadError, TransportError) as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Modbus read error for inverter %s: %s", self._modbus_serial, e
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Modbus read error: {e}") from e
-
-        except Exception as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Unexpected Modbus error for inverter %s: %s",
-                    self._modbus_serial,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.exception("Unexpected Modbus error: %s", e)
-            raise UpdateFailed(f"Unexpected error: {e}") from e
-
-    async def _async_update_dongle_data(self) -> dict[str, Any]:
-        """Fetch data from local WiFi dongle transport using BaseInverter factory.
-
-        This method creates a BaseInverter via from_transport() factory,
-        which enables control operations and provides a consistent data access
-        pattern regardless of transport type.
-
-        Returns:
-            Dictionary containing device data from dongle registers.
-        """
-        from pylxpweb.transports.exceptions import (
-            TransportConnectionError,
-            TransportError,
-            TransportReadError,
-            TransportTimeoutError,
+        return await self._async_update_local_transport_data(
+            transport=self._modbus_transport,
+            serial=self._modbus_serial,
+            model=self._modbus_model,
+            connection_type=CONNECTION_TYPE_MODBUS,
         )
 
+    async def _async_update_dongle_data(self) -> dict[str, Any]:
+        """Fetch data from local WiFi dongle transport."""
         if self._dongle_transport is None:
             raise UpdateFailed("Dongle transport not initialized")
-
-        try:
-            serial = self._dongle_serial
-            _LOGGER.debug("Fetching dongle data for inverter %s", serial)
-
-            # Ensure transport is connected
-            if not self._dongle_transport.is_connected:
-                await self._dongle_transport.connect()
-
-            # Create or reuse BaseInverter via factory
-            # This enables control operations and consistent property access
-            if serial not in self._inverter_cache:
-                _LOGGER.debug(
-                    "Creating BaseInverter from dongle transport for %s", serial
-                )
-                inverter = await BaseInverter.from_transport(
-                    self._dongle_transport,
-                    model=self._dongle_model,
-                )
-                self._inverter_cache[serial] = inverter
-            else:
-                inverter = self._inverter_cache[serial]
-
-            # Refresh data from transport (populates _transport_runtime, etc.)
-            await inverter.refresh(force=True, include_parameters=True)
-
-            # Read firmware version from holding registers 7-10
-            firmware_version = await self._dongle_transport.read_firmware_version()
-            if not firmware_version:
-                firmware_version = "Unknown"
-
-            # Verify runtime data is available
-            if inverter._transport_runtime is None:
-                raise TransportReadError("Failed to read runtime data from dongle")
-
-            # Build device data using shared helper (includes feature extraction)
-            device_data = self._build_local_device_data(
-                inverter=inverter,
-                serial=serial,
-                model=self._dongle_model,
-                firmware_version=firmware_version,
-                connection_type=CONNECTION_TYPE_DONGLE,
-            )
-
-            # Build processed data structure
-            processed: dict[str, Any] = {
-                "plant_id": None,  # No plant for Dongle-only
-                "devices": {serial: device_data},
-                "device_info": {},
-                "last_update": dt_util.utcnow(),
-                "connection_type": CONNECTION_TYPE_DONGLE,
-            }
-
-            # Read parameters with proper HTTP API-style names
-            # Note: inverter.parameters stores raw reg_N values, but entities
-            # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
-            param_data = await self._read_modbus_parameters(self._dongle_transport)
-            processed["parameters"] = {serial: param_data}
-
-            # Silver tier logging
-            if not self._last_available_state:
-                _LOGGER.warning(
-                    "EG4 Dongle connection restored for inverter %s",
-                    self._dongle_serial,
-                )
-                self._last_available_state = True
-
-            runtime = inverter._transport_runtime
-            _LOGGER.debug(
-                "Dongle update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
-                firmware_version,
-                runtime.pv_total_power,
-                runtime.battery_soc,
-                runtime.grid_power,
-            )
-
-            return processed
-
-        except TransportConnectionError as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Dongle connection lost for inverter %s: %s",
-                    self._dongle_serial,
-                    e,
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Dongle connection failed: {e}") from e
-
-        except TransportTimeoutError as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Dongle timeout for inverter %s: %s", self._dongle_serial, e
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Dongle timeout: {e}") from e
-
-        except (TransportReadError, TransportError) as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Dongle read error for inverter %s: %s", self._dongle_serial, e
-                )
-                self._last_available_state = False
-            raise UpdateFailed(f"Dongle read error: {e}") from e
-
-        except Exception as e:
-            if self._last_available_state:
-                _LOGGER.warning(
-                    "Unexpected Dongle error for inverter %s: %s",
-                    self._dongle_serial,
-                    e,
-                )
-                self._last_available_state = False
-            _LOGGER.exception("Unexpected Dongle error: %s", e)
-            raise UpdateFailed(f"Unexpected error: {e}") from e
+        return await self._async_update_local_transport_data(
+            transport=self._dongle_transport,
+            serial=self._dongle_serial,
+            model=self._dongle_model,
+            connection_type=CONNECTION_TYPE_DONGLE,
+        )
 
     async def _async_update_local_data(self) -> dict[str, Any]:
         """Fetch data from multiple local transports (Modbus + Dongle mix).
