@@ -118,9 +118,13 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "battery_charge_power": runtime_data.battery_charge_power,
         "battery_discharge_power": runtime_data.battery_discharge_power,
         "battery_temperature": runtime_data.battery_temperature,
-        # Grid - split-phase L1/L2 (~120V each, ~240V total)
-        # Note: R/S/T (3-phase) registers contain garbage on split-phase systems
-        # Note: Grid current L1/L2 not available via Modbus on PV_SERIES (HTTP API only)
+        # Grid - 3-phase R/S/T (LXP-EU) and split-phase L1/L2 (SNA/PV_SERIES)
+        # Note: R/S/T registers valid on LXP-EU, garbage on US split-phase systems
+        # Note: L1/L2 registers valid on SNA/PV_SERIES split-phase systems
+        # Sensor platform filters based on inverter family
+        "grid_voltage_r": runtime_data.grid_voltage_r,
+        "grid_voltage_s": runtime_data.grid_voltage_s,
+        "grid_voltage_t": runtime_data.grid_voltage_t,
         "grid_voltage_l1": runtime_data.grid_l1_voltage,
         "grid_voltage_l2": runtime_data.grid_l2_voltage,
         "grid_frequency": runtime_data.grid_frequency,
@@ -129,8 +133,10 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         # Inverter output
         "ac_power": runtime_data.inverter_power,
         "load_power": runtime_data.load_power,
-        # EPS/Backup - L1/L2 split-phase voltages (~120V each)
-        # Note: R/S/T (3-phase) registers contain garbage on split-phase systems
+        # EPS/Backup - 3-phase R/S/T (LXP-EU) and split-phase L1/L2 (SNA/PV_SERIES)
+        "eps_voltage_r": runtime_data.eps_voltage_r,
+        "eps_voltage_s": runtime_data.eps_voltage_s,
+        "eps_voltage_t": runtime_data.eps_voltage_t,
         "eps_voltage_l1": runtime_data.eps_l1_voltage,
         "eps_voltage_l2": runtime_data.eps_l2_voltage,
         "eps_frequency": runtime_data.eps_frequency,
