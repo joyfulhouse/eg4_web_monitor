@@ -116,7 +116,10 @@ async def async_setup_entry(
             # Check if device model is known to support switch functions
             _LOGGER.debug(
                 "Switch setup for %s: model=%s, model_lower=%s, supported=%s",
-                serial, model, model_lower, SUPPORTED_INVERTER_MODELS,
+                serial,
+                model,
+                model_lower,
+                SUPPORTED_INVERTER_MODELS,
             )
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
                 # Add quick charge switch (HTTP API only - requires cloud API)
@@ -132,7 +135,9 @@ async def async_setup_entry(
                 eps_supported = _supports_eps_battery_backup(device_data)
                 _LOGGER.debug(
                     "EPS support check for %s: supported=%s, features=%s",
-                    serial, eps_supported, device_data.get("features"),
+                    serial,
+                    eps_supported,
+                    device_data.get("features"),
                 )
                 if eps_supported:
                     entities.append(EG4BatteryBackupSwitch(coordinator, serial))

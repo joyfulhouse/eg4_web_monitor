@@ -669,8 +669,10 @@ class EG4DataUpdateCoordinator(
             _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
             # Debug: log key number entity parameters
             key_params = {
-                k: v for k, v in params.items()
-                if k in (
+                k: v
+                for k, v in params.items()
+                if k
+                in (
                     "HOLD_CHG_POWER_PERCENT_CMD",  # PV Charge Power (reg 64)
                     "HOLD_DISCHG_POWER_PERCENT_CMD",  # Discharge Power (reg 65)
                     "HOLD_AC_CHARGE_POWER_CMD",  # AC Charge Power (reg 66)
@@ -690,6 +692,74 @@ class EG4DataUpdateCoordinator(
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
         return params
+
+    def _build_local_device_data(
+        self,
+        inverter: "BaseInverter",
+        serial: str,
+        model: str,
+        firmware_version: str,
+        connection_type: str,
+    ) -> dict[str, Any]:
+        """Build device data structure for local transport (Modbus/Dongle).
+
+        This shared helper eliminates code duplication between Modbus and Dongle
+        update methods. It builds the device data dictionary, adds sensor mappings,
+        and extracts inverter features for capability-based filtering.
+
+        Args:
+            inverter: BaseInverter with populated transport data
+            serial: Device serial number
+            model: Device model name
+            firmware_version: Firmware version string
+            connection_type: CONNECTION_TYPE_MODBUS or CONNECTION_TYPE_DONGLE
+
+        Returns:
+            Dictionary with device data, sensors, and features
+        """
+        runtime_data = inverter._transport_runtime
+        energy_data = inverter._transport_energy
+        battery_data = inverter._transport_battery
+
+        # Create device entry with sensor mappings
+        device_data: dict[str, Any] = {
+            "type": "inverter",
+            "model": model,
+            "serial": serial,
+            "firmware_version": firmware_version,
+            "sensors": _build_runtime_sensor_mapping(runtime_data),
+            "batteries": {},
+        }
+
+        # Add energy sensors if available
+        if energy_data:
+            device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
+
+        # Add battery bank data if available
+        if battery_data:
+            device_data["sensors"].update(
+                _build_battery_bank_sensor_mapping(battery_data)
+            )
+
+        # Add firmware version as diagnostic sensor
+        device_data["sensors"]["firmware_version"] = firmware_version
+
+        # Extract features for capability-based sensor filtering
+        # Features are auto-detected from device type code by from_transport()
+        features = self._extract_inverter_features(inverter)
+        if features:
+            device_data["features"] = features
+            _LOGGER.debug(
+                "%s: Detected features for %s: family=%s, "
+                "split_phase=%s, three_phase=%s",
+                connection_type.upper(),
+                serial,
+                features.get("inverter_family"),
+                features.get("supports_split_phase"),
+                features.get("supports_three_phase"),
+            )
+
+        return device_data
 
     async def _async_update_modbus_data(self) -> dict[str, Any]:
         """Fetch data from local Modbus transport using BaseInverter factory.
@@ -741,47 +811,27 @@ class EG4DataUpdateCoordinator(
             if not firmware_version:
                 firmware_version = "Unknown"
 
-            # Get data from transport via inverter's internal storage
-            runtime_data = inverter._transport_runtime
-            energy_data = inverter._transport_energy
-
-            if runtime_data is None:
+            # Verify runtime data is available
+            if inverter._transport_runtime is None:
                 raise TransportReadError("Failed to read runtime data from Modbus")
 
-            # Build device data structure from inverter data
+            # Build device data using shared helper (includes feature extraction)
+            device_data = self._build_local_device_data(
+                inverter=inverter,
+                serial=serial,
+                model=self._modbus_model,
+                firmware_version=firmware_version,
+                connection_type=CONNECTION_TYPE_MODBUS,
+            )
+
+            # Build processed data structure
             processed: dict[str, Any] = {
                 "plant_id": None,  # No plant for Modbus-only
-                "devices": {},
+                "devices": {serial: device_data},
                 "device_info": {},
                 "last_update": dt_util.utcnow(),
                 "connection_type": CONNECTION_TYPE_MODBUS,
             }
-
-            # Create device entry with sensor mappings
-            device_data: dict[str, Any] = {
-                "type": "inverter",
-                "model": self._modbus_model,
-                "serial": serial,
-                "firmware_version": firmware_version,
-                "sensors": _build_runtime_sensor_mapping(runtime_data),
-                "batteries": {},
-            }
-
-            # Add energy sensors if available
-            if energy_data:
-                device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
-
-            # Add battery bank data if available
-            battery_data = inverter._transport_battery
-            if battery_data:
-                device_data["sensors"].update(
-                    _build_battery_bank_sensor_mapping(battery_data)
-                )
-
-            # Add firmware version as diagnostic sensor
-            device_data["sensors"]["firmware_version"] = firmware_version
-
-            processed["devices"][serial] = device_data
 
             # Read parameters with proper HTTP API-style names
             # Note: inverter.parameters stores raw reg_N values, but entities
@@ -797,12 +847,13 @@ class EG4DataUpdateCoordinator(
                 )
                 self._last_available_state = True
 
+            runtime = inverter._transport_runtime
             _LOGGER.debug(
                 "Modbus update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
                 firmware_version,
-                runtime_data.pv_total_power,
-                runtime_data.battery_soc,
-                runtime_data.grid_power,
+                runtime.pv_total_power,
+                runtime.battery_soc,
+                runtime.grid_power,
             )
 
             return processed
@@ -894,47 +945,27 @@ class EG4DataUpdateCoordinator(
             if not firmware_version:
                 firmware_version = "Unknown"
 
-            # Get data from transport via inverter's internal storage
-            runtime_data = inverter._transport_runtime
-            energy_data = inverter._transport_energy
-
-            if runtime_data is None:
+            # Verify runtime data is available
+            if inverter._transport_runtime is None:
                 raise TransportReadError("Failed to read runtime data from dongle")
 
-            # Build device data structure from inverter data
+            # Build device data using shared helper (includes feature extraction)
+            device_data = self._build_local_device_data(
+                inverter=inverter,
+                serial=serial,
+                model=self._dongle_model,
+                firmware_version=firmware_version,
+                connection_type=CONNECTION_TYPE_DONGLE,
+            )
+
+            # Build processed data structure
             processed: dict[str, Any] = {
                 "plant_id": None,  # No plant for Dongle-only
-                "devices": {},
+                "devices": {serial: device_data},
                 "device_info": {},
                 "last_update": dt_util.utcnow(),
                 "connection_type": CONNECTION_TYPE_DONGLE,
             }
-
-            # Create device entry with sensor mappings
-            device_data: dict[str, Any] = {
-                "type": "inverter",
-                "model": self._dongle_model,
-                "serial": serial,
-                "firmware_version": firmware_version,
-                "sensors": _build_runtime_sensor_mapping(runtime_data),
-                "batteries": {},
-            }
-
-            # Add energy sensors if available
-            if energy_data:
-                device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
-
-            # Add battery bank data if available
-            battery_data = inverter._transport_battery
-            if battery_data:
-                device_data["sensors"].update(
-                    _build_battery_bank_sensor_mapping(battery_data)
-                )
-
-            # Add firmware version as diagnostic sensor
-            device_data["sensors"]["firmware_version"] = firmware_version
-
-            processed["devices"][serial] = device_data
 
             # Read parameters with proper HTTP API-style names
             # Note: inverter.parameters stores raw reg_N values, but entities
@@ -950,12 +981,13 @@ class EG4DataUpdateCoordinator(
                 )
                 self._last_available_state = True
 
+            runtime = inverter._transport_runtime
             _LOGGER.debug(
                 "Dongle update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
                 firmware_version,
-                runtime_data.pv_total_power,
-                runtime_data.battery_soc,
-                runtime_data.grid_power,
+                runtime.pv_total_power,
+                runtime.battery_soc,
+                runtime.grid_power,
             )
 
             return processed
