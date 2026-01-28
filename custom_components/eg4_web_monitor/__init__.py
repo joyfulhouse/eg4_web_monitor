@@ -1,5 +1,6 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
+import asyncio
 import logging
 from typing import Any, TypeAlias
 
@@ -177,7 +178,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     entry.runtime_data = coordinator
 
     # Forward entry setup to platforms (creates devices and entities)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except asyncio.CancelledError:
+        _LOGGER.warning(
+            "Platform setup for %s was cancelled; will retry on next reload",
+            entry.title,
+        )
+        raise
 
     # Update device registry with current firmware versions AFTER devices are created
     await _async_update_device_registry(hass, coordinator)

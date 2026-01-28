@@ -558,6 +558,7 @@ class EG4DataUpdateCoordinator(
 
         # Background task tracking for proper cleanup
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._shutdown_listener_fired: bool = False
 
         # Circuit breaker for API resilience
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
@@ -573,6 +574,7 @@ class EG4DataUpdateCoordinator(
 
         # Inverter lookup cache for O(1) access (rebuilt when station loads)
         self._inverter_cache: dict[str, BaseInverter] = {}
+        self._firmware_cache: dict[str, str] = {}
 
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
@@ -791,7 +793,12 @@ class EG4DataUpdateCoordinator(
 
             await inverter.refresh(force=True, include_parameters=True)
 
-            firmware_version = await transport.read_firmware_version() or "Unknown"
+            # Cache firmware version - only read once from transport, reuse on subsequent updates
+            if serial not in self._firmware_cache:
+                self._firmware_cache[serial] = (
+                    await transport.read_firmware_version() or "Unknown"
+                )
+            firmware_version = self._firmware_cache[serial]
 
             if inverter._transport_runtime is None:
                 raise TransportReadError(

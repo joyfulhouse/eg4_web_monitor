@@ -1371,39 +1371,42 @@ class DSTSyncMixin:
 class BackgroundTaskMixin:
     """Mixin for background task management operations."""
 
+    async def _cancel_background_tasks(self) -> None:
+        """Cancel all background tasks and wait for them to finish."""
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
     async def _async_handle_shutdown(self, event: Any) -> None:
-        """Handle Home Assistant stop event to cancel background tasks."""
+        """Handle Home Assistant stop event to cancel background tasks.
+
+        When this fires, the listener auto-removes itself from the event bus.
+        We set a flag so async_shutdown() doesn't try to remove it again.
+        """
         _LOGGER.debug("Handling Home Assistant stop event, cancelling background tasks")
+        self._shutdown_listener_fired = True
 
         if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
             self._debounced_refresh.async_cancel()
             await asyncio.sleep(0)
             _LOGGER.debug("Cancelled debounced refresh")
 
-        for task in self._background_tasks:
-            if not task.done():
-                task.cancel()
-
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-
+        await self._cancel_background_tasks()
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
         """Clean up background tasks and event listeners on shutdown."""
-        if hasattr(self, "_shutdown_listener_remove"):
+        if hasattr(self, "_shutdown_listener_remove") and not getattr(
+            self, "_shutdown_listener_fired", False
+        ):
             self._shutdown_listener_remove()
             _LOGGER.debug("Removed homeassistant_stop event listener")
 
-        for task in self._background_tasks:
-            if not task.done():
-                task.cancel()
-
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-
+        await self._cancel_background_tasks()
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
