@@ -694,7 +694,7 @@ class EG4DataUpdateCoordinator(
     async def _async_update_modbus_data(self) -> dict[str, Any]:
         """Fetch data from local Modbus transport using BaseInverter factory.
 
-        This method creates a BaseInverter via from_modbus_transport() factory,
+        This method creates a BaseInverter via from_transport() factory,
         which enables control operations and provides a consistent data access
         pattern regardless of transport type.
 
@@ -725,7 +725,7 @@ class EG4DataUpdateCoordinator(
                 _LOGGER.debug(
                     "Creating BaseInverter from Modbus transport for %s", serial
                 )
-                inverter = await BaseInverter.from_modbus_transport(
+                inverter = await BaseInverter.from_transport(
                     self._modbus_transport,
                     model=self._modbus_model,
                 )
@@ -847,7 +847,7 @@ class EG4DataUpdateCoordinator(
     async def _async_update_dongle_data(self) -> dict[str, Any]:
         """Fetch data from local WiFi dongle transport using BaseInverter factory.
 
-        This method creates a BaseInverter via from_modbus_transport() factory,
+        This method creates a BaseInverter via from_transport() factory,
         which enables control operations and provides a consistent data access
         pattern regardless of transport type.
 
@@ -878,7 +878,7 @@ class EG4DataUpdateCoordinator(
                 _LOGGER.debug(
                     "Creating BaseInverter from dongle transport for %s", serial
                 )
-                inverter = await BaseInverter.from_modbus_transport(
+                inverter = await BaseInverter.from_transport(
                     self._dongle_transport,
                     model=self._dongle_model,
                 )
@@ -1140,7 +1140,7 @@ class EG4DataUpdateCoordinator(
                                 transport_type,
                                 serial,
                             )
-                            inverter = await BaseInverter.from_modbus_transport(
+                            inverter = await BaseInverter.from_transport(
                                 transport, model=model
                             )
                             self._inverter_cache[serial] = inverter
