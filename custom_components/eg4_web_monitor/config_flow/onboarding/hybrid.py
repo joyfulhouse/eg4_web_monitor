@@ -121,6 +121,10 @@ class HybridOnboardingMixin:
         _inverter_serial: str | None
         _inverter_family: str | None
         _hybrid_local_type: str | None
+        # Per-device hybrid flow fields
+        _hybrid_devices: list[str] | None
+        _hybrid_current_device_idx: int
+        _hybrid_local_transports: list[dict[str, Any]] | None
 
         async def _test_credentials(self: ConfigFlowProtocol) -> None: ...
         async def _test_modbus_connection(self: ConfigFlowProtocol) -> str: ...
@@ -272,45 +276,18 @@ class HybridOnboardingMixin:
     ) -> ConfigFlowResult:
         """Handle local transport type selection for hybrid mode.
 
-        Allows user to choose between Modbus (RS485 adapter) or WiFi Dongle.
+        This step now redirects to the per-device transport selection flow,
+        which allows configuring each device discovered from the cloud API
+        with its own transport type (Modbus, Dongle, or Skip).
 
         Args:
             user_input: Form data with selected local type, or None.
 
         Returns:
-            Form to select local type, or appropriate configuration step.
+            Redirect to per-device selection flow.
         """
-        if user_input is not None:
-            local_type = user_input[CONF_HYBRID_LOCAL_TYPE]
-            self._hybrid_local_type = local_type
-
-            if local_type == HYBRID_LOCAL_MODBUS:
-                return await self.async_step_hybrid_modbus()
-            if local_type == HYBRID_LOCAL_DONGLE:
-                return await self.async_step_hybrid_dongle()
-            # Should not reach here, but default to modbus with warning
-            _LOGGER.warning(
-                "Unexpected hybrid_local_type value: %s, defaulting to Modbus",
-                local_type,
-            )
-            return await self.async_step_hybrid_modbus()
-
-        # Build local transport type selection schema
-        local_type_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_HYBRID_LOCAL_TYPE, default=HYBRID_LOCAL_MODBUS
-                ): vol.In(LOCAL_TYPE_OPTIONS),
-            }
-        )
-
-        return self.async_show_form(
-            step_id="hybrid_local_type",
-            data_schema=local_type_schema,
-            description_placeholders={
-                "brand_name": BRAND_NAME,
-            },
-        )
+        # Initialize per-device flow and redirect to it
+        return await self.async_step_hybrid_device_select()
 
     async def async_step_hybrid_modbus(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
@@ -448,23 +425,362 @@ class HybridOnboardingMixin:
             },
         )
 
+    async def _load_plant_devices(self: ConfigFlowProtocol) -> list[str]:
+        """Load device serials from the selected plant via cloud API.
+
+        This method fetches the inverter/device list from the cloud API
+        for the currently selected plant.
+
+        Returns:
+            List of device serial numbers, or empty list if unable to fetch.
+        """
+        # First try the cached data from _get_inverter_serials_from_plant
+        cached_serials = self._get_inverter_serials_from_plant()
+        if cached_serials:
+            return cached_serials
+
+        # If no cached data, we need to fetch from API
+        # This requires making an API call to get the plant's devices
+        if not self._plant_id:
+            return []
+
+        try:
+            from homeassistant.helpers import aiohttp_client
+            from pylxpweb import LuxpowerClient
+            from pylxpweb.devices import Station
+
+            session = aiohttp_client.async_get_clientsession(self.hass)
+            assert self._username is not None
+            assert self._password is not None
+            assert self._base_url is not None
+            assert self._verify_ssl is not None
+
+            async with LuxpowerClient(
+                username=self._username,
+                password=self._password,
+                base_url=self._base_url,
+                verify_ssl=self._verify_ssl,
+                session=session,
+            ) as client:
+                # Load the specific station and its devices
+                # Station.load() calls _load_devices() which populates all_inverters
+                station = await Station.load(client, int(self._plant_id))
+                if station:
+                    # Get inverters from the station - serial_number is the property name
+                    serials = [
+                        inv.serial_number
+                        for inv in station.all_inverters
+                        if inv.serial_number
+                    ]
+                    _LOGGER.debug(
+                        "Loaded %d device serials from plant %s: %s",
+                        len(serials),
+                        self._plant_id,
+                        serials,
+                    )
+                    return serials
+
+        except Exception as e:
+            _LOGGER.warning("Failed to load devices from plant: %s", e)
+
+        return []
+
+    async def async_step_hybrid_device_select(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select transport type for each device discovered from cloud.
+
+        This step iterates through all devices in the selected plant,
+        allowing the user to configure each with Modbus, Dongle, or Skip.
+
+        Args:
+            user_input: Form data with transport selection, or None.
+
+        Returns:
+            Form for current device, or entry creation when done.
+        """
+        # Initialize on first entry
+        if self._hybrid_devices is None:
+            self._hybrid_devices = await self._load_plant_devices()
+            self._hybrid_current_device_idx = 0
+            self._hybrid_local_transports = []
+
+            # If no devices found, fall back to single-device flow with manual serial
+            if not self._hybrid_devices:
+                _LOGGER.info(
+                    "No devices discovered from cloud, falling back to manual entry"
+                )
+                # Add a placeholder for manual entry
+                self._hybrid_devices = [""]
+
+        # Check if all devices processed
+        if self._hybrid_current_device_idx >= len(self._hybrid_devices):
+            return await self._create_hybrid_entry()
+
+        current_serial = self._hybrid_devices[self._hybrid_current_device_idx]
+
+        if user_input is not None:
+            transport_type = user_input.get("transport_type", "skip")
+
+            if transport_type == "modbus":
+                # Store current serial and go to modbus config
+                self._inverter_serial = current_serial
+                return await self.async_step_hybrid_device_modbus()
+            elif transport_type == "dongle":
+                # Store current serial and go to dongle config
+                self._inverter_serial = current_serial
+                return await self.async_step_hybrid_device_dongle()
+            else:
+                # Skip this device - move to next
+                _LOGGER.info("Skipping device %s (cloud-only)", current_serial)
+                self._hybrid_current_device_idx += 1
+                return await self.async_step_hybrid_device_select()
+
+        # Build form for current device
+        transport_options = {
+            "modbus": "Modbus TCP (RS485 Adapter)",
+            "dongle": "WiFi Dongle",
+            "skip": "Cloud Only (Skip local transport)",
+        }
+
+        schema = vol.Schema(
+            {
+                vol.Required("transport_type", default="skip"): vol.In(
+                    transport_options
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="hybrid_device_select",
+            data_schema=schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_serial": current_serial or "(manual entry)",
+                "device_num": str(self._hybrid_current_device_idx + 1),
+                "device_total": str(len(self._hybrid_devices)),
+            },
+        )
+
+    async def async_step_hybrid_device_modbus(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure Modbus transport for the current device in hybrid mode.
+
+        After successful configuration, moves to the next device.
+
+        Args:
+            user_input: Form data from user, or None for initial display.
+
+        Returns:
+            Form to collect Modbus settings, or next device step.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input.get(CONF_MODBUS_HOST, "").strip()
+            port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+            inverter_serial = user_input.get(
+                CONF_INVERTER_SERIAL, self._inverter_serial or ""
+            )
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            if not host:
+                errors[CONF_MODBUS_HOST] = "required"
+            elif not inverter_serial:
+                errors[CONF_INVERTER_SERIAL] = "required"
+            else:
+                # Store for connection test
+                self._modbus_host = host
+                self._modbus_port = port
+                self._modbus_unit_id = unit_id
+                self._inverter_serial = inverter_serial
+                self._inverter_family = inverter_family
+
+                try:
+                    await self._test_modbus_connection()
+
+                    # Success! Add to transports list
+                    assert self._hybrid_local_transports is not None
+                    self._hybrid_local_transports.append(
+                        {
+                            "serial": inverter_serial,
+                            "transport_type": "modbus_tcp",
+                            "host": host,
+                            "port": port,
+                            "unit_id": unit_id,
+                            "inverter_family": inverter_family,
+                        }
+                    )
+
+                    _LOGGER.info(
+                        "Configured Modbus transport for device %s at %s:%s",
+                        inverter_serial,
+                        host,
+                        port,
+                    )
+
+                    # Move to next device
+                    self._hybrid_current_device_idx += 1
+                    return await self.async_step_hybrid_device_select()
+
+                except ImportError:
+                    errors["base"] = "modbus_not_installed"
+                except TimeoutError:
+                    errors["base"] = "modbus_timeout"
+                except OSError as e:
+                    _LOGGER.error("Modbus connection error: %s", e)
+                    errors["base"] = "modbus_connection_failed"
+                except Exception as e:
+                    _LOGGER.exception("Unexpected Modbus error: %s", e)
+                    errors["base"] = "unknown"
+
+        # Pre-fill serial from cloud discovery if available
+        default_serial = self._inverter_serial or ""
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_MODBUS_HOST): str,
+                vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
+                vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
+                vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="hybrid_device_modbus",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_serial": default_serial or "(manual entry)",
+            },
+        )
+
+    async def async_step_hybrid_device_dongle(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure WiFi Dongle transport for the current device in hybrid mode.
+
+        After successful configuration, moves to the next device.
+
+        Args:
+            user_input: Form data from user, or None for initial display.
+
+        Returns:
+            Form to collect dongle settings, or next device step.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input.get(CONF_DONGLE_HOST, "").strip()
+            port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            dongle_serial = user_input.get(CONF_DONGLE_SERIAL, "").strip()
+            inverter_serial = user_input.get(
+                CONF_INVERTER_SERIAL, self._inverter_serial or ""
+            )
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            if not host:
+                errors[CONF_DONGLE_HOST] = "required"
+            elif not dongle_serial:
+                errors[CONF_DONGLE_SERIAL] = "required"
+            elif not inverter_serial:
+                errors[CONF_INVERTER_SERIAL] = "required"
+            else:
+                # Store for connection test
+                self._dongle_host = host
+                self._dongle_port = port
+                self._dongle_serial = dongle_serial
+                self._inverter_serial = inverter_serial
+                self._inverter_family = inverter_family
+
+                try:
+                    await self._test_dongle_connection()
+
+                    # Success! Add to transports list
+                    assert self._hybrid_local_transports is not None
+                    self._hybrid_local_transports.append(
+                        {
+                            "serial": inverter_serial,
+                            "transport_type": "wifi_dongle",
+                            "host": host,
+                            "port": port,
+                            "dongle_serial": dongle_serial,
+                            "inverter_family": inverter_family,
+                        }
+                    )
+
+                    _LOGGER.info(
+                        "Configured WiFi Dongle transport for device %s at %s:%s",
+                        inverter_serial,
+                        host,
+                        port,
+                    )
+
+                    # Move to next device
+                    self._hybrid_current_device_idx += 1
+                    return await self.async_step_hybrid_device_select()
+
+                except TimeoutError:
+                    errors["base"] = "dongle_timeout"
+                except OSError as e:
+                    _LOGGER.error("Dongle connection error: %s", e)
+                    errors["base"] = "dongle_connection_failed"
+                except Exception as e:
+                    _LOGGER.exception("Unexpected dongle error: %s", e)
+                    errors["base"] = "unknown"
+
+        # Pre-fill serial from cloud discovery if available
+        default_serial = self._inverter_serial or ""
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_DONGLE_HOST): str,
+                vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
+                vol.Required(CONF_DONGLE_SERIAL): str,
+                vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="hybrid_device_dongle",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_serial": default_serial or "(manual entry)",
+            },
+        )
+
     async def _create_hybrid_entry(self: ConfigFlowProtocol) -> ConfigFlowResult:
         """Create config entry for hybrid (HTTP + local transport) connection.
 
-        Supports both Modbus and WiFi Dongle as local transport options.
+        Supports multiple devices with per-device transport configuration.
+        Uses the new _hybrid_local_transports list if available (from per-device flow),
+        or falls back to legacy single-device logic for backward compatibility.
 
         Returns:
             Config entry creation result.
         """
-        # Validate required state
+        # Validate required HTTP state
         assert self._username is not None
         assert self._password is not None
         assert self._base_url is not None
         assert self._verify_ssl is not None
         assert self._dst_sync is not None
         assert self._plant_id is not None
-        assert self._inverter_serial is not None
-        assert self._hybrid_local_type is not None
 
         # Find plant name
         plant_name = "Unknown"
@@ -494,57 +810,97 @@ class HybridOnboardingMixin:
             CONF_LIBRARY_DEBUG: self._library_debug or False,
             CONF_PLANT_ID: self._plant_id,
             CONF_PLANT_NAME: plant_name,
-            # Local transport type (modbus or dongle)
-            CONF_HYBRID_LOCAL_TYPE: self._hybrid_local_type,
-            CONF_INVERTER_SERIAL: self._inverter_serial,
-            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
         }
 
-        # Add transport-specific configuration (legacy format for backward compatibility)
-        # Also build the new CONF_LOCAL_TRANSPORTS list for Station.attach_local_transports()
+        # Determine which transports list to use
         local_transports: list[dict[str, Any]] = []
 
-        if self._hybrid_local_type == HYBRID_LOCAL_MODBUS:
-            assert self._modbus_host is not None
-            assert self._modbus_port is not None
-            assert self._modbus_unit_id is not None
-            # Legacy format (kept for backward compatibility)
-            data[CONF_MODBUS_HOST] = self._modbus_host
-            data[CONF_MODBUS_PORT] = self._modbus_port
-            data[CONF_MODBUS_UNIT_ID] = self._modbus_unit_id
-            # New format for Station.attach_local_transports()
-            local_transports.append(
-                {
-                    "serial": self._inverter_serial,
-                    "transport_type": "modbus_tcp",
-                    "host": self._modbus_host,
-                    "port": self._modbus_port,
-                    "unit_id": self._modbus_unit_id,
-                    "inverter_family": self._inverter_family or DEFAULT_INVERTER_FAMILY,
-                }
-            )
-        elif self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
-            assert self._dongle_host is not None
-            assert self._dongle_port is not None
-            assert self._dongle_serial is not None
-            # Legacy format (kept for backward compatibility)
-            data[CONF_DONGLE_HOST] = self._dongle_host
-            data[CONF_DONGLE_PORT] = self._dongle_port
-            data[CONF_DONGLE_SERIAL] = self._dongle_serial
-            # New format for Station.attach_local_transports()
-            local_transports.append(
-                {
-                    "serial": self._inverter_serial,
-                    "transport_type": "wifi_dongle",
-                    "host": self._dongle_host,
-                    "port": self._dongle_port,
-                    "dongle_serial": self._dongle_serial,
-                    "inverter_family": self._inverter_family or DEFAULT_INVERTER_FAMILY,
-                }
+        # Check if we have the new per-device transports list
+        if self._hybrid_local_transports is not None:
+            # New per-device flow - use accumulated transports
+            local_transports = self._hybrid_local_transports
+
+            # Determine hybrid_local_type from transports for backward compatibility
+            if local_transports:
+                first_transport = local_transports[0]
+                if first_transport.get("transport_type") == "modbus_tcp":
+                    self._hybrid_local_type = HYBRID_LOCAL_MODBUS
+                elif first_transport.get("transport_type") == "wifi_dongle":
+                    self._hybrid_local_type = HYBRID_LOCAL_DONGLE
+
+                # Set legacy fields from first transport for compatibility
+                self._inverter_serial = first_transport.get("serial", "")
+                self._inverter_family = first_transport.get(
+                    "inverter_family", DEFAULT_INVERTER_FAMILY
+                )
+
+            _LOGGER.info(
+                "Creating hybrid entry with %d local transports", len(local_transports)
             )
 
-        # Store the new format for coordinator
+        else:
+            # Legacy single-device flow - build transports from individual fields
+            assert self._inverter_serial is not None
+            assert self._hybrid_local_type is not None
+
+            if self._hybrid_local_type == HYBRID_LOCAL_MODBUS:
+                assert self._modbus_host is not None
+                assert self._modbus_port is not None
+                assert self._modbus_unit_id is not None
+                local_transports.append(
+                    {
+                        "serial": self._inverter_serial,
+                        "transport_type": "modbus_tcp",
+                        "host": self._modbus_host,
+                        "port": self._modbus_port,
+                        "unit_id": self._modbus_unit_id,
+                        "inverter_family": self._inverter_family
+                        or DEFAULT_INVERTER_FAMILY,
+                    }
+                )
+            elif self._hybrid_local_type == HYBRID_LOCAL_DONGLE:
+                assert self._dongle_host is not None
+                assert self._dongle_port is not None
+                assert self._dongle_serial is not None
+                local_transports.append(
+                    {
+                        "serial": self._inverter_serial,
+                        "transport_type": "wifi_dongle",
+                        "host": self._dongle_host,
+                        "port": self._dongle_port,
+                        "dongle_serial": self._dongle_serial,
+                        "inverter_family": self._inverter_family
+                        or DEFAULT_INVERTER_FAMILY,
+                    }
+                )
+
+        # Add backward-compatible fields
+        if self._hybrid_local_type:
+            data[CONF_HYBRID_LOCAL_TYPE] = self._hybrid_local_type
+        if self._inverter_serial:
+            data[CONF_INVERTER_SERIAL] = self._inverter_serial
+        if self._inverter_family:
+            data[CONF_INVERTER_FAMILY] = self._inverter_family
+
+        # Add legacy transport-specific fields for backward compatibility
         if local_transports:
-            data[CONF_LOCAL_TRANSPORTS] = local_transports
+            first_transport = local_transports[0]
+            if first_transport.get("transport_type") == "modbus_tcp":
+                data[CONF_MODBUS_HOST] = first_transport.get("host", "")
+                data[CONF_MODBUS_PORT] = first_transport.get(
+                    "port", DEFAULT_MODBUS_PORT
+                )
+                data[CONF_MODBUS_UNIT_ID] = first_transport.get(
+                    "unit_id", DEFAULT_MODBUS_UNIT_ID
+                )
+            elif first_transport.get("transport_type") == "wifi_dongle":
+                data[CONF_DONGLE_HOST] = first_transport.get("host", "")
+                data[CONF_DONGLE_PORT] = first_transport.get(
+                    "port", DEFAULT_DONGLE_PORT
+                )
+                data[CONF_DONGLE_SERIAL] = first_transport.get("dongle_serial", "")
+
+        # Store the transports list for coordinator
+        data[CONF_LOCAL_TRANSPORTS] = local_transports
 
         return self.async_create_entry(title=title, data=data)

@@ -1,7 +1,7 @@
 """Hybrid reconfigure mixin for EG4 Web Monitor config flow.
 
 This module provides reconfiguration for hybrid (cloud + local) connections,
-allowing users to update both HTTP credentials and local transport settings.
+allowing users to update HTTP credentials and manage local transport settings.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from ...const import (
     BRAND_NAME,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_DONGLE_HOST,
+    CONF_DONGLE_PORT,
+    CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_FAMILY,
@@ -34,6 +37,7 @@ from ...const import (
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HYBRID,
     DEFAULT_BASE_URL,
+    DEFAULT_DONGLE_PORT,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
@@ -59,12 +63,11 @@ _LOGGER = logging.getLogger(__name__)
 class HybridReconfigureMixin:
     """Mixin providing Hybrid (cloud + local) reconfiguration flow steps.
 
-    This mixin handles reconfiguration for hybrid connections:
+    This mixin handles reconfiguration for hybrid connections with a menu-based UI:
 
-    1. Show combined HTTP + Modbus settings form with current values
-    2. Test both connections
-    3. If username changed, show plant selection (if multiple plants)
-    4. Update config entry and reload
+    1. Main menu: Choose "Update Credentials" or "Manage Local Transports"
+    2. Credentials flow: Update HTTP settings, optionally change plant
+    3. Transports flow: List, add, edit, or remove local transports
 
     Gold tier requirement: Reconfiguration available through UI.
 
@@ -72,6 +75,7 @@ class HybridReconfigureMixin:
         - ConfigFlowProtocol attributes
         - _test_credentials() method from EG4ConfigFlowBase
         - _test_modbus_connection() method from EG4ConfigFlowBase
+        - _test_dongle_connection() method from EG4ConfigFlowBase
         - hass: HomeAssistant instance
     """
 
@@ -93,9 +97,17 @@ class HybridReconfigureMixin:
         _modbus_unit_id: int | None
         _inverter_serial: str | None
         _inverter_family: str | None
+        # Dongle fields
+        _dongle_host: str | None
+        _dongle_port: int | None
+        _dongle_serial: str | None
+        # Hybrid per-device flow fields (shared with onboarding)
+        _hybrid_local_transports: list[dict[str, Any]] | None
+        _reconfigure_device_index: int | None
 
         async def _test_credentials(self: ConfigFlowProtocol) -> None: ...
         async def _test_modbus_connection(self: ConfigFlowProtocol) -> str: ...
+        async def _test_dongle_connection(self: ConfigFlowProtocol) -> None: ...
         async def async_set_unique_id(
             self: ConfigFlowProtocol, unique_id: str
         ) -> Any: ...
@@ -113,23 +125,61 @@ class HybridReconfigureMixin:
             reason: str,
             description_placeholders: dict[str, str] | None = None,
         ) -> ConfigFlowResult: ...
+        def async_show_menu(
+            self: ConfigFlowProtocol,
+            *,
+            step_id: str,
+            menu_options: list[str] | dict[str, str],
+            description_placeholders: dict[str, str] | None = None,
+        ) -> ConfigFlowResult: ...
 
     async def async_step_reconfigure_hybrid(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle Hybrid reconfiguration flow - update both HTTP and Modbus settings.
+        """Show menu for hybrid reconfiguration options.
 
         Gold tier requirement: Reconfiguration available through UI.
+
+        Args:
+            user_input: Not used for menu step.
+
+        Returns:
+            Menu with credential update and transport management options.
+        """
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
+
+        # Get current transport summary for description
+        transports = entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+        transport_count = len(transports)
+
+        return self.async_show_menu(
+            step_id="reconfigure_hybrid",
+            menu_options={
+                "reconfigure_hybrid_credentials": "Update Cloud Credentials",
+                "reconfigure_hybrid_transports": "Manage Local Transports",
+            },
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
+                "transport_count": str(transport_count),
+            },
+        )
+
+    async def async_step_reconfigure_hybrid_credentials(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle HTTP credential reconfiguration for hybrid mode.
 
         Args:
             user_input: Form data from user, or None for initial display.
 
         Returns:
-            Form to update settings, plant selection, or abort on completion.
+            Form to update HTTP settings, plant selection, or abort on completion.
         """
         errors: dict[str, str] = {}
 
-        # Get the current entry being reconfigured
         entry = get_reconfigure_entry(self.hass, self.context)
         if entry is None:
             return self.async_abort(reason="entry_not_found")
@@ -142,25 +192,9 @@ class HybridReconfigureMixin:
             self._verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
             self._dst_sync = user_input.get(CONF_DST_SYNC, True)
 
-            # Store Modbus settings
-            self._modbus_host = user_input[CONF_MODBUS_HOST]
-            self._modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
-            self._modbus_unit_id = user_input.get(
-                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
-            )
-            self._inverter_serial = user_input.get(
-                CONF_INVERTER_SERIAL, entry.data.get(CONF_INVERTER_SERIAL, "")
-            )
-            self._inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
-
             try:
                 # Test HTTP credentials
                 await self._test_credentials()
-
-                # Test Modbus connection
-                await self._test_modbus_connection()
 
                 # Check if we're changing accounts (username changed)
                 if self._username != entry.data.get(CONF_USERNAME):
@@ -169,7 +203,7 @@ class HybridReconfigureMixin:
                     if len(self._plants) == 1:
                         plant = self._plants[0]
                         self._plant_id = plant["plantId"]
-                        return await self._update_hybrid_entry_from_reconfigure(
+                        return await self._update_hybrid_credentials(
                             entry=entry,
                             plant_id=plant["plantId"],
                             plant_name=plant["name"],
@@ -183,7 +217,7 @@ class HybridReconfigureMixin:
                 assert plant_id is not None and plant_name is not None, (
                     "Plant ID and name must be set"
                 )
-                return await self._update_hybrid_entry_from_reconfigure(
+                return await self._update_hybrid_credentials(
                     entry=entry,
                     plant_id=plant_id,
                     plant_name=plant_name,
@@ -193,13 +227,6 @@ class HybridReconfigureMixin:
                 errors["base"] = "invalid_auth"
             except LuxpowerConnectionError:
                 errors["base"] = "cannot_connect"
-            except ImportError:
-                errors["base"] = "modbus_not_installed"
-            except TimeoutError:
-                errors["base"] = "modbus_timeout"
-            except OSError as e:
-                _LOGGER.error("Modbus connection error: %s", e)
-                errors["base"] = "modbus_connection_failed"
             except LuxpowerAPIError as e:
                 _LOGGER.error("API error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
@@ -207,10 +234,9 @@ class HybridReconfigureMixin:
                 _LOGGER.exception("Unexpected error during reconfiguration: %s", e)
                 errors["base"] = "unknown"
 
-        # Build hybrid reconfiguration schema with current values
-        hybrid_schema = vol.Schema(
+        # Build HTTP credentials schema with current values
+        credentials_schema = vol.Schema(
             {
-                # HTTP settings
                 vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME)): str,
                 vol.Required(CONF_PASSWORD): str,
                 vol.Optional(
@@ -223,39 +249,16 @@ class HybridReconfigureMixin:
                 vol.Optional(
                     CONF_DST_SYNC, default=entry.data.get(CONF_DST_SYNC, True)
                 ): bool,
-                # Modbus settings
-                vol.Required(
-                    CONF_MODBUS_HOST, default=entry.data.get(CONF_MODBUS_HOST, "")
-                ): str,
-                vol.Optional(
-                    CONF_MODBUS_PORT,
-                    default=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
-                ): int,
-                vol.Optional(
-                    CONF_MODBUS_UNIT_ID,
-                    default=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
-                ): int,
-                vol.Optional(
-                    CONF_INVERTER_SERIAL,
-                    default=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                ): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY,
-                    default=entry.data.get(
-                        CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-                    ),
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
         return self.async_show_form(
-            step_id="reconfigure_hybrid",
-            data_schema=hybrid_schema,
+            step_id="reconfigure_hybrid_credentials",
+            data_schema=credentials_schema,
             errors=errors,
             description_placeholders={
                 "brand_name": BRAND_NAME,
                 "current_station": entry.data.get(CONF_PLANT_NAME, "Unknown"),
-                "current_host": entry.data.get(CONF_MODBUS_HOST, "Unknown"),
             },
         )
 
@@ -272,7 +275,6 @@ class HybridReconfigureMixin:
         """
         errors: dict[str, str] = {}
 
-        # Get the current entry being reconfigured
         entry = get_reconfigure_entry(self.hass, self.context)
         if entry is None:
             return self.async_abort(reason="entry_not_found")
@@ -287,7 +289,7 @@ class HybridReconfigureMixin:
                 if not selected_plant:
                     errors["base"] = "invalid_plant"
                 else:
-                    return await self._update_hybrid_entry_from_reconfigure(
+                    return await self._update_hybrid_credentials(
                         entry=entry,
                         plant_id=selected_plant["plantId"],
                         plant_name=selected_plant["name"],
@@ -323,16 +325,512 @@ class HybridReconfigureMixin:
             },
         )
 
-    async def _update_hybrid_entry_from_reconfigure(
+    async def async_step_reconfigure_hybrid_transports(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show transport management menu for hybrid mode.
+
+        Lists current transports and allows add/edit/remove operations.
+
+        Args:
+            user_input: Form data with action selection, or None for display.
+
+        Returns:
+            Form with transport list and actions.
+        """
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
+
+        # Initialize transports list from entry if not already done
+        if self._hybrid_local_transports is None:
+            self._hybrid_local_transports = list(
+                entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+            )
+
+        if user_input is not None:
+            action = user_input.get("action", "done")
+
+            if action == "add":
+                return await self.async_step_reconfigure_hybrid_add_transport()
+            elif action.startswith("edit_"):
+                # Extract device index from action
+                try:
+                    idx = int(action.replace("edit_", ""))
+                    self._reconfigure_device_index = idx
+                    return await self.async_step_reconfigure_hybrid_edit_transport()
+                except (ValueError, IndexError):
+                    pass
+            elif action.startswith("remove_"):
+                # Extract device index and remove
+                try:
+                    idx = int(action.replace("remove_", ""))
+                    if 0 <= idx < len(self._hybrid_local_transports):
+                        removed = self._hybrid_local_transports.pop(idx)
+                        _LOGGER.info(
+                            "Removed transport for device %s",
+                            removed.get("serial", "unknown"),
+                        )
+                except (ValueError, IndexError):
+                    pass
+            elif action == "done":
+                return await self._update_hybrid_transports(entry)
+
+        # Build action options including edit/remove for each transport
+        action_options: dict[str, str] = {"add": "Add New Device Transport"}
+
+        transports = self._hybrid_local_transports or []
+        for idx, transport in enumerate(transports):
+            serial = transport.get("serial", "Unknown")
+            transport_type = transport.get("transport_type", "unknown")
+            host = transport.get("host", "Unknown")
+            label = f"{serial} ({transport_type} @ {host})"
+            action_options[f"edit_{idx}"] = f"Edit: {label}"
+            action_options[f"remove_{idx}"] = f"Remove: {label}"
+
+        action_options["done"] = "Save and Finish"
+
+        schema = vol.Schema(
+            {
+                vol.Required("action", default="done"): vol.In(action_options),
+            }
+        )
+
+        # Build device list summary for description
+        device_list = []
+        for transport in transports:
+            serial = transport.get("serial", "Unknown")
+            ttype = transport.get("transport_type", "unknown")
+            host = transport.get("host", "Unknown")
+            device_list.append(f"• {serial}: {ttype} @ {host}")
+
+        device_summary = (
+            "\n".join(device_list) if device_list else "(No local transports)"
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_transports",
+            data_schema=schema,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_count": str(len(transports)),
+                "device_list": device_summary,
+            },
+        )
+
+    async def async_step_reconfigure_hybrid_add_transport(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select transport type when adding a new device.
+
+        Args:
+            user_input: Form data with transport type selection, or None.
+
+        Returns:
+            Transport type selection form, or modbus/dongle config step.
+        """
+        if user_input is not None:
+            transport_type = user_input.get("transport_type", "modbus")
+
+            if transport_type == "modbus":
+                return await self.async_step_reconfigure_hybrid_add_modbus()
+            elif transport_type == "dongle":
+                return await self.async_step_reconfigure_hybrid_add_dongle()
+
+        schema = vol.Schema(
+            {
+                vol.Required("transport_type", default="modbus"): vol.In(
+                    {
+                        "modbus": "Modbus TCP (RS485 Adapter)",
+                        "dongle": "WiFi Dongle",
+                    }
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_add_transport",
+            data_schema=schema,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_reconfigure_hybrid_add_modbus(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a new Modbus transport.
+
+        Args:
+            user_input: Form data from user, or None for initial display.
+
+        Returns:
+            Modbus config form, or back to transports list on success.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input.get(CONF_MODBUS_HOST, "").strip()
+            port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+            inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "").strip()
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            if not host:
+                errors[CONF_MODBUS_HOST] = "required"
+            elif not inverter_serial:
+                errors[CONF_INVERTER_SERIAL] = "required"
+            else:
+                # Store for connection test
+                self._modbus_host = host
+                self._modbus_port = port
+                self._modbus_unit_id = unit_id
+                self._inverter_serial = inverter_serial
+                self._inverter_family = inverter_family
+
+                try:
+                    await self._test_modbus_connection()
+
+                    # Add to transports list
+                    assert self._hybrid_local_transports is not None
+                    self._hybrid_local_transports.append(
+                        {
+                            "serial": inverter_serial,
+                            "transport_type": "modbus_tcp",
+                            "host": host,
+                            "port": port,
+                            "unit_id": unit_id,
+                            "inverter_family": inverter_family,
+                        }
+                    )
+
+                    _LOGGER.info(
+                        "Added Modbus transport for device %s at %s:%s",
+                        inverter_serial,
+                        host,
+                        port,
+                    )
+
+                    return await self.async_step_reconfigure_hybrid_transports()
+
+                except ImportError:
+                    errors["base"] = "modbus_not_installed"
+                except TimeoutError:
+                    errors["base"] = "modbus_timeout"
+                except OSError as e:
+                    _LOGGER.error("Modbus connection error: %s", e)
+                    errors["base"] = "modbus_connection_failed"
+                except Exception as e:
+                    _LOGGER.exception("Unexpected Modbus error: %s", e)
+                    errors["base"] = "unknown"
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_MODBUS_HOST): str,
+                vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
+                vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
+                vol.Required(CONF_INVERTER_SERIAL): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_add_modbus",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_reconfigure_hybrid_add_dongle(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a new WiFi Dongle transport.
+
+        Args:
+            user_input: Form data from user, or None for initial display.
+
+        Returns:
+            Dongle config form, or back to transports list on success.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input.get(CONF_DONGLE_HOST, "").strip()
+            port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            dongle_serial = user_input.get(CONF_DONGLE_SERIAL, "").strip()
+            inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "").strip()
+            inverter_family = user_input.get(
+                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+            )
+
+            if not host:
+                errors[CONF_DONGLE_HOST] = "required"
+            elif not dongle_serial:
+                errors[CONF_DONGLE_SERIAL] = "required"
+            elif not inverter_serial:
+                errors[CONF_INVERTER_SERIAL] = "required"
+            else:
+                # Store for connection test
+                self._dongle_host = host
+                self._dongle_port = port
+                self._dongle_serial = dongle_serial
+                self._inverter_serial = inverter_serial
+                self._inverter_family = inverter_family
+
+                try:
+                    await self._test_dongle_connection()
+
+                    # Add to transports list
+                    assert self._hybrid_local_transports is not None
+                    self._hybrid_local_transports.append(
+                        {
+                            "serial": inverter_serial,
+                            "transport_type": "wifi_dongle",
+                            "host": host,
+                            "port": port,
+                            "dongle_serial": dongle_serial,
+                            "inverter_family": inverter_family,
+                        }
+                    )
+
+                    _LOGGER.info(
+                        "Added WiFi Dongle transport for device %s at %s:%s",
+                        inverter_serial,
+                        host,
+                        port,
+                    )
+
+                    return await self.async_step_reconfigure_hybrid_transports()
+
+                except TimeoutError:
+                    errors["base"] = "dongle_timeout"
+                except OSError as e:
+                    _LOGGER.error("Dongle connection error: %s", e)
+                    errors["base"] = "dongle_connection_failed"
+                except Exception as e:
+                    _LOGGER.exception("Unexpected dongle error: %s", e)
+                    errors["base"] = "unknown"
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_DONGLE_HOST): str,
+                vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
+                vol.Required(CONF_DONGLE_SERIAL): str,
+                vol.Required(CONF_INVERTER_SERIAL): str,
+                vol.Optional(
+                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
+                ): vol.In(INVERTER_FAMILY_OPTIONS),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_add_dongle",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_reconfigure_hybrid_edit_transport(
+        self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit an existing transport (connection details only, not serial).
+
+        Args:
+            user_input: Form data from user, or None for initial display.
+
+        Returns:
+            Edit form pre-filled with current values, or back to list on success.
+        """
+        errors: dict[str, str] = {}
+
+        entry = get_reconfigure_entry(self.hass, self.context)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
+
+        idx = self._reconfigure_device_index
+        if idx is None or not self._hybrid_local_transports:
+            return await self.async_step_reconfigure_hybrid_transports()
+
+        if idx >= len(self._hybrid_local_transports):
+            return await self.async_step_reconfigure_hybrid_transports()
+
+        current_transport = self._hybrid_local_transports[idx]
+        transport_type = current_transport.get("transport_type", "modbus_tcp")
+
+        if user_input is not None:
+            # Update based on transport type
+            if transport_type == "modbus_tcp":
+                host = user_input.get(CONF_MODBUS_HOST, "").strip()
+                port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+                unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+                inverter_family = user_input.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                )
+
+                if not host:
+                    errors[CONF_MODBUS_HOST] = "required"
+                else:
+                    # Store for connection test
+                    self._modbus_host = host
+                    self._modbus_port = port
+                    self._modbus_unit_id = unit_id
+                    self._inverter_serial = current_transport.get("serial", "")
+                    self._inverter_family = inverter_family
+
+                    try:
+                        await self._test_modbus_connection()
+
+                        # Update transport in list (preserve serial)
+                        self._hybrid_local_transports[idx] = {
+                            "serial": current_transport.get("serial", ""),
+                            "transport_type": "modbus_tcp",
+                            "host": host,
+                            "port": port,
+                            "unit_id": unit_id,
+                            "inverter_family": inverter_family,
+                        }
+
+                        _LOGGER.info(
+                            "Updated Modbus transport for device %s",
+                            current_transport.get("serial"),
+                        )
+
+                        return await self.async_step_reconfigure_hybrid_transports()
+
+                    except ImportError:
+                        errors["base"] = "modbus_not_installed"
+                    except TimeoutError:
+                        errors["base"] = "modbus_timeout"
+                    except OSError as e:
+                        _LOGGER.error("Modbus connection error: %s", e)
+                        errors["base"] = "modbus_connection_failed"
+                    except Exception as e:
+                        _LOGGER.exception("Unexpected error: %s", e)
+                        errors["base"] = "unknown"
+
+            elif transport_type == "wifi_dongle":
+                host = user_input.get(CONF_DONGLE_HOST, "").strip()
+                port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+                dongle_serial = user_input.get(CONF_DONGLE_SERIAL, "").strip()
+                inverter_family = user_input.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                )
+
+                if not host:
+                    errors[CONF_DONGLE_HOST] = "required"
+                elif not dongle_serial:
+                    errors[CONF_DONGLE_SERIAL] = "required"
+                else:
+                    # Store for connection test
+                    self._dongle_host = host
+                    self._dongle_port = port
+                    self._dongle_serial = dongle_serial
+                    self._inverter_serial = current_transport.get("serial", "")
+                    self._inverter_family = inverter_family
+
+                    try:
+                        await self._test_dongle_connection()
+
+                        # Update transport in list (preserve serial)
+                        self._hybrid_local_transports[idx] = {
+                            "serial": current_transport.get("serial", ""),
+                            "transport_type": "wifi_dongle",
+                            "host": host,
+                            "port": port,
+                            "dongle_serial": dongle_serial,
+                            "inverter_family": inverter_family,
+                        }
+
+                        _LOGGER.info(
+                            "Updated WiFi Dongle transport for device %s",
+                            current_transport.get("serial"),
+                        )
+
+                        return await self.async_step_reconfigure_hybrid_transports()
+
+                    except TimeoutError:
+                        errors["base"] = "dongle_timeout"
+                    except OSError as e:
+                        _LOGGER.error("Dongle connection error: %s", e)
+                        errors["base"] = "dongle_connection_failed"
+                    except Exception as e:
+                        _LOGGER.exception("Unexpected error: %s", e)
+                        errors["base"] = "unknown"
+
+        # Build form based on transport type
+        serial = current_transport.get("serial", "Unknown")
+
+        if transport_type == "modbus_tcp":
+            schema = vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MODBUS_HOST,
+                        default=current_transport.get("host", ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_MODBUS_PORT,
+                        default=current_transport.get("port", DEFAULT_MODBUS_PORT),
+                    ): int,
+                    vol.Optional(
+                        CONF_MODBUS_UNIT_ID,
+                        default=current_transport.get(
+                            "unit_id", DEFAULT_MODBUS_UNIT_ID
+                        ),
+                    ): int,
+                    vol.Optional(
+                        CONF_INVERTER_FAMILY,
+                        default=current_transport.get(
+                            "inverter_family", DEFAULT_INVERTER_FAMILY
+                        ),
+                    ): vol.In(INVERTER_FAMILY_OPTIONS),
+                }
+            )
+        else:  # wifi_dongle
+            schema = vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DONGLE_HOST,
+                        default=current_transport.get("host", ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_DONGLE_PORT,
+                        default=current_transport.get("port", DEFAULT_DONGLE_PORT),
+                    ): int,
+                    vol.Required(
+                        CONF_DONGLE_SERIAL,
+                        default=current_transport.get("dongle_serial", ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_INVERTER_FAMILY,
+                        default=current_transport.get(
+                            "inverter_family", DEFAULT_INVERTER_FAMILY
+                        ),
+                    ): vol.In(INVERTER_FAMILY_OPTIONS),
+                }
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_edit_transport",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "device_serial": serial,
+                "transport_type": transport_type,
+            },
+        )
+
+    async def _update_hybrid_credentials(
         self: ConfigFlowProtocol,
         entry: config_entries.ConfigEntry[Any],
         plant_id: str,
         plant_name: str,
     ) -> ConfigFlowResult:
-        """Update the Hybrid config entry with new HTTP and local transport data.
+        """Update the Hybrid config entry with new HTTP credentials.
 
-        Preserves existing local transport type or defaults to Modbus for
-        backward compatibility with pre-v3.1.8 configurations.
+        Preserves existing local transports.
 
         Args:
             entry: The config entry to update.
@@ -347,9 +845,6 @@ class HybridReconfigureMixin:
         assert self._base_url is not None
         assert self._verify_ssl is not None
         assert self._dst_sync is not None
-        assert self._modbus_host is not None
-        assert self._modbus_port is not None
-        assert self._modbus_unit_id is not None
 
         unique_id = f"hybrid_{self._username}_{plant_id}"
 
@@ -363,15 +858,12 @@ class HybridReconfigureMixin:
             )
             return self.async_abort(reason="already_configured")
 
-        # Update title
         title = format_entry_title("hybrid", plant_name)
 
-        # Preserve existing hybrid local type or default to Modbus
-        hybrid_local_type = entry.data.get(CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS)
-
+        # Build updated data preserving existing transports
         data: dict[str, Any] = {
             CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
-            # HTTP settings
+            # HTTP settings (updated)
             CONF_USERNAME: self._username,
             CONF_PASSWORD: self._password,
             CONF_BASE_URL: self._base_url,
@@ -379,53 +871,24 @@ class HybridReconfigureMixin:
             CONF_DST_SYNC: self._dst_sync,
             CONF_PLANT_ID: plant_id,
             CONF_PLANT_NAME: plant_name,
-            # Local transport type and common settings
-            CONF_HYBRID_LOCAL_TYPE: hybrid_local_type,
-            CONF_INVERTER_SERIAL: self._inverter_serial or "",
-            CONF_INVERTER_FAMILY: self._inverter_family or DEFAULT_INVERTER_FAMILY,
-            # Modbus settings (current reconfigure flow only supports Modbus)
-            CONF_MODBUS_HOST: self._modbus_host,
-            CONF_MODBUS_PORT: self._modbus_port,
-            CONF_MODBUS_UNIT_ID: self._modbus_unit_id,
+            # Preserve existing local transport settings
+            CONF_LOCAL_TRANSPORTS: entry.data.get(CONF_LOCAL_TRANSPORTS, []),
         }
 
-        # Build new CONF_LOCAL_TRANSPORTS list for Station.attach_local_transports()
-        local_transports: list[dict[str, Any]] = []
-        inverter_serial = self._inverter_serial or ""
-        inverter_family = self._inverter_family or DEFAULT_INVERTER_FAMILY
-
-        # Add Modbus transport config if present
-        # Uses TransportType enum string values for direct TransportConfig creation
-        if hybrid_local_type == HYBRID_LOCAL_MODBUS and self._modbus_host:
-            local_transports.append(
-                {
-                    "serial": inverter_serial,
-                    "transport_type": "modbus_tcp",  # TransportType.MODBUS_TCP.value
-                    "host": self._modbus_host,
-                    "port": self._modbus_port,
-                    "unit_id": self._modbus_unit_id,
-                    "inverter_family": inverter_family,
-                }
-            )
-
-        # Preserve dongle settings if using dongle transport
-        if hybrid_local_type == HYBRID_LOCAL_DONGLE:
-            dongle_host = entry.data.get("dongle_host")
-            dongle_port = entry.data.get("dongle_port")
-            dongle_serial = entry.data.get("dongle_serial")
-            if dongle_host:
-                local_transports.append(
-                    {
-                        "serial": inverter_serial,
-                        "transport_type": "wifi_dongle",  # TransportType.WIFI_DONGLE.value
-                        "host": dongle_host,
-                        "port": dongle_port,
-                        "dongle_serial": dongle_serial,
-                        "inverter_family": inverter_family,
-                    }
-                )
-
-        data[CONF_LOCAL_TRANSPORTS] = local_transports
+        # Preserve backward-compatible fields
+        for key in [
+            CONF_HYBRID_LOCAL_TYPE,
+            CONF_INVERTER_SERIAL,
+            CONF_INVERTER_FAMILY,
+            CONF_MODBUS_HOST,
+            CONF_MODBUS_PORT,
+            CONF_MODBUS_UNIT_ID,
+            CONF_DONGLE_HOST,
+            CONF_DONGLE_PORT,
+            CONF_DONGLE_SERIAL,
+        ]:
+            if key in entry.data:
+                data[key] = entry.data[key]
 
         self.hass.config_entries.async_update_entry(
             entry,
@@ -439,3 +902,74 @@ class HybridReconfigureMixin:
             reason="reconfigure_successful",
             description_placeholders={"brand_name": BRAND_NAME},
         )
+
+    async def _update_hybrid_transports(
+        self: ConfigFlowProtocol,
+        entry: config_entries.ConfigEntry[Any],
+    ) -> ConfigFlowResult:
+        """Update the Hybrid config entry with modified local transports.
+
+        Preserves existing HTTP credentials.
+
+        Args:
+            entry: The config entry to update.
+
+        Returns:
+            Abort result indicating success.
+        """
+        # Build updated data preserving HTTP settings
+        data = dict(entry.data)
+
+        # Update transports list
+        data[CONF_LOCAL_TRANSPORTS] = self._hybrid_local_transports or []
+
+        # Update backward-compatible fields from first transport
+        transports = self._hybrid_local_transports or []
+        if transports:
+            first = transports[0]
+            if first.get("transport_type") == "modbus_tcp":
+                data[CONF_HYBRID_LOCAL_TYPE] = HYBRID_LOCAL_MODBUS
+                data[CONF_MODBUS_HOST] = first.get("host", "")
+                data[CONF_MODBUS_PORT] = first.get("port", DEFAULT_MODBUS_PORT)
+                data[CONF_MODBUS_UNIT_ID] = first.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+            elif first.get("transport_type") == "wifi_dongle":
+                data[CONF_HYBRID_LOCAL_TYPE] = HYBRID_LOCAL_DONGLE
+                data[CONF_DONGLE_HOST] = first.get("host", "")
+                data[CONF_DONGLE_PORT] = first.get("port", DEFAULT_DONGLE_PORT)
+                data[CONF_DONGLE_SERIAL] = first.get("dongle_serial", "")
+
+            data[CONF_INVERTER_SERIAL] = first.get("serial", "")
+            data[CONF_INVERTER_FAMILY] = first.get(
+                "inverter_family", DEFAULT_INVERTER_FAMILY
+            )
+        else:
+            # No transports - clear legacy fields
+            data.pop(CONF_HYBRID_LOCAL_TYPE, None)
+            data.pop(CONF_MODBUS_HOST, None)
+            data.pop(CONF_MODBUS_PORT, None)
+            data.pop(CONF_MODBUS_UNIT_ID, None)
+            data.pop(CONF_DONGLE_HOST, None)
+            data.pop(CONF_DONGLE_PORT, None)
+            data.pop(CONF_DONGLE_SERIAL, None)
+
+        self.hass.config_entries.async_update_entry(
+            entry,
+            data=data,
+        )
+
+        await self.hass.config_entries.async_reload(entry.entry_id)
+
+        return self.async_abort(
+            reason="reconfigure_successful",
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    # Keep legacy method for backward compatibility with existing tests
+    async def _update_hybrid_entry_from_reconfigure(
+        self: ConfigFlowProtocol,
+        entry: config_entries.ConfigEntry[Any],
+        plant_id: str,
+        plant_name: str,
+    ) -> ConfigFlowResult:
+        """Legacy method - redirects to _update_hybrid_credentials."""
+        return await self._update_hybrid_credentials(entry, plant_id, plant_name)

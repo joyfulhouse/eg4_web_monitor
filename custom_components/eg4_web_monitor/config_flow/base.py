@@ -68,6 +68,9 @@ class ConfigFlowProtocol(Protocol):
 
     # Hybrid state
     _hybrid_local_type: str | None
+    _hybrid_devices: list[str] | None
+    _hybrid_current_device_idx: int
+    _hybrid_local_transports: list[dict[str, Any]] | None
 
     # Local multi-device state
     _local_station_name: str | None
@@ -94,6 +97,7 @@ class ConfigFlowProtocol(Protocol):
     async def _test_modbus_connection(self) -> str: ...
     async def _test_dongle_connection(self) -> None: ...
     def _get_inverter_serials_from_plant(self) -> list[str]: ...
+    async def _load_plant_devices(self) -> list[str]: ...
 
     # ==========================================================================
     # Discovery methods (from EG4ConfigFlowBase)
@@ -109,6 +113,7 @@ class ConfigFlowProtocol(Protocol):
     # ConfigFlow methods (inherited from config_entries.ConfigFlow)
     # ==========================================================================
     def async_show_form(self, **kwargs: Any) -> "ConfigFlowResult": ...
+    def async_show_menu(self, **kwargs: Any) -> "ConfigFlowResult": ...
     def async_create_entry(self, **kwargs: Any) -> "ConfigFlowResult": ...
     def async_abort(self, **kwargs: Any) -> "ConfigFlowResult": ...
     async def async_set_unique_id(
@@ -148,6 +153,16 @@ class ConfigFlowProtocol(Protocol):
         plant_id: str,
         plant_name: str,
     ) -> "ConfigFlowResult": ...
+    async def _update_hybrid_credentials(
+        self,
+        entry: "config_entries.ConfigEntry[Any]",
+        plant_id: str,
+        plant_name: str,
+    ) -> "ConfigFlowResult": ...
+    async def _update_hybrid_transports(
+        self,
+        entry: "config_entries.ConfigEntry[Any]",
+    ) -> "ConfigFlowResult": ...
 
     # ==========================================================================
     # HTTP onboarding steps (from HttpOnboardingMixin)
@@ -169,6 +184,16 @@ class ConfigFlowProtocol(Protocol):
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult": ...
     async def async_step_hybrid_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    # Per-device transport selection (multi-device hybrid)
+    async def async_step_hybrid_device_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_hybrid_device_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_hybrid_device_dongle(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult": ...
 
@@ -207,7 +232,25 @@ class ConfigFlowProtocol(Protocol):
     async def async_step_reconfigure_hybrid(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
     async def async_step_reconfigure_hybrid_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_transports(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_add_transport(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_add_modbus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_add_dongle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> "ConfigFlowResult": ...
+    async def async_step_reconfigure_hybrid_edit_transport(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult": ...
 
@@ -291,6 +334,11 @@ class EG4ConfigFlowBase:
 
         # Hybrid mode local transport type selection
         self._hybrid_local_type: str | None = None
+
+        # Hybrid per-device flow state
+        self._hybrid_devices: list[str] | None = None  # Device serials from plant
+        self._hybrid_current_device_idx: int = 0  # Current device index (0-based)
+        self._hybrid_local_transports: list[dict[str, Any]] | None = None  # Accumulated
 
         # Local multi-device mode fields
         self._local_station_name: str | None = None
