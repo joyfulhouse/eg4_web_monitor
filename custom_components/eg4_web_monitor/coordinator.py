@@ -1225,6 +1225,27 @@ class EG4DataUpdateCoordinator(
                     # Refresh data from transport
                     await inverter.refresh(force=True, include_parameters=True)
 
+                    # Detect inverter features for capability-based sensor filtering
+                    features: dict[str, Any] = {}
+                    if hasattr(inverter, "detect_features"):
+                        try:
+                            await inverter.detect_features()
+                            features = self._extract_inverter_features(inverter)
+                            _LOGGER.debug(
+                                "LOCAL: Detected features for %s: family=%s, "
+                                "split_phase=%s, three_phase=%s",
+                                serial,
+                                features.get("inverter_family"),
+                                features.get("supports_split_phase"),
+                                features.get("supports_three_phase"),
+                            )
+                        except Exception as e:
+                            _LOGGER.warning(
+                                "LOCAL: Could not detect features for %s: %s",
+                                serial,
+                                e,
+                            )
+
                     # Read firmware version from transport
                     firmware_version = "Unknown"
                     transport = inverter._transport
@@ -1279,6 +1300,7 @@ class EG4DataUpdateCoordinator(
                         "firmware_version": firmware_version,
                         "sensors": _build_runtime_sensor_mapping(runtime_data),
                         "batteries": {},
+                        "features": features,  # For capability-based sensor filtering
                         # Parallel group info (for dynamic grouping)
                         "parallel_number": parallel_number,
                         "parallel_master_slave": parallel_master_slave,
