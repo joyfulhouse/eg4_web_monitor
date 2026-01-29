@@ -44,12 +44,13 @@ from ...const import (
     HYBRID_LOCAL_MODBUS,
 )
 from ..helpers import build_unique_id, format_entry_title, timezone_observes_dst
-from ..schemas import HYBRID_LOCAL_TYPE_OPTIONS, INVERTER_FAMILY_OPTIONS
+from ..schemas import HYBRID_LOCAL_TYPE_OPTIONS
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
 
     from ..base import ConfigFlowProtocol
+    from ..discovery import DiscoveredDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,6 +130,19 @@ class HybridOnboardingMixin:
         async def _test_credentials(self: ConfigFlowProtocol) -> None: ...
         async def _test_modbus_connection(self: ConfigFlowProtocol) -> str: ...
         async def _test_dongle_connection(self: ConfigFlowProtocol) -> None: ...
+        async def _discover_modbus_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            port: int,
+            unit_id: int,
+        ) -> DiscoveredDevice: ...
+        async def _discover_dongle_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            dongle_serial: str,
+            inverter_serial: str,
+            port: int,
+        ) -> DiscoveredDevice: ...
         def _get_inverter_serials_from_plant(
             self: ConfigFlowProtocol,
         ) -> list[str]: ...
@@ -292,7 +306,12 @@ class HybridOnboardingMixin:
     async def async_step_hybrid_modbus(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle Modbus configuration for hybrid mode.
+        """Handle Modbus configuration for hybrid mode (legacy single-device).
+
+        This method is kept for backward compatibility. New flows use the
+        per-device async_step_hybrid_device_modbus() method instead.
+
+        Uses auto-discovery to detect serial, model, and family from the device.
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -307,22 +326,33 @@ class HybridOnboardingMixin:
             self._hybrid_local_type = HYBRID_LOCAL_MODBUS
 
         if user_input is not None:
-            self._modbus_host = user_input[CONF_MODBUS_HOST]
-            self._modbus_port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
-            self._modbus_unit_id = user_input.get(
-                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
-            )
-            # For hybrid, serial comes from plant discovery, but can be overridden
-            self._inverter_serial = user_input.get(
-                CONF_INVERTER_SERIAL, self._inverter_serial or ""
-            )
-            self._inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
+            host = user_input[CONF_MODBUS_HOST]
+            port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
 
-            # Test Modbus connection
+            self._modbus_host = host
+            self._modbus_port = port
+            self._modbus_unit_id = unit_id
+
             try:
-                await self._test_modbus_connection()
+                # Auto-discover device info (serial, model, family)
+                discovered = await self._discover_modbus_device(
+                    host=host,
+                    port=port,
+                    unit_id=unit_id,
+                )
+
+                # Use discovered values (auto-detected from registers)
+                self._inverter_serial = discovered.serial
+                self._inverter_family = discovered.family
+
+                _LOGGER.info(
+                    "Discovered device: serial=%s, model=%s, family=%s",
+                    discovered.serial,
+                    discovered.model,
+                    discovered.family,
+                )
+
                 return await self._create_hybrid_entry()
 
             except ImportError:
@@ -336,19 +366,12 @@ class HybridOnboardingMixin:
                 _LOGGER.exception("Unexpected Modbus error: %s", e)
                 errors["base"] = "unknown"
 
-        # Try to get inverter serials from the discovered plant
-        inverter_serials = self._get_inverter_serials_from_plant()
-        default_serial = inverter_serials[0] if inverter_serials else ""
-
+        # Minimal schema - just connection details, everything else auto-detected
         modbus_schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
                 vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
-                vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -364,7 +387,12 @@ class HybridOnboardingMixin:
     async def async_step_hybrid_dongle(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle WiFi Dongle configuration for hybrid mode.
+        """Handle WiFi Dongle configuration for hybrid mode (legacy single-device).
+
+        This method is kept for backward compatibility. New flows use the
+        per-device async_step_hybrid_device_dongle() method instead.
+
+        Uses auto-discovery to detect model and family from the device.
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -375,20 +403,36 @@ class HybridOnboardingMixin:
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            self._dongle_host = user_input[CONF_DONGLE_HOST]
-            self._dongle_port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
-            self._dongle_serial = user_input[CONF_DONGLE_SERIAL]
-            # For hybrid, inverter serial may come from plant discovery or be specified
-            self._inverter_serial = user_input.get(
-                CONF_INVERTER_SERIAL, self._inverter_serial or ""
-            )
-            self._inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
+            host = user_input[CONF_DONGLE_HOST]
+            port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
+            dongle_serial = user_input[CONF_DONGLE_SERIAL]
+            # Inverter serial is required for dongle auth protocol
+            inverter_serial = user_input[CONF_INVERTER_SERIAL]
 
-            # Test dongle connection
+            self._dongle_host = host
+            self._dongle_port = port
+            self._dongle_serial = dongle_serial
+            self._inverter_serial = inverter_serial
+
             try:
-                await self._test_dongle_connection()
+                # Auto-discover device info (model, family)
+                discovered = await self._discover_dongle_device(
+                    host=host,
+                    dongle_serial=dongle_serial,
+                    inverter_serial=inverter_serial,
+                    port=port,
+                )
+
+                # Use discovered family (auto-detected from registers)
+                self._inverter_family = discovered.family
+
+                _LOGGER.info(
+                    "Discovered device: serial=%s, model=%s, family=%s",
+                    inverter_serial,
+                    discovered.model,
+                    discovered.family,
+                )
+
                 return await self._create_hybrid_entry()
 
             except TimeoutError:
@@ -404,15 +448,14 @@ class HybridOnboardingMixin:
         inverter_serials = self._get_inverter_serials_from_plant()
         default_serial = inverter_serials[0] if inverter_serials else ""
 
+        # Dongle requires: host, dongle_serial, inverter_serial (for auth)
+        # Family is auto-detected from registers
         dongle_schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
                 vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
                 vol.Required(CONF_DONGLE_SERIAL): str,
                 vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -567,6 +610,9 @@ class HybridOnboardingMixin:
     ) -> ConfigFlowResult:
         """Configure Modbus transport for the current device in hybrid mode.
 
+        Uses auto-discovery to detect serial, model, and family from the device.
+        User only needs to provide connection details (host, port, unit_id).
+
         After successful configuration, moves to the next device.
 
         Args:
@@ -581,27 +627,21 @@ class HybridOnboardingMixin:
             host = user_input.get(CONF_MODBUS_HOST, "").strip()
             port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
             unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
-            inverter_serial = user_input.get(
-                CONF_INVERTER_SERIAL, self._inverter_serial or ""
-            )
-            inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
 
             if not host:
                 errors[CONF_MODBUS_HOST] = "required"
-            elif not inverter_serial:
-                errors[CONF_INVERTER_SERIAL] = "required"
             else:
-                # Store for connection test
-                self._modbus_host = host
-                self._modbus_port = port
-                self._modbus_unit_id = unit_id
-                self._inverter_serial = inverter_serial
-                self._inverter_family = inverter_family
-
                 try:
-                    await self._test_modbus_connection()
+                    # Auto-discover device info (serial, model, family)
+                    discovered = await self._discover_modbus_device(
+                        host=host,
+                        port=port,
+                        unit_id=unit_id,
+                    )
+
+                    # Use discovered serial (auto-detected from registers)
+                    inverter_serial = discovered.serial
+                    inverter_family = discovered.family
 
                     # Success! Add to transports list
                     assert self._hybrid_local_transports is not None
@@ -613,12 +653,20 @@ class HybridOnboardingMixin:
                             "port": port,
                             "unit_id": unit_id,
                             "inverter_family": inverter_family,
+                            "model": discovered.model,
+                            "is_gridboss": discovered.is_gridboss,
+                            "parallel_number": discovered.parallel_number,
+                            "parallel_master_slave": discovered.parallel_master_slave,
+                            "parallel_phase": discovered.parallel_phase,
                         }
                     )
 
                     _LOGGER.info(
-                        "Configured Modbus transport for device %s at %s:%s",
+                        "Discovered and configured Modbus transport: "
+                        "serial=%s, model=%s, family=%s at %s:%s",
                         inverter_serial,
+                        discovered.model,
+                        inverter_family,
                         host,
                         port,
                     )
@@ -638,20 +686,17 @@ class HybridOnboardingMixin:
                     _LOGGER.exception("Unexpected Modbus error: %s", e)
                     errors["base"] = "unknown"
 
-        # Pre-fill serial from cloud discovery if available
-        default_serial = self._inverter_serial or ""
-
+        # Minimal schema - just connection details, everything else auto-detected
         schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
                 vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
-                vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
+
+        # Pre-fill serial from cloud discovery for display only
+        default_serial = self._inverter_serial or ""
 
         return self.async_show_form(
             step_id="hybrid_device_modbus",
@@ -659,7 +704,7 @@ class HybridOnboardingMixin:
             errors=errors,
             description_placeholders={
                 "brand_name": BRAND_NAME,
-                "device_serial": default_serial or "(manual entry)",
+                "device_serial": default_serial or "(auto-detect)",
             },
         )
 
@@ -667,6 +712,10 @@ class HybridOnboardingMixin:
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure WiFi Dongle transport for the current device in hybrid mode.
+
+        Uses auto-discovery to detect model and family from the device.
+        User provides connection details and inverter serial (required for auth).
+        Inverter serial is pre-filled from cloud discovery.
 
         After successful configuration, moves to the next device.
 
@@ -685,9 +734,6 @@ class HybridOnboardingMixin:
             inverter_serial = user_input.get(
                 CONF_INVERTER_SERIAL, self._inverter_serial or ""
             )
-            inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
 
             if not host:
                 errors[CONF_DONGLE_HOST] = "required"
@@ -696,15 +742,18 @@ class HybridOnboardingMixin:
             elif not inverter_serial:
                 errors[CONF_INVERTER_SERIAL] = "required"
             else:
-                # Store for connection test
-                self._dongle_host = host
-                self._dongle_port = port
-                self._dongle_serial = dongle_serial
-                self._inverter_serial = inverter_serial
-                self._inverter_family = inverter_family
-
                 try:
-                    await self._test_dongle_connection()
+                    # Auto-discover device info (model, family)
+                    # Dongle requires inverter_serial for auth protocol
+                    discovered = await self._discover_dongle_device(
+                        host=host,
+                        dongle_serial=dongle_serial,
+                        inverter_serial=inverter_serial,
+                        port=port,
+                    )
+
+                    # Use discovered family (auto-detected from registers)
+                    inverter_family = discovered.family
 
                     # Success! Add to transports list
                     assert self._hybrid_local_transports is not None
@@ -716,12 +765,20 @@ class HybridOnboardingMixin:
                             "port": port,
                             "dongle_serial": dongle_serial,
                             "inverter_family": inverter_family,
+                            "model": discovered.model,
+                            "is_gridboss": discovered.is_gridboss,
+                            "parallel_number": discovered.parallel_number,
+                            "parallel_master_slave": discovered.parallel_master_slave,
+                            "parallel_phase": discovered.parallel_phase,
                         }
                     )
 
                     _LOGGER.info(
-                        "Configured WiFi Dongle transport for device %s at %s:%s",
+                        "Discovered and configured WiFi Dongle transport: "
+                        "serial=%s, model=%s, family=%s at %s:%s",
                         inverter_serial,
+                        discovered.model,
+                        inverter_family,
                         host,
                         port,
                     )
@@ -739,18 +796,17 @@ class HybridOnboardingMixin:
                     _LOGGER.exception("Unexpected dongle error: %s", e)
                     errors["base"] = "unknown"
 
-        # Pre-fill serial from cloud discovery if available
+        # Pre-fill inverter serial from cloud discovery
         default_serial = self._inverter_serial or ""
 
+        # Dongle requires: host, dongle_serial, inverter_serial (for auth)
+        # Family is auto-detected from registers
         schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
                 vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
                 vol.Required(CONF_DONGLE_SERIAL): str,
                 vol.Required(CONF_INVERTER_SERIAL, default=default_serial): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -760,7 +816,7 @@ class HybridOnboardingMixin:
             errors=errors,
             description_placeholders={
                 "brand_name": BRAND_NAME,
-                "device_serial": default_serial or "(manual entry)",
+                "device_serial": default_serial or "(from cloud)",
             },
         )
 

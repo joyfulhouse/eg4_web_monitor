@@ -242,13 +242,15 @@ class DeviceProcessingMixin:
             power_to_grid = _safe_numeric(inverter.power_to_grid)
             processed["sensors"]["grid_power"] = power_to_user - power_to_grid
 
-        # Calculate total load power (EPS + consumption for better power flow representation)
-        eps_power = _safe_numeric(processed["sensors"].get("eps_power", 0))
-        consumption_power = _safe_numeric(
-            processed["sensors"].get("consumption_power", 0)
-        )
-        if eps_power > 0 or consumption_power > 0:
-            processed["sensors"]["total_load_power"] = eps_power + consumption_power
+        # Calculate total load power (EPS + consumption)
+        eps_power = processed["sensors"].get("eps_power")
+        consumption_power = processed["sensors"].get("consumption_power")
+        if eps_power is not None or consumption_power is not None:
+            processed["sensors"]["total_load_power"] = _safe_numeric(
+                eps_power
+            ) + _safe_numeric(consumption_power)
+        else:
+            processed["sensors"]["total_load_power"] = None
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):

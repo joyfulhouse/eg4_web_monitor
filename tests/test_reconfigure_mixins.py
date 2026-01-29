@@ -153,8 +153,14 @@ class TestReconfigureMixinInverterFamilyOptions:
         assert INVERTER_FAMILY_LXP_EU in INVERTER_FAMILY_OPTIONS
 
     def test_hybrid_inverter_family_options(self):
-        """Test that Hybrid reconfigure mixin has inverter family options."""
-        from custom_components.eg4_web_monitor.config_flow.reconfigure.hybrid import (
+        """Test that Hybrid reconfigure mixin uses auto-discovery.
+
+        Note: Hybrid reconfigure now auto-detects inverter family from
+        the device type code register (like local mode), so it doesn't
+        import INVERTER_FAMILY_OPTIONS. This test verifies the options
+        exist in schemas for backward compatibility and fallback scenarios.
+        """
+        from custom_components.eg4_web_monitor.config_flow.schemas import (
             INVERTER_FAMILY_OPTIONS,
         )
 
@@ -162,8 +168,8 @@ class TestReconfigureMixinInverterFamilyOptions:
         assert INVERTER_FAMILY_SNA in INVERTER_FAMILY_OPTIONS
         assert INVERTER_FAMILY_LXP_EU in INVERTER_FAMILY_OPTIONS
 
-    # NOTE: Local reconfigure no longer needs INVERTER_FAMILY_OPTIONS
-    # because it uses auto-detection via _discover_*_device() methods
+    # NOTE: Both Local and Hybrid reconfigure no longer need INVERTER_FAMILY_OPTIONS
+    # because they use auto-detection via _discover_*_device() methods
 
 
 class TestLocalReconfigureDeviceTypeOptions:

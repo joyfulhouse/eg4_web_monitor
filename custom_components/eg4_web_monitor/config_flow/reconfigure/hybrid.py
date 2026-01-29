@@ -44,8 +44,8 @@ from ...const import (
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
 )
+from ..discovery import DiscoveredDevice
 from ..helpers import find_plant_by_id, format_entry_title, get_reconfigure_entry
-from ..schemas import INVERTER_FAMILY_OPTIONS
 
 if TYPE_CHECKING:
     from homeassistant import config_entries
@@ -108,6 +108,19 @@ class HybridReconfigureMixin:
         async def _test_credentials(self: ConfigFlowProtocol) -> None: ...
         async def _test_modbus_connection(self: ConfigFlowProtocol) -> str: ...
         async def _test_dongle_connection(self: ConfigFlowProtocol) -> None: ...
+        async def _discover_modbus_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            port: int,
+            unit_id: int,
+        ) -> DiscoveredDevice: ...
+        async def _discover_dongle_device(
+            self: ConfigFlowProtocol,
+            host: str,
+            dongle_serial: str,
+            inverter_serial: str,
+            port: int,
+        ) -> DiscoveredDevice: ...
         async def async_set_unique_id(
             self: ConfigFlowProtocol, unique_id: str
         ) -> Any: ...
@@ -457,7 +470,10 @@ class HybridReconfigureMixin:
     async def async_step_reconfigure_hybrid_add_modbus(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add a new Modbus transport.
+        """Add a new Modbus transport with auto-discovery.
+
+        Uses auto-discovery to detect serial, model, and family from the device.
+        User only needs to provide connection details (host, port, unit_id).
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -471,47 +487,54 @@ class HybridReconfigureMixin:
             host = user_input.get(CONF_MODBUS_HOST, "").strip()
             port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
             unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
-            inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "").strip()
-            inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
 
             if not host:
                 errors[CONF_MODBUS_HOST] = "required"
-            elif not inverter_serial:
-                errors[CONF_INVERTER_SERIAL] = "required"
             else:
-                # Store for connection test
-                self._modbus_host = host
-                self._modbus_port = port
-                self._modbus_unit_id = unit_id
-                self._inverter_serial = inverter_serial
-                self._inverter_family = inverter_family
-
                 try:
-                    await self._test_modbus_connection()
-
-                    # Add to transports list
-                    assert self._hybrid_local_transports is not None
-                    self._hybrid_local_transports.append(
-                        {
-                            "serial": inverter_serial,
-                            "transport_type": "modbus_tcp",
-                            "host": host,
-                            "port": port,
-                            "unit_id": unit_id,
-                            "inverter_family": inverter_family,
-                        }
+                    # Auto-discover device info (serial, model, family)
+                    discovered = await self._discover_modbus_device(
+                        host=host,
+                        port=port,
+                        unit_id=unit_id,
                     )
 
-                    _LOGGER.info(
-                        "Added Modbus transport for device %s at %s:%s",
-                        inverter_serial,
-                        host,
-                        port,
-                    )
+                    # Check for duplicate serial
+                    existing_serials = {
+                        t.get("serial") for t in (self._hybrid_local_transports or [])
+                    }
+                    if discovered.serial in existing_serials:
+                        errors["base"] = "duplicate_serial"
+                    else:
+                        # Add to transports list
+                        assert self._hybrid_local_transports is not None
+                        self._hybrid_local_transports.append(
+                            {
+                                "serial": discovered.serial,
+                                "transport_type": "modbus_tcp",
+                                "host": host,
+                                "port": port,
+                                "unit_id": unit_id,
+                                "inverter_family": discovered.family,
+                                "model": discovered.model,
+                                "is_gridboss": discovered.is_gridboss,
+                                "parallel_number": discovered.parallel_number,
+                                "parallel_master_slave": discovered.parallel_master_slave,
+                                "parallel_phase": discovered.parallel_phase,
+                            }
+                        )
 
-                    return await self.async_step_reconfigure_hybrid_transports()
+                        _LOGGER.info(
+                            "Discovered and added Modbus transport: "
+                            "serial=%s, model=%s, family=%s at %s:%s",
+                            discovered.serial,
+                            discovered.model,
+                            discovered.family,
+                            host,
+                            port,
+                        )
+
+                        return await self.async_step_reconfigure_hybrid_transports()
 
                 except ImportError:
                     errors["base"] = "modbus_not_installed"
@@ -524,15 +547,12 @@ class HybridReconfigureMixin:
                     _LOGGER.exception("Unexpected Modbus error: %s", e)
                     errors["base"] = "unknown"
 
+        # Minimal schema - just connection details, everything else auto-detected
         schema = vol.Schema(
             {
                 vol.Required(CONF_MODBUS_HOST): str,
                 vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
                 vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
-                vol.Required(CONF_INVERTER_SERIAL): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -546,7 +566,10 @@ class HybridReconfigureMixin:
     async def async_step_reconfigure_hybrid_add_dongle(
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add a new WiFi Dongle transport.
+        """Add a new WiFi Dongle transport with auto-discovery.
+
+        Uses auto-discovery to detect model and family from the device.
+        User provides connection details and inverter serial (required for auth).
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -561,9 +584,6 @@ class HybridReconfigureMixin:
             port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
             dongle_serial = user_input.get(CONF_DONGLE_SERIAL, "").strip()
             inverter_serial = user_input.get(CONF_INVERTER_SERIAL, "").strip()
-            inverter_family = user_input.get(
-                CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-            )
 
             if not host:
                 errors[CONF_DONGLE_HOST] = "required"
@@ -572,37 +592,51 @@ class HybridReconfigureMixin:
             elif not inverter_serial:
                 errors[CONF_INVERTER_SERIAL] = "required"
             else:
-                # Store for connection test
-                self._dongle_host = host
-                self._dongle_port = port
-                self._dongle_serial = dongle_serial
-                self._inverter_serial = inverter_serial
-                self._inverter_family = inverter_family
-
                 try:
-                    await self._test_dongle_connection()
-
-                    # Add to transports list
-                    assert self._hybrid_local_transports is not None
-                    self._hybrid_local_transports.append(
-                        {
-                            "serial": inverter_serial,
-                            "transport_type": "wifi_dongle",
-                            "host": host,
-                            "port": port,
-                            "dongle_serial": dongle_serial,
-                            "inverter_family": inverter_family,
-                        }
+                    # Auto-discover device info (model, family)
+                    discovered = await self._discover_dongle_device(
+                        host=host,
+                        dongle_serial=dongle_serial,
+                        inverter_serial=inverter_serial,
+                        port=port,
                     )
 
-                    _LOGGER.info(
-                        "Added WiFi Dongle transport for device %s at %s:%s",
-                        inverter_serial,
-                        host,
-                        port,
-                    )
+                    # Check for duplicate serial
+                    existing_serials = {
+                        t.get("serial") for t in (self._hybrid_local_transports or [])
+                    }
+                    if inverter_serial in existing_serials:
+                        errors["base"] = "duplicate_serial"
+                    else:
+                        # Add to transports list
+                        assert self._hybrid_local_transports is not None
+                        self._hybrid_local_transports.append(
+                            {
+                                "serial": inverter_serial,
+                                "transport_type": "wifi_dongle",
+                                "host": host,
+                                "port": port,
+                                "dongle_serial": dongle_serial,
+                                "inverter_family": discovered.family,
+                                "model": discovered.model,
+                                "is_gridboss": discovered.is_gridboss,
+                                "parallel_number": discovered.parallel_number,
+                                "parallel_master_slave": discovered.parallel_master_slave,
+                                "parallel_phase": discovered.parallel_phase,
+                            }
+                        )
 
-                    return await self.async_step_reconfigure_hybrid_transports()
+                        _LOGGER.info(
+                            "Discovered and added WiFi Dongle transport: "
+                            "serial=%s, model=%s, family=%s at %s:%s",
+                            inverter_serial,
+                            discovered.model,
+                            discovered.family,
+                            host,
+                            port,
+                        )
+
+                        return await self.async_step_reconfigure_hybrid_transports()
 
                 except TimeoutError:
                     errors["base"] = "dongle_timeout"
@@ -613,15 +647,14 @@ class HybridReconfigureMixin:
                     _LOGGER.exception("Unexpected dongle error: %s", e)
                     errors["base"] = "unknown"
 
+        # Dongle requires: host, dongle_serial, inverter_serial (for auth)
+        # Family is auto-detected from registers
         schema = vol.Schema(
             {
                 vol.Required(CONF_DONGLE_HOST): str,
                 vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
                 vol.Required(CONF_DONGLE_SERIAL): str,
                 vol.Required(CONF_INVERTER_SERIAL): str,
-                vol.Optional(
-                    CONF_INVERTER_FAMILY, default=DEFAULT_INVERTER_FAMILY
-                ): vol.In(INVERTER_FAMILY_OPTIONS),
             }
         )
 
@@ -636,6 +669,9 @@ class HybridReconfigureMixin:
         self: ConfigFlowProtocol, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Edit an existing transport (connection details only, not serial).
+
+        Uses auto-discovery to detect model and family from the device.
+        User provides connection details; serial is preserved from original config.
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -658,6 +694,7 @@ class HybridReconfigureMixin:
 
         current_transport = self._hybrid_local_transports[idx]
         transport_type = current_transport.get("transport_type", "modbus_tcp")
+        original_serial = current_transport.get("serial", "")
 
         if user_input is not None:
             # Update based on transport type
@@ -665,39 +702,53 @@ class HybridReconfigureMixin:
                 host = user_input.get(CONF_MODBUS_HOST, "").strip()
                 port = user_input.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT)
                 unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
-                inverter_family = user_input.get(
-                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-                )
 
                 if not host:
                     errors[CONF_MODBUS_HOST] = "required"
                 else:
-                    # Store for connection test
-                    self._modbus_host = host
-                    self._modbus_port = port
-                    self._modbus_unit_id = unit_id
-                    self._inverter_serial = current_transport.get("serial", "")
-                    self._inverter_family = inverter_family
-
                     try:
-                        await self._test_modbus_connection()
-
-                        # Update transport in list (preserve serial)
-                        self._hybrid_local_transports[idx] = {
-                            "serial": current_transport.get("serial", ""),
-                            "transport_type": "modbus_tcp",
-                            "host": host,
-                            "port": port,
-                            "unit_id": unit_id,
-                            "inverter_family": inverter_family,
-                        }
-
-                        _LOGGER.info(
-                            "Updated Modbus transport for device %s",
-                            current_transport.get("serial"),
+                        # Auto-discover device info (serial, model, family)
+                        discovered = await self._discover_modbus_device(
+                            host=host,
+                            port=port,
+                            unit_id=unit_id,
                         )
 
-                        return await self.async_step_reconfigure_hybrid_transports()
+                        # Verify discovered serial matches original
+                        if discovered.serial != original_serial:
+                            _LOGGER.warning(
+                                "Discovered serial %s doesn't match expected %s",
+                                discovered.serial,
+                                original_serial,
+                            )
+                            errors["base"] = "serial_mismatch"
+                        else:
+                            # Update transport with discovered info
+                            self._hybrid_local_transports[idx] = {
+                                "serial": original_serial,
+                                "transport_type": "modbus_tcp",
+                                "host": host,
+                                "port": port,
+                                "unit_id": unit_id,
+                                "inverter_family": discovered.family,
+                                "model": discovered.model,
+                                "is_gridboss": discovered.is_gridboss,
+                                "parallel_number": discovered.parallel_number,
+                                "parallel_master_slave": discovered.parallel_master_slave,
+                                "parallel_phase": discovered.parallel_phase,
+                            }
+
+                            _LOGGER.info(
+                                "Updated Modbus transport: serial=%s, model=%s, "
+                                "family=%s at %s:%s",
+                                original_serial,
+                                discovered.model,
+                                discovered.family,
+                                host,
+                                port,
+                            )
+
+                            return await self.async_step_reconfigure_hybrid_transports()
 
                     except ImportError:
                         errors["base"] = "modbus_not_installed"
@@ -714,38 +765,44 @@ class HybridReconfigureMixin:
                 host = user_input.get(CONF_DONGLE_HOST, "").strip()
                 port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
                 dongle_serial = user_input.get(CONF_DONGLE_SERIAL, "").strip()
-                inverter_family = user_input.get(
-                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-                )
 
                 if not host:
                     errors[CONF_DONGLE_HOST] = "required"
                 elif not dongle_serial:
                     errors[CONF_DONGLE_SERIAL] = "required"
                 else:
-                    # Store for connection test
-                    self._dongle_host = host
-                    self._dongle_port = port
-                    self._dongle_serial = dongle_serial
-                    self._inverter_serial = current_transport.get("serial", "")
-                    self._inverter_family = inverter_family
-
                     try:
-                        await self._test_dongle_connection()
+                        # Auto-discover device info (model, family)
+                        discovered = await self._discover_dongle_device(
+                            host=host,
+                            dongle_serial=dongle_serial,
+                            inverter_serial=original_serial,
+                            port=port,
+                        )
 
-                        # Update transport in list (preserve serial)
+                        # Update transport with discovered info
                         self._hybrid_local_transports[idx] = {
-                            "serial": current_transport.get("serial", ""),
+                            "serial": original_serial,
                             "transport_type": "wifi_dongle",
                             "host": host,
                             "port": port,
                             "dongle_serial": dongle_serial,
-                            "inverter_family": inverter_family,
+                            "inverter_family": discovered.family,
+                            "model": discovered.model,
+                            "is_gridboss": discovered.is_gridboss,
+                            "parallel_number": discovered.parallel_number,
+                            "parallel_master_slave": discovered.parallel_master_slave,
+                            "parallel_phase": discovered.parallel_phase,
                         }
 
                         _LOGGER.info(
-                            "Updated WiFi Dongle transport for device %s",
-                            current_transport.get("serial"),
+                            "Updated WiFi Dongle transport: serial=%s, model=%s, "
+                            "family=%s at %s:%s",
+                            original_serial,
+                            discovered.model,
+                            discovered.family,
+                            host,
+                            port,
                         )
 
                         return await self.async_step_reconfigure_hybrid_transports()
@@ -759,7 +816,7 @@ class HybridReconfigureMixin:
                         _LOGGER.exception("Unexpected error: %s", e)
                         errors["base"] = "unknown"
 
-        # Build form based on transport type
+        # Build form based on transport type - minimal fields, family auto-detected
         serial = current_transport.get("serial", "Unknown")
 
         if transport_type == "modbus_tcp":
@@ -779,12 +836,6 @@ class HybridReconfigureMixin:
                             "unit_id", DEFAULT_MODBUS_UNIT_ID
                         ),
                     ): int,
-                    vol.Optional(
-                        CONF_INVERTER_FAMILY,
-                        default=current_transport.get(
-                            "inverter_family", DEFAULT_INVERTER_FAMILY
-                        ),
-                    ): vol.In(INVERTER_FAMILY_OPTIONS),
                 }
             )
         else:  # wifi_dongle
@@ -802,12 +853,6 @@ class HybridReconfigureMixin:
                         CONF_DONGLE_SERIAL,
                         default=current_transport.get("dongle_serial", ""),
                     ): str,
-                    vol.Optional(
-                        CONF_INVERTER_FAMILY,
-                        default=current_transport.get(
-                            "inverter_family", DEFAULT_INVERTER_FAMILY
-                        ),
-                    ): vol.In(INVERTER_FAMILY_OPTIONS),
                 }
             )
 
