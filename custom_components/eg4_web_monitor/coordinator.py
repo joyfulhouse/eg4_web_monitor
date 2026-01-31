@@ -156,6 +156,10 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "radiator2_temperature": runtime_data.radiator_temperature_2,
         # Status
         "status_code": runtime_data.device_status,
+        # Grid current (3-phase R/S/T mapped to L1/L2/L3)
+        "grid_current_l1": runtime_data.grid_current_r,
+        "grid_current_l2": runtime_data.grid_current_s,
+        "grid_current_l3": runtime_data.grid_current_t,
     }
 
 
@@ -340,6 +344,26 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
     }
 
 
+def _parse_inverter_family(family_str: str | None) -> Any:
+    """Convert inverter family string to InverterFamily enum.
+
+    Args:
+        family_str: Family string from config (e.g., "pv_series", "sna", "lxp_eu").
+
+    Returns:
+        InverterFamily enum value, or None if invalid/not provided.
+    """
+    if not family_str:
+        return None
+    try:
+        from pylxpweb.devices.inverters._features import InverterFamily
+
+        return InverterFamily(family_str)
+    except ValueError:
+        _LOGGER.warning("Unknown inverter family '%s', using default", family_str)
+        return None
+
+
 def _derive_model_from_family(
     config_model: str, family_str: str, fallback: str = "18kPV"
 ) -> str:
@@ -371,7 +395,6 @@ def _build_transport_configs(
     Returns:
         List of TransportConfig objects ready for Station.attach_local_transports().
     """
-    from pylxpweb.devices.inverters._features import InverterFamily
     from pylxpweb.transports.config import TransportConfig, TransportType
 
     configs = []
@@ -380,16 +403,7 @@ def _build_transport_configs(
             transport_type_str = item.get("transport_type", "modbus_tcp")
             transport_type = TransportType(transport_type_str)
 
-            # Convert inverter family string to enum
-            inverter_family = None
-            family_str = item.get("inverter_family")
-            if family_str:
-                try:
-                    inverter_family = InverterFamily(family_str)
-                except ValueError:
-                    _LOGGER.warning(
-                        "Unknown inverter family '%s', using default", family_str
-                    )
+            inverter_family = _parse_inverter_family(item.get("inverter_family"))
 
             # Build type-specific kwargs
             extra_kwargs: dict[str, Any] = {}
@@ -1781,8 +1795,8 @@ class EG4DataUpdateCoordinator(
 
         return local_successes
 
+    @staticmethod
     def _merge_local_data_with_http(
-        self,
         device: dict[str, Any],
         runtime: Any,
         energy: Any,
@@ -1791,112 +1805,18 @@ class EG4DataUpdateCoordinator(
     ) -> None:
         """Merge local transport data with HTTP device data.
 
-        This method overrides HTTP sensor values with faster local transport values.
-        All sensors available from local transport are merged, not just a subset.
+        Overrides HTTP sensor values with faster local transport values.
+        Reuses the shared runtime/energy mapping functions for consistency.
 
         Args:
-            device: The device dictionary from HTTP data to update
-            runtime: InverterRuntimeData from local transport
-            energy: InverterEnergyData from local transport
-            serial: Inverter serial number for logging
-            transport_name: Name of local transport for logging (Modbus/Dongle)
+            device: The device dictionary from HTTP data to update.
+            runtime: InverterRuntimeData from local transport.
+            energy: InverterEnergyData from local transport.
+            serial: Inverter serial number for logging.
+            transport_name: Name of local transport for logging (Modbus/Dongle).
         """
-        # Override runtime sensors with faster local values
-        # Uses SENSOR_TYPES keys to match HTTP data structure
-        # Include ALL available sensors from local transport for maximum coverage
-        device["sensors"].update(
-            {
-                # PV/Solar input - all strings
-                "pv1_voltage": runtime.pv1_voltage,
-                "pv1_power": runtime.pv1_power,
-                "pv2_voltage": runtime.pv2_voltage,
-                "pv2_power": runtime.pv2_power,
-                "pv3_voltage": runtime.pv3_voltage,
-                "pv3_power": runtime.pv3_power,
-                "pv_total_power": runtime.pv_total_power,
-                # Battery
-                "battery_voltage": runtime.battery_voltage,
-                "battery_current": runtime.battery_current,
-                "state_of_charge": runtime.battery_soc,
-                "battery_charge_power": runtime.battery_charge_power,
-                "battery_discharge_power": runtime.battery_discharge_power,
-                "battery_temperature": runtime.battery_temperature,
-                # Grid - all phases (use _l1/_l2/_l3 to match SENSOR_TYPES)
-                "grid_voltage_r": runtime.grid_voltage_r,
-                "grid_voltage_s": runtime.grid_voltage_s,
-                "grid_voltage_t": runtime.grid_voltage_t,
-                "grid_current_l1": runtime.grid_current_r,
-                "grid_current_l2": runtime.grid_current_s,
-                "grid_current_l3": runtime.grid_current_t,
-                "grid_frequency": runtime.grid_frequency,
-                "grid_power": runtime.grid_power,
-                "grid_export_power": runtime.power_to_grid,
-                # Inverter output
-                "ac_power": runtime.inverter_power,
-                "load_power": runtime.load_power,
-                # EPS/Backup - all phases
-                "eps_voltage_r": runtime.eps_voltage_r,
-                "eps_voltage_s": runtime.eps_voltage_s,
-                "eps_voltage_t": runtime.eps_voltage_t,
-                "eps_frequency": runtime.eps_frequency,
-                "eps_power": runtime.eps_power,
-                # Generator (if available from Modbus/Dongle)
-                "generator_voltage": runtime.generator_voltage,
-                "generator_frequency": runtime.generator_frequency,
-                "generator_power": runtime.generator_power,
-                # Split-phase grid/EPS L1/L2 voltages
-                "grid_voltage_l1": runtime.grid_l1_voltage,
-                "grid_voltage_l2": runtime.grid_l2_voltage,
-                "eps_voltage_l1": runtime.eps_l1_voltage,
-                "eps_voltage_l2": runtime.eps_l2_voltage,
-                # Output power (FlexBOSS21)
-                "output_power": runtime.output_power,
-                # Bus voltages
-                "bus1_voltage": runtime.bus_voltage_1,
-                "bus2_voltage": runtime.bus_voltage_2,
-                # Temperatures
-                "internal_temperature": runtime.internal_temperature,
-                "radiator1_temperature": runtime.radiator_temperature_1,
-                "radiator2_temperature": runtime.radiator_temperature_2,
-                # Status
-                "status_code": runtime.device_status,
-            }
-        )
-
-        # Debug: Log extended sensor values
-        _LOGGER.debug(
-            "LOCAL: Extended sensors for %s: gen_freq=%s, gen_volt=%s, gen_pwr=%s, "
-            "grid_l1=%s, grid_l2=%s, eps_l1=%s, eps_l2=%s, out_pwr=%s",
-            serial,
-            runtime.generator_frequency,
-            runtime.generator_voltage,
-            runtime.generator_power,
-            runtime.grid_l1_voltage,
-            runtime.grid_l2_voltage,
-            runtime.eps_l1_voltage,
-            runtime.eps_l2_voltage,
-            runtime.output_power,
-        )
-
-        # Override energy sensors with local values
-        device["sensors"].update(
-            {
-                # Daily energy (kWh)
-                "yield": energy.pv_energy_today,
-                "charging": energy.charge_energy_today,
-                "discharging": energy.discharge_energy_today,
-                "grid_import": energy.grid_import_today,
-                "grid_export": energy.grid_export_today,
-                "load": energy.load_energy_today,
-                # Lifetime energy (kWh)
-                "yield_lifetime": energy.pv_energy_total,
-                "charging_lifetime": energy.charge_energy_total,
-                "discharging_lifetime": energy.discharge_energy_total,
-                "grid_import_lifetime": energy.grid_import_total,
-                "grid_export_lifetime": energy.grid_export_total,
-                "load_lifetime": energy.load_energy_total,
-            }
-        )
+        device["sensors"].update(_build_runtime_sensor_mapping(runtime))
+        device["sensors"].update(_build_energy_sensor_mapping(energy))
 
         _LOGGER.debug(
             "Hybrid: Merged %s runtime with HTTP data for %s",
@@ -2360,25 +2280,13 @@ class EG4DataUpdateCoordinator(
 
         return None
 
-    def _get_inverter_family(self, family_str: str | None) -> Any:
+    @staticmethod
+    def _get_inverter_family(family_str: str | None) -> Any:
         """Convert inverter family string to InverterFamily enum.
 
-        Args:
-            family_str: Family string from config (e.g., "pv_series", "sna", "lxp_eu")
-
-        Returns:
-            InverterFamily enum value, or None if invalid/not provided
+        Delegates to module-level _parse_inverter_family().
         """
-        if not family_str:
-            return None
-
-        try:
-            from pylxpweb.devices.inverters._features import InverterFamily
-
-            return InverterFamily(family_str)
-        except ValueError:
-            _LOGGER.warning("Unknown inverter family '%s', using default", family_str)
-            return None
+        return _parse_inverter_family(family_str)
 
     def get_local_transport(self, serial: str | None = None) -> Any | None:
         """Get the Modbus or Dongle transport for local register operations.
