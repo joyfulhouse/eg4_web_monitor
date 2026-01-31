@@ -472,61 +472,103 @@ class EG4DataUpdateCoordinator(
                 iana_timezone=iana_timezone,
             )
 
-        # Determine hybrid local transport type (modbus > dongle priority)
-        # For hybrid mode, check which local transport is configured
-        self._hybrid_local_type: str | None = None
-        if self.connection_type == CONNECTION_TYPE_HYBRID:
-            self._hybrid_local_type = entry.data.get(
-                CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS
-            )
-
-        # Initialize Modbus transport for Modbus mode or Hybrid with Modbus local
+        # Initialize local transports from local_transports list (new format)
+        # or fall back to flat keys (old format for backward compatibility)
         self._modbus_transport: ModbusTransport | None = None
-        should_init_modbus = self.connection_type == CONNECTION_TYPE_MODBUS or (
-            self.connection_type == CONNECTION_TYPE_HYBRID
-            and self._hybrid_local_type == HYBRID_LOCAL_MODBUS
-        )
-        if should_init_modbus:
-            from pylxpweb.transports import create_transport
-
-            family_str = entry.data.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY)
-            self._modbus_transport = create_transport(
-                "modbus",
-                host=entry.data[CONF_MODBUS_HOST],
-                serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                port=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
-                unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
-                timeout=DEFAULT_MODBUS_TIMEOUT,
-                inverter_family=self._get_inverter_family(family_str),
-            )
-            self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-            self._modbus_model = _derive_model_from_family(
-                entry.data.get(CONF_INVERTER_MODEL, ""), family_str
-            )
-
-        # Initialize Dongle transport for Dongle mode or Hybrid with Dongle local
         self._dongle_transport: Any = None
-        should_init_dongle = self.connection_type == CONNECTION_TYPE_DONGLE or (
-            self.connection_type == CONNECTION_TYPE_HYBRID
-            and self._hybrid_local_type == HYBRID_LOCAL_DONGLE
+        self._hybrid_local_type: str | None = None
+        local_transports: list[dict[str, Any]] = entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
         )
-        if should_init_dongle:
+
+        if local_transports:
+            # New format: read from local_transports list
             from pylxpweb.transports import create_transport
 
-            family_str = entry.data.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY)
-            self._dongle_transport = create_transport(
-                "dongle",
-                host=entry.data[CONF_DONGLE_HOST],
-                dongle_serial=entry.data[CONF_DONGLE_SERIAL],
-                inverter_serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                port=entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
-                timeout=DEFAULT_DONGLE_TIMEOUT,
-                inverter_family=self._get_inverter_family(family_str),
+            for tc in local_transports:
+                transport_type = tc.get("transport_type", "modbus_tcp")
+                family_str = tc.get("inverter_family", DEFAULT_INVERTER_FAMILY)
+                if transport_type == "modbus_tcp" and not self._modbus_transport:
+                    self._modbus_transport = create_transport(
+                        "modbus",
+                        host=tc["host"],
+                        serial=tc.get("serial", ""),
+                        port=tc.get("port", DEFAULT_MODBUS_PORT),
+                        unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                        timeout=DEFAULT_MODBUS_TIMEOUT,
+                        inverter_family=self._get_inverter_family(family_str),
+                    )
+                    self._modbus_serial = tc.get("serial", "")
+                    self._modbus_model = tc.get("model", "")
+                    self._hybrid_local_type = HYBRID_LOCAL_MODBUS
+                elif transport_type == "wifi_dongle" and not self._dongle_transport:
+                    self._dongle_transport = create_transport(
+                        "dongle",
+                        host=tc["host"],
+                        dongle_serial=tc.get("dongle_serial", ""),
+                        inverter_serial=tc.get("serial", ""),
+                        port=tc.get("port", DEFAULT_DONGLE_PORT),
+                        timeout=DEFAULT_DONGLE_TIMEOUT,
+                        inverter_family=self._get_inverter_family(family_str),
+                    )
+                    self._dongle_serial = tc.get("serial", "")
+                    self._dongle_model = tc.get("model", "")
+                    if not self._hybrid_local_type:
+                        self._hybrid_local_type = HYBRID_LOCAL_DONGLE
+        else:
+            # Old format: read from flat config keys (backward compatibility)
+            if self.connection_type == CONNECTION_TYPE_HYBRID:
+                self._hybrid_local_type = entry.data.get(
+                    CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS
+                )
+
+            should_init_modbus = self.connection_type == CONNECTION_TYPE_MODBUS or (
+                self.connection_type == CONNECTION_TYPE_HYBRID
+                and self._hybrid_local_type == HYBRID_LOCAL_MODBUS
             )
-            self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-            self._dongle_model = _derive_model_from_family(
-                entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+            if should_init_modbus and CONF_MODBUS_HOST in entry.data:
+                from pylxpweb.transports import create_transport
+
+                family_str = entry.data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                )
+                self._modbus_transport = create_transport(
+                    "modbus",
+                    host=entry.data[CONF_MODBUS_HOST],
+                    serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
+                    port=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                    unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                    timeout=DEFAULT_MODBUS_TIMEOUT,
+                    inverter_family=self._get_inverter_family(family_str),
+                )
+                self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                self._modbus_model = _derive_model_from_family(
+                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                )
+
+            should_init_dongle = self.connection_type == CONNECTION_TYPE_DONGLE or (
+                self.connection_type == CONNECTION_TYPE_HYBRID
+                and self._hybrid_local_type == HYBRID_LOCAL_DONGLE
             )
+            if should_init_dongle and CONF_DONGLE_HOST in entry.data:
+                from pylxpweb.transports import create_transport
+
+                family_str = entry.data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                )
+                self._dongle_transport = create_transport(
+                    "dongle",
+                    host=entry.data[CONF_DONGLE_HOST],
+                    dongle_serial=entry.data[CONF_DONGLE_SERIAL],
+                    inverter_serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
+                    port=entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
+                    timeout=DEFAULT_DONGLE_TIMEOUT,
+                    inverter_family=self._get_inverter_family(family_str),
+                )
+                self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                self._dongle_model = _derive_model_from_family(
+                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                )
 
         # DST sync configuration (only for HTTP/Hybrid)
         self.dst_sync_enabled = entry.data.get(CONF_DST_SYNC, True)
@@ -699,6 +741,25 @@ class EG4DataUpdateCoordinator(
 
         return params
 
+    @staticmethod
+    def _get_transport_label(connection_type: str) -> str:
+        """Return a human-readable transport label for the connection_transport sensor.
+
+        Args:
+            connection_type: One of the CONNECTION_TYPE_* constants or transport type.
+
+        Returns:
+            Human-readable label like "Cloud", "Modbus", "Dongle".
+        """
+        labels = {
+            "http": "Cloud",
+            "modbus": "Modbus",
+            "dongle": "Dongle",
+            "hybrid": "Hybrid",
+            "local": "Local",
+        }
+        return labels.get(connection_type, connection_type.capitalize())
+
     def _build_local_device_data(
         self,
         inverter: "BaseInverter",
@@ -737,6 +798,9 @@ class EG4DataUpdateCoordinator(
             )
 
         device_data["sensors"]["firmware_version"] = firmware_version
+        device_data["sensors"]["connection_transport"] = self._get_transport_label(
+            connection_type
+        )
 
         # Extract features for capability-based sensor filtering
         if features := self._extract_inverter_features(inverter):
@@ -1103,6 +1167,9 @@ class EG4DataUpdateCoordinator(
                     # Filter out None values
                     sensors = {k: v for k, v in sensors.items() if v is not None}
                     sensors["firmware_version"] = firmware_version
+                    sensors["connection_transport"] = self._get_transport_label(
+                        "dongle" if transport_type == "wifi_dongle" else "modbus"
+                    )
 
                     device_data: dict[str, Any] = {
                         "type": "gridboss",
@@ -1252,8 +1319,13 @@ class EG4DataUpdateCoordinator(
                                 serial,
                             )
 
-                    # Add firmware version as diagnostic sensor
+                    # Add firmware version and transport as diagnostic sensors
                     device_data["sensors"]["firmware_version"] = firmware_version
+                    device_data["sensors"]["connection_transport"] = (
+                        self._get_transport_label(
+                            "dongle" if transport_type == "wifi_dongle" else "modbus"
+                        )
+                    )
 
                     # Store device data
                     processed["devices"][serial] = device_data
@@ -1637,6 +1709,19 @@ class EG4DataUpdateCoordinator(
             )
 
         http_data["connection_type"] = CONNECTION_TYPE_HYBRID
+
+        # Set transport labels: hybrid local device gets specific label,
+        # other devices in the station remain "Cloud"
+        for dev_serial, device_data in http_data.get("devices", {}).items():
+            if "sensors" not in device_data:
+                continue
+            if local_data is not None and dev_serial == local_serial:
+                device_data["sensors"]["connection_transport"] = (
+                    f"Hybrid ({local_transport_name})"
+                )
+            else:
+                device_data["sensors"]["connection_transport"] = "Cloud"
+
         return http_data
 
     def _merge_local_data_with_http(
@@ -1908,6 +1993,11 @@ class EG4DataUpdateCoordinator(
             # Process and structure the device data
             processed_data = await self._process_station_data()
             processed_data["connection_type"] = CONNECTION_TYPE_HTTP
+
+            # Set transport label for all devices
+            for device_data in processed_data.get("devices", {}).values():
+                if "sensors" in device_data:
+                    device_data["sensors"]["connection_transport"] = "Cloud"
 
             device_count = len(processed_data.get("devices", {}))
             _LOGGER.debug("Successfully updated data for %d devices", device_count)

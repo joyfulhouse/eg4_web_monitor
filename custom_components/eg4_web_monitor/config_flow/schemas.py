@@ -13,8 +13,6 @@ from ..const import (
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
-    CONF_INVERTER_FAMILY,
-    CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
     CONF_MODBUS_HOST,
@@ -29,27 +27,16 @@ from ..const import (
     CONNECTION_TYPE_LOCAL,
     DEFAULT_BASE_URL,
     DEFAULT_DONGLE_PORT,
-    DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
     DEFAULT_VERIFY_SSL,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
-    INVERTER_FAMILY_LXP_EU,
-    INVERTER_FAMILY_PV_SERIES,
-    INVERTER_FAMILY_SNA,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
 )
-
-# Inverter family options for register map selection
-INVERTER_FAMILY_OPTIONS: dict[str, str] = {
-    INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-    INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-    INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
-}
 
 # Connection type options
 # Note: Modbus and Dongle single-device modes are deprecated.
@@ -132,18 +119,6 @@ def build_modbus_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_MODBUS_UNIT_ID,
                 default=defaults.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
             ): int,
-            vol.Optional(
-                CONF_INVERTER_SERIAL,
-                default=defaults.get(CONF_INVERTER_SERIAL, ""),
-            ): str,
-            vol.Optional(
-                CONF_INVERTER_MODEL,
-                default=defaults.get(CONF_INVERTER_MODEL, ""),
-            ): str,
-            vol.Optional(
-                CONF_INVERTER_FAMILY,
-                default=defaults.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY),
-            ): vol.In(INVERTER_FAMILY_OPTIONS),
         }
     )
 
@@ -173,13 +148,6 @@ def build_dongle_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             vol.Required(
                 CONF_INVERTER_SERIAL, default=defaults.get(CONF_INVERTER_SERIAL, "")
             ): str,
-            vol.Optional(
-                CONF_INVERTER_MODEL, default=defaults.get(CONF_INVERTER_MODEL, "")
-            ): str,
-            vol.Optional(
-                CONF_INVERTER_FAMILY,
-                default=defaults.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY),
-            ): vol.In(INVERTER_FAMILY_OPTIONS),
         }
     )
 
@@ -201,13 +169,11 @@ def build_hybrid_local_type_schema() -> vol.Schema:
 
 def build_hybrid_modbus_schema(
     serial_default: str = "",
-    inverter_family_default: str = DEFAULT_INVERTER_FAMILY,
 ) -> vol.Schema:
     """Build schema for Modbus configuration in hybrid mode.
 
     Args:
         serial_default: Default inverter serial (from cloud discovery).
-        inverter_family_default: Default inverter family.
 
     Returns:
         Voluptuous schema for hybrid Modbus step.
@@ -218,22 +184,17 @@ def build_hybrid_modbus_schema(
             vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
             vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
             vol.Required(CONF_INVERTER_SERIAL, default=serial_default): str,
-            vol.Optional(CONF_INVERTER_FAMILY, default=inverter_family_default): vol.In(
-                INVERTER_FAMILY_OPTIONS
-            ),
         }
     )
 
 
 def build_hybrid_dongle_schema(
     serial_default: str = "",
-    inverter_family_default: str = DEFAULT_INVERTER_FAMILY,
 ) -> vol.Schema:
     """Build schema for WiFi Dongle configuration in hybrid mode.
 
     Args:
         serial_default: Default inverter serial (from cloud discovery).
-        inverter_family_default: Default inverter family.
 
     Returns:
         Voluptuous schema for hybrid dongle step.
@@ -244,9 +205,6 @@ def build_hybrid_dongle_schema(
             vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
             vol.Required(CONF_DONGLE_SERIAL): str,
             vol.Required(CONF_INVERTER_SERIAL, default=serial_default): str,
-            vol.Optional(CONF_INVERTER_FAMILY, default=inverter_family_default): vol.In(
-                INVERTER_FAMILY_OPTIONS
-            ),
         }
     )
 

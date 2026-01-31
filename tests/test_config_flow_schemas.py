@@ -4,7 +4,6 @@ import pytest
 import voluptuous as vol
 
 from custom_components.eg4_web_monitor.config_flow.schemas import (
-    INVERTER_FAMILY_OPTIONS,
     build_connection_type_schema,
     build_dongle_schema,
     build_http_credentials_schema,
@@ -25,8 +24,6 @@ from custom_components.eg4_web_monitor.const import (
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
-    CONF_INVERTER_FAMILY,
-    CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
     CONF_MODBUS_HOST,
@@ -38,29 +35,11 @@ from custom_components.eg4_web_monitor.const import (
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HTTP,
     DEFAULT_DONGLE_PORT,
-    DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
     HYBRID_LOCAL_MODBUS,
-    INVERTER_FAMILY_PV_SERIES,
-    INVERTER_FAMILY_SNA,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-
-
-class TestInverterFamilyOptions:
-    """Tests for INVERTER_FAMILY_OPTIONS constant."""
-
-    def test_contains_all_families(self):
-        """Test that all inverter families are present."""
-        assert INVERTER_FAMILY_PV_SERIES in INVERTER_FAMILY_OPTIONS
-        assert INVERTER_FAMILY_SNA in INVERTER_FAMILY_OPTIONS
-        # Note: LXP_EU is also in options
-
-    def test_has_human_readable_descriptions(self):
-        """Test that options have descriptive names."""
-        assert "18kPV" in INVERTER_FAMILY_OPTIONS[INVERTER_FAMILY_PV_SERIES]
-        assert "12000XP" in INVERTER_FAMILY_OPTIONS[INVERTER_FAMILY_SNA]
 
 
 class TestBuildConnectionTypeSchema:
@@ -162,9 +141,6 @@ class TestBuildModbusSchema:
         assert result[CONF_MODBUS_HOST] == "192.168.1.100"
         assert result[CONF_MODBUS_PORT] == DEFAULT_MODBUS_PORT
         assert result[CONF_MODBUS_UNIT_ID] == DEFAULT_MODBUS_UNIT_ID
-        assert result[CONF_INVERTER_SERIAL] == ""
-        assert result[CONF_INVERTER_MODEL] == ""
-        assert result[CONF_INVERTER_FAMILY] == DEFAULT_INVERTER_FAMILY
 
     def test_uses_provided_defaults(self):
         """Test that provided defaults are used."""
@@ -212,8 +188,6 @@ class TestBuildDongleSchema:
         )
 
         assert result[CONF_DONGLE_PORT] == DEFAULT_DONGLE_PORT
-        assert result[CONF_INVERTER_MODEL] == ""
-        assert result[CONF_INVERTER_FAMILY] == DEFAULT_INVERTER_FAMILY
 
 
 class TestBuildHybridLocalTypeSchema:

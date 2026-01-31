@@ -172,7 +172,7 @@ class EG4ConfigFlow(
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Initial step - choose starting point."""
+        """Initial step - cloud-first menu with local-only skip option."""
         return self.async_show_menu(
             step_id="user",
             menu_options=["cloud_credentials", "local_device_type"],
@@ -454,7 +454,10 @@ class EG4ConfigFlow(
                 new_data = {**entry.data, CONF_PASSWORD: self._password}
                 self.hass.config_entries.async_update_entry(entry, data=new_data)
                 await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
+                return self.async_abort(
+                    reason="reauth_successful",
+                    description_placeholders={"brand_name": BRAND_NAME},
+                )
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -505,7 +508,6 @@ class EG4ConfigFlow(
 
         if self._has_cloud:
             menu_options.append("reconfigure_cloud_update")
-            menu_options.append("reconfigure_cloud_station")
             if self._has_local:
                 menu_options.append("reconfigure_cloud_remove")
         else:
@@ -667,9 +669,7 @@ class EG4ConfigFlow(
         if user_input is not None:
             serial_to_remove = user_input.get("device")
             self._local_transports = [
-                t
-                for t in self._local_transports
-                if t.get("serial") != serial_to_remove
+                t for t in self._local_transports if t.get("serial") != serial_to_remove
             ]
             return self._update_entry()
 
@@ -683,9 +683,7 @@ class EG4ConfigFlow(
         }
         return self.async_show_form(
             step_id="reconfigure_device_remove",
-            data_schema=vol.Schema(
-                {vol.Required("device"): vol.In(device_options)}
-            ),
+            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
         )
 
     async def async_step_reconfigure_device_add(
@@ -921,7 +919,10 @@ class EG4ConfigFlow(
             data=new_data,
             title=self._build_title(),
         )
-        return self.async_abort(reason="reconfigure_successful")
+        return self.async_abort(
+            reason="reconfigure_successful",
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
 
 
 # =============================================================================

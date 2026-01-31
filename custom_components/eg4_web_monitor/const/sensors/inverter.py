@@ -1614,4 +1614,12 @@ SENSOR_TYPES = {
         "icon": "mdi:database-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
+    "connection_transport": {
+        "name": "Connection Transport",
+        "unit": None,
+        "device_class": None,
+        "state_class": None,
+        "icon": "mdi:connection",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
 }
