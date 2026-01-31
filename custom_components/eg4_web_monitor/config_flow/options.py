@@ -50,14 +50,6 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
     polling (5 seconds) while HTTP-only defaults to 30 seconds.
     """
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow.
-
-        Args:
-            config_entry: The config entry being configured.
-        """
-        self.config_entry = config_entry
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult":

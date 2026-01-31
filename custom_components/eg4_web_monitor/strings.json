@@ -115,7 +115,7 @@
         }
       },
       "reconfigure_menu": {
-        "title": "Reconfigure: {title}",
+        "title": "Reconfigure: {entry_title}",
         "description": "What would you like to change?",
         "menu_options": {
           "reconfigure_cloud_update": "Update Cloud Credentials",
@@ -177,7 +177,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Remove Cloud Connection",
-        "description": "This will remove cloud credentials from your configuration. Your local devices will continue to work. Cloud features (battery details, remote control) will be disabled.",
+        "description": "This will remove cloud credentials from your configuration. Your local devices will continue to work.\n\nFeatures that require cloud and will be disabled:\n- Quick Charge switch\n- GridBOSS/MID device sensors\n- Firmware update notifications\n\nAll other controls (Battery Backup, AC Charge, SOC limits, etc.) work locally via Modbus registers.",
         "submit": "Remove Cloud Connection"
       },
       "reconfigure_devices": {
@@ -185,7 +185,15 @@
         "description": "{device_list}",
         "menu_options": {
           "reconfigure_device_add": "Add Device",
+          "reconfigure_device_remove": "Remove Device",
           "reconfigure_menu": "Back to Menu"
+        }
+      },
+      "reconfigure_device_remove": {
+        "title": "Remove Local Device",
+        "description": "Select the device to remove from this configuration.",
+        "data": {
+          "device": "Device"
         }
       },
       "reconfigure_device_add": {

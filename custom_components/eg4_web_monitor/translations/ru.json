@@ -115,7 +115,7 @@
         }
       },
       "reconfigure_menu": {
-        "title": "Reconfigure: {title}",
+        "title": "Reconfigure: {entry_title}",
         "description": "What would you like to change?",
         "menu_options": {
           "reconfigure_cloud_update": "Update Cloud Credentials",

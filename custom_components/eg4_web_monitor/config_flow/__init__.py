@@ -144,7 +144,7 @@ class EG4ConfigFlow(
         config_entry: config_entries.ConfigEntry,
     ) -> EG4OptionsFlow:
         """Get the options flow for this handler."""
-        return EG4OptionsFlow(config_entry)
+        return EG4OptionsFlow()
 
     # =========================================================================
     # PROPERTIES
@@ -518,7 +518,7 @@ class EG4ConfigFlow(
             menu_options=menu_options,
             description_placeholders={
                 "brand_name": BRAND_NAME,
-                "title": self._plant_name or "Local Installation",
+                "entry_title": self._plant_name or "Local Installation",
             },
         )
 
@@ -580,12 +580,20 @@ class EG4ConfigFlow(
     async def async_step_reconfigure_cloud_station(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Select station during reconfigure cloud add."""
+        """Select station during reconfigure cloud change."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
             self._plant_id = user_input[CONF_PLANT_ID]
             plant = find_plant_by_id(self._plants, self._plant_id)
             self._plant_name = plant["name"] if plant else self._plant_id
             return self._update_entry()
+
+        # Fetch stations list if not already loaded
+        if self._plants is None:
+            errors = await self._validate_cloud_credentials()
+            if errors:
+                return self.async_abort(reason="invalid_auth")
 
         assert self._plants is not None
         return self.async_show_form(
@@ -593,6 +601,7 @@ class EG4ConfigFlow(
             data_schema=build_plant_selection_schema(
                 self._plants, current=self._plant_id
             ),
+            errors=errors,
         )
 
     async def async_step_reconfigure_cloud_remove(
@@ -637,13 +646,46 @@ class EG4ConfigFlow(
             "\n".join(device_lines) if device_lines else "No devices configured"
         )
 
+        menu_options = ["reconfigure_device_add"]
+        if self._local_transports:
+            menu_options.append("reconfigure_device_remove")
+        menu_options.append("reconfigure_menu")
+
         return self.async_show_menu(
             step_id="reconfigure_devices",
-            menu_options=["reconfigure_device_add", "reconfigure_menu"],
+            menu_options=menu_options,
             description_placeholders={
                 "device_count": str(len(self._local_transports)),
                 "device_list": device_list,
             },
+        )
+
+    async def async_step_reconfigure_device_remove(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Remove a local device during reconfigure."""
+        if user_input is not None:
+            serial_to_remove = user_input.get("device")
+            self._local_transports = [
+                t
+                for t in self._local_transports
+                if t.get("serial") != serial_to_remove
+            ]
+            return self._update_entry()
+
+        # Build selection schema from current devices
+        device_options = {
+            t.get("serial", f"unknown_{i}"): (
+                f"{t.get('model', '?')} ({t.get('serial', '?')}) - "
+                f"{'Modbus' if t.get('transport_type') == 'modbus_tcp' else 'Dongle'}"
+            )
+            for i, t in enumerate(self._local_transports)
+        }
+        return self.async_show_form(
+            step_id="reconfigure_device_remove",
+            data_schema=vol.Schema(
+                {vol.Required("device"): vol.In(device_options)}
+            ),
         )
 
     async def async_step_reconfigure_device_add(
