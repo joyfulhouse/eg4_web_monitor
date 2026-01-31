@@ -33,6 +33,8 @@ DIAGNOSTIC_DEVICE_SENSOR_KEYS = frozenset(
         "radiator2_temperature",
         "firmware_version",
         "has_data",
+        "connection_transport",
+        "transport_host",
     }
 )
 
