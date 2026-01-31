@@ -268,11 +268,11 @@ class SilverTierValidator:
         self.checks_total += 1
         print("9️⃣  Checking reauthentication flow...")
 
-        config_flow = self.base_path / "config_flow.py"
+        config_flow = self.base_path / "_config_flow" / "__init__.py"
         coordinator = self.base_path / "coordinator.py"
 
         if not config_flow.exists():
-            self.errors.append("config_flow.py not found")
+            self.errors.append("_config_flow/__init__.py not found")
             return
 
         flow_content = config_flow.read_text()

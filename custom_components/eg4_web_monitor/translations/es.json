@@ -51,8 +51,42 @@
         "title": "Select Device Connection",
         "description": "Choose how your device is connected locally.",
         "menu_options": {
+          "network_scan_config": "Escanear red (Auto-descubrir)",
           "local_modbus": "Modbus TCP (RS485 adapter)",
           "local_dongle": "WiFi Dongle"
+        }
+      },
+      "network_scan_config": {
+        "title": "Configuración de escaneo de red",
+        "description": "Escanee su red local en busca de dispositivos {brand_name}. Los dispositivos Modbus (puerto 502) se identifican completamente. Los candidatos a dongle WiFi (puerto 8000) requieren que ingrese los números de serie después.",
+        "data": {
+          "ip_range": "Rango IP (CIDR)",
+          "scan_modbus": "Buscar Modbus TCP (puerto 502)",
+          "scan_dongle": "Buscar Dongles WiFi (puerto 8000)",
+          "timeout": "Tiempo de espera de conexión (segundos)"
+        },
+        "data_description": {
+          "ip_range": "Rango de red en notación CIDR (ej., 192.168.1.0/24). Detectado automáticamente desde su red de Home Assistant.",
+          "timeout": "Tiempo de espera para cada dispositivo. Menor = escaneo más rápido, mayor = más confiable."
+        }
+      },
+      "network_scan_progress": {
+        "title": "Escaneando red...",
+        "description": "Escaneando su red local en busca de dispositivos {brand_name}. Esto puede tardar unos momentos."
+      },
+      "network_scan_results": {
+        "title": "{device_count} dispositivo(s) encontrado(s)",
+        "description": "Seleccione un dispositivo de los resultados del escaneo ({scanned_range}). Los dispositivos Modbus están completamente identificados. Los candidatos a dongle requieren que ingrese los números de serie.",
+        "data": {
+          "device": "Seleccionar dispositivo"
+        }
+      },
+      "network_scan_empty": {
+        "title": "No se encontraron dispositivos",
+        "description": "El escaneo de red de {scanned_range} no encontró dispositivos {brand_name}. Puede ingresar los datos de conexión manualmente.",
+        "menu_options": {
+          "local_modbus": "Ingresar Modbus manualmente",
+          "local_dongle": "Ingresar Dongle manualmente"
         }
       },
       "local_modbus": {
@@ -199,6 +233,7 @@
         "title": "Add Local Device",
         "description": "Select the connection type for your new device.",
         "menu_options": {
+          "network_scan_config": "Scan Network (Auto-Discover)",
           "reconfigure_add_modbus": "Modbus TCP (RS485 adapter)",
           "reconfigure_add_dongle": "WiFi Dongle"
         }
@@ -247,7 +282,9 @@
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
-      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration."
+      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
+      "invalid_ip_range": "Rango IP no válido. Use notación CIDR (ej., 192.168.1.0/24) o un rango (ej., 192.168.1.1-192.168.1.254). Solo se permiten rangos IP privados.",
+      "no_scan_type_selected": "Seleccione al menos un tipo de escaneo (Modbus o Dongle)."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
@@ -292,55 +329,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "AC Power"},
-      "ac_voltage": {"name": "AC Voltage"},
-      "ac_current": {"name": "AC Current"},
-      "frequency": {"name": "Frequency"},
-      "dc_power": {"name": "DC Power"},
-      "dc_voltage": {"name": "DC Voltage"},
-      "dc_current": {"name": "DC Current"},
-      "battery_power": {"name": "Battery Power"},
-      "battery_voltage": {"name": "Battery Voltage"},
-      "battery_current": {"name": "Battery Current"},
-      "state_of_charge": {"name": "State of Charge"},
-      "state_of_health": {"name": "State of Health"},
-      "total_energy": {"name": "Total Energy"},
-      "daily_energy": {"name": "Daily Energy"},
-      "monthly_energy": {"name": "Monthly Energy"},
-      "yearly_energy": {"name": "Yearly Energy"},
-      "internal_temperature": {"name": "Internal Temperature"},
-      "radiator1_temperature": {"name": "Radiator 1 Temperature"},
-      "radiator2_temperature": {"name": "Radiator 2 Temperature"},
-      "status_code": {"name": "Status Code"},
-      "status_text": {"name": "Status"},
-      "grid_power": {"name": "Grid Power"},
-      "load_power": {"name": "Load Power"},
-      "pv_total_power": {"name": "PV Total Power"},
-      "pv1_power": {"name": "PV1 Power"},
-      "pv2_power": {"name": "PV2 Power"},
-      "pv3_power": {"name": "PV3 Power"},
-      "cell_voltage_max": {"name": "Maximum Cell Voltage"},
-      "cell_voltage_min": {"name": "Minimum Cell Voltage"},
-      "cell_voltage_delta": {"name": "Cell Voltage Delta"},
-      "cycle_count": {"name": "Cycle Count"},
-      "firmware_version": {"name": "Firmware Version"},
-      "grid_voltage_r": {"name": "Grid Voltage R"},
-      "grid_voltage_s": {"name": "Grid Voltage S"},
-      "grid_voltage_t": {"name": "Grid Voltage T"},
-      "grid_frequency": {"name": "Grid Frequency"},
-      "eps_voltage_r": {"name": "EPS Voltage R"},
-      "eps_voltage_s": {"name": "EPS Voltage S"},
-      "eps_voltage_t": {"name": "EPS Voltage T"},
-      "eps_frequency": {"name": "EPS Frequency"},
-      "eps_power": {"name": "EPS Power"},
-      "eps_power_l1": {"name": "EPS Power L1"},
-      "eps_power_l2": {"name": "EPS Power L2"},
-      "power_output": {"name": "Power Output"},
-      "rectifier_power": {"name": "Rectifier Power"},
-      "ac_couple_power": {"name": "AC Couple Power"},
-      "bus1_voltage": {"name": "Bus 1 Voltage"},
-      "bus2_voltage": {"name": "Bus 2 Voltage"},
-      "total_load_power": {"name": "Total Load Power"}
+      "ac_power": {
+        "name": "AC Power"
+      },
+      "ac_voltage": {
+        "name": "AC Voltage"
+      },
+      "ac_current": {
+        "name": "AC Current"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "dc_power": {
+        "name": "DC Power"
+      },
+      "dc_voltage": {
+        "name": "DC Voltage"
+      },
+      "dc_current": {
+        "name": "DC Current"
+      },
+      "battery_power": {
+        "name": "Battery Power"
+      },
+      "battery_voltage": {
+        "name": "Battery Voltage"
+      },
+      "battery_current": {
+        "name": "Battery Current"
+      },
+      "state_of_charge": {
+        "name": "State of Charge"
+      },
+      "state_of_health": {
+        "name": "State of Health"
+      },
+      "total_energy": {
+        "name": "Total Energy"
+      },
+      "daily_energy": {
+        "name": "Daily Energy"
+      },
+      "monthly_energy": {
+        "name": "Monthly Energy"
+      },
+      "yearly_energy": {
+        "name": "Yearly Energy"
+      },
+      "internal_temperature": {
+        "name": "Internal Temperature"
+      },
+      "radiator1_temperature": {
+        "name": "Radiator 1 Temperature"
+      },
+      "radiator2_temperature": {
+        "name": "Radiator 2 Temperature"
+      },
+      "status_code": {
+        "name": "Status Code"
+      },
+      "status_text": {
+        "name": "Status"
+      },
+      "grid_power": {
+        "name": "Grid Power"
+      },
+      "load_power": {
+        "name": "Load Power"
+      },
+      "pv_total_power": {
+        "name": "PV Total Power"
+      },
+      "pv1_power": {
+        "name": "PV1 Power"
+      },
+      "pv2_power": {
+        "name": "PV2 Power"
+      },
+      "pv3_power": {
+        "name": "PV3 Power"
+      },
+      "cell_voltage_max": {
+        "name": "Maximum Cell Voltage"
+      },
+      "cell_voltage_min": {
+        "name": "Minimum Cell Voltage"
+      },
+      "cell_voltage_delta": {
+        "name": "Cell Voltage Delta"
+      },
+      "cycle_count": {
+        "name": "Cycle Count"
+      },
+      "firmware_version": {
+        "name": "Firmware Version"
+      },
+      "grid_voltage_r": {
+        "name": "Grid Voltage R"
+      },
+      "grid_voltage_s": {
+        "name": "Grid Voltage S"
+      },
+      "grid_voltage_t": {
+        "name": "Grid Voltage T"
+      },
+      "grid_frequency": {
+        "name": "Grid Frequency"
+      },
+      "eps_voltage_r": {
+        "name": "EPS Voltage R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS Voltage S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS Voltage T"
+      },
+      "eps_frequency": {
+        "name": "EPS Frequency"
+      },
+      "eps_power": {
+        "name": "EPS Power"
+      },
+      "eps_power_l1": {
+        "name": "EPS Power L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS Power L2"
+      },
+      "power_output": {
+        "name": "Power Output"
+      },
+      "rectifier_power": {
+        "name": "Rectifier Power"
+      },
+      "ac_couple_power": {
+        "name": "AC Couple Power"
+      },
+      "bus1_voltage": {
+        "name": "Bus 1 Voltage"
+      },
+      "bus2_voltage": {
+        "name": "Bus 2 Voltage"
+      },
+      "total_load_power": {
+        "name": "Total Load Power"
+      }
     },
     "switch": {
       "quick_charge": {

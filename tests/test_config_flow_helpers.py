@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.eg4_web_monitor.config_flow.helpers import (
+from custom_components.eg4_web_monitor._config_flow.helpers import (
     build_unique_id,
     find_plant_by_id,
     format_entry_title,

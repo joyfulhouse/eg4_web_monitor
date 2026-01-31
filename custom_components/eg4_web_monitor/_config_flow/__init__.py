@@ -54,6 +54,7 @@ from .schemas import (
     build_http_credentials_schema,
     build_http_reconfigure_schema,
     build_modbus_schema,
+    build_network_scan_schema,
     build_plant_selection_schema,
     build_reauth_schema,
 )
@@ -87,6 +88,7 @@ from ..const import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
+    from pylxpweb.scanner import ScanResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,6 +140,13 @@ class EG4ConfigFlow(
         self._pending_port: int | None = None
         self._pending_unit_id: int | None = None
         self._pending_dongle_serial: str | None = None
+
+        # Network scan state
+        self._scan_ip_range: str | None = None
+        self._scan_ports: list[int] = [502, 8000]
+        self._scan_timeout: float = 0.5
+        self._scan_results: list[ScanResult] = []
+        self._scan_context: str = "onboard"  # "onboard" or "reconfigure"
 
     @staticmethod
     def async_get_options_flow(
@@ -248,10 +257,191 @@ class EG4ConfigFlow(
     async def async_step_local_device_type(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Select local transport type (Modbus or Dongle)."""
+        """Select local transport type (Modbus, Dongle, or Scan)."""
         return self.async_show_menu(
             step_id="local_device_type",
+            menu_options=["network_scan_config", "local_modbus", "local_dongle"],
+        )
+
+    # =========================================================================
+    # NETWORK SCAN STEPS (shared by onboarding and reconfigure)
+    # =========================================================================
+
+    async def _get_default_ip_range(self) -> str:
+        """Auto-detect default IP range from HA network adapters."""
+        from ipaddress import ip_network
+
+        from homeassistant.components import network
+
+        try:
+            adapters = await network.async_get_adapters(self.hass)
+            for adapter in adapters:
+                if not adapter.get("enabled", False):
+                    continue
+                for ip_info in adapter.get("ipv4", []):
+                    ip_addr = ip_info.get("address", "")
+                    prefix = ip_info.get("network_prefix", 24)
+                    if ip_addr.startswith("169.254."):
+                        continue
+                    net = ip_network(f"{ip_addr}/{prefix}", strict=False)
+                    return str(net)
+        except Exception as err:
+            _LOGGER.warning("Failed to detect network adapters: %s", err)
+
+        return "192.168.1.0/24"
+
+    async def async_step_network_scan_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure network scan parameters."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            ip_range = user_input.get("ip_range", "192.168.1.0/24")
+            scan_modbus = user_input.get("scan_modbus", True)
+            scan_dongle = user_input.get("scan_dongle", True)
+
+            # Validate IP range
+            try:
+                from pylxpweb.scanner import parse_ip_range
+
+                hosts = parse_ip_range(ip_range)
+                if not hosts:
+                    errors["ip_range"] = "invalid_ip_range"
+            except ValueError:
+                errors["ip_range"] = "invalid_ip_range"
+
+            if not errors:
+                ports = [
+                    p
+                    for p, enabled in ((502, scan_modbus), (8000, scan_dongle))
+                    if enabled
+                ]
+                if not ports:
+                    errors["base"] = "no_scan_type_selected"
+                else:
+                    self._scan_ip_range = ip_range
+                    self._scan_ports = ports
+                    self._scan_timeout = user_input.get("timeout", 0.5)
+                    return await self.async_step_network_scan_progress()
+
+        default_range = await self._get_default_ip_range()
+        return self.async_show_form(
+            step_id="network_scan_config",
+            data_schema=build_network_scan_schema(default_ip_range=default_range),
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_network_scan_progress(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Execute network scan in background and show progress spinner."""
+        if not self.async_get_progress_task():
+            return self.async_show_progress(
+                step_id="network_scan_progress",
+                progress_action="network_scan",
+                progress_task=self.hass.async_create_task(
+                    self._run_scan(), "eg4_network_scan"
+                ),
+            )
+
+        return self.async_show_progress_done(
+            next_step_id=(
+                "network_scan_results" if self._scan_results else "network_scan_empty"
+            ),
+        )
+
+    async def _run_scan(self) -> None:
+        """Background task: run the network scanner."""
+        try:
+            from pylxpweb.scanner import NetworkScanner, ScanConfig
+
+            config = ScanConfig(
+                ip_range=self._scan_ip_range or "192.168.1.0/24",
+                ports=self._scan_ports,
+                timeout=self._scan_timeout,
+                concurrency=50,
+                verify_modbus=True,
+                lookup_mac=8000 in self._scan_ports,
+            )
+
+            scanner = NetworkScanner(config)
+            results: list[ScanResult] = []
+            async for result in scanner.scan():
+                results.append(result)
+
+            self._scan_results = results
+        except Exception:
+            _LOGGER.exception("Network scan failed")
+            self._scan_results = []
+
+    async def async_step_network_scan_results(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show scan results and let user select a device."""
+        if user_input is not None:
+            selected_ip = user_input.get("device", "")
+
+            device = next(
+                (d for d in self._scan_results if d.ip == selected_ip),
+                None,
+            )
+            if device is None:
+                return self.async_abort(reason="device_not_found")
+
+            if device.port == 502:
+                # Pre-fill Modbus form — go to the appropriate step
+                prefilled = {
+                    CONF_MODBUS_HOST: device.ip,
+                    CONF_MODBUS_PORT: device.port,
+                    CONF_MODBUS_UNIT_ID: DEFAULT_MODBUS_UNIT_ID,
+                }
+                if self._scan_context == "reconfigure":
+                    return await self.async_step_reconfigure_add_modbus(prefilled)
+                return await self.async_step_local_modbus(prefilled)
+
+            # Dongle candidate — pre-fill IP only, user enters serials
+            prefilled = {
+                CONF_DONGLE_HOST: device.ip,
+                CONF_DONGLE_PORT: device.port,
+            }
+            if self._scan_context == "reconfigure":
+                return await self.async_step_reconfigure_add_dongle(prefilled)
+            return await self.async_step_local_dongle(prefilled)
+
+        if not self._scan_results:
+            return self._show_scan_empty_menu()
+
+        # Build device options for selection
+        device_options: dict[str, str] = {}
+        for dev in self._scan_results:
+            device_options[dev.ip] = dev.display_label
+
+        return self.async_show_form(
+            step_id="network_scan_results",
+            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
+            description_placeholders={
+                "device_count": str(len(self._scan_results)),
+                "scanned_range": self._scan_ip_range or "",
+            },
+        )
+
+    async def async_step_network_scan_empty(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle empty scan — redirect to manual entry menu."""
+        return self._show_scan_empty_menu()
+
+    def _show_scan_empty_menu(self) -> ConfigFlowResult:
+        """Show manual entry menu after empty scan results."""
+        return self.async_show_menu(
+            step_id="network_scan_empty",
             menu_options=["local_modbus", "local_dongle"],
+            description_placeholders={
+                "brand_name": BRAND_NAME,
+                "scanned_range": self._scan_ip_range or "",
+            },
         )
 
     async def async_step_local_modbus(
@@ -696,9 +886,14 @@ class EG4ConfigFlow(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Add a new local device during reconfigure."""
+        self._scan_context = "reconfigure"
         return self.async_show_menu(
             step_id="reconfigure_device_add",
-            menu_options=["reconfigure_add_modbus", "reconfigure_add_dongle"],
+            menu_options=[
+                "network_scan_config",
+                "reconfigure_add_modbus",
+                "reconfigure_add_dongle",
+            ],
         )
 
     async def async_step_reconfigure_add_modbus(

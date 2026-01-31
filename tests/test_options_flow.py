@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-from custom_components.eg4_web_monitor.config_flow.options import EG4OptionsFlow
+from custom_components.eg4_web_monitor._config_flow.options import EG4OptionsFlow
 from custom_components.eg4_web_monitor.const import (
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
