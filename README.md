@@ -207,38 +207,39 @@ Combines local polling (Modbus or Dongle) for fast sensor updates with Cloud API
 1. Navigate to **Settings** → **Devices & Services** in Home Assistant
 2. Click the **Add Integration** button (bottom right)
 3. Search for **"EG4 Web Monitor"** and select it
-4. Enter your EG4 Monitor credentials:
-   - **Username**: Your EG4 Monitor account email or username
-   - **Password**: Your EG4 Monitor account password
-   - **Base URL**: Leave as default (`https://monitor.eg4electronics.com`) unless instructed otherwise
-   - **Verify SSL Certificate**: Leave checked (recommended for security)
-5. Click **Submit**
+4. Choose your starting point from the menu:
+   - **Cloud (HTTP)**: Connect via your EG4 Monitor account
+   - **Local Device**: Connect directly via Modbus TCP or WiFi Dongle
 
-If you have multiple solar installations (stations):
-- You'll be asked to select which station to monitor
-- Each station requires a separate integration instance
-- You can add more instances by repeating the setup process
+**Cloud Setup:**
+- Enter your EG4 Monitor credentials (username, password, base URL)
+- Select your station if you have multiple installations
+- Optionally add a local device for faster polling (creates a hybrid connection)
 
-Once configured:
-- Your devices will be discovered automatically
-- Sensors will appear within a few seconds
-- Data updates every 30 seconds by default
+**Local Device Setup:**
+- Choose Modbus TCP or WiFi Dongle
+- Enter connection details (IP address, port, serial numbers)
+- The device model and serial number are auto-detected
+
+The connection type is automatically determined:
+- Cloud credentials only → **HTTP** mode (30s polling)
+- Local devices only → **Local** mode (5s polling)
+- Both cloud + local → **Hybrid** mode (5s polling + cloud battery data)
 
 ### Reconfiguring the Integration
 
-Need to change your credentials or switch to a different station? No problem!
+Need to change settings? The reconfigure menu provides several options:
 
 1. Navigate to **Settings** → **Devices & Services**
 2. Find your **EG4 Web Monitor** integration
-3. Click the three dots (⋮) menu
-4. Select **Reconfigure**
-5. Update your settings:
-   - Change username, password, or connection settings
-   - Switch to a different solar installation/station
-   - Update SSL verification settings
-6. Click **Submit** - your integration will reload with the new settings
+3. Click the three dots (⋮) menu → **Reconfigure**
+4. Choose from the menu:
+   - **Update Cloud Credentials**: Change username, password, base URL, or station
+   - **Add Local Device**: Add a Modbus or Dongle connection (upgrades HTTP → Hybrid)
+   - **Remove Local Device**: Remove a local transport
+   - **Detach Cloud**: Switch from Hybrid to Local-only mode
 
-The reconfiguration process won't lose any of your existing automations or dashboards!
+Your existing automations and dashboards are preserved!
 
 ### Configuring Options (Refresh Intervals)
 

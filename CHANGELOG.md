@@ -5,6 +5,45 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-01-30
+
+### Breaking Changes
+
+- **Config Flow Architecture**: Replaced the 23-file, 12-mixin config flow with a single unified `EG4ConfigFlow` class. The user-facing behavior is similar but uses menu-based navigation instead of separate onboarding paths per connection type.
+
+### Added
+
+- **Menu-Based Config Flow**: New setup starts with a menu offering "Cloud (HTTP)" or "Local Device" entry points. Users can add the other side at any time via reconfigure, and the connection type (http/local/hybrid) is auto-derived.
+- **Unified Reconfigure Flow**: Single reconfigure menu with options to update cloud credentials, add/remove local devices, or detach cloud — replacing 4 separate reconfigure mixins.
+- **Auto-Detection for Local Devices**: Modbus and Dongle setup now auto-detects serial number, device model, inverter family, firmware version, and parallel group configuration.
+- **Translation Validation**: New `validate_translations.py` script and CI job to verify all translation files have complete key coverage.
+
+### Changed
+
+- **Config Flow Structure**: `config_flow/` directory simplified from 23 files to 5 files:
+  - `__init__.py` — Unified EG4ConfigFlow class (~920 lines)
+  - `discovery.py` — Device auto-discovery via Modbus/Dongle
+  - `schemas.py` — Voluptuous schema builders
+  - `helpers.py` — Utility functions (unique IDs, migration, etc.)
+  - `options.py` — EG4OptionsFlow for interval configuration
+- **Connection Type Derivation**: Connection type is no longer chosen upfront by the user. It's automatically derived: cloud-only → `http`, local-only → `local`, both → `hybrid`.
+
+### Fixed
+
+- **BaseInverter Factory Dispatch**: Fixed calls to non-existent `BaseInverter.from_transport()` — now correctly dispatches to `from_modbus_transport()` or `from_dongle_transport()` based on transport type.
+- **Mypy Type Errors**: Fixed nullable type handling in `discovery.py` (runtime data) and `coordinator.py` (config_entry, plant_id).
+- **LuxpowerConnectionError Handling**: Connection errors during config flow now correctly show "cannot_connect" instead of "unknown".
+
+### Removed
+
+- Deleted 18 config flow files: `base.py`, `onboarding/` (5 files), `reconfigure/` (6 files), `transitions/` (5 files)
+- Deleted 5 obsolete test files: `test_main_configflow.py`, `test_onboarding_mixins.py`, `test_reconfigure_mixins.py`, `test_transition_mixin.py`, `test_transitions.py`
+- Removed dead `get_reconfigure_entry()` helper function
+
+### Dependencies
+
+- Requires `pylxpweb>=0.6.5`
+
 ## [3.1.1] - 2025-01-11
 
 ### Added
@@ -100,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Requires `pylxpweb>=0.4.4`
 
+[3.2.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.2.0
 [3.1.1]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.1
 [3.1.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.0
 [3.0.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.0.0

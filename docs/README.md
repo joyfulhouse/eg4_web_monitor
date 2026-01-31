@@ -43,8 +43,8 @@ This directory contains technical documentation, API references, and implementat
 - Coordinator: `coordinator.py` with mixins in `coordinator_mixins.py`
 - Base entity classes: `base_entity.py` (EG4DeviceEntity, EG4BatteryEntity, EG4StationEntity, EG4BaseSensor, EG4BaseBatterySensor, EG4BatteryBankEntity, EG4BaseSwitch)
 - Entity platforms: `sensor.py`, `switch.py`, `button.py`, `number.py`, `select.py`, `update.py`
-- Constants and TypedDicts: `const.py` (SensorConfig, SENSOR_TYPES, etc.)
-- Utility functions: `utils.py` (entity ID generation, device info creation, CircuitBreaker)
+- Constants and TypedDicts: `const/` package (SensorConfig, SENSOR_TYPES, config keys, etc.)
+- Config flow: `config_flow/` package (unified EG4ConfigFlow, discovery, schemas, helpers, options)
 
 ## 🤝 Contributing
 
