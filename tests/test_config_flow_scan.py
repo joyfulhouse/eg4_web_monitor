@@ -73,6 +73,29 @@ async def _navigate_to_scan_config(hass: HomeAssistant):
     return result
 
 
+async def _submit_scan_and_wait(hass: HomeAssistant, flow_id: str, scanner_mock):
+    """Submit scan config, wait for background task, and return the result step."""
+    with patch(_PATCH_SCANNER, return_value=scanner_mock):
+        # Submit scan config → shows progress spinner
+        result = await hass.config_entries.flow.async_configure(
+            flow_id,
+            {
+                "ip_range": "192.168.1.0/24",
+                "scan_modbus": True,
+                "scan_dongle": False,
+                "timeout": 0.5,
+            },
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+
+        # Wait for background scan task to complete and flow to auto-advance
+        await hass.async_block_till_done()
+
+        # HA auto-advances through progress_done → next step
+        result = await hass.config_entries.flow.async_configure(flow_id)
+    return result
+
+
 class TestNetworkScanConfig:
     """Tests for network_scan_config step."""
 
@@ -109,17 +132,9 @@ class TestNetworkScanResults:
         mock_scanner_instance.scan = mock_scan_gen
 
         result = await _navigate_to_scan_config(hass)
-
-        with patch(_PATCH_SCANNER, return_value=mock_scanner_instance):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "ip_range": "192.168.1.0/24",
-                    "scan_modbus": True,
-                    "scan_dongle": False,
-                    "timeout": 0.5,
-                },
-            )
+        result = await _submit_scan_and_wait(
+            hass, result["flow_id"], mock_scanner_instance
+        )
 
         assert result["step_id"] == "network_scan_results"
         assert result["type"] == data_entry_flow.FlowResultType.FORM
@@ -135,17 +150,9 @@ class TestNetworkScanResults:
         mock_scanner_instance.scan = mock_scan_gen
 
         result = await _navigate_to_scan_config(hass)
-
-        with patch(_PATCH_SCANNER, return_value=mock_scanner_instance):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "ip_range": "192.168.1.0/24",
-                    "scan_modbus": True,
-                    "scan_dongle": False,
-                    "timeout": 0.5,
-                },
-            )
+        result = await _submit_scan_and_wait(
+            hass, result["flow_id"], mock_scanner_instance
+        )
 
         assert result["step_id"] == "network_scan_empty"
         assert result["type"] == data_entry_flow.FlowResultType.MENU
@@ -166,21 +173,12 @@ class TestNetworkScanResults:
         mock_device = MagicMock()
         mock_device.serial = "4512345678"
 
-        with (
-            patch(_PATCH_SCANNER, return_value=mock_scanner_instance),
-            patch(_PATCH_DISCOVER_MODBUS, return_value=mock_device) as mock_discover,
-        ):
-            # Submit scan config → triggers scan → shows results
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "ip_range": "192.168.1.0/24",
-                    "scan_modbus": True,
-                    "scan_dongle": False,
-                    "timeout": 0.5,
-                },
-            )
+        result = await _submit_scan_and_wait(
+            hass, result["flow_id"], mock_scanner_instance
+        )
+        assert result["step_id"] == "network_scan_results"
 
+        with patch(_PATCH_DISCOVER_MODBUS, return_value=mock_device) as mock_discover:
             # Select the discovered device → pre-fills modbus form → calls discover
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -192,3 +190,29 @@ class TestNetworkScanResults:
         call_args = mock_discover.call_args
         assert call_args[0][0] == "192.168.1.50"
         assert call_args[0][1] == 502
+
+    async def test_scan_finds_dongle_candidate(self, hass: HomeAssistant):
+        """Scan finds a dongle candidate → shows results."""
+        mock_result = _make_scan_result(
+            ip="192.168.1.100",
+            port=8000,
+            device_type_name="DONGLE_CANDIDATE",
+            serial=None,
+            model_family=None,
+            mac_vendor="Espressif",
+        )
+
+        mock_scanner_instance = MagicMock()
+
+        async def mock_scan_gen():
+            yield mock_result
+
+        mock_scanner_instance.scan = mock_scan_gen
+
+        result = await _navigate_to_scan_config(hass)
+        result = await _submit_scan_and_wait(
+            hass, result["flow_id"], mock_scanner_instance
+        )
+
+        assert result["step_id"] == "network_scan_results"
+        assert result["type"] == data_entry_flow.FlowResultType.FORM

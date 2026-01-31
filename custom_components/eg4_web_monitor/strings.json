@@ -70,6 +70,13 @@
           "timeout": "How long to wait for each device to respond. Lower = faster scan, higher = more reliable."
         }
       },
+      "network_scan_progress": {
+        "title": "Scanning Network...",
+        "description": "Scanning your local network for {brand_name} devices. This may take a few moments.",
+        "progress_action": {
+          "network_scan": "Scanning for devices..."
+        }
+      },
       "network_scan_results": {
         "title": "Found {device_count} Device(s)",
         "description": "Select a device from the scan results (scanned {scanned_range}). Modbus devices are fully identified. Dongle candidates require you to enter serials on the next screen.",

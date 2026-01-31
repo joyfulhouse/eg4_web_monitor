@@ -88,6 +88,7 @@ from ..const import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
+    from pylxpweb.scanner import ScanResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class EG4ConfigFlow(
         self._scan_ip_range: str | None = None
         self._scan_ports: list[int] = [502, 8000]
         self._scan_timeout: float = 0.5
-        self._scan_results: list[Any] = []
+        self._scan_results: list[ScanResult] = []
         self._scan_context: str = "onboard"  # "onboard" or "reconfigure"
 
     @staticmethod
@@ -312,11 +313,11 @@ class EG4ConfigFlow(
 
             if not errors:
                 self._scan_ip_range = ip_range
-                self._scan_ports = []
-                if scan_modbus:
-                    self._scan_ports.append(502)
-                if scan_dongle:
-                    self._scan_ports.append(8000)
+                self._scan_ports = [
+                    p
+                    for p, enabled in ((502, scan_modbus), (8000, scan_dongle))
+                    if enabled
+                ]
                 self._scan_timeout = user_input.get("timeout", 0.5)
                 return await self.async_step_network_scan_progress()
 
@@ -331,7 +332,24 @@ class EG4ConfigFlow(
     async def async_step_network_scan_progress(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Execute network scan and show results."""
+        """Execute network scan in background and show progress spinner."""
+        if not self.async_get_progress_task():
+            return self.async_show_progress(
+                step_id="network_scan_progress",
+                progress_action="network_scan",
+                progress_task=self.hass.async_create_task(
+                    self._run_scan(), "eg4_network_scan"
+                ),
+            )
+
+        return self.async_show_progress_done(
+            next_step_id=(
+                "network_scan_results" if self._scan_results else "network_scan_empty"
+            ),
+        )
+
+    async def _run_scan(self) -> None:
+        """Background task: run the network scanner."""
         from pylxpweb.scanner import NetworkScanner, ScanConfig
 
         config = ScanConfig(
@@ -344,12 +362,11 @@ class EG4ConfigFlow(
         )
 
         scanner = NetworkScanner(config)
-        results: list[Any] = []
+        results: list[ScanResult] = []
         async for result in scanner.scan():
             results.append(result)
 
         self._scan_results = results
-        return await self.async_step_network_scan_results()
 
     async def async_step_network_scan_results(
         self, user_input: dict[str, Any] | None = None
@@ -386,15 +403,7 @@ class EG4ConfigFlow(
             return await self.async_step_local_dongle(prefilled)
 
         if not self._scan_results:
-            # No devices found — show empty menu
-            return self.async_show_menu(
-                step_id="network_scan_empty",
-                menu_options=["local_modbus", "local_dongle"],
-                description_placeholders={
-                    "brand_name": BRAND_NAME,
-                    "scanned_range": self._scan_ip_range or "",
-                },
-            )
+            return self._show_scan_empty_menu()
 
         # Build device options for selection
         device_options: dict[str, str] = {}
@@ -414,7 +423,10 @@ class EG4ConfigFlow(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle empty scan — redirect to manual entry menu."""
-        # This is a menu step; HA handles the routing via menu_options
+        return self._show_scan_empty_menu()
+
+    def _show_scan_empty_menu(self) -> ConfigFlowResult:
+        """Show manual entry menu after empty scan results."""
         return self.async_show_menu(
             step_id="network_scan_empty",
             menu_options=["local_modbus", "local_dongle"],
