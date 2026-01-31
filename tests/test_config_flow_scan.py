@@ -11,7 +11,7 @@ from custom_components.eg4_web_monitor.const import DOMAIN
 _PATCH_NETWORK = "homeassistant.components.network.async_get_adapters"
 _PATCH_SCANNER = "pylxpweb.scanner.NetworkScanner"
 _PATCH_DISCOVER_MODBUS = (
-    "custom_components.eg4_web_monitor.config_flow.discover_modbus_device"
+    "custom_components.eg4_web_monitor._config_flow.discover_modbus_device"
 )
 
 _MOCK_ADAPTERS = [

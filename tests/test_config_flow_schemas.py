@@ -3,7 +3,7 @@
 import pytest
 import voluptuous as vol
 
-from custom_components.eg4_web_monitor.config_flow.schemas import (
+from custom_components.eg4_web_monitor._config_flow.schemas import (
     build_connection_type_schema,
     build_dongle_schema,
     build_http_credentials_schema,

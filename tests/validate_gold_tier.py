@@ -85,9 +85,11 @@ def validate_reconfiguration():
     """Validate reconfiguration support (Gold tier requirement)."""
     print("🔧 Validating reconfiguration support...")
 
-    config_flow_file = Path("custom_components/eg4_web_monitor/config_flow.py")
+    config_flow_file = Path(
+        "custom_components/eg4_web_monitor/_config_flow/__init__.py"
+    )
     if not config_flow_file.exists():
-        print("  ❌ config_flow.py not found")
+        print("  ❌ _config_flow/__init__.py not found")
         return False
 
     with open(config_flow_file, "r", encoding="utf-8") as f:

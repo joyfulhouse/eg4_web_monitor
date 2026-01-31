@@ -283,7 +283,8 @@
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
-      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed."
+      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
+      "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle)."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

@@ -100,7 +100,9 @@ def check_websession_injection() -> bool:
             print("  ⚠️  Could not verify LuxpowerClient session injection")
 
     # Check for session injection in config_flow
-    config_flow_path = Path("custom_components/eg4_web_monitor") / "config_flow.py"
+    config_flow_path = (
+        Path("custom_components/eg4_web_monitor") / "_config_flow" / "__init__.py"
+    )
     if not config_flow_path.exists():
         print("  ❌ Config flow file not found")
         return False

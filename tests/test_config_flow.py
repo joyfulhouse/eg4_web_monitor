@@ -9,7 +9,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.eg4_web_monitor.config_flow.helpers import timezone_observes_dst
+from custom_components.eg4_web_monitor._config_flow.helpers import timezone_observes_dst
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -136,7 +136,9 @@ def _mock_luxpower_client(stations=None, side_effect=None):
     load_all_kwargs = (
         {"side_effect": side_effect} if side_effect else {"return_value": stations}
     )
-    client_patch = patch("custom_components.eg4_web_monitor.config_flow.LuxpowerClient")
+    client_patch = patch(
+        "custom_components.eg4_web_monitor._config_flow.LuxpowerClient"
+    )
     station_patch = patch(
         "pylxpweb.devices.Station.load_all",
         new=AsyncMock(**load_all_kwargs),

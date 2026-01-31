@@ -312,14 +312,18 @@ class EG4ConfigFlow(
                 errors["ip_range"] = "invalid_ip_range"
 
             if not errors:
-                self._scan_ip_range = ip_range
-                self._scan_ports = [
+                ports = [
                     p
                     for p, enabled in ((502, scan_modbus), (8000, scan_dongle))
                     if enabled
                 ]
-                self._scan_timeout = user_input.get("timeout", 0.5)
-                return await self.async_step_network_scan_progress()
+                if not ports:
+                    errors["base"] = "no_scan_type_selected"
+                else:
+                    self._scan_ip_range = ip_range
+                    self._scan_ports = ports
+                    self._scan_timeout = user_input.get("timeout", 0.5)
+                    return await self.async_step_network_scan_progress()
 
         default_range = await self._get_default_ip_range()
         return self.async_show_form(
@@ -350,23 +354,27 @@ class EG4ConfigFlow(
 
     async def _run_scan(self) -> None:
         """Background task: run the network scanner."""
-        from pylxpweb.scanner import NetworkScanner, ScanConfig
+        try:
+            from pylxpweb.scanner import NetworkScanner, ScanConfig
 
-        config = ScanConfig(
-            ip_range=self._scan_ip_range or "192.168.1.0/24",
-            ports=self._scan_ports,
-            timeout=self._scan_timeout,
-            concurrency=50,
-            verify_modbus=True,
-            lookup_mac=8000 in self._scan_ports,
-        )
+            config = ScanConfig(
+                ip_range=self._scan_ip_range or "192.168.1.0/24",
+                ports=self._scan_ports,
+                timeout=self._scan_timeout,
+                concurrency=50,
+                verify_modbus=True,
+                lookup_mac=8000 in self._scan_ports,
+            )
 
-        scanner = NetworkScanner(config)
-        results: list[ScanResult] = []
-        async for result in scanner.scan():
-            results.append(result)
+            scanner = NetworkScanner(config)
+            results: list[ScanResult] = []
+            async for result in scanner.scan():
+                results.append(result)
 
-        self._scan_results = results
+            self._scan_results = results
+        except Exception:
+            _LOGGER.exception("Network scan failed")
+            self._scan_results = []
 
     async def async_step_network_scan_results(
         self, user_input: dict[str, Any] | None = None
