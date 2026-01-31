@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 
@@ -145,7 +143,7 @@ class TestNetworkScanResults:
 
         async def mock_scan_gen():
             return
-            yield  # noqa: unreachable - makes this an async generator
+            yield  # makes this an async generator
 
         mock_scanner_instance.scan = mock_scan_gen
 

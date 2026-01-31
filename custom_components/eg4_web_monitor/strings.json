@@ -72,10 +72,7 @@
       },
       "network_scan_progress": {
         "title": "Scanning Network...",
-        "description": "Scanning your local network for {brand_name} devices. This may take a few moments.",
-        "progress_action": {
-          "network_scan": "Scanning for devices..."
-        }
+        "description": "Scanning your local network for {brand_name} devices. This may take a few moments."
       },
       "network_scan_results": {
         "title": "Found {device_count} Device(s)",
