@@ -40,7 +40,9 @@ def _make_scan_result(
     mock.serial = serial
     mock.model_family = model_family
     mock.mac_vendor = mac_vendor
-    mock.display_label = f"{model_family or 'Unknown'} ({serial or 'N/A'}) @ {ip}:{port}"
+    mock.display_label = (
+        f"{model_family or 'Unknown'} ({serial or 'N/A'}) @ {ip}:{port}"
+    )
     mock.is_verified = device_type_name == "MODBUS_VERIFIED"
     mock.is_dongle_candidate = device_type_name == "DONGLE_CANDIDATE"
     return mock
