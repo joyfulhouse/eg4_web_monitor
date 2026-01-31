@@ -316,3 +316,27 @@ def build_interval_options_schema(
             ),
         }
     )
+
+
+def build_network_scan_schema(
+    default_ip_range: str | None = None,
+) -> vol.Schema:
+    """Build schema for network scan configuration.
+
+    Args:
+        default_ip_range: Auto-detected from HA network adapters.
+
+    Returns:
+        Voluptuous schema for scan config step.
+    """
+    return vol.Schema(
+        {
+            vol.Required("ip_range", default=default_ip_range or "192.168.1.0/24"): str,
+            vol.Optional("scan_modbus", default=True): bool,
+            vol.Optional("scan_dongle", default=True): bool,
+            vol.Optional("timeout", default=0.5): vol.All(
+                vol.Coerce(float),
+                vol.Range(min=0.3, max=5.0),
+            ),
+        }
+    )
