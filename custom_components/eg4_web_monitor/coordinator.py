@@ -621,6 +621,9 @@ class EG4DataUpdateCoordinator(
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 
+        # Transport cache for hybrid mode (serial -> transport)
+        self._hybrid_transport_cache: dict[str, Any] = {}
+
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 
@@ -1625,117 +1628,158 @@ class EG4DataUpdateCoordinator(
             )
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
-        """Fetch data using local transport (Modbus/Dongle) + HTTP (discovery/battery).
+        """Fetch data using local transports + HTTP (discovery/battery).
 
         Hybrid mode provides the best of both worlds:
-        - Fast 1-5 second runtime updates via local transport (Modbus or Dongle)
+        - Fast 1-5 second runtime updates via local transports (Modbus/Dongle)
         - Device discovery and individual battery data via HTTP cloud API
 
-        Priority: Modbus > Dongle > HTTP-only (based on configured local transport)
+        Supports multiple local transports from local_transports config list.
+        Each local device's runtime/energy data is merged with the HTTP data
+        for that serial. Devices without local transports fall back to HTTP.
 
         Returns:
             Dictionary containing merged data from both sources.
         """
+        from pylxpweb.transports import create_transport
         from pylxpweb.transports.exceptions import TransportError
 
-        # Try to get local data from configured transport (Modbus or Dongle)
-        local_data: dict[str, Any] | None = None
-        local_serial: str = ""
-        local_transport_name: str = ""
+        # Track which serials have successful local data
+        local_successes: dict[str, dict[str, Any]] = {}
+        # serial -> {"transport_name": str, "host": str}
 
-        # Priority 1: Try Modbus if configured
-        if self._modbus_transport is not None:
-            local_transport_name = "Modbus"
-            local_serial = self._modbus_serial
+        # Read local data from all configured transports
+        for tc in self._local_transport_configs:
+            serial = tc.get("serial", "")
+            host = tc.get("host", "")
+            transport_type = tc.get("transport_type", "modbus_tcp")
+            transport_name = "Modbus" if transport_type == "modbus_tcp" else "Dongle"
+
+            if not serial or not host:
+                continue
+
             try:
-                if not self._modbus_transport.is_connected:
-                    await self._modbus_transport.connect()
+                # Get or create transport from cache
+                transport = self._hybrid_transport_cache.get(serial)
+                if transport is None:
+                    family_str = tc.get("inverter_family", DEFAULT_INVERTER_FAMILY)
+                    if transport_type == "modbus_tcp":
+                        transport = create_transport(
+                            "modbus",
+                            host=host,
+                            serial=serial,
+                            port=tc.get("port", DEFAULT_MODBUS_PORT),
+                            unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                            timeout=DEFAULT_MODBUS_TIMEOUT,
+                            inverter_family=self._get_inverter_family(family_str),
+                        )
+                    elif transport_type == "wifi_dongle":
+                        transport = create_transport(
+                            "dongle",
+                            host=host,
+                            dongle_serial=tc.get("dongle_serial", ""),
+                            inverter_serial=serial,
+                            port=tc.get("port", DEFAULT_DONGLE_PORT),
+                            timeout=DEFAULT_DONGLE_TIMEOUT,
+                            inverter_family=self._get_inverter_family(family_str),
+                        )
+                    else:
+                        continue
+                    self._hybrid_transport_cache[serial] = transport
 
-                # Read sequentially to avoid transaction ID desync issues
-                runtime_data = await self._modbus_transport.read_runtime()
-                energy_data = await self._modbus_transport.read_energy()
-                local_data = {
+                if not transport.is_connected:
+                    await transport.connect()
+
+                runtime_data = await transport.read_runtime()
+                energy_data = await transport.read_energy()
+
+                local_successes[serial] = {
                     "runtime": runtime_data,
                     "energy": energy_data,
+                    "transport_name": transport_name,
+                    "host": host,
                 }
                 _LOGGER.debug(
-                    "Hybrid: %s runtime - PV: %.0fW, SOC: %d%%",
-                    local_transport_name,
+                    "Hybrid: %s read for %s - PV: %.0fW, SOC: %d%%",
+                    transport_name,
+                    serial,
                     runtime_data.pv_total_power,
                     runtime_data.battery_soc,
                 )
             except TransportError as e:
                 _LOGGER.warning(
-                    "Hybrid: %s read failed, falling back to HTTP: %s",
-                    local_transport_name,
+                    "Hybrid: %s read failed for %s, using HTTP: %s",
+                    transport_name,
+                    serial,
                     e,
                 )
-                local_data = None
 
-        # Priority 2: Try Dongle if configured and Modbus not available/failed
-        if local_data is None and self._dongle_transport is not None:
-            local_transport_name = "Dongle"
-            local_serial = self._dongle_serial
-            try:
-                if not self._dongle_transport.is_connected:
-                    await self._dongle_transport.connect()
+        # Fall back to legacy single-transport if no local_transport_configs
+        if not self._local_transport_configs:
+            local_successes = await self._hybrid_legacy_read(local_successes)
 
-                runtime_data = await self._dongle_transport.read_runtime()
-                energy_data = await self._dongle_transport.read_energy()
-                local_data = {
-                    "runtime": runtime_data,
-                    "energy": energy_data,
-                }
-                _LOGGER.debug(
-                    "Hybrid: %s runtime - PV: %.0fW, SOC: %d%%",
-                    local_transport_name,
-                    runtime_data.pv_total_power,
-                    runtime_data.battery_soc,
-                )
-            except TransportError as e:
-                _LOGGER.warning(
-                    "Hybrid: %s read failed, falling back to HTTP-only: %s",
-                    local_transport_name,
-                    e,
-                )
-                local_data = None
-
-        # Get HTTP data for discovery, batteries, and features not in local transport
+        # Get HTTP data for discovery, batteries, and features
         http_data = await self._async_update_http_data()
 
-        # If we have local data, merge it with HTTP data for the matching inverter
-        if local_data is not None and local_serial in http_data.get("devices", {}):
-            self._merge_local_data_with_http(
-                http_data["devices"][local_serial],
-                local_data["runtime"],
-                local_data["energy"],
-                local_serial,
-                local_transport_name,
-            )
+        # Merge local data into HTTP data for each successful local device
+        for serial, local_info in local_successes.items():
+            if serial in http_data.get("devices", {}):
+                self._merge_local_data_with_http(
+                    http_data["devices"][serial],
+                    local_info["runtime"],
+                    local_info["energy"],
+                    serial,
+                    local_info["transport_name"],
+                )
 
         http_data["connection_type"] = CONNECTION_TYPE_HYBRID
 
-        # Set transport labels: hybrid local device gets specific label,
-        # other devices in the station remain "Cloud"
+        # Set transport labels per device
         for dev_serial, device_data in http_data.get("devices", {}).items():
             if "sensors" not in device_data:
                 continue
-            if local_data is not None and dev_serial == local_serial:
+            if dev_serial in local_successes:
+                info = local_successes[dev_serial]
                 device_data["sensors"]["connection_transport"] = (
-                    f"Hybrid ({local_transport_name})"
+                    f"Hybrid ({info['transport_name']})"
                 )
-                # Get host from the active local transport
-                local_transport = (
-                    self._modbus_transport
-                    if local_transport_name == "Modbus"
-                    else self._dongle_transport
-                )
-                if local_transport and hasattr(local_transport, "host"):
-                    device_data["sensors"]["transport_host"] = local_transport.host
+                device_data["sensors"]["transport_host"] = info["host"]
             else:
                 device_data["sensors"]["connection_transport"] = "Cloud"
 
         return http_data
+
+    async def _hybrid_legacy_read(
+        self, local_successes: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Legacy single-transport read for hybrid mode (old flat-key config).
+
+        Used when no local_transport_configs are set (backward compatibility).
+        """
+        from pylxpweb.transports.exceptions import TransportError
+
+        for transport, serial, name in [
+            (self._modbus_transport, self._modbus_serial, "Modbus"),
+            (self._dongle_transport, self._dongle_serial, "Dongle"),
+        ]:
+            if transport is None or serial in local_successes:
+                continue
+            try:
+                if not transport.is_connected:
+                    await transport.connect()
+                runtime_data = await transport.read_runtime()
+                energy_data = await transport.read_energy()
+                host = getattr(transport, "host", "")
+                local_successes[serial] = {
+                    "runtime": runtime_data,
+                    "energy": energy_data,
+                    "transport_name": name,
+                    "host": host,
+                }
+            except TransportError as e:
+                _LOGGER.warning("Hybrid: %s read failed: %s", name, e)
+
+        return local_successes
 
     def _merge_local_data_with_http(
         self,

@@ -651,7 +651,7 @@ class EG4ConfigFlow(
         menu_options = ["reconfigure_device_add"]
         if self._local_transports:
             menu_options.append("reconfigure_device_remove")
-        menu_options.append("reconfigure_menu")
+        menu_options.append("reconfigure_devices_save")
 
         return self.async_show_menu(
             step_id="reconfigure_devices",
@@ -671,7 +671,7 @@ class EG4ConfigFlow(
             self._local_transports = [
                 t for t in self._local_transports if t.get("serial") != serial_to_remove
             ]
-            return self._update_entry()
+            return await self.async_step_reconfigure_devices()
 
         # Build selection schema from current devices
         device_options = {
@@ -685,6 +685,12 @@ class EG4ConfigFlow(
             step_id="reconfigure_device_remove",
             data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
         )
+
+    async def async_step_reconfigure_devices_save(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save device changes and close reconfigure flow."""
+        return self._update_entry()
 
     async def async_step_reconfigure_device_add(
         self, user_input: dict[str, Any] | None = None
@@ -736,7 +742,7 @@ class EG4ConfigFlow(
                     unit_id=unit_id,
                 )
                 self._local_transports.append(config)
-                return self._update_entry()
+                return await self.async_step_reconfigure_devices()
 
         return self.async_show_form(
             step_id="reconfigure_add_modbus",
@@ -789,7 +795,7 @@ class EG4ConfigFlow(
                     dongle_serial=dongle_serial,
                 )
                 self._local_transports.append(config)
-                return self._update_entry()
+                return await self.async_step_reconfigure_devices()
 
         return self.async_show_form(
             step_id="reconfigure_add_dongle",
