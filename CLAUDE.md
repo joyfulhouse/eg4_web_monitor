@@ -109,7 +109,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 - `_validate_cloud_credentials()` → shared error handling for auth
 - `_store_cloud_input(user_input)` → saves cloud form data to flow state
 - `build_unique_id(mode, ...)` → unique ID generation per mode
-- `format_entry_title(mode, name)` → `"{BRAND_NAME} {mode_display} - {name}"`
+- `format_entry_title(mode, name)` → `"{BRAND_NAME} - {name}"` (mode parameter unused)
 
 ## Entity Management
 

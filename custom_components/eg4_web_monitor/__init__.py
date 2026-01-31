@@ -177,6 +177,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # Store coordinator in runtime_data
     entry.runtime_data = coordinator
 
+    # One-time migration: remove stale local-format battery entities
+    # Old local keys used numeric-only battery indices (e.g., "0", "1")
+    # New format uses "{serial}-{nn}" to match HTTP key format
+    entity_registry = er.async_get(hass)
+    entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    for entity in entities:
+        if entity.domain != "sensor":
+            continue
+        parts = entity.unique_id.split("_")
+        # Match pattern: {serial}_{short_numeric_index}_{sensor_key}
+        # where serial is a long numeric string (10+ digits) and index is 1-2 digits
+        if (
+            len(parts) >= 3
+            and parts[0].isdigit()
+            and len(parts[0]) >= 10
+            and parts[1].isdigit()
+            and len(parts[1]) <= 2
+        ):
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed stale local-format battery entity: %s", entity.entity_id
+            )
+
     # Forward entry setup to platforms (creates devices and entities)
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -225,6 +248,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
             and coordinator._modbus_transport is not None
         ):
             await coordinator._modbus_transport.disconnect()
+
+        # Clean up Dongle transport if present
+        if (
+            hasattr(coordinator, "_dongle_transport")
+            and coordinator._dongle_transport is not None
+        ):
+            await coordinator._dongle_transport.disconnect()
+
+        # Clean up hybrid transport cache (multiple local transports)
+        if hasattr(coordinator, "_hybrid_transport_cache"):
+            for transport in coordinator._hybrid_transport_cache.values():
+                if transport is not None and transport.is_connected:
+                    await transport.disconnect()
+            coordinator._hybrid_transport_cache.clear()
 
     return bool(unload_ok)
 

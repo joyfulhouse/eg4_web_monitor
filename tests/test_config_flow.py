@@ -236,7 +236,7 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
 
     # Should create entry
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Electronics Web Monitor - Test Plant 1"
+    assert result["title"] == "EG4 Electronics - Test Plant 1"
     assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
     assert result["data"][CONF_USERNAME] == "test@example.com"
     assert result["data"][CONF_PLANT_ID] == "123"
@@ -368,7 +368,7 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
     MockConfigEntry(
         version=1,
         domain=DOMAIN,
-        title="EG4 Electronics Web Monitor - Test Plant 1",
+        title="EG4 Electronics - Test Plant 1",
         data={
             CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
             CONF_USERNAME: "test@example.com",

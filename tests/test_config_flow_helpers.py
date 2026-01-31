@@ -78,22 +78,22 @@ class TestFormatEntryTitle:
         """Test title for Web Monitor mode."""
         result = format_entry_title("Web Monitor", "My Station")
         # BRAND_NAME is "EG4 Electronics" from const.py
-        assert result == "EG4 Electronics Web Monitor - My Station"
+        assert result == "EG4 Electronics - My Station"
 
     def test_modbus_mode(self):
         """Test title for Modbus mode."""
         result = format_entry_title("Modbus", "1234567890")
-        assert result == "EG4 Electronics Modbus - 1234567890"
+        assert result == "EG4 Electronics - 1234567890"
 
     def test_dongle_mode(self):
         """Test title for Dongle mode."""
         result = format_entry_title("Dongle", "9876543210")
-        assert result == "EG4 Electronics Dongle - 9876543210"
+        assert result == "EG4 Electronics - 9876543210"
 
     def test_hybrid_mode(self):
         """Test title for Hybrid mode."""
         result = format_entry_title("Hybrid", "My Hybrid Station")
-        assert result == "EG4 Electronics Hybrid - My Hybrid Station"
+        assert result == "EG4 Electronics - My Hybrid Station"
 
 
 class TestBuildUniqueId:

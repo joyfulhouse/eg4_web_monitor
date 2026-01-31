@@ -363,7 +363,7 @@ class EG4ConfigFlow(
         self._local_transports.append(config)
         self._clear_pending_state()
 
-        device_type = "GridBOSS" if device.is_gridboss else "Inverter"
+        device_type = "MID" if device.is_gridboss else "Inverter"
         menu_options = ["local_device_type", "local_finish"]
         if not self._has_cloud:
             menu_options = ["local_device_type", "local_add_cloud", "local_finish"]

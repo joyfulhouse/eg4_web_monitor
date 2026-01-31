@@ -101,11 +101,10 @@ def _get_model_from_device_type(device_type_code: int) -> tuple[str, str]:
 
     Returns:
         Tuple of (model_name, inverter_family).
-        For GridBOSS, inverter_family is empty string (not an inverter).
+        For GridBOSS, inverter_family is "MID" (Microgrid Interconnect Device).
     """
     model_map = {
-        # GridBOSS is a MID controller, not an inverter - no family needed
-        DEVICE_TYPE_CODE_GRIDBOSS: ("GridBOSS", ""),
+        DEVICE_TYPE_CODE_GRIDBOSS: ("GridBOSS", "MID_DEVICE"),
         DEVICE_TYPE_CODE_SNA: ("12000XP", INVERTER_FAMILY_SNA),
         DEVICE_TYPE_CODE_PV_SERIES: ("18kPV", INVERTER_FAMILY_PV_SERIES),
         DEVICE_TYPE_CODE_FLEXBOSS: ("FlexBOSS21", INVERTER_FAMILY_PV_SERIES),

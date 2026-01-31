@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} Setup",
-        "description": "Connect your {brand_name} cloud account for full access to all features including GridBOSS, Quick Charge, and firmware updates. You can add local devices later for faster polling.",
+        "title": "EG4 Web Monitor Setup",
+        "description": "Connect your EG4 cloud account for full access to all features including GridBOSS, Quick Charge, and firmware updates. You can add local devices later for faster polling.",
         "menu_options": {
           "cloud_credentials": "Connect Cloud Account",
           "local_device_type": "Skip — Local Only"

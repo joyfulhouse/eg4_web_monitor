@@ -1329,8 +1329,9 @@ class EG4DataUpdateCoordinator(
                             and battery_data.batteries
                         ):
                             for batt in battery_data.batteries:
-                                # Use battery_index as the key (e.g., "0", "1", "2")
-                                battery_key = str(batt.battery_index)
+                                # Use HTTP-compatible key format (e.g., "1234567890-01")
+                                # to avoid duplicate entities when transitioning local→hybrid
+                                battery_key = f"{serial}-{batt.battery_index + 1:02d}"
                                 device_data["batteries"][battery_key] = (
                                     _build_individual_battery_mapping(batt)
                                 )

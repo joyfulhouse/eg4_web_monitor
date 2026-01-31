@@ -36,8 +36,10 @@ def mock_coordinator():
     coordinator.async_shutdown = AsyncMock()
     coordinator.client = MagicMock()
     coordinator.client.close = AsyncMock()
-    # Modbus transport is None for HTTP-only connections
+    # Transports are None for HTTP-only connections
     coordinator._modbus_transport = None
+    coordinator._dongle_transport = None
+    coordinator._hybrid_transport_cache = {}
     # Add minimal data structure for platforms to work with
     coordinator.data = {
         "devices": {},

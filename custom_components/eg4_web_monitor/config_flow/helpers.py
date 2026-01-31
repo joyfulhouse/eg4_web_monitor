@@ -62,18 +62,9 @@ def get_ha_timezone(hass: HomeAssistant) -> str | None:
     return hass.config.time_zone
 
 
-def format_entry_title(mode: str, name: str) -> str:
+def format_entry_title(_mode: str, name: str) -> str:
     """Format the config entry title."""
-    # Map mode to display text
-    mode_display = {
-        "http": "Web Monitor",
-        "modbus": "Modbus",
-        "dongle": "Dongle",
-        "hybrid": "Hybrid",
-        "local": "Local",
-    }.get(mode, mode.title())
-
-    return f"{BRAND_NAME} {mode_display} - {name}"
+    return f"{BRAND_NAME} - {name}"
 
 
 def build_unique_id(

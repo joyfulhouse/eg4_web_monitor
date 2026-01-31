@@ -185,7 +185,7 @@
         "description": "{device_list}",
         "menu_options": {
           "reconfigure_device_add": "Add Device",
-          "reconfigure_menu": "Back to Menu"
+          "reconfigure_devices_save": "Save & Close"
         }
       },
       "reconfigure_device_add": {
