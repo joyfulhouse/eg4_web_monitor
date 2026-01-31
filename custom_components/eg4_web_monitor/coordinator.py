@@ -1543,13 +1543,13 @@ class EG4DataUpdateCoordinator(
                 "discharging",
                 "grid_import",
                 "grid_export",
-                "load",
+                "consumption",
                 "yield_lifetime",
                 "charging_lifetime",
                 "discharging_lifetime",
                 "grid_import_lifetime",
                 "grid_export_lifetime",
-                "load_lifetime",
+                "consumption_lifetime",
             ]
 
             # Battery sensors - need weighted average for SOC
