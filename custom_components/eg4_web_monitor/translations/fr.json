@@ -284,7 +284,8 @@
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "invalid_ip_range": "Plage IP invalide. Utilisez la notation CIDR (ex., 192.168.1.0/24) ou une plage (ex., 192.168.1.1-192.168.1.254). Seules les plages IP privées sont autorisées.",
-      "no_scan_type_selected": "Sélectionnez au moins un type de scan (Modbus ou Dongle)."
+      "no_scan_type_selected": "Sélectionnez au moins un type de scan (Modbus ou Dongle).",
+      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

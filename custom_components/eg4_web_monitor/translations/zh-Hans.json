@@ -284,7 +284,8 @@
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "invalid_ip_range": "无效的 IP 范围。请使用 CIDR 表示法（例如 192.168.1.0/24）或范围（例如 192.168.1.1-192.168.1.254）。仅允许私有 IP 范围。",
-      "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或加密狗）。"
+      "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或加密狗）。",
+      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

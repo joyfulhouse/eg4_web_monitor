@@ -284,7 +284,8 @@
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "invalid_ip_range": "Недопустимый диапазон IP. Используйте нотацию CIDR (напр., 192.168.1.0/24) или диапазон (напр., 192.168.1.1-192.168.1.254). Разрешены только частные IP-диапазоны.",
-      "no_scan_type_selected": "Выберите хотя бы один тип сканирования (Modbus или Dongle)."
+      "no_scan_type_selected": "Выберите хотя бы один тип сканирования (Modbus или Dongle).",
+      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

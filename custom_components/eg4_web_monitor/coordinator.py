@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -42,6 +43,7 @@ from .const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HTTP_DEVICES,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
@@ -597,6 +599,12 @@ class EG4DataUpdateCoordinator(
         )
         self._local_transports_attached = False
 
+        # Skeleton startup state
+        self._skeleton_mode: bool = False
+        self._battery_discovery_callbacks: list[
+            Callable[[str, dict[str, Any]], None]
+        ] = []
+
         # Device tracking
         self.devices: dict[str, dict[str, Any]] = {}
         self.device_sensors: dict[str, list[str]] = {}
@@ -671,6 +679,320 @@ class EG4DataUpdateCoordinator(
             "homeassistant_stop", self._async_handle_shutdown
         )
 
+    # =========================================================================
+    # SKELETON STARTUP
+    # =========================================================================
+
+    # Sensor keys produced by _build_runtime_sensor_mapping + _build_energy_sensor_mapping
+    # + _build_battery_bank_sensor_mapping + diagnostic keys
+    _INVERTER_SKELETON_KEYS: set[str] = {
+        # Runtime sensors
+        "pv1_voltage",
+        "pv1_power",
+        "pv2_voltage",
+        "pv2_power",
+        "pv3_voltage",
+        "pv3_power",
+        "pv_total_power",
+        "battery_voltage",
+        "battery_current",
+        "state_of_charge",
+        "battery_charge_power",
+        "battery_discharge_power",
+        "battery_temperature",
+        "grid_voltage_r",
+        "grid_voltage_s",
+        "grid_voltage_t",
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        "grid_frequency",
+        "grid_power",
+        "grid_export_power",
+        "ac_power",
+        "load_power",
+        "eps_voltage_r",
+        "eps_voltage_s",
+        "eps_voltage_t",
+        "eps_voltage_l1",
+        "eps_voltage_l2",
+        "eps_frequency",
+        "eps_power",
+        "output_power",
+        "generator_voltage",
+        "generator_frequency",
+        "generator_power",
+        "bus1_voltage",
+        "bus2_voltage",
+        "internal_temperature",
+        "radiator1_temperature",
+        "radiator2_temperature",
+        "status_code",
+        "grid_current_l1",
+        "grid_current_l2",
+        "grid_current_l3",
+        # Energy sensors
+        "yield",
+        "charging",
+        "discharging",
+        "grid_import",
+        "grid_export",
+        "load",
+        "yield_lifetime",
+        "charging_lifetime",
+        "discharging_lifetime",
+        "grid_import_lifetime",
+        "grid_export_lifetime",
+        "load_lifetime",
+        # Battery bank sensors
+        "battery_bank_soc",
+        "battery_bank_voltage",
+        "battery_bank_charge_power",
+        "battery_bank_discharge_power",
+        # Diagnostic sensors
+        "firmware_version",
+        "connection_transport",
+        "transport_host",
+    }
+
+    _GRIDBOSS_SKELETON_KEYS: set[str] = {
+        "grid_power",
+        "grid_voltage",
+        "frequency",
+        "grid_power_l1",
+        "grid_power_l2",
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        "grid_current_l1",
+        "grid_current_l2",
+        "ups_power",
+        "ups_voltage",
+        "ups_power_l1",
+        "ups_power_l2",
+        "load_voltage_l1",
+        "load_voltage_l2",
+        "ups_current_l1",
+        "ups_current_l2",
+        "load_power",
+        "load_power_l1",
+        "load_power_l2",
+        "load_current_l1",
+        "load_current_l2",
+        "generator_power",
+        "generator_voltage",
+        "generator_frequency",
+        "generator_power_l1",
+        "generator_power_l2",
+        "generator_current_l1",
+        "generator_current_l2",
+        "hybrid_power",
+        "phase_lock_frequency",
+        "off_grid",
+        "smart_port1_status",
+        "smart_port2_status",
+        "smart_port3_status",
+        "smart_port4_status",
+        "smart_load1_power_l1",
+        "smart_load1_power_l2",
+        "smart_load2_power_l1",
+        "smart_load2_power_l2",
+        "smart_load3_power_l1",
+        "smart_load3_power_l2",
+        "smart_load4_power_l1",
+        "smart_load4_power_l2",
+        "ac_couple1_power_l1",
+        "ac_couple1_power_l2",
+        "ac_couple2_power_l1",
+        "ac_couple2_power_l2",
+        "ac_couple3_power_l1",
+        "ac_couple3_power_l2",
+        "ac_couple4_power_l1",
+        "ac_couple4_power_l2",
+        "ups_today",
+        "ups_total",
+        "grid_export_today",
+        "grid_export_total",
+        "grid_import_today",
+        "grid_import_total",
+        "load_today",
+        "load_total",
+        # Diagnostic sensors
+        "firmware_version",
+        "connection_transport",
+        "transport_host",
+    }
+
+    def _build_skeleton_data(self) -> dict[str, Any] | None:
+        """Build skeleton coordinator data from config entry for instant entity creation.
+
+        Returns skeleton data dict with all sensor keys set to None, or None if
+        no device info is available (legacy HTTP entries without http_devices).
+        """
+        entry = self.entry
+        devices: dict[str, dict[str, Any]] = {}
+
+        # Collect devices from HTTP device list (stored during config flow)
+        http_devices: list[dict[str, Any]] = entry.data.get(CONF_HTTP_DEVICES, [])
+        for dev in http_devices:
+            serial = dev.get("serial", "")
+            if serial:
+                self._add_skeleton_device(
+                    devices,
+                    serial,
+                    dev.get("model", "Unknown"),
+                    dev.get("type", "inverter") == "gridboss",
+                    inverter_family=dev.get("inverter_family"),
+                )
+
+        # Collect devices from local transports
+        local_transports: list[dict[str, Any]] = entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
+        )
+        for tc in local_transports:
+            serial = tc.get("serial", "")
+            if serial and serial not in devices:
+                self._add_skeleton_device(
+                    devices,
+                    serial,
+                    tc.get("model", "Unknown"),
+                    tc.get("is_gridboss", False),
+                    inverter_family=tc.get("inverter_family"),
+                )
+
+        # Legacy flat-key format (old modbus/dongle entries)
+        if not devices:
+            serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+            if serial:
+                self._add_skeleton_device(
+                    devices,
+                    serial,
+                    entry.data.get(CONF_INVERTER_MODEL, "Unknown"),
+                    is_gridboss=False,
+                    inverter_family=entry.data.get(CONF_INVERTER_FAMILY),
+                )
+
+        if not devices:
+            _LOGGER.debug("No device info available for skeleton startup")
+            return None
+
+        self._skeleton_mode = True
+        _LOGGER.info(
+            "Built skeleton data for %d device(s) for instant entity creation",
+            len(devices),
+        )
+        return {"devices": devices, "_skeleton": True}
+
+    @staticmethod
+    def _skeleton_features_for_family(
+        inverter_family: str | None,
+    ) -> dict[str, bool]:
+        """Derive skeleton feature flags from inverter family.
+
+        Uses pylxpweb's family-based feature defaults when the family is known
+        (e.g. from config flow discovery). Falls back to conservative US-market
+        defaults (split-phase, no three-phase) for unknown families since EG4
+        is a US-only brand.
+        """
+        from pylxpweb.devices.inverters._features import (
+            FAMILY_DEFAULT_FEATURES,
+            InverterFamily,
+        )
+
+        # Map family string to enum
+        family_enum = InverterFamily.UNKNOWN
+        if inverter_family:
+            for member in InverterFamily:
+                if member.value == inverter_family:
+                    family_enum = member
+                    break
+
+        family_features = FAMILY_DEFAULT_FEATURES.get(
+            family_enum, FAMILY_DEFAULT_FEATURES[InverterFamily.UNKNOWN]
+        )
+
+        return {
+            "supports_split_phase": family_features.get("split_phase", False),
+            "supports_three_phase": family_features.get("three_phase_capable", False),
+            "supports_discharge_recovery_hysteresis": family_features.get(
+                "discharge_recovery_hysteresis", False
+            ),
+            "supports_volt_watt_curve": family_features.get("volt_watt_curve", False),
+        }
+
+    def _add_skeleton_device(
+        self,
+        devices: dict[str, dict[str, Any]],
+        serial: str,
+        model: str,
+        is_gridboss: bool,
+        inverter_family: str | None = None,
+    ) -> None:
+        """Add a single device entry to the skeleton data dict."""
+        device_type = "gridboss" if is_gridboss else "inverter"
+        sensor_keys = (
+            self._GRIDBOSS_SKELETON_KEYS
+            if is_gridboss
+            else self._INVERTER_SKELETON_KEYS
+        )
+        devices[serial] = {
+            "type": device_type,
+            "model": model,
+            "serial": serial,
+            "firmware_version": None,
+            "sensors": {key: None for key in sensor_keys},
+            "batteries": {},
+            "features": self._skeleton_features_for_family(inverter_family),
+        }
+
+    def register_battery_discovery_callback(
+        self, callback: Callable[[str, dict[str, Any]], None]
+    ) -> None:
+        """Register a callback for when batteries are discovered after skeleton startup."""
+        self._battery_discovery_callbacks.append(callback)
+
+    def _notify_battery_discovery(self, serial: str, batteries: dict[str, Any]) -> None:
+        """Notify registered callbacks about newly discovered batteries."""
+        for callback in self._battery_discovery_callbacks:
+            try:
+                callback(serial, batteries)
+            except Exception:
+                _LOGGER.exception("Error in battery discovery callback")
+
+    def _backfill_http_devices(self) -> None:
+        """Store HTTP device info in config entry for future skeleton startups.
+
+        Called after first successful HTTP refresh on entries that don't have
+        http_devices stored yet.
+        """
+        if self.entry.data.get(CONF_HTTP_DEVICES):
+            return
+        if not self.data or "devices" not in self.data:
+            return
+        if self.connection_type not in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
+            return
+
+        http_devices: list[dict[str, Any]] = []
+        for serial, device_data in self.data["devices"].items():
+            device_type = device_data.get("type", "inverter")
+            if device_type not in ("inverter", "gridboss"):
+                continue
+            sensors = device_data.get("sensors", {})
+            http_devices.append(
+                {
+                    "serial": serial,
+                    "model": device_data.get("model", "Unknown"),
+                    "type": device_type,
+                    "inverter_family": sensors.get("inverter_family", ""),
+                }
+            )
+
+        if http_devices:
+            new_data = {**self.entry.data, CONF_HTTP_DEVICES: http_devices}
+            self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+            _LOGGER.info(
+                "Backfilled %d HTTP devices for future skeleton startups",
+                len(http_devices),
+            )
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from appropriate transport based on connection type.
 
@@ -689,15 +1011,28 @@ class EG4DataUpdateCoordinator(
         self.clear_device_info_caches()
 
         if self.connection_type == CONNECTION_TYPE_MODBUS:
-            return await self._async_update_modbus_data()
-        if self.connection_type == CONNECTION_TYPE_DONGLE:
-            return await self._async_update_dongle_data()
-        if self.connection_type == CONNECTION_TYPE_HYBRID:
-            return await self._async_update_hybrid_data()
-        if self.connection_type == CONNECTION_TYPE_LOCAL:
-            return await self._async_update_local_data()
-        # Default to HTTP
-        return await self._async_update_http_data()
+            result = await self._async_update_modbus_data()
+        elif self.connection_type == CONNECTION_TYPE_DONGLE:
+            result = await self._async_update_dongle_data()
+        elif self.connection_type == CONNECTION_TYPE_HYBRID:
+            result = await self._async_update_hybrid_data()
+        elif self.connection_type == CONNECTION_TYPE_LOCAL:
+            result = await self._async_update_local_data()
+        else:
+            result = await self._async_update_http_data()
+
+        # After first real data arrives, discover batteries and exit skeleton mode
+        if self._skeleton_mode and result and "devices" in result:
+            self._skeleton_mode = False
+            for serial, device_data in result["devices"].items():
+                batteries = device_data.get("batteries", {})
+                if batteries:
+                    self._notify_battery_discovery(serial, batteries)
+            # Backfill http_devices for entries that don't have it yet
+            self._backfill_http_devices()
+            _LOGGER.info("Skeleton mode complete, real data loaded")
+
+        return result
 
     async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
         """Read configuration parameters using library's named parameter mapping.

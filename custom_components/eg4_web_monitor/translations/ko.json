@@ -284,7 +284,8 @@
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "invalid_ip_range": "잘못된 IP 범위입니다. CIDR 표기법(예: 192.168.1.0/24) 또는 범위(예: 192.168.1.1-192.168.1.254)를 사용하세요. 사설 IP 범위만 허용됩니다.",
-      "no_scan_type_selected": "최소 하나의 스캔 유형(Modbus 또는 Dongle)을 선택하세요."
+      "no_scan_type_selected": "최소 하나의 스캔 유형(Modbus 또는 Dongle)을 선택하세요.",
+      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
