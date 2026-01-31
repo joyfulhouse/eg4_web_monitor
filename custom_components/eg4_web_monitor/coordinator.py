@@ -1599,11 +1599,18 @@ class EG4DataUpdateCoordinator(
                     total_battery_voltage / voltage_count, 1
                 )
 
-            # Override grid/load energy with GridBOSS data if available.
-            # The GridBOSS sits at the grid connection point and provides
-            # accurate metering for export/import/consumption. Individual
-            # inverter energy sums are incorrect for these values.
-            gridboss_energy_mapping = {
+            # Override grid/load power and energy with GridBOSS data if available.
+            # The GridBOSS has the grid CTs and is the authoritative source for
+            # grid interaction — inverters don't see the actual grid import/export.
+            gridboss_sensor_mapping = {
+                # Power sensors (real-time CT measurements)
+                "grid_power": "grid_power",
+                "grid_power_l1": "grid_power_l1",
+                "grid_power_l2": "grid_power_l2",
+                "load_power": "load_power",
+                "load_power_l1": "load_power_l1",
+                "load_power_l2": "load_power_l2",
+                # Energy sensors (accumulated totals)
                 "grid_export_today": "grid_export",
                 "grid_export_total": "grid_export_lifetime",
                 "grid_import_today": "grid_import",
@@ -1615,7 +1622,7 @@ class EG4DataUpdateCoordinator(
                 if device_data.get("type") != "gridboss":
                     continue
                 gb_sensors = device_data.get("sensors", {})
-                for gb_key, pg_key in gridboss_energy_mapping.items():
+                for gb_key, pg_key in gridboss_sensor_mapping.items():
                     gb_val = gb_sensors.get(gb_key)
                     if gb_val is not None:
                         group_sensors[pg_key] = float(gb_val)
