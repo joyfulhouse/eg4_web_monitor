@@ -48,8 +48,8 @@ def validate_translations():
         print("  ✅ strings.json has required sections")
 
         # Check for reconfigure steps in translations
-        if "reconfigure" not in strings_data["config"]["step"]:
-            print("  ❌ 'reconfigure' step missing from translations")
+        if not any(k.startswith("reconfigure") for k in strings_data["config"]["step"]):
+            print("  ❌ No reconfigure steps found in translations")
             return False
 
         print("  ✅ Reconfigure flow is translated")

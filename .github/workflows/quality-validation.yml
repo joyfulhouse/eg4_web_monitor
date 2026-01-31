@@ -532,8 +532,8 @@ jobs:
               print(f'❌ Missing sections: {missing}')
               exit(1)
 
-          if 'reconfigure' not in data['config']['step']:
-              print('❌ Reconfigure step missing')
+          if not any(k.startswith('reconfigure') for k in data['config']['step']):
+              print('❌ No reconfigure steps found')
               exit(1)
 
           print('✅ strings.json structure is valid')
