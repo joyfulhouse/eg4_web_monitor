@@ -801,6 +801,9 @@ class EG4DataUpdateCoordinator(
         device_data["sensors"]["connection_transport"] = self._get_transport_label(
             connection_type
         )
+        transport = getattr(inverter, "_transport", None)
+        if transport and hasattr(transport, "host"):
+            device_data["sensors"]["transport_host"] = transport.host
 
         # Extract features for capability-based sensor filtering
         if features := self._extract_inverter_features(inverter):
@@ -1170,6 +1173,7 @@ class EG4DataUpdateCoordinator(
                     sensors["connection_transport"] = self._get_transport_label(
                         "dongle" if transport_type == "wifi_dongle" else "modbus"
                     )
+                    sensors["transport_host"] = host
 
                     device_data: dict[str, Any] = {
                         "type": "gridboss",
@@ -1326,6 +1330,7 @@ class EG4DataUpdateCoordinator(
                             "dongle" if transport_type == "wifi_dongle" else "modbus"
                         )
                     )
+                    device_data["sensors"]["transport_host"] = host
 
                     # Store device data
                     processed["devices"][serial] = device_data
@@ -1719,6 +1724,14 @@ class EG4DataUpdateCoordinator(
                 device_data["sensors"]["connection_transport"] = (
                     f"Hybrid ({local_transport_name})"
                 )
+                # Get host from the active local transport
+                local_transport = (
+                    self._modbus_transport
+                    if local_transport_name == "Modbus"
+                    else self._dongle_transport
+                )
+                if local_transport and hasattr(local_transport, "host"):
+                    device_data["sensors"]["transport_host"] = local_transport.host
             else:
                 device_data["sensors"]["connection_transport"] = "Cloud"
 

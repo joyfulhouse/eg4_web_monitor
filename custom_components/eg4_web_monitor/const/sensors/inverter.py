@@ -1622,4 +1622,12 @@ SENSOR_TYPES = {
         "icon": "mdi:connection",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
+    "transport_host": {
+        "name": "Transport IP Address",
+        "unit": None,
+        "device_class": None,
+        "state_class": None,
+        "icon": "mdi:ip-network",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
 }
