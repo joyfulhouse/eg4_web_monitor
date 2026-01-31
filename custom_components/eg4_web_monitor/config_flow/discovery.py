@@ -176,8 +176,8 @@ async def discover_modbus_device(
         if not is_gridboss:
             try:
                 runtime = await transport.read_runtime()
-                pv_power = runtime.pv_total_power
-                battery_soc = runtime.battery_soc
+                pv_power = runtime.pv_total_power or 0.0
+                battery_soc = runtime.battery_soc or 0
             except Exception as err:
                 _LOGGER.debug("Could not read runtime data: %s", err)
 
@@ -296,8 +296,8 @@ async def discover_dongle_device(
         if not is_gridboss:
             try:
                 runtime = await transport.read_runtime()
-                pv_power = runtime.pv_total_power
-                battery_soc = runtime.battery_soc
+                pv_power = runtime.pv_total_power or 0.0
+                battery_soc = runtime.battery_soc or 0
             except Exception as err:
                 _LOGGER.debug("Could not read runtime data: %s", err)
 

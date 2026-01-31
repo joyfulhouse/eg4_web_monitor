@@ -962,10 +962,34 @@ class DeviceProcessingMixin:
 
 
 class DeviceInfoMixin:
-    """Mixin for device info retrieval methods."""
+    """Mixin for device info retrieval methods.
+
+    Caches DeviceInfo objects per update cycle to avoid redundant construction
+    and logging. HA calls each entity's device_info property during registration,
+    so without caching, get_battery_device_info() would log 2 DEBUG lines × 162
+    battery sensors = 324 redundant log lines per setup.
+    """
+
+    def clear_device_info_caches(self) -> None:
+        """Clear all device_info caches. Call at the start of each update cycle."""
+        self._device_info_cache: dict[str, DeviceInfo] = {}
+        self._battery_device_info_cache: dict[str, DeviceInfo] = {}
+        self._battery_bank_device_info_cache: dict[str, DeviceInfo] = {}
+
+    def _get_cache(self, attr: str) -> dict[str, DeviceInfo]:
+        """Get a cache dict by attribute name, lazily initializing if needed."""
+        cache: dict[str, DeviceInfo] | None = getattr(self, attr, None)
+        if cache is None:
+            cache = {}
+            setattr(self, attr, cache)
+        return cache
 
     def get_device_info(self, serial: str) -> DeviceInfo | None:
         """Get device information for a specific serial number."""
+        cache = self._get_cache("_device_info_cache")
+        if serial in cache:
+            return cache[serial]
+
         if not self.data or "devices" not in self.data:
             return None
 
@@ -1000,7 +1024,9 @@ class DeviceInfoMixin:
             if parallel_group_serial:
                 device_info["via_device"] = (DOMAIN, parallel_group_serial)
 
-        return cast(DeviceInfo, device_info)
+        result = cast(DeviceInfo, device_info)
+        cache[serial] = result
+        return result
 
     def _get_parallel_group_for_device(self, device_serial: str) -> str | None:
         """Get the parallel group serial that contains this device.
@@ -1032,21 +1058,16 @@ class DeviceInfoMixin:
         self, serial: str, battery_key: str
     ) -> DeviceInfo | None:
         """Get device information for a specific battery."""
+        cache = self._get_cache("_battery_device_info_cache")
+        cache_key = f"{serial}_{battery_key}"
+        if cache_key in cache:
+            return cache[cache_key]
+
         if not self.data or "devices" not in self.data:
-            _LOGGER.debug(
-                "get_battery_device_info(%s, %s): No data available",
-                serial,
-                battery_key,
-            )
             return None
 
         device_data = self.data["devices"].get(serial)
         if not device_data or battery_key not in device_data.get("batteries", {}):
-            _LOGGER.debug(
-                "get_battery_device_info(%s, %s): Device or battery not found",
-                serial,
-                battery_key,
-            )
             return None
 
         battery_data = device_data.get("batteries", {}).get(battery_key, {})
@@ -1056,16 +1077,6 @@ class DeviceInfoMixin:
         battery_model_name = battery_data.get("battery_model")
         battery_type_text = battery_data.get("battery_type_text")
         model = bms_model or battery_model_name or battery_type_text or "Battery Module"
-
-        _LOGGER.debug(
-            "Battery %s model selection: bms_model=%s, battery_model=%s, "
-            "type_text=%s, final_model=%s",
-            battery_key,
-            bms_model,
-            battery_model_name,
-            battery_type_text,
-            model,
-        )
 
         clean_battery_name = clean_battery_display_name(battery_key, serial)
         battery_bank_identifier = f"{serial}_battery_bank"
@@ -1091,17 +1102,20 @@ class DeviceInfoMixin:
             battery_bank_identifier,
         )
 
+        cache[cache_key] = device_info
         return device_info
 
     def get_battery_bank_device_info(self, serial: str) -> DeviceInfo | None:
         """Get device information for battery bank (aggregate of all batteries)."""
+        cache = self._get_cache("_battery_bank_device_info_cache")
+        if serial in cache:
+            return cache[serial]
+
         if not self.data or "devices" not in self.data:
-            _LOGGER.debug("get_battery_bank_device_info(%s): No data available", serial)
             return None
 
         device_data = self.data["devices"].get(serial)
         if not device_data:
-            _LOGGER.debug("get_battery_bank_device_info(%s): Device not found", serial)
             return None
 
         sensors = device_data.get("sensors", {})
@@ -1112,9 +1126,6 @@ class DeviceInfoMixin:
             key.startswith("battery_bank_") for key in sensors.keys()
         )
         if not has_battery_bank_data:
-            _LOGGER.debug(
-                "get_battery_bank_device_info(%s): No battery bank sensors", serial
-            )
             return None
 
         battery_count = sensors.get("battery_bank_count", 0)
@@ -1138,6 +1149,7 @@ class DeviceInfoMixin:
             serial,
         )
 
+        cache[serial] = device_info
         return device_info
 
     def get_station_device_info(self) -> DeviceInfo | None:

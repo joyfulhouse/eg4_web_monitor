@@ -625,6 +625,10 @@ class EG4DataUpdateCoordinator(
             ConfigEntryAuthFailed: If authentication fails.
             UpdateFailed: If connection or API errors occur.
         """
+        # Clear device_info caches at the start of each update cycle
+        # so fresh data is used for any new entity registrations
+        self.clear_device_info_caches()
+
         if self.connection_type == CONNECTION_TYPE_MODBUS:
             return await self._async_update_modbus_data()
         if self.connection_type == CONNECTION_TYPE_DONGLE:
@@ -786,7 +790,14 @@ class EG4DataUpdateCoordinator(
                     transport_name,
                     serial,
                 )
-                inverter = await BaseInverter.from_transport(transport, model=model)
+                if connection_type == "dongle":
+                    inverter = await BaseInverter.from_dongle_transport(
+                        transport, model=model
+                    )
+                else:
+                    inverter = await BaseInverter.from_modbus_transport(
+                        transport, model=model
+                    )
                 self._inverter_cache[serial] = inverter
             else:
                 inverter = self._inverter_cache[serial]
@@ -1039,9 +1050,14 @@ class EG4DataUpdateCoordinator(
                                 transport_type,
                                 serial,
                             )
-                            inverter = await BaseInverter.from_transport(
-                                transport, model=model
-                            )
+                            if transport_type == "wifi_dongle":
+                                inverter = await BaseInverter.from_dongle_transport(
+                                    transport, model=model
+                                )
+                            else:
+                                inverter = await BaseInverter.from_modbus_transport(
+                                    transport, model=model
+                                )
                             self._inverter_cache[serial] = inverter
                         except LuxpowerDeviceError as e:
                             # Device is a GridBOSS, not an inverter
@@ -1515,6 +1531,7 @@ class EG4DataUpdateCoordinator(
             from homeassistant.helpers import device_registry as dr
 
             device_registry = dr.async_get(self.hass)
+            assert self.config_entry is not None
             device_registry.async_get_or_create(
                 config_entry_id=self.config_entry.entry_id,
                 identifiers={(DOMAIN, group_device_id)},
@@ -1837,7 +1854,8 @@ class EG4DataUpdateCoordinator(
             # Load or refresh station data using device objects
             if self.station is None:
                 _LOGGER.info("Loading station data for plant %s", self.plant_id)
-                self.station = await Station.load(self.client, self.plant_id)
+                assert self.plant_id is not None
+                self.station = await Station.load(self.client, int(self.plant_id))
                 _LOGGER.debug(
                     "Refreshing all data after station load to populate battery details"
                 )

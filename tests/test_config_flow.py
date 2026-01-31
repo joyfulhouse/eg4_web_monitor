@@ -9,12 +9,13 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.eg4_web_monitor.config_flow import _timezone_observes_dst
+from custom_components.eg4_web_monitor.config_flow.helpers import timezone_observes_dst
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -35,65 +36,54 @@ from pylxpweb.exceptions import (
 
 
 class TestTimezoneObservesDst:
-    """Tests for the _timezone_observes_dst helper function."""
+    """Tests for the timezone_observes_dst helper function."""
 
     def test_dst_timezone_returns_true(self):
         """Test that timezones with DST return True."""
-        # US timezones that observe DST
-        assert _timezone_observes_dst("America/New_York") is True
-        assert _timezone_observes_dst("America/Los_Angeles") is True
-        assert _timezone_observes_dst("America/Chicago") is True
-        assert _timezone_observes_dst("America/Denver") is True
+        assert timezone_observes_dst("America/New_York") is True
+        assert timezone_observes_dst("America/Los_Angeles") is True
+        assert timezone_observes_dst("America/Chicago") is True
+        assert timezone_observes_dst("America/Denver") is True
 
     def test_european_dst_timezone_returns_true(self):
         """Test that European timezones with DST return True."""
-        assert _timezone_observes_dst("Europe/London") is True
-        assert _timezone_observes_dst("Europe/Paris") is True
-        assert _timezone_observes_dst("Europe/Berlin") is True
+        assert timezone_observes_dst("Europe/London") is True
+        assert timezone_observes_dst("Europe/Paris") is True
+        assert timezone_observes_dst("Europe/Berlin") is True
 
     def test_southern_hemisphere_dst_timezone_returns_true(self):
         """Test that Southern Hemisphere timezones with DST return True."""
-        # Australia (most states observe DST)
-        assert _timezone_observes_dst("Australia/Sydney") is True
-        assert _timezone_observes_dst("Australia/Melbourne") is True
-        # New Zealand
-        assert _timezone_observes_dst("Pacific/Auckland") is True
-        # South America
-        assert _timezone_observes_dst("America/Santiago") is True  # Chile
-        # Note: Brazil (America/Sao_Paulo) abolished DST in 2019
+        assert timezone_observes_dst("Australia/Sydney") is True
+        assert timezone_observes_dst("Australia/Melbourne") is True
+        assert timezone_observes_dst("Pacific/Auckland") is True
+        assert timezone_observes_dst("America/Santiago") is True
 
     def test_countries_that_abolished_dst_return_false(self):
         """Test that countries that recently abolished DST return False."""
-        # Brazil abolished DST in 2019
-        assert _timezone_observes_dst("America/Sao_Paulo") is False
-        # Russia abolished DST in 2011
-        assert _timezone_observes_dst("Europe/Moscow") is False
-        # Turkey abolished DST in 2016
-        assert _timezone_observes_dst("Europe/Istanbul") is False
+        assert timezone_observes_dst("America/Sao_Paulo") is False
+        assert timezone_observes_dst("Europe/Moscow") is False
+        assert timezone_observes_dst("Europe/Istanbul") is False
 
     def test_non_dst_timezone_returns_false(self):
         """Test that timezones without DST return False."""
-        # UTC never observes DST
-        assert _timezone_observes_dst("UTC") is False
-        # Arizona doesn't observe DST (except Navajo Nation)
-        assert _timezone_observes_dst("America/Phoenix") is False
-        # Most Asian timezones don't observe DST
-        assert _timezone_observes_dst("Asia/Tokyo") is False
-        assert _timezone_observes_dst("Asia/Shanghai") is False
-        assert _timezone_observes_dst("Asia/Singapore") is False
+        assert timezone_observes_dst("UTC") is False
+        assert timezone_observes_dst("America/Phoenix") is False
+        assert timezone_observes_dst("Asia/Tokyo") is False
+        assert timezone_observes_dst("Asia/Shanghai") is False
+        assert timezone_observes_dst("Asia/Singapore") is False
 
     def test_none_timezone_returns_false(self):
         """Test that None timezone returns False."""
-        assert _timezone_observes_dst(None) is False
+        assert timezone_observes_dst(None) is False
 
     def test_empty_timezone_returns_false(self):
         """Test that empty string timezone returns False."""
-        assert _timezone_observes_dst("") is False
+        assert timezone_observes_dst("") is False
 
     def test_invalid_timezone_returns_false(self):
         """Test that invalid timezone names return False."""
-        assert _timezone_observes_dst("Invalid/Timezone") is False
-        assert _timezone_observes_dst("Not_A_Timezone") is False
+        assert timezone_observes_dst("Invalid/Timezone") is False
+        assert timezone_observes_dst("Not_A_Timezone") is False
 
 
 @pytest.fixture
@@ -136,81 +126,82 @@ def mock_setup_entry():
         yield
 
 
+def _mock_luxpower_client(stations=None, side_effect=None):
+    """Create patched LuxpowerClient and Station.load_all context manager.
+
+    Args:
+        stations: List of mock Station objects to return from load_all.
+        side_effect: Exception to raise from Station.load_all.
+    """
+    load_all_kwargs = (
+        {"side_effect": side_effect} if side_effect else {"return_value": stations}
+    )
+    client_patch = patch("custom_components.eg4_web_monitor.config_flow.LuxpowerClient")
+    station_patch = patch(
+        "pylxpweb.devices.Station.load_all",
+        new=AsyncMock(**load_all_kwargs),
+    )
+
+    class _Combined:
+        def __enter__(self_inner):
+            mock_client_class = client_patch.__enter__()
+            station_patch.__enter__()
+            mock_instance = AsyncMock()
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_instance
+            return mock_client_class
+
+        def __exit__(self_inner, *args):
+            station_patch.__exit__(*args)
+            client_patch.__exit__(*args)
+
+    return _Combined()
+
+
 @pytest.fixture
 def mock_api():
-    """Create a mock for LuxpowerClient and Station.load_all."""
+    """Create a mock for LuxpowerClient with multiple plants."""
     from tests.conftest import create_mock_station
 
-    # Create mock Station objects with all required fields
-    mock_station1 = create_mock_station("123", "Test Plant 1")
-    mock_station2 = create_mock_station("456", "Test Plant 2")
-
-    # Mock the LuxpowerClient class itself to prevent actual connections
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station1, mock_station2]),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
-
+    stations = [
+        create_mock_station("123", "Test Plant 1"),
+        create_mock_station("456", "Test Plant 2"),
+    ]
+    with _mock_luxpower_client(stations=stations):
         yield None
 
 
 @pytest.fixture
 def mock_api_single_plant():
-    """Create a mock for LuxpowerClient and Station.load_all with single plant."""
+    """Create a mock for LuxpowerClient with a single plant."""
     from tests.conftest import create_mock_station
 
-    # Create mock Station object with all required fields
-    mock_station = create_mock_station("123", "Test Plant")
-
-    # Mock the LuxpowerClient class itself to prevent actual connections
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[mock_station]),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
-
+    with _mock_luxpower_client(stations=[create_mock_station("123", "Test Plant")]):
         yield None
+
+
+async def _init_and_select_cloud(hass: HomeAssistant):
+    """Init flow and navigate through the user menu to cloud_credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "user"
+
+    # Select cloud path from menu
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_credentials"},
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_credentials"
+    return result
 
 
 async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
     """Test successful user flow with multiple plants."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-
-    # Step 1: Connection type selection
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
-
-    # Select HTTP connection type
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-    )
-
-    # Step 2: HTTP credentials
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "http_credentials"
-    assert result["errors"] == {}
+    result = await _init_and_select_cloud(hass)
 
     # Submit credentials
     result = await hass.config_entries.flow.async_configure(
@@ -223,9 +214,9 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         },
     )
 
-    # Should proceed to plant selection
+    # Should proceed to station selection
     assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "plant"
+    assert result["step_id"] == "cloud_station"
 
     # Select plant
     result = await hass.config_entries.flow.async_configure(
@@ -233,22 +224,25 @@ async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
         {CONF_PLANT_ID: "123"},
     )
 
+    # After station selection, should show cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "cloud_add_local"
+
+    # Finish without adding local devices
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
     # Should create entry
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "EG4 Electronics Web Monitor - Test Plant 1"
-    assert result["data"] == {
-        CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
-        CONF_USERNAME: "test@example.com",
-        CONF_PASSWORD: "testpassword",
-        CONF_BASE_URL: DEFAULT_BASE_URL,
-        CONF_VERIFY_SSL: True,
-        CONF_DST_SYNC: True,
-        CONF_LIBRARY_DEBUG: False,
-        CONF_PLANT_ID: "123",
-        CONF_PLANT_NAME: "Test Plant 1",
-    }
+    assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
+    assert result["data"][CONF_USERNAME] == "test@example.com"
+    assert result["data"][CONF_PLANT_ID] == "123"
+    assert result["data"][CONF_PLANT_NAME] == "Test Plant 1"
+    assert result["data"][CONF_LOCAL_TRANSPORTS] == []
 
-    # Ensure proper cleanup before teardown
     await hass.async_block_till_done()
 
 
@@ -256,22 +250,7 @@ async def test_user_flow_success_single_plant(
     hass: HomeAssistant, mock_api_single_plant
 ):
     """Test successful user flow with single plant (auto-select)."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-
-    # Step 1: Connection type selection
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-    )
-
-    # Step 2: HTTP credentials
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "http_credentials"
+    result = await _init_and_select_cloud(hass)
 
     # Submit credentials - should auto-select single plant
     result = await hass.config_entries.flow.async_configure(
@@ -284,215 +263,70 @@ async def test_user_flow_success_single_plant(
         },
     )
 
-    # Should create entry immediately (skip plant selection)
+    # Should show cloud_add_local menu (single plant auto-selected)
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "cloud_add_local"
+
+    # Finish without local devices
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Electronics Web Monitor - Test Plant"
     assert result["data"][CONF_PLANT_ID] == "123"
     assert result["data"][CONF_PLANT_NAME] == "Test Plant"
     assert result["data"][CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
 
 
-async def test_user_flow_invalid_auth(hass: HomeAssistant):
-    """Test flow with invalid authentication."""
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials")),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
+async def _test_cloud_error(hass, exception, expected_error):
+    """Test cloud credential flow with a specific error."""
+    with _mock_luxpower_client(side_effect=exception):
+        result = await _init_and_select_cloud(hass)
 
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 1: Connection type selection
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-        )
-
-        # Step 2: Submit invalid credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
                 CONF_USERNAME: "test@example.com",
-                CONF_PASSWORD: "wrongpassword",
+                CONF_PASSWORD: "testpassword",
                 CONF_BASE_URL: DEFAULT_BASE_URL,
                 CONF_VERIFY_SSL: True,
             },
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "http_credentials"
-        assert result["errors"] == {"base": "invalid_auth"}
+        assert result["step_id"] == "cloud_credentials"
+        assert result["errors"] == {"base": expected_error}
+
+
+async def test_user_flow_invalid_auth(hass: HomeAssistant):
+    """Test flow with invalid authentication."""
+    await _test_cloud_error(hass, EG4AuthError("Invalid credentials"), "invalid_auth")
 
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant):
     """Test flow with connection error."""
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4ConnectionError("Cannot connect")),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 1: Connection type selection
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-        )
-
-        # Step 2: Submit credentials
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_USERNAME: "test@example.com",
-                CONF_PASSWORD: "testpassword",
-                CONF_BASE_URL: DEFAULT_BASE_URL,
-                CONF_VERIFY_SSL: True,
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "http_credentials"
-        assert result["errors"] == {"base": "cannot_connect"}
+    await _test_cloud_error(
+        hass, EG4ConnectionError("Cannot connect"), "cannot_connect"
+    )
 
 
 async def test_user_flow_api_error(hass: HomeAssistant):
     """Test flow with API error."""
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4APIError("API Error")),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 1: Connection type selection
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-        )
-
-        # Step 2: Submit credentials
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_USERNAME: "test@example.com",
-                CONF_PASSWORD: "testpassword",
-                CONF_BASE_URL: DEFAULT_BASE_URL,
-                CONF_VERIFY_SSL: True,
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "http_credentials"
-        assert result["errors"] == {"base": "unknown"}
+    await _test_cloud_error(hass, EG4APIError("API Error"), "cannot_connect")
 
 
 async def test_user_flow_unknown_exception(hass: HomeAssistant):
     """Test flow with unexpected exception."""
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=Exception("Unexpected")),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 1: Connection type selection
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-        )
-
-        # Step 2: Submit credentials
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_USERNAME: "test@example.com",
-                CONF_PASSWORD: "testpassword",
-                CONF_BASE_URL: DEFAULT_BASE_URL,
-                CONF_VERIFY_SSL: True,
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "http_credentials"
-        assert result["errors"] == {"base": "unknown"}
+    await _test_cloud_error(hass, Exception("Unexpected"), "unknown")
 
 
 async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_plant):
     """Test user can recover from errors and complete flow."""
     # First attempt - invalid auth
-    with (
-        patch(
-            "custom_components.eg4_web_monitor._config_flow_legacy.LuxpowerClient"
-        ) as mock_client_class,
-        patch(
-            "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(side_effect=EG4AuthError("Invalid credentials")),
-        ),
-    ):
-        # Make LuxpowerClient work as a context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_client_class.return_value = mock_client_instance
+    with _mock_luxpower_client(side_effect=EG4AuthError("Invalid credentials")):
+        result = await _init_and_select_cloud(hass)
 
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 1: Connection type selection
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-        )
-
-        # Step 2: Submit invalid credentials
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -517,14 +351,20 @@ async def test_user_flow_error_recovery(hass: HomeAssistant, mock_api_single_pla
         },
     )
 
-    # Should create entry after recovery
+    # Should show cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "cloud_add_local"
+
+    # Finish
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Electronics Web Monitor - Test Plant"
 
 
 async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
     """Test flow aborts if already configured."""
-    # Create existing entry - unique_id format is {username}_{plant_id}
     MockConfigEntry(
         version=1,
         domain=DOMAIN,
@@ -539,22 +379,15 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
             CONF_LIBRARY_DEBUG: False,
             CONF_PLANT_ID: "123",
             CONF_PLANT_NAME: "Test Plant 1",
+            CONF_LOCAL_TRANSPORTS: [],
         },
         source=config_entries.SOURCE_USER,
-        unique_id="test@example.com_123",  # Format: {username}_{plant_id}
+        unique_id="test@example.com_123",
     ).add_to_hass(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _init_and_select_cloud(hass)
 
-    # Step 1: Connection type selection
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-    )
-
-    # Step 2: Try to configure with same username - should proceed to plant selection
+    # Submit credentials
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -565,9 +398,9 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
         },
     )
 
-    # Should show plant selection (username check on line 67 only sets unique_id temporarily)
+    # Should show station selection (multiple plants)
     assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "plant"
+    assert result["step_id"] == "cloud_station"
 
     # Select the same plant that's already configured
     result = await hass.config_entries.flow.async_configure(
@@ -575,24 +408,23 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
         {CONF_PLANT_ID: "123"},
     )
 
-    # Now should abort due to duplicate {username}_{plant_id}
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
+    # Should abort due to duplicate unique_id
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
 
 async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
     """Test plant selection step."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _init_and_select_cloud(hass)
 
-    # Step 1: Connection type selection
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-    )
-
-    # Step 2: Submit credentials
+    # Submit credentials
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -603,13 +435,9 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
         },
     )
 
-    # Should show plant selection
+    # Should show station selection
     assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "plant"
-
-    # Verify plant options are available
-    schema = result["data_schema"]
-    assert CONF_PLANT_ID in schema.schema
+    assert result["step_id"] == "cloud_station"
 
     # Select second plant
     result = await hass.config_entries.flow.async_configure(
@@ -617,26 +445,23 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
         {CONF_PLANT_ID: "456"},
     )
 
-    # Should create entry with selected plant
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "EG4 Electronics Web Monitor - Test Plant 2"
     assert result["data"][CONF_PLANT_ID] == "456"
     assert result["data"][CONF_PLANT_NAME] == "Test Plant 2"
 
 
 async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_plant):
     """Test flow with custom base URL."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _init_and_select_cloud(hass)
 
-    # Step 1: Connection type selection
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
-    )
-
-    # Step 2: Submit credentials with custom URL
+    # Submit credentials with custom URL
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -645,6 +470,13 @@ async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_pl
             CONF_BASE_URL: "https://custom.eg4.com",
             CONF_VERIFY_SSL: False,
         },
+    )
+
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
     )
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
@@ -663,22 +495,17 @@ async def test_dst_sync_default_true_for_dst_timezone(
     """Test DST sync defaults to True when HA timezone observes DST."""
     hass = hass_with_dst_timezone
 
-    # Initialize flow - should show connection type selection
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
 
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
-
-    # Step 1: Connection type selection
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        {"next_step_id": "cloud_credentials"},
     )
 
-    # Step 2: Submit credentials without explicitly setting DST sync
-    # (it will use the default from the schema)
+    # Submit credentials without explicitly setting DST sync
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -686,11 +513,16 @@ async def test_dst_sync_default_true_for_dst_timezone(
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
             CONF_VERIFY_SSL: True,
-            # DST_SYNC not explicitly provided - will use schema default
         },
     )
 
-    # Entry should be created with DST sync = True (default for DST timezone)
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DST_SYNC] is True
 
@@ -701,21 +533,16 @@ async def test_dst_sync_default_false_for_non_dst_timezone(
     """Test DST sync defaults to False when HA timezone does NOT observe DST."""
     hass = hass_with_non_dst_timezone
 
-    # Initialize flow - should show connection type selection
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
 
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
-
-    # Step 1: Connection type selection
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        {"next_step_id": "cloud_credentials"},
     )
 
-    # Step 2: Submit credentials without explicitly setting DST sync
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -723,11 +550,16 @@ async def test_dst_sync_default_false_for_non_dst_timezone(
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
             CONF_VERIFY_SSL: True,
-            # DST_SYNC not explicitly provided - will use schema default
         },
     )
 
-    # Entry should be created with DST sync = False (default for non-DST timezone)
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DST_SYNC] is False
 
@@ -742,13 +574,12 @@ async def test_user_can_override_dst_sync_default(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    # Step 1: Connection type selection
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP},
+        {"next_step_id": "cloud_credentials"},
     )
 
-    # Step 2: User explicitly enables DST sync despite timezone not observing DST
+    # User explicitly enables DST sync
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -756,8 +587,15 @@ async def test_user_can_override_dst_sync_default(
             CONF_PASSWORD: "testpassword",
             CONF_BASE_URL: DEFAULT_BASE_URL,
             CONF_VERIFY_SSL: True,
-            CONF_DST_SYNC: True,  # Explicitly enabled
+            CONF_DST_SYNC: True,
         },
+    )
+
+    # cloud_add_local menu
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
     )
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY

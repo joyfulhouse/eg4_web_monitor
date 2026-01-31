@@ -551,6 +551,9 @@ jobs:
           fi
           echo "✅ Translation infrastructure exists"
 
+      - name: Validate translation completeness
+        run: python3 tests/validate_translations.py
+
   gold-reconfiguration-flow:
     name: Gold - Reconfiguration Flow
     runs-on: ubuntu-latest

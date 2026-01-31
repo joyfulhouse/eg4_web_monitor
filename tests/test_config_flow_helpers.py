@@ -9,7 +9,6 @@ from custom_components.eg4_web_monitor.config_flow.helpers import (
     find_plant_by_id,
     format_entry_title,
     get_ha_timezone,
-    get_reconfigure_entry,
     timezone_observes_dst,
 )
 
@@ -172,44 +171,6 @@ class TestBuildUniqueId:
         """Test unknown mode raises error."""
         with pytest.raises(ValueError, match="Unknown mode: invalid"):
             build_unique_id("invalid")
-
-
-class TestGetReconfigureEntry:
-    """Tests for get_reconfigure_entry function."""
-
-    def test_returns_entry_when_found(self):
-        """Test returns config entry when entry_id is valid."""
-        mock_hass = MagicMock()
-        mock_entry = MagicMock()
-        mock_entry.entry_id = "test-entry-id"
-        mock_hass.config_entries.async_get_entry.return_value = mock_entry
-
-        context = {"entry_id": "test-entry-id"}
-
-        result = get_reconfigure_entry(mock_hass, context)
-
-        assert result == mock_entry
-        mock_hass.config_entries.async_get_entry.assert_called_once_with("test-entry-id")
-
-    def test_returns_none_when_no_entry_id(self):
-        """Test returns None when entry_id not in context."""
-        mock_hass = MagicMock()
-        context = {}
-
-        result = get_reconfigure_entry(mock_hass, context)
-
-        assert result is None
-        mock_hass.config_entries.async_get_entry.assert_not_called()
-
-    def test_returns_none_when_entry_not_found(self):
-        """Test returns None when entry doesn't exist."""
-        mock_hass = MagicMock()
-        mock_hass.config_entries.async_get_entry.return_value = None
-        context = {"entry_id": "nonexistent-id"}
-
-        result = get_reconfigure_entry(mock_hass, context)
-
-        assert result is None
 
 
 class TestFindPlantById:

@@ -241,18 +241,6 @@ def _create_inverter_sensors(
         _LOGGER.debug(
             "Created %d battery bank sensors for %s", battery_bank_sensor_count, serial
         )
-        battery_bank_device_info = coordinator.get_battery_bank_device_info(serial)
-        if battery_bank_device_info:
-            _LOGGER.debug(
-                "Battery bank device_info for %s: identifiers=%s, via_device=%s",
-                serial,
-                battery_bank_device_info.get("identifiers"),
-                battery_bank_device_info.get("via_device"),
-            )
-        else:
-            _LOGGER.warning(
-                "No battery_bank device_info returned for inverter %s", serial
-            )
 
     # Create individual battery sensors (phase 2 - these reference battery bank)
     batteries = device_data.get("batteries", {})
@@ -263,28 +251,6 @@ def _create_inverter_sensors(
     )
 
     for battery_key, battery_sensors in batteries.items():
-        _LOGGER.debug(
-            "Processing battery %s for %s: %d sensors",
-            battery_key,
-            serial,
-            len(battery_sensors),
-        )
-
-        battery_device_info = coordinator.get_battery_device_info(serial, battery_key)
-        if battery_device_info:
-            _LOGGER.debug(
-                "Battery %s device_info: identifiers=%s, via_device=%s",
-                battery_key,
-                battery_device_info.get("identifiers"),
-                battery_device_info.get("via_device"),
-            )
-        else:
-            _LOGGER.warning(
-                "No device_info returned for battery %s (inverter %s)",
-                battery_key,
-                serial,
-            )
-
         for sensor_key in battery_sensors:
             if sensor_key in SENSOR_TYPES:
                 battery_entities.append(

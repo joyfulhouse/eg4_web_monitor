@@ -2,494 +2,266 @@
   "config": {
     "step": {
       "user": {
-        "title": "{brand_name} 연결 유형",
-        "description": "{brand_name} 인버터 연결 방법을 선택하세요:\n\n**클라우드 API**: EG4 모니터 포털 계정이 필요합니다. 원격 접속에 적합합니다.\n\n**로컬 전용**: Modbus 또는 WiFi 동글을 통한 직접 연결. 클라우드가 필요 없습니다. 다중 장치를 지원합니다.\n\n**하이브리드**: 로컬(빠른 업데이트)과 클라우드(배터리 세부 정보, 원격 제어)를 모두 사용합니다.",
-        "data": {
-          "connection_type": "연결 유형"
-        },
-        "data_description": {
-          "connection_type": "인버터 연결 방법을 선택하세요"
+        "title": "{brand_name} Setup",
+        "description": "How would you like to get started?",
+        "menu_options": {
+          "cloud_credentials": "Start with Cloud API",
+          "local_device_type": "Start with Local Device"
         }
       },
-      "http_credentials": {
-        "title": "{brand_name} 클라우드 API 설정",
-        "description": "{brand_name} 웹 모니터 계정에 연결하여 태양광 인버터, GridBOSS 장치 및 배터리 시스템을 관리하세요.",
+      "cloud_credentials": {
+        "title": "{brand_name} Cloud API Credentials",
+        "description": "Connect to your {brand_name} Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
         "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호",
-          "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인",
-          "dst_sync": "DST 동기화",
-          "library_debug": "라이브러리 디버그 로깅"
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
-          "username": "{brand_name} 웹 모니터 계정 사용자 이름",
-          "password": "{brand_name} 웹 모니터 계정 비밀번호",
-          "base_url": "{brand_name} 웹 모니터 API의 기본 URL",
-          "verify_ssl": "보안 연결을 위한 SSL 인증서 확인 활성화",
-          "dst_sync": "Home Assistant 시간대를 기준으로 인버터에 일광 절약 시간 설정을 자동으로 동기화",
-          "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       },
-      "modbus": {
-        "title": "{brand_name} 로컬 Modbus 설정",
-        "description": "Modbus TCP를 통해 인버터에 직접 연결합니다. 인버터의 RS485 포트에 연결된 Modbus TCP 게이트웨이(예: Waveshare RS485-to-Ethernet 어댑터)가 필요합니다.",
+      "cloud_station": {
+        "title": "Select Station",
+        "description": "Choose which solar station/plant to monitor.",
         "data": {
-          "modbus_host": "Modbus 게이트웨이 IP/호스트명",
-          "modbus_port": "Modbus TCP 포트",
-          "modbus_unit_id": "Modbus 유닛 ID",
-          "inverter_serial": "인버터 시리얼 번호 (선택사항)",
-          "inverter_model": "인버터 모델 (선택사항)",
-          "inverter_family": "인버터 계열"
+          "plant_id": "Station/Plant"
         },
         "data_description": {
-          "modbus_host": "Modbus TCP 게이트웨이의 IP 주소 또는 호스트명",
-          "modbus_port": "Modbus 통신용 TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "인버터의 Modbus 슬레이브/유닛 ID (기본값: 1)",
-          "inverter_serial": "Modbus 레지스터에서 자동 감지하려면 비워두거나, 자동 감지가 실패하면 수동으로 입력하세요",
-          "inverter_model": "표시 목적의 모델 이름 (예: 18kPV, 12000XP)",
-          "inverter_family": "올바른 Modbus 레지스터 매핑을 위해 인버터 계열을 선택하세요. 인버터 모델마다 다른 레지스터 레이아웃을 사용합니다."
+          "plant_id": "Select the solar installation you want to monitor"
         }
       },
-      "dongle": {
-        "title": "{brand_name} WiFi 동글 설정",
-        "description": "WiFi 동글을 통해 인버터에 직접 연결합니다. 추가 하드웨어가 필요 없습니다 - 포트 8000에서 기존 동글의 TCP 인터페이스를 사용합니다. 참고: 최근 펌웨어 업데이트로 이 접근이 차단될 수 있습니다.",
+      "cloud_add_local": {
+        "title": "Add Local Devices?",
+        "description": "Your cloud connection is ready. You can optionally add local devices for faster polling (5-second updates via Modbus/Dongle vs 30-second cloud polling).",
+        "menu_options": {
+          "local_device_type": "Add Local Device",
+          "cloud_finish": "Finish (Cloud Only)"
+        }
+      },
+      "local_device_type": {
+        "title": "Select Device Connection",
+        "description": "Choose how your device is connected locally.",
+        "menu_options": {
+          "local_modbus": "Modbus TCP (RS485 adapter)",
+          "local_dongle": "WiFi Dongle"
+        }
+      },
+      "local_modbus": {
+        "title": "Connect via Modbus TCP",
+        "description": "Enter the IP address of your Modbus TCP gateway. Device serial, model, and firmware are automatically detected.",
         "data": {
-          "dongle_host": "WiFi 동글 IP/호스트명",
-          "dongle_port": "동글 TCP 포트",
-          "dongle_serial": "동글 시리얼 번호",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_model": "인버터 모델 (선택사항)",
-          "inverter_family": "인버터 계열"
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port",
+          "modbus_unit_id": "Unit ID"
         },
         "data_description": {
-          "dongle_host": "로컬 네트워크에서 WiFi 동글의 IP 주소",
-          "dongle_port": "동글 통신용 TCP 포트 (기본값: 8000)",
-          "dongle_serial": "WiFi 동글의 10자리 시리얼 번호 (예: BA12345678, 동글의 WiFi AP SSID로 표시됨)",
-          "inverter_serial": "인버터의 10자리 시리얼 번호 (장치 라벨에서 확인)",
-          "inverter_model": "표시 목적의 모델 이름 (예: 18kPV, 12000XP)",
-          "inverter_family": "올바른 레지스터 매핑을 위해 인버터 계열을 선택하세요"
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
         }
       },
-      "hybrid_http": {
-        "title": "{brand_name} 하이브리드 설정 - 클라우드 자격 증명",
-        "description": "먼저 클라우드 API 자격 증명을 입력하세요. 이를 통해 장치 검색과 개별 배터리 모니터링이 가능합니다. 빠른 런타임 데이터는 로컬 Modbus에서 가져옵니다.",
+      "local_dongle": {
+        "title": "Connect via WiFi Dongle",
+        "description": "Enter the dongle connection details. The dongle serial is printed on the device label (also the WiFi AP name). Note: Recent firmware updates may block this access.",
         "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호",
-          "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인",
-          "dst_sync": "DST 동기화",
-          "library_debug": "라이브러리 디버그 로깅"
+          "dongle_host": "Dongle IP Address",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "dongle_port": "Port"
         },
         "data_description": {
-          "username": "{brand_name} 웹 모니터 계정 사용자 이름",
-          "password": "{brand_name} 웹 모니터 계정 비밀번호",
-          "base_url": "{brand_name} 웹 모니터 API의 기본 URL",
-          "verify_ssl": "보안 연결을 위한 SSL 인증서 확인 활성화",
-          "dst_sync": "Home Assistant 시간대를 기준으로 인버터에 일광 절약 시간 설정을 자동으로 동기화",
-          "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화"
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
         }
       },
-      "hybrid_plant": {
-        "title": "{brand_name} 하이브리드 설정 - 발전소 선택",
-        "description": "모니터링할 발전소를 선택하세요. 다음에 Modbus 연결을 구성합니다.",
+      "local_device_confirmed": {
+        "title": "Device Found: {device_model}",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nDevice #{device_count} added. What next?",
+        "menu_options": {
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
+        }
+      },
+      "local_finish": {
+        "title": "Name Your Installation",
+        "description": "Give your solar installation a friendly name.\n\n**Configured devices**: {device_summary}",
         "data": {
-          "plant_id": "발전소/플랜트"
+          "station_name": "Installation Name (optional)"
         },
         "data_description": {
-          "plant_id": "모니터링할 태양광 설비를 선택하세요"
-        }
-      },
-      "hybrid_local_type": {
-        "title": "{brand_name} 하이브리드 설정 - 로컬 전송",
-        "description": "빠른 실시간 데이터를 위해 인버터에 로컬로 연결할 방법을 선택하세요. Modbus는 RS485 어댑터를 사용하고, WiFi 동글은 인버터의 기존 동글을 사용합니다.",
-        "data": {
-          "hybrid_local_type": "로컬 전송 유형"
-        },
-        "data_description": {
-          "hybrid_local_type": "빠른 런타임 데이터를 위한 로컬 연결 방법을 선택하세요"
-        }
-      },
-      "hybrid_modbus": {
-        "title": "{brand_name} 하이브리드 설정 - 로컬 Modbus",
-        "description": "빠른 런타임 업데이트를 위해 로컬 Modbus 연결을 구성합니다. 인버터 시리얼이 클라우드 계정에서 미리 입력되었습니다.",
-        "data": {
-          "modbus_host": "Modbus 게이트웨이 IP/호스트명",
-          "modbus_port": "Modbus TCP 포트",
-          "modbus_unit_id": "Modbus 유닛 ID",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_family": "인버터 계열"
-        },
-        "data_description": {
-          "modbus_host": "Modbus TCP 게이트웨이의 IP 주소 또는 호스트명",
-          "modbus_port": "Modbus 통신용 TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "인버터의 Modbus 슬레이브/유닛 ID (기본값: 1)",
-          "inverter_serial": "Modbus로 폴링할 인버터의 시리얼 번호",
-          "inverter_family": "올바른 Modbus 레지스터 매핑을 위해 인버터 계열을 선택하세요"
-        }
-      },
-      "hybrid_dongle": {
-        "title": "{brand_name} 하이브리드 설정 - WiFi 동글",
-        "description": "빠른 런타임 업데이트를 위해 WiFi 동글 연결을 구성합니다. 추가 하드웨어가 필요 없습니다. 참고: 최근 펌웨어 업데이트로 이 접근이 차단될 수 있습니다.",
-        "data": {
-          "dongle_host": "WiFi 동글 IP/호스트명",
-          "dongle_port": "동글 TCP 포트",
-          "dongle_serial": "동글 시리얼 번호",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_family": "인버터 계열"
-        },
-        "data_description": {
-          "dongle_host": "로컬 네트워크에서 WiFi 동글의 IP 주소",
-          "dongle_port": "동글 통신용 TCP 포트 (기본값: 8000)",
-          "dongle_serial": "WiFi 동글의 10자리 시리얼 번호 (예: BA12345678)",
-          "inverter_serial": "동글을 통해 폴링할 인버터의 시리얼 번호",
-          "inverter_family": "올바른 레지스터 매핑을 위해 인버터 계열을 선택하세요"
-        }
-      },
-      "plant": {
-        "title": "발전소 선택",
-        "description": "모니터링할 태양광 발전소/플랜트를 선택하세요. 별도의 통합 인스턴스를 생성하여 추가 발전소를 추가할 수 있습니다.",
-        "data": {
-          "plant_id": "발전소/플랜트"
-        },
-        "data_description": {
-          "plant_id": "모니터링할 태양광 설비를 선택하세요"
-        }
-      },
-      "reauth": {
-        "title": "{brand_name} 웹 모니터 재인증",
-        "description": "세션이 만료되었거나 자격 증명이 유효하지 않습니다. 장치 모니터링을 계속하려면 자격 증명을 다시 입력하세요.",
-        "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호"
+          "station_name": "Leave blank to use the device model and serial as the name"
         }
       },
       "reauth_confirm": {
-        "title": "재인증 확인",
-        "description": "업데이트된 자격 증명을 확인하여 {brand_name} 장치에 대한 접근을 복원하세요."
-      },
-      "reconfigure": {
-        "title": "{brand_name} 웹 모니터 재구성",
-        "description": "{brand_name} 웹 모니터 구성 설정을 업데이트합니다. 연결 매개변수를 변경하거나 다른 발전소로 전환할 수 있습니다.",
+        "title": "Reauthenticate {brand_name}",
+        "description": "Your session has expired. Please re-enter your password to restore access.",
         "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호",
-          "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인",
-          "dst_sync": "DST 동기화",
-          "library_debug": "라이브러리 디버그 로깅"
+          "password": "Password"
         },
         "data_description": {
-          "username": "{brand_name} 웹 모니터 계정 사용자 이름",
-          "password": "{brand_name} 웹 모니터 계정 비밀번호",
-          "base_url": "{brand_name} 웹 모니터 API의 기본 URL",
-          "verify_ssl": "보안 연결을 위한 SSL 인증서 확인 활성화",
-          "dst_sync": "Home Assistant 시간대를 기준으로 인버터에 일광 절약 시간 설정을 자동으로 동기화",
-          "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)"
+          "password": "Your {brand_name} Web Monitor account password"
         }
       },
-      "reconfigure_plant": {
-        "title": "발전소 변경",
-        "description": "이 통합 인스턴스에서 모니터링할 다른 태양광 발전소/플랜트를 선택하세요.",
+      "reconfigure_menu": {
+        "title": "Reconfigure: {title}",
+        "description": "What would you like to change?",
+        "menu_options": {
+          "reconfigure_cloud_update": "Update Cloud Credentials",
+          "reconfigure_cloud_station": "Change Station",
+          "reconfigure_cloud_remove": "Remove Cloud Connection",
+          "reconfigure_cloud_add": "Add Cloud Credentials",
+          "reconfigure_devices": "Manage Local Devices"
+        }
+      },
+      "reconfigure_cloud_update": {
+        "title": "Update Cloud Credentials",
+        "description": "Update your {brand_name} Web Monitor account credentials.",
         "data": {
-          "plant_id": "발전소/플랜트"
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
-          "plant_id": "모니터링할 태양광 설비를 선택하세요"
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library"
         }
       },
-      "reconfigure_http": {
-        "title": "{brand_name} 클라우드 API 재구성",
-        "description": "{brand_name} 웹 모니터 클라우드 API 자격 증명을 업데이트합니다. 현재 발전소: {current_station}",
+      "reconfigure_cloud_add": {
+        "title": "Add Cloud Credentials",
+        "description": "Add cloud API credentials to enable battery details, remote control, and device discovery.",
         "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호",
-          "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인",
-          "dst_sync": "DST 동기화"
+          "username": "Username",
+          "password": "Password",
+          "base_url": "Base URL",
+          "verify_ssl": "Verify SSL Certificate",
+          "dst_sync": "DST Synchronization",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
-          "username": "{brand_name} 웹 모니터 계정 사용자 이름",
-          "password": "{brand_name} 웹 모니터 계정 비밀번호",
-          "base_url": "{brand_name} 웹 모니터 API의 기본 URL",
-          "verify_ssl": "보안 연결을 위한 SSL 인증서 확인 활성화",
-          "dst_sync": "일광 절약 시간 설정 자동 동기화"
+          "username": "Your {brand_name} Web Monitor account username",
+          "password": "Your {brand_name} Web Monitor account password",
+          "base_url": "The base URL for the {brand_name} Web Monitor API",
+          "verify_ssl": "Enable SSL certificate verification for secure connections",
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library"
         }
       },
-      "reconfigure_modbus": {
-        "title": "{brand_name} Modbus 연결 재구성",
-        "description": "로컬 Modbus TCP 연결 설정을 업데이트합니다. 현재 호스트: {current_host}",
+      "reconfigure_cloud_station": {
+        "title": "Change Station",
+        "description": "Select a different solar station/plant to monitor.",
         "data": {
-          "modbus_host": "Modbus 게이트웨이 IP/호스트명",
-          "modbus_port": "Modbus TCP 포트",
-          "modbus_unit_id": "Modbus 유닛 ID",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_model": "인버터 모델 (선택사항)",
-          "inverter_family": "인버터 계열"
+          "plant_id": "Station/Plant"
         },
         "data_description": {
-          "modbus_host": "Modbus TCP 게이트웨이의 IP 주소 또는 호스트명",
-          "modbus_port": "Modbus 통신용 TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "인버터의 Modbus 슬레이브/유닛 ID (기본값: 1)",
-          "inverter_serial": "인버터의 10자리 시리얼 번호",
-          "inverter_model": "표시 목적의 모델 이름",
-          "inverter_family": "올바른 Modbus 레지스터 매핑을 위해 인버터 계열을 선택하세요"
+          "plant_id": "Select the solar installation you want to monitor"
         }
       },
-      "reconfigure_hybrid": {
-        "title": "{brand_name} 하이브리드 연결 재구성",
-        "description": "클라우드 API와 로컬 Modbus 설정을 모두 업데이트합니다. 현재 발전소: {current_station}, Modbus 호스트: {current_host}",
+      "reconfigure_cloud_remove": {
+        "title": "Remove Cloud Connection",
+        "description": "This will remove cloud credentials from your configuration. Your local devices will continue to work. Cloud features (battery details, remote control) will be disabled.",
+        "submit": "Remove Cloud Connection"
+      },
+      "reconfigure_devices": {
+        "title": "Local Devices ({device_count})",
+        "description": "{device_list}",
+        "menu_options": {
+          "reconfigure_device_add": "Add Device",
+          "reconfigure_menu": "Back to Menu"
+        }
+      },
+      "reconfigure_device_add": {
+        "title": "Add Local Device",
+        "description": "Select the connection type for your new device.",
+        "menu_options": {
+          "reconfigure_add_modbus": "Modbus TCP (RS485 adapter)",
+          "reconfigure_add_dongle": "WiFi Dongle"
+        }
+      },
+      "reconfigure_add_modbus": {
+        "title": "Add Modbus Device",
+        "description": "Configure a new Modbus TCP connection. Device info is auto-detected.",
         "data": {
-          "username": "사용자 이름",
-          "password": "비밀번호",
-          "base_url": "기본 URL",
-          "verify_ssl": "SSL 인증서 확인",
-          "dst_sync": "DST 동기화",
-          "modbus_host": "Modbus 게이트웨이 IP/호스트명",
-          "modbus_port": "Modbus TCP 포트",
-          "modbus_unit_id": "Modbus 유닛 ID",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_family": "인버터 계열"
+          "modbus_host": "Gateway IP Address",
+          "modbus_port": "Port",
+          "modbus_unit_id": "Unit ID"
         },
         "data_description": {
-          "username": "{brand_name} 웹 모니터 계정 사용자 이름",
-          "password": "{brand_name} 웹 모니터 계정 비밀번호",
-          "base_url": "{brand_name} 웹 모니터 API의 기본 URL",
-          "verify_ssl": "보안 연결을 위한 SSL 인증서 확인 활성화",
-          "dst_sync": "일광 절약 시간 설정 자동 동기화",
-          "modbus_host": "Modbus TCP 게이트웨이의 IP 주소 또는 호스트명",
-          "modbus_port": "Modbus 통신용 TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "인버터의 Modbus 슬레이브/유닛 ID (기본값: 1)",
-          "inverter_serial": "Modbus로 폴링할 인버터의 시리얼 번호",
-          "inverter_family": "올바른 Modbus 레지스터 매핑을 위해 인버터 계열을 선택하세요"
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_port": "TCP port (default: 502)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
         }
       },
-      "reconfigure_hybrid_plant": {
-        "title": "발전소 변경 (하이브리드)",
-        "description": "모니터링할 다른 태양광 발전소/플랜트를 선택하세요. 현재 발전소: {current_station}",
+      "reconfigure_add_dongle": {
+        "title": "Add WiFi Dongle Device",
+        "description": "Configure a new WiFi dongle connection. Device info is auto-detected.",
         "data": {
-          "plant_id": "발전소/플랜트"
+          "dongle_host": "Dongle IP Address",
+          "dongle_serial": "Dongle Serial Number",
+          "inverter_serial": "Inverter Serial Number",
+          "dongle_port": "Port"
         },
         "data_description": {
-          "plant_id": "모니터링할 태양광 설비를 선택하세요"
+          "dongle_host": "IP address of your WiFi dongle on your local network",
+          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
+          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
+          "dongle_port": "TCP port (default: 8000)"
         }
-      },
-      "transition_select": {
-        "title": "연결 모드 변경",
-        "description": "이 통합이 인버터에 연결하는 방법을 변경할 수 있습니다. 현재 모드: {current_type}",
-        "data": {
-          "transition_type": "연결 모드"
-        },
-        "data_description": {
-          "transition_type": "새 연결 모드를 선택하거나 현재 구성을 유지하세요"
-        }
-      },
-      "transition_select_local_type": {
-        "title": "로컬 전송 유형 선택",
-        "description": "인버터에 로컬로 연결할 방법을 선택하세요. Modbus TCP는 RS485 어댑터를 사용하여 가장 빠른 업데이트를 제공합니다. WiFi 동글은 인버터의 기존 동글을 사용합니다 (추가 하드웨어 필요 없음).",
-        "data": {
-          "hybrid_local_type": "로컬 전송 유형"
-        },
-        "data_description": {
-          "hybrid_local_type": "빠른 런타임 데이터를 위한 로컬 연결 방법을 선택하세요"
-        }
-      },
-      "transition_modbus": {
-        "title": "Modbus 연결 구성",
-        "description": "Modbus TCP 게이트웨이 설정을 입력하세요. 이를 통해 런타임 데이터에 대해 빠른 5초 폴링이 활성화됩니다.",
-        "data": {
-          "modbus_host": "Modbus 게이트웨이 IP/호스트명",
-          "modbus_port": "Modbus TCP 포트",
-          "modbus_unit_id": "Modbus 유닛 ID",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_family": "인버터 계열"
-        },
-        "data_description": {
-          "modbus_host": "Modbus TCP 게이트웨이의 IP 주소 또는 호스트명",
-          "modbus_port": "Modbus 통신용 TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "인버터의 Modbus 슬레이브/유닛 ID (기본값: 1)",
-          "inverter_serial": "인버터의 시리얼 번호 (자동 감지하려면 비워두세요)",
-          "inverter_family": "올바른 레지스터 매핑을 위해 인버터 계열을 선택하세요"
-        }
-      },
-      "transition_dongle": {
-        "title": "WiFi 동글 연결 구성",
-        "description": "WiFi 동글 연결 설정을 입력하세요. 인버터의 기존 동글을 사용하여 빠른 5초 폴링을 활성화합니다.",
-        "data": {
-          "dongle_host": "WiFi 동글 IP/호스트명",
-          "dongle_port": "동글 TCP 포트",
-          "dongle_serial": "동글 시리얼 번호",
-          "inverter_serial": "인버터 시리얼 번호",
-          "inverter_family": "인버터 계열"
-        },
-        "data_description": {
-          "dongle_host": "로컬 네트워크에서 WiFi 동글의 IP 주소",
-          "dongle_port": "동글 통신용 TCP 포트 (기본값: 8000)",
-          "dongle_serial": "WiFi 동글의 10자리 시리얼 번호",
-          "inverter_serial": "인버터의 시리얼 번호",
-          "inverter_family": "올바른 레지스터 매핑을 위해 인버터 계열을 선택하세요"
-        }
-      },
-      "transition_confirm": {
-        "title": "연결 모드 변경 확인",
-        "description": "{current_type}에서 {target_type}(으)로 변경하려고 합니다. 발전소: {current_plant}\n\n{warnings}",
-        "submit": "변경 확인"
-      },
-      "transition_confirm_removal": {
-        "title": "로컬 전송 제거 확인",
-        "description": "하이브리드 설정에서 로컬 전송을 제거하려고 합니다. 발전소: {current_plant}, 현재 로컬 전송: {local_type} ({local_host})\n\n{warnings}",
-        "submit": "로컬 전송 제거"
-      },
-      "local_setup": {
-        "title": "{brand_name} 로컬 설정",
-        "description": "클라우드 자격 증명 없이 로컬 모니터링을 설정합니다. 장치 정보(시리얼, 모델, 펌웨어)가 자동으로 감지됩니다.\n\n첫 번째 장치가 어떻게 연결되어 있는지 선택하세요:",
-        "data": {
-          "device_type": "연결 유형"
-        },
-        "data_description": {
-          "device_type": "Modbus TCP는 RS485 어댑터(예: Waveshare)를 사용합니다. WiFi 동글은 인버터의 내장 동글을 사용합니다."
-        }
-      },
-      "local_modbus_connect": {
-        "title": "Modbus TCP를 통해 연결",
-        "description": "Modbus TCP 게이트웨이의 IP 주소를 입력하세요. 나머지는 자동으로 감지됩니다.{device_count, plural, =0 {} other { (장치 #{device_count} 추가 중)}}",
-        "data": {
-          "modbus_host": "게이트웨이 IP 주소",
-          "modbus_port": "포트 (선택사항)",
-          "modbus_unit_id": "유닛 ID (선택사항)"
-        },
-        "data_description": {
-          "modbus_host": "RS485-to-Ethernet 어댑터의 IP 주소 (예: 192.168.1.100)",
-          "modbus_port": "TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
-        }
-      },
-      "local_dongle_connect": {
-        "title": "WiFi 동글을 통해 연결",
-        "description": "동글 연결 세부 정보를 입력하세요. 동글 시리얼은 장치 라벨에 인쇄되어 있습니다 (WiFi AP 이름으로도 표시됨). 인버터/장치 시리얼은 장치 명판에 있습니다.{device_count, plural, =0 {} other { (장치 #{device_count} 추가 중)}}",
-        "data": {
-          "dongle_host": "동글 IP 주소",
-          "dongle_serial": "동글 시리얼 번호",
-          "inverter_serial": "장치 시리얼 번호",
-          "dongle_port": "포트 (선택사항)"
-        },
-        "data_description": {
-          "dongle_host": "로컬 네트워크에서 WiFi 동글의 IP 주소",
-          "dongle_serial": "10자리 동글 시리얼 (인버터용 BJ/BA, GridBOSS용 DJ)",
-          "inverter_serial": "장치 명판의 10자리 시리얼 (인증에 필요)",
-          "dongle_port": "TCP 포트 (기본값: 8000)"
-        }
-      },
-      "local_device_discovered": {
-        "title": "장치 발견: {device_model}",
-        "description": "성공적으로 연결되어 장치 정보를 감지했습니다:\n\n**{device_type}**: {device_model}\n**시리얼**: {device_serial}\n**계열**: {device_family}\n**펌웨어**: {device_firmware}\n**현재 PV 전력**: {device_pv_power}W\n**배터리 SOC**: {device_battery_soc}%\n\n이것은 장치 #{device_count}입니다. 다른 장치를 추가하시겠습니까?",
-        "data": {
-          "add_another": "다른 장치 추가"
-        },
-        "data_description": {
-          "add_another": "이 설비에 다른 인버터 또는 GridBOSS를 추가하려면 선택하세요"
-        }
-      },
-      "local_add_device": {
-        "title": "다른 장치 추가",
-        "description": "{device_count}개의 장치가 구성되었습니다. 다음 장치의 연결 유형을 선택하세요:",
-        "data": {
-          "device_type": "연결 유형"
-        },
-        "data_description": {
-          "device_type": "Modbus TCP 또는 WiFi 동글 선택"
-        }
-      },
-      "local_name": {
-        "title": "설비 이름 지정",
-        "description": "태양광 설비에 친숙한 이름을 지정하세요. 이것은 Home Assistant에서 표시용으로만 사용됩니다 - 인버터의 값이 아닙니다.\n\n**구성된 장치**: {device_summary}\n\n예시: \"가정 태양광\", \"차고 시스템\", \"본관\"",
-        "data": {
-          "station_name": "설비 이름 (선택사항)"
-        },
-        "data_description": {
-          "station_name": "비워두면 장치 모델과 시리얼을 이름으로 사용합니다"
-        }
-      },
-      "reconfigure_local": {
-        "title": "로컬 설비 재구성",
-        "description": "로컬 설비의 장치를 관리합니다. 현재 장치: {device_count}",
-        "data": {
-          "action": "작업"
-        },
-        "data_description": {
-          "action": "이 설비에서 수행할 작업을 선택하세요"
-        }
-      },
-      "reconfigure_local_modbus": {
-        "title": "Modbus 장치 구성",
-        "description": "Modbus TCP 게이트웨이의 IP 주소를 입력하세요. 장치 시리얼, 모델 및 펌웨어가 자동으로 감지됩니다.",
-        "data": {
-          "modbus_host": "게이트웨이 IP 주소",
-          "modbus_port": "포트 (선택사항)",
-          "modbus_unit_id": "유닛 ID (선택사항)"
-        },
-        "data_description": {
-          "modbus_host": "RS485-to-Ethernet 어댑터의 IP 주소 (예: 192.168.1.100)",
-          "modbus_port": "TCP 포트 (기본값: 502)",
-          "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
-        }
-      },
-      "reconfigure_local_dongle": {
-        "title": "WiFi 동글 장치 구성",
-        "description": "동글 연결 세부 정보를 입력하세요. 장치 모델과 펌웨어가 자동으로 감지됩니다.",
-        "data": {
-          "dongle_host": "동글 IP 주소",
-          "dongle_serial": "동글 시리얼 번호",
-          "inverter_serial": "장치 시리얼 번호",
-          "dongle_port": "포트 (선택사항)"
-        },
-        "data_description": {
-          "dongle_host": "로컬 네트워크에서 WiFi 동글의 IP 주소",
-          "dongle_serial": "10자리 동글 시리얼 (인버터용 BJ/BA, GridBOSS용 DJ)",
-          "inverter_serial": "장치 명판의 10자리 시리얼 (인증에 필요)",
-          "dongle_port": "TCP 포트 (기본값: 8000)"
-        }
-      },
-      "reconfigure_local_discovered": {
-        "title": "장치 발견: {device_model}",
-        "description": "성공적으로 연결되어 장치 정보를 감지했습니다:\n\n**{device_type}**: {device_model}\n**시리얼**: {device_serial}\n**계열**: {device_family}\n**펌웨어**: {device_firmware}\n**현재 PV 전력**: {device_pv_power}W\n**배터리 SOC**: {device_battery_soc}%\n\n제출을 클릭하여 이 장치를 설비에 추가하세요.",
-        "submit": "장치 추가"
       }
     },
     "error": {
-      "cannot_connect": "{brand_name} 웹 모니터에 연결할 수 없습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
-      "invalid_auth": "사용자 이름 또는 비밀번호가 잘못되었습니다. 자격 증명을 확인하고 다시 시도하세요.",
-      "unknown": "예기치 않은 오류가 발생했습니다. 다시 시도하거나 로그에서 자세한 내용을 확인하세요.",
-      "no_plants": "계정에서 태양광 발전소/플랜트를 찾을 수 없습니다. {brand_name} 웹 모니터 계정에 최소 하나의 발전소가 구성되어 있는지 확인하세요.",
-      "invalid_plant": "선택한 발전소/플랜트가 더 이상 사용할 수 없습니다. 다른 발전소를 선택하세요.",
-      "timeout": "{brand_name} 웹 모니터 연결 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도하세요.",
-      "modbus_not_installed": "pymodbus 라이브러리가 설치되지 않았습니다. pip install pymodbus를 사용하여 설치하세요.",
-      "modbus_timeout": "Modbus 연결 시간이 초과되었습니다. IP 주소를 확인하고 Modbus 게이트웨이가 전원이 켜져 있고 연결되어 있는지 확인하세요.",
-      "modbus_connection_failed": "Modbus 게이트웨이에 연결하지 못했습니다. 확인하세요: (1) IP 주소가 올바른지, (2) 포트 502가 차단되지 않았는지, (3) 게이트웨이에서 Modbus TCP가 활성화되어 있는지.",
-      "dongle_timeout": "WiFi 동글 연결 시간이 초과되었습니다. IP 주소를 확인하고 동글이 네트워크에 연결되어 있는지 확인하세요.",
-      "dongle_connection_failed": "WiFi 동글에 연결하지 못했습니다. 확인하세요: (1) IP 주소가 올바른지, (2) 포트 8000이 차단되지 않았는지, (3) 동글 펌웨어가 로컬 접근을 지원하는지 (최근 업데이트로 차단될 수 있음).",
-      "duplicate_serial": "이 시리얼 번호를 가진 장치가 이미 이 설비에 추가되었습니다."
+      "cannot_connect": "Unable to connect to {brand_name} Web Monitor. Please check your network connection and try again.",
+      "invalid_auth": "Invalid username or password. Please check your credentials and try again.",
+      "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
+      "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your {brand_name} Web Monitor account.",
+      "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
+      "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
+      "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
+      "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
+      "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
+      "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
+      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
+      "duplicate_serial": "A device with this serial number has already been added to this installation.",
+      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration."
     },
     "abort": {
-      "already_configured": "이 {brand_name} 웹 모니터 발전소는 이미 구성되어 있습니다. 각 발전소에는 별도의 통합 인스턴스가 필요합니다.",
-      "reauth_successful": "재인증 성공! {brand_name} 웹 모니터 통합이 이제 다시 연결되었습니다.",
-      "reconfigure_successful": "재구성 성공! {brand_name} 웹 모니터 설정이 업데이트되었습니다.",
-      "entry_not_found": "구성 항목을 찾을 수 없습니다. 통합이 제거되었을 수 있습니다. 통합 페이지에서 다시 추가하세요."
+      "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
+      "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
+      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated.",
+      "entry_not_found": "Configuration entry not found. The integration may have been removed. Please add it again from the Integrations page.",
+      "serial_already_configured": "Inverter {serial} is already configured in \"{entry_title}\". Remove that entry first, or use the Reconfigure flow to change connection types."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "{brand_name} 웹 모니터 옵션",
-        "description": "{brand_name} 웹 모니터 통합의 폴링 간격을 구성합니다. 센서 업데이트는 장치 데이터를 가져오는 빈도를 제어합니다. 매개변수 새로 고침은 구성 설정이 동기화되는 빈도를 제어합니다.",
+        "title": "{brand_name} Web Monitor Options",
+        "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
         "data": {
-          "sensor_update_interval": "센서 업데이트 간격 (초)",
-          "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)"
+          "sensor_update_interval": "Sensor Update Interval (seconds)",
+          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)"
         },
         "data_description": {
-          "sensor_update_interval": "센서 업데이트 폴링 빈도 ({min_sensor_interval}-{max_sensor_interval}초). 낮은 값은 빠른 업데이트를 제공하지만 API 부하가 증가합니다.",
-          "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분)."
+          "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
+          "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes)."
         }
       }
     }
@@ -497,136 +269,234 @@
   "selector": {
     "operating_mode": {
       "options": {
-        "normal": "정상",
-        "standby": "대기"
+        "normal": "Normal",
+        "standby": "Standby"
       }
     }
   },
   "entity": {
     "binary_sensor": {
       "dongle_connectivity": {
-        "name": "동글 연결 상태",
+        "name": "Dongle Connectivity",
         "state": {
-          "on": "연결됨",
-          "off": "연결 끊김"
+          "on": "Connected",
+          "off": "Disconnected"
         }
       }
     },
     "sensor": {
-      "ac_power": {"name": "AC 전력"},
-      "ac_voltage": {"name": "AC 전압"},
-      "ac_current": {"name": "AC 전류"},
-      "frequency": {"name": "주파수"},
-      "dc_power": {"name": "DC 전력"},
-      "dc_voltage": {"name": "DC 전압"},
-      "dc_current": {"name": "DC 전류"},
-      "battery_power": {"name": "배터리 전력"},
-      "battery_voltage": {"name": "배터리 전압"},
-      "battery_current": {"name": "배터리 전류"},
-      "state_of_charge": {"name": "충전 상태"},
-      "state_of_health": {"name": "건강 상태"},
-      "total_energy": {"name": "총 에너지"},
-      "daily_energy": {"name": "일일 에너지"},
-      "monthly_energy": {"name": "월간 에너지"},
-      "yearly_energy": {"name": "연간 에너지"},
-      "internal_temperature": {"name": "내부 온도"},
-      "radiator1_temperature": {"name": "라디에이터 1 온도"},
-      "radiator2_temperature": {"name": "라디에이터 2 온도"},
-      "status_code": {"name": "상태 코드"},
-      "status_text": {"name": "상태"},
-      "grid_power": {"name": "그리드 전력"},
-      "load_power": {"name": "부하 전력"},
-      "pv_total_power": {"name": "PV 총 전력"},
-      "pv1_power": {"name": "PV1 전력"},
-      "pv2_power": {"name": "PV2 전력"},
-      "pv3_power": {"name": "PV3 전력"},
-      "cell_voltage_max": {"name": "최대 셀 전압"},
-      "cell_voltage_min": {"name": "최소 셀 전압"},
-      "cell_voltage_delta": {"name": "셀 전압 편차"},
-      "cycle_count": {"name": "사이클 수"},
-      "firmware_version": {"name": "펌웨어 버전"},
-      "grid_voltage_r": {"name": "그리드 전압 R"},
-      "grid_voltage_s": {"name": "그리드 전압 S"},
-      "grid_voltage_t": {"name": "그리드 전압 T"},
-      "grid_frequency": {"name": "그리드 주파수"},
-      "eps_voltage_r": {"name": "EPS 전압 R"},
-      "eps_voltage_s": {"name": "EPS 전압 S"},
-      "eps_voltage_t": {"name": "EPS 전압 T"},
-      "eps_frequency": {"name": "EPS 주파수"},
-      "eps_power": {"name": "EPS 전력"},
-      "eps_power_l1": {"name": "EPS 전력 L1"},
-      "eps_power_l2": {"name": "EPS 전력 L2"},
-      "power_output": {"name": "출력 전력"},
-      "rectifier_power": {"name": "정류기 전력"},
-      "ac_couple_power": {"name": "AC 커플 전력"},
-      "bus1_voltage": {"name": "버스 1 전압"},
-      "bus2_voltage": {"name": "버스 2 전압"},
-      "total_load_power": {"name": "총 부하 전력"}
+      "ac_power": {
+        "name": "AC Power"
+      },
+      "ac_voltage": {
+        "name": "AC Voltage"
+      },
+      "ac_current": {
+        "name": "AC Current"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "dc_power": {
+        "name": "DC Power"
+      },
+      "dc_voltage": {
+        "name": "DC Voltage"
+      },
+      "dc_current": {
+        "name": "DC Current"
+      },
+      "battery_power": {
+        "name": "Battery Power"
+      },
+      "battery_voltage": {
+        "name": "Battery Voltage"
+      },
+      "battery_current": {
+        "name": "Battery Current"
+      },
+      "state_of_charge": {
+        "name": "State of Charge"
+      },
+      "state_of_health": {
+        "name": "State of Health"
+      },
+      "total_energy": {
+        "name": "Total Energy"
+      },
+      "daily_energy": {
+        "name": "Daily Energy"
+      },
+      "monthly_energy": {
+        "name": "Monthly Energy"
+      },
+      "yearly_energy": {
+        "name": "Yearly Energy"
+      },
+      "internal_temperature": {
+        "name": "Internal Temperature"
+      },
+      "radiator1_temperature": {
+        "name": "Radiator 1 Temperature"
+      },
+      "radiator2_temperature": {
+        "name": "Radiator 2 Temperature"
+      },
+      "status_code": {
+        "name": "Status Code"
+      },
+      "status_text": {
+        "name": "Status"
+      },
+      "grid_power": {
+        "name": "Grid Power"
+      },
+      "load_power": {
+        "name": "Load Power"
+      },
+      "pv_total_power": {
+        "name": "PV Total Power"
+      },
+      "pv1_power": {
+        "name": "PV1 Power"
+      },
+      "pv2_power": {
+        "name": "PV2 Power"
+      },
+      "pv3_power": {
+        "name": "PV3 Power"
+      },
+      "cell_voltage_max": {
+        "name": "Maximum Cell Voltage"
+      },
+      "cell_voltage_min": {
+        "name": "Minimum Cell Voltage"
+      },
+      "cell_voltage_delta": {
+        "name": "Cell Voltage Delta"
+      },
+      "cycle_count": {
+        "name": "Cycle Count"
+      },
+      "firmware_version": {
+        "name": "Firmware Version"
+      },
+      "grid_voltage_r": {
+        "name": "Grid Voltage R"
+      },
+      "grid_voltage_s": {
+        "name": "Grid Voltage S"
+      },
+      "grid_voltage_t": {
+        "name": "Grid Voltage T"
+      },
+      "grid_frequency": {
+        "name": "Grid Frequency"
+      },
+      "eps_voltage_r": {
+        "name": "EPS Voltage R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS Voltage S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS Voltage T"
+      },
+      "eps_frequency": {
+        "name": "EPS Frequency"
+      },
+      "eps_power": {
+        "name": "EPS Power"
+      },
+      "eps_power_l1": {
+        "name": "EPS Power L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS Power L2"
+      },
+      "power_output": {
+        "name": "Power Output"
+      },
+      "rectifier_power": {
+        "name": "Rectifier Power"
+      },
+      "ac_couple_power": {
+        "name": "AC Couple Power"
+      },
+      "bus1_voltage": {
+        "name": "Bus 1 Voltage"
+      },
+      "bus2_voltage": {
+        "name": "Bus 2 Voltage"
+      },
+      "total_load_power": {
+        "name": "Total Load Power"
+      }
     },
     "switch": {
       "quick_charge": {
-        "name": "빠른 충전"
+        "name": "Quick Charge"
       },
       "battery_backup_eps": {
-        "name": "배터리 백업 (EPS)"
+        "name": "Battery Backup (EPS)"
       },
       "off_grid_mode": {
-        "name": "오프그리드 모드"
+        "name": "Off Grid Mode"
       }
     },
     "number": {
       "system_charge_soc_limit": {
-        "name": "시스템 충전 SOC 제한"
+        "name": "System Charge SOC Limit"
       },
       "ac_charge_power": {
-        "name": "AC 충전 전력"
+        "name": "AC Charge Power"
       },
       "pv_charge_power": {
-        "name": "PV 충전 전력"
+        "name": "PV Charge Power"
       },
       "ac_charge_soc_limit": {
-        "name": "AC 충전 SOC 제한"
+        "name": "AC Charge SOC Limit"
       },
       "soc_cutoff": {
-        "name": "SOC 컷오프"
+        "name": "SOC Cut-Off"
       }
     },
     "button": {
       "refresh_data": {
-        "name": "데이터 새로 고침"
+        "name": "Refresh Data"
       }
     },
     "select": {
       "operating_mode": {
-        "name": "작동 모드",
+        "name": "Operating Mode",
         "state": {
-          "normal": "정상",
-          "standby": "대기"
+          "normal": "Normal",
+          "standby": "Standby"
         }
       }
     }
   },
   "services": {
     "refresh_data": {
-      "name": "데이터 새로 고침",
-      "description": "정상 폴링 간격을 우회하여 {brand_name} API에서 장치 데이터를 즉시 강제로 새로 고칩니다.",
+      "name": "Refresh Data",
+      "description": "Force an immediate refresh of device data from the {brand_name} API, bypassing the normal polling interval.",
       "fields": {
         "entry_id": {
-          "name": "구성 항목 ID",
-          "description": "새로 고칠 구성 항목 ID. 제공하지 않으면 모든 {brand_name} 웹 모니터 통합이 새로 고쳐집니다."
+          "name": "Configuration Entry ID",
+          "description": "The configuration entry ID to refresh. If not provided, all {brand_name} Web Monitor integrations will be refreshed."
         }
       }
     }
   },
   "exceptions": {
     "entry_not_found": {
-      "message": "구성 항목 {entry_id}을(를) 찾을 수 없습니다. 항목 ID가 올바른지 확인하세요."
+      "message": "Configuration entry {entry_id} not found. Please verify the entry ID is correct."
     },
     "entry_not_loaded": {
-      "message": "구성 항목 {entry_id}이(가) 로드되지 않았습니다. 통합이 올바르게 구성되고 실행 중인지 확인하세요."
+      "message": "Configuration entry {entry_id} is not loaded. Please ensure the integration is properly configured and running."
     },
     "no_coordinators": {
-      "message": "새로 고칠 {brand_name} 코디네이터를 찾을 수 없습니다. 최소 하나의 {brand_name} 웹 모니터 통합이 구성되고 로드되어 있는지 확인하세요."
+      "message": "No {brand_name} coordinators found to refresh. Please ensure at least one {brand_name} Web Monitor integration is configured and loaded."
     }
   }
 }
