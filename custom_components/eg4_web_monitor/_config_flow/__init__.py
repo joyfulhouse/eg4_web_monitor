@@ -62,7 +62,6 @@ from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
-    CONF_HTTP_DEVICES,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
@@ -142,9 +141,6 @@ class EG4ConfigFlow(
         self._pending_unit_id: int | None = None
         self._pending_dongle_serial: str | None = None
 
-        # HTTP device list for skeleton startup optimization
-        self._http_devices: list[dict[str, Any]] = []
-
         # Network scan state
         self._scan_ip_range: str | None = None
         self._scan_ports: list[int] = [502, 8000]
@@ -222,7 +218,6 @@ class EG4ConfigFlow(
                 if len(self._plants) == 1:
                     self._plant_id = self._plants[0]["plantId"]
                     self._plant_name = self._plants[0]["name"]
-                    await self._fetch_http_devices()
                     return await self.async_step_cloud_add_local()
                 return await self.async_step_cloud_station()
 
@@ -242,7 +237,6 @@ class EG4ConfigFlow(
             self._plant_id = user_input[CONF_PLANT_ID]
             plant = find_plant_by_id(self._plants, self._plant_id)
             self._plant_name = plant["name"] if plant else self._plant_id
-            await self._fetch_http_devices()
             return await self.async_step_cloud_add_local()
 
         assert self._plants is not None
@@ -1061,49 +1055,6 @@ class EG4ConfigFlow(
         self._pending_unit_id = None
         self._pending_dongle_serial = None
 
-    async def _fetch_http_devices(self) -> None:
-        """Fetch device list from cloud API for skeleton startup optimization.
-
-        Stores device info (serial, model, type) in self._http_devices.
-        Non-fatal: logs warning and proceeds with empty list on failure.
-        """
-        try:
-            session = aiohttp_client.async_get_clientsession(self.hass)
-            assert self._username is not None
-            assert self._password is not None
-            assert self._plant_id is not None
-
-            async with LuxpowerClient(
-                username=self._username,
-                password=self._password,
-                base_url=self._base_url,
-                verify_ssl=self._verify_ssl,
-                session=session,
-            ) as client:
-                from pylxpweb.devices import Station
-
-                station = await Station.load(client, int(self._plant_id))
-                devices: list[dict[str, Any]] = []
-                for inv in station.all_inverters:
-                    is_gridboss = getattr(inv, "is_mid_device", False)
-                    devices.append(
-                        {
-                            "serial": inv.serial_number,
-                            "model": inv.model or "Unknown",
-                            "type": "gridboss" if is_gridboss else "inverter",
-                        }
-                    )
-                self._http_devices = devices
-                _LOGGER.debug(
-                    "Fetched %d HTTP devices for skeleton startup", len(devices)
-                )
-        except Exception:
-            _LOGGER.warning(
-                "Failed to fetch HTTP device list for skeleton optimization; "
-                "startup will use blocking fallback"
-            )
-            self._http_devices = []
-
     def _store_cloud_input(self, user_input: dict[str, Any]) -> None:
         """Store cloud credential fields from user input."""
         self._username = user_input[CONF_USERNAME]
@@ -1169,8 +1120,6 @@ class EG4ConfigFlow(
             data[CONF_BASE_URL] = self._base_url
             data[CONF_PLANT_ID] = self._plant_id
             data[CONF_PLANT_NAME] = self._plant_name
-            if self._http_devices:
-                data[CONF_HTTP_DEVICES] = self._http_devices
 
         return data
 

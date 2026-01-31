@@ -175,25 +175,6 @@ async def async_setup_entry(
     if not phase1_entities and not phase2_entities:
         _LOGGER.warning("No sensor entities created")
 
-    # Register battery discovery callback for skeleton startup mode
-    # When batteries are discovered after first real data refresh, create entities
-    def _on_batteries_discovered(serial: str, batteries: dict[str, Any]) -> None:
-        device_data = coordinator.data.get("devices", {}).get(serial)
-        if not device_data:
-            return
-        _, battery_entities_new = _create_inverter_sensors(
-            coordinator, serial, device_data
-        )
-        if battery_entities_new:
-            async_add_entities(battery_entities_new, True)
-            _LOGGER.info(
-                "Battery discovery: added %d battery entities for %s",
-                len(battery_entities_new),
-                serial,
-            )
-
-    coordinator.register_battery_discovery_callback(_on_batteries_discovered)
-
 
 def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]

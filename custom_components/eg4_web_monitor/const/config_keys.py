@@ -36,10 +36,6 @@ CONF_HYBRID_LOCAL_TYPE = "hybrid_local_type"
 # and transport-specific fields
 CONF_LOCAL_TRANSPORTS = "local_transports"
 
-# HTTP device list for skeleton startup (fetched during config flow)
-# Each item is a dict with: serial, model, type (inverter/gridboss)
-CONF_HTTP_DEVICES = "http_devices"
-
 # Modbus configuration keys
 CONF_MODBUS_HOST = "modbus_host"
 CONF_MODBUS_PORT = "modbus_port"

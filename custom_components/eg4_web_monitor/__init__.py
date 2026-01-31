@@ -171,14 +171,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
 
+    # Perform initial data fetch
+    await coordinator.async_config_entry_first_refresh()
+
+    # Store coordinator in runtime_data
+    entry.runtime_data = coordinator
+
     # One-time migration: remove stale local-format battery entities
-    # (runs before platform setup — doesn't depend on coordinator data)
+    # Old local keys used numeric-only battery indices (e.g., "0", "1")
+    # New format uses "{serial}-{nn}" to match HTTP key format
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
     for entity in entities:
         if entity.domain != "sensor":
             continue
         parts = entity.unique_id.split("_")
+        # Match pattern: {serial}_{short_numeric_index}_{sensor_key}
+        # where serial is a long numeric string (10+ digits) and index is 1-2 digits
         if (
             len(parts) >= 3
             and parts[0].isdigit()
@@ -191,15 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                 "Removed stale local-format battery entity: %s", entity.entity_id
             )
 
-    # Try skeleton startup for instant entity creation
-    skeleton = coordinator._build_skeleton_data()
-    if skeleton is not None:
-        coordinator.data = skeleton
-    else:
-        await coordinator.async_config_entry_first_refresh()
-
-    entry.runtime_data = coordinator
-
+    # Forward entry setup to platforms (creates devices and entities)
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except asyncio.CancelledError:
@@ -209,26 +210,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         )
         raise
 
-    if skeleton is not None:
-        # Background refresh — non-blocking, real data arrives in ~3-12s
-        async def _background_first_refresh() -> None:
-            try:
-                await coordinator.async_config_entry_first_refresh()
-                await _async_update_device_registry(hass, coordinator)
-            except Exception:
-                _LOGGER.error(
-                    "Background first refresh failed for %s; "
-                    "coordinator will retry on schedule",
-                    entry.title,
-                )
-
-        entry.async_create_background_task(
-            hass,
-            _background_first_refresh(),
-            f"eg4_background_refresh_{entry.entry_id}",
-        )
-    else:
-        await _async_update_device_registry(hass, coordinator)
+    # Update device registry with current firmware versions AFTER devices are created
+    await _async_update_device_registry(hass, coordinator)
 
     # Register options update listener - reload when options change
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
