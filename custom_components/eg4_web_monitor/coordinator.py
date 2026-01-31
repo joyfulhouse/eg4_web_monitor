@@ -1599,6 +1599,35 @@ class EG4DataUpdateCoordinator(
                     total_battery_voltage / voltage_count, 1
                 )
 
+            # Override grid/load energy with GridBOSS data if available.
+            # The GridBOSS sits at the grid connection point and provides
+            # accurate metering for export/import/consumption. Individual
+            # inverter energy sums are incorrect for these values.
+            gridboss_energy_mapping = {
+                "grid_export_today": "grid_export",
+                "grid_export_total": "grid_export_lifetime",
+                "grid_import_today": "grid_import",
+                "grid_import_total": "grid_import_lifetime",
+                "load_today": "consumption",
+                "load_total": "consumption_lifetime",
+            }
+            for serial, device_data in processed.get("devices", {}).items():
+                if device_data.get("type") != "gridboss":
+                    continue
+                gb_sensors = device_data.get("sensors", {})
+                for gb_key, pg_key in gridboss_energy_mapping.items():
+                    gb_val = gb_sensors.get(gb_key)
+                    if gb_val is not None:
+                        group_sensors[pg_key] = float(gb_val)
+                        _LOGGER.debug(
+                            "LOCAL: Parallel group %s: using GridBOSS %s=%s for %s",
+                            group_name,
+                            gb_key,
+                            gb_val,
+                            pg_key,
+                        )
+                break  # Only one GridBOSS per system
+
             # Only create parallel groups with more than 1 device
             if device_count <= 1:
                 _LOGGER.debug(
