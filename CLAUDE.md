@@ -1,7 +1,7 @@
 # EG4 Web Monitor Home Assistant Integration
 
 ## Project Overview
-Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS, batteries) with Home Assistant through the unofficial EG4 web monitoring API. Supports multi-station architecture with comprehensive device hierarchy and individual battery management.
+Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS, batteries) with Home Assistant via local Modbus TCP, WiFi dongle, cloud API, or hybrid connectivity. Supports multi-station architecture with comprehensive device hierarchy and individual battery management.
 
 ## Quality Scale Compliance
 

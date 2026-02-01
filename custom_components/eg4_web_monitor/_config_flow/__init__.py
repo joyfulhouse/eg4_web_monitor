@@ -38,6 +38,7 @@ from .discovery import (
     build_device_config,
     discover_dongle_device,
     discover_modbus_device,
+    discover_serial_device,
 )
 from .helpers import (
     build_unique_id,
@@ -57,7 +58,10 @@ from .schemas import (
     build_network_scan_schema,
     build_plant_selection_schema,
     build_reauth_schema,
+    build_serial_manual_entry_schema,
+    build_serial_schema,
 )
+from .serial_ports import build_port_selector_options, list_serial_ports
 from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
@@ -73,6 +77,10 @@ from ..const import (
     CONF_MODBUS_UNIT_ID,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
+    CONF_SERIAL_BAUDRATE,
+    CONF_SERIAL_PARITY,
+    CONF_SERIAL_PORT,
+    CONF_SERIAL_STOPBITS,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
@@ -81,6 +89,9 @@ from ..const import (
     DEFAULT_DONGLE_PORT,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
+    DEFAULT_SERIAL_BAUDRATE,
+    DEFAULT_SERIAL_PARITY,
+    DEFAULT_SERIAL_STOPBITS,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
@@ -139,6 +150,12 @@ class EG4ConfigFlow(
         self._pending_port: int | None = None
         self._pending_unit_id: int | None = None
         self._pending_dongle_serial: str | None = None
+
+        # Serial device state
+        self._pending_serial_port: str | None = None
+        self._pending_serial_baudrate: int | None = None
+        self._pending_serial_parity: str | None = None
+        self._pending_serial_stopbits: int | None = None
 
         # Network scan state
         self._scan_ip_range: str | None = None
@@ -267,10 +284,15 @@ class EG4ConfigFlow(
     async def async_step_local_device_type(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Select local transport type (Modbus, Dongle, or Scan)."""
+        """Select local transport type (Modbus, Serial, Dongle, or Scan)."""
         return self.async_show_menu(
             step_id="local_device_type",
-            menu_options=["network_scan_config", "local_modbus", "local_dongle"],
+            menu_options=[
+                "network_scan_config",
+                "local_modbus",
+                "local_serial",
+                "local_dongle",
+            ],
         )
 
     # =========================================================================
@@ -561,6 +583,71 @@ class EG4ConfigFlow(
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
+    async def async_step_local_serial(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure Modbus Serial (USB/RS485) connection."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            serial_port = user_input.get(CONF_SERIAL_PORT, "")
+
+            # Check if user selected "manual_entry" option
+            if serial_port == "manual_entry":
+                return await self.async_step_local_serial_manual()
+
+            baudrate = user_input.get(CONF_SERIAL_BAUDRATE, DEFAULT_SERIAL_BAUDRATE)
+            parity = user_input.get(CONF_SERIAL_PARITY, DEFAULT_SERIAL_PARITY)
+            stopbits = user_input.get(CONF_SERIAL_STOPBITS, DEFAULT_SERIAL_STOPBITS)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+
+            device, errors = await self._discover_serial_device_with_errors(
+                serial_port, baudrate, parity, stopbits, unit_id
+            )
+
+            if device is not None:
+                self._pending_device = device
+                self._pending_transport_type = "modbus_serial"
+                self._pending_serial_port = serial_port
+                self._pending_serial_baudrate = baudrate
+                self._pending_serial_parity = parity
+                self._pending_serial_stopbits = stopbits
+                self._pending_unit_id = unit_id
+                return await self.async_step_local_device_confirmed()
+
+        # Detect available serial ports
+        ports = list_serial_ports()
+        port_options = build_port_selector_options(ports) if ports else None
+
+        return self.async_show_form(
+            step_id="local_serial",
+            data_schema=build_serial_schema(port_options=port_options),
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_local_serial_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manual serial port entry when user selects 'Enter manually...'."""
+        if user_input is not None:
+            serial_port = user_input.get(CONF_SERIAL_PORT, "")
+            return await self.async_step_local_serial(
+                {
+                    CONF_SERIAL_PORT: serial_port,
+                    CONF_SERIAL_BAUDRATE: DEFAULT_SERIAL_BAUDRATE,
+                    CONF_SERIAL_PARITY: DEFAULT_SERIAL_PARITY,
+                    CONF_SERIAL_STOPBITS: DEFAULT_SERIAL_STOPBITS,
+                    CONF_MODBUS_UNIT_ID: DEFAULT_MODBUS_UNIT_ID,
+                }
+            )
+
+        return self.async_show_form(
+            step_id="local_serial_manual",
+            data_schema=build_serial_manual_entry_schema(),
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
     async def async_step_local_device_confirmed(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -571,10 +658,14 @@ class EG4ConfigFlow(
         config = build_device_config(
             discovered=device,
             transport_type=self._pending_transport_type or "modbus_tcp",
-            host=self._pending_host or "",
-            port=self._pending_port or 0,
+            host=self._pending_host,
+            port=self._pending_port,
             dongle_serial=self._pending_dongle_serial,
             unit_id=self._pending_unit_id,
+            serial_port=self._pending_serial_port,
+            serial_baudrate=self._pending_serial_baudrate,
+            serial_parity=self._pending_serial_parity,
+            serial_stopbits=self._pending_serial_stopbits,
         )
         self._local_transports.append(config)
         self._clear_pending_state()
@@ -852,12 +943,16 @@ class EG4ConfigFlow(
         """Show device list with management options."""
         device_lines = []
         for i, t in enumerate(self._local_transports):
-            transport_type = (
-                "Modbus" if t.get("transport_type") == "modbus_tcp" else "Dongle"
-            )
+            tt = t.get("transport_type", "")
+            if tt == "modbus_tcp":
+                transport_label = f"Modbus @ {t.get('host', '?')}"
+            elif tt == "modbus_serial":
+                transport_label = f"Serial @ {t.get('serial_port', '?')}"
+            else:
+                transport_label = f"Dongle @ {t.get('host', '?')}"
             device_lines.append(
                 f"{i + 1}. {t.get('model', '?')} ({t.get('serial', '?')}) "
-                f"- {transport_type} @ {t.get('host', '?')}"
+                f"- {transport_label}"
             )
         device_list = (
             "\n".join(device_lines) if device_lines else "No devices configured"
@@ -917,6 +1012,7 @@ class EG4ConfigFlow(
             menu_options=[
                 "network_scan_config",
                 "reconfigure_add_modbus",
+                "reconfigure_add_serial",
                 "reconfigure_add_dongle",
             ],
         )
@@ -1040,9 +1136,132 @@ class EG4ConfigFlow(
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
+    async def async_step_reconfigure_add_serial(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add Serial device during reconfigure."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            serial_port = user_input[CONF_SERIAL_PORT]
+
+            # Check if user selected manual entry
+            if serial_port == "manual_entry":
+                return await self.async_step_reconfigure_add_serial_manual()
+
+            baudrate = user_input.get(CONF_SERIAL_BAUDRATE, DEFAULT_SERIAL_BAUDRATE)
+            parity = user_input.get(CONF_SERIAL_PARITY, DEFAULT_SERIAL_PARITY)
+            stopbits = user_input.get(CONF_SERIAL_STOPBITS, DEFAULT_SERIAL_STOPBITS)
+            unit_id = user_input.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID)
+
+            entry = self.hass.config_entries.async_get_entry(
+                self.context.get("entry_id", "")
+            )
+            exclude_id = entry.entry_id if entry else None
+
+            device, errors = await self._discover_serial_device_with_errors(
+                serial_port, baudrate, parity, stopbits, unit_id, exclude_id
+            )
+
+            if device is not None:
+                config = build_device_config(
+                    discovered=device,
+                    transport_type="modbus_serial",
+                    serial_port=serial_port,
+                    serial_baudrate=baudrate,
+                    serial_parity=parity,
+                    serial_stopbits=stopbits,
+                    unit_id=unit_id,
+                )
+                self._local_transports.append(config)
+                return await self.async_step_reconfigure_devices()
+
+        ports = list_serial_ports()
+        port_options = build_port_selector_options(ports) if ports else None
+
+        return self.async_show_form(
+            step_id="reconfigure_add_serial",
+            data_schema=build_serial_schema(port_options),
+            errors=errors,
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
+    async def async_step_reconfigure_add_serial_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manual serial port entry during reconfigure."""
+        if user_input is not None:
+            serial_port = user_input.get(CONF_SERIAL_PORT, "")
+            if serial_port:
+                return await self.async_step_reconfigure_add_serial(
+                    {
+                        CONF_SERIAL_PORT: serial_port,
+                        CONF_SERIAL_BAUDRATE: DEFAULT_SERIAL_BAUDRATE,
+                        CONF_SERIAL_PARITY: DEFAULT_SERIAL_PARITY,
+                        CONF_SERIAL_STOPBITS: DEFAULT_SERIAL_STOPBITS,
+                        CONF_MODBUS_UNIT_ID: DEFAULT_MODBUS_UNIT_ID,
+                    }
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure_add_serial_manual",
+            data_schema=build_serial_manual_entry_schema(),
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
+
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
+
+    async def _discover_serial_device_with_errors(
+        self,
+        serial_port: str,
+        baudrate: int,
+        parity: str,
+        stopbits: int,
+        unit_id: int,
+        exclude_entry_id: str | None = None,
+    ) -> tuple[DiscoveredDevice | None, dict[str, str]]:
+        """Discover serial device and return (device, errors) tuple.
+
+        Shared helper for onboarding and reconfigure serial flows.
+        Returns (device, {}) on success or (None, errors) on failure.
+        """
+        errors: dict[str, str] = {}
+        device: DiscoveredDevice | None = None
+
+        try:
+            device = await discover_serial_device(
+                port=serial_port,
+                baudrate=baudrate,
+                unit_id=unit_id,
+                parity=parity,
+                stopbits=stopbits,
+            )
+        except TimeoutError:
+            errors["base"] = "serial_timeout"
+        except PermissionError:
+            errors["base"] = "serial_permission_denied"
+        except OSError as ex:
+            if "already in use" in str(ex).lower():
+                errors["base"] = "serial_port_in_use"
+            else:
+                errors["base"] = "serial_port_error"
+        except Exception:
+            _LOGGER.exception("Unexpected serial discovery error")
+            errors["base"] = "unknown"
+
+        if not errors and device is not None:
+            conflict = find_serial_conflict(
+                self.hass,
+                {device.serial} | self._all_serials,
+                exclude_entry_id,
+            )
+            if conflict and device.serial == conflict[0]:
+                errors["base"] = "duplicate_serial"
+                device = None
+
+        return device, errors
 
     def _clear_pending_state(self) -> None:
         """Reset all pending device discovery state."""
@@ -1052,6 +1271,11 @@ class EG4ConfigFlow(
         self._pending_port = None
         self._pending_unit_id = None
         self._pending_dongle_serial = None
+        # Serial state
+        self._pending_serial_port = None
+        self._pending_serial_baudrate = None
+        self._pending_serial_parity = None
+        self._pending_serial_stopbits = None
 
     def _store_cloud_input(self, user_input: dict[str, Any]) -> None:
         """Store cloud credential fields from user input."""

@@ -1,6 +1,6 @@
 # EG4 Web Monitor Home Assistant Integration
 
-Monitor your EG4 Solar Inverters, GridBOSS devices, and battery systems directly in Home Assistant.
+Monitor and control your EG4 solar inverters, GridBOSS, and batteries in Home Assistant via local Modbus, WiFi dongle, cloud API, or hybrid connectivity.
 
 ## 🙏 Credits
 
@@ -47,8 +47,11 @@ No technical knowledge of solar systems is required - if you can use the EG4 Mon
 
 ## Features
 
-- **Complete Device Support**: FlexBOSS, 18KPV, 12KPV, XP inverters, GridBOSS, and individual batteries
+- **Local & Cloud Connectivity**: Modbus TCP, WiFi dongle, cloud API, or hybrid mode — choose what works for your setup
+- **Complete Device Support**: FlexBOSS, 18kPV, 12kPV, XP inverters, GridBOSS, and individual batteries
 - **Real-time Monitoring**: Power, voltage, current, temperature, frequency, and energy statistics
+- **Fast Local Polling**: 5-second updates via Modbus or dongle, no internet dependency
+- **Hybrid Mode**: Enrich local data with battery details and energy history from the EG4 monitoring portal
 - **Control & Automation**: Quick charge, battery backup (EPS), operating modes, and SOC limits
 - **Multi-Station Support**: Monitor multiple solar installations from one account
 - **GridBOSS Integration**: Grid management, smart load ports, AC coupling, and generator monitoring
@@ -60,10 +63,11 @@ No technical knowledge of solar systems is required - if you can use the EG4 Mon
 
 Before installing this integration, you need:
 
-1. **EG4 Solar Equipment**: At least one EG4 inverter that's connected to the EG4 Monitor cloud service
-2. **EG4 Monitor Account**: An active account on [monitor.eg4electronics.com](https://monitor.eg4electronics.com)
-   - Your devices should be visible in the EG4 Monitor mobile app or website
-   - Note your username and password - you'll need them during setup
+1. **EG4 Solar Equipment**: At least one EG4 inverter (FlexBOSS, 18kPV, 12kPV, XP) or GridBOSS device
+2. **Connection Method** (at least one):
+   - **Cloud**: An active account on [monitor.eg4electronics.com](https://monitor.eg4electronics.com)
+   - **Local Modbus**: An RS485-to-Ethernet adapter (e.g., Waveshare) connected to your inverter
+   - **WiFi Dongle**: Direct network access to your inverter's WiFi dongle
 3. **Home Assistant**: Version 2024.1 or newer
 4. **HACS** (recommended): For easy installation and automatic updates
 

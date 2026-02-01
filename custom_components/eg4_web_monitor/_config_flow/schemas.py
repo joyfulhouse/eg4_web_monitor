@@ -20,6 +20,10 @@ from ..const import (
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
+    CONF_SERIAL_BAUDRATE,
+    CONF_SERIAL_PARITY,
+    CONF_SERIAL_PORT,
+    CONF_SERIAL_STOPBITS,
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
@@ -28,6 +32,9 @@ from ..const import (
     DEFAULT_DONGLE_PORT,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
+    DEFAULT_SERIAL_BAUDRATE,
+    DEFAULT_SERIAL_PARITY,
+    DEFAULT_SERIAL_STOPBITS,
     DEFAULT_VERIFY_SSL,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
@@ -54,9 +61,26 @@ HYBRID_LOCAL_TYPE_OPTIONS: dict[str, str] = {
 
 # Local device type options
 LOCAL_DEVICE_TYPE_OPTIONS: dict[str, str] = {
-    "modbus": "Modbus TCP (RS485 adapter)",
+    "modbus": "Modbus TCP (RS485-to-Ethernet adapter)",
+    "serial": "Modbus Serial (USB-to-RS485 adapter)",
     "dongle": "WiFi Dongle",
 }
+
+# Serial parity options
+SERIAL_PARITY_OPTIONS: dict[str, str] = {
+    "N": "None",
+    "E": "Even",
+    "O": "Odd",
+}
+
+# Serial stopbits options
+SERIAL_STOPBITS_OPTIONS: dict[int, str] = {
+    1: "1 bit",
+    2: "2 bits",
+}
+
+# Common baudrate options for EG4 inverters
+SERIAL_BAUDRATE_OPTIONS: list[int] = [9600, 19200, 38400, 57600, 115200]
 
 
 def build_connection_type_schema() -> vol.Schema:
@@ -336,5 +360,91 @@ def build_network_scan_schema(
                 vol.Coerce(float),
                 vol.Range(min=0.3, max=5.0),
             ),
+        }
+    )
+
+
+def build_serial_schema(
+    port_options: dict[str, str] | None = None,
+    defaults: dict[str, Any] | None = None,
+) -> vol.Schema:
+    """Build schema for Modbus Serial (RS485) configuration.
+
+    Args:
+        port_options: Dict of {device_path: description} from list_serial_ports().
+            If None, shows text input only.
+        defaults: Optional dict of default values for reconfiguration.
+
+    Returns:
+        Voluptuous schema for serial Modbus step.
+    """
+    defaults = defaults or {}
+
+    schema_fields: dict[Any, Any] = {}
+
+    # Port selector - dropdown if ports detected, text input otherwise
+    if port_options:
+        schema_fields[
+            vol.Required(CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, ""))
+        ] = vol.In(port_options)
+    else:
+        schema_fields[
+            vol.Required(CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, ""))
+        ] = str
+
+    # Baudrate selector
+    schema_fields[
+        vol.Optional(
+            CONF_SERIAL_BAUDRATE,
+            default=defaults.get(CONF_SERIAL_BAUDRATE, DEFAULT_SERIAL_BAUDRATE),
+        )
+    ] = vol.In(SERIAL_BAUDRATE_OPTIONS)
+
+    # Parity selector
+    schema_fields[
+        vol.Optional(
+            CONF_SERIAL_PARITY,
+            default=defaults.get(CONF_SERIAL_PARITY, DEFAULT_SERIAL_PARITY),
+        )
+    ] = vol.In(SERIAL_PARITY_OPTIONS)
+
+    # Stopbits selector
+    schema_fields[
+        vol.Optional(
+            CONF_SERIAL_STOPBITS,
+            default=defaults.get(CONF_SERIAL_STOPBITS, DEFAULT_SERIAL_STOPBITS),
+        )
+    ] = vol.In(SERIAL_STOPBITS_OPTIONS)
+
+    # Unit ID
+    schema_fields[
+        vol.Optional(
+            CONF_MODBUS_UNIT_ID,
+            default=defaults.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+        )
+    ] = int
+
+    return vol.Schema(schema_fields)
+
+
+def build_serial_manual_entry_schema(
+    defaults: dict[str, Any] | None = None,
+) -> vol.Schema:
+    """Build schema for manual serial port entry.
+
+    Args:
+        defaults: Optional dict of default values.
+
+    Returns:
+        Voluptuous schema for manual serial port entry step.
+    """
+    defaults = defaults or {}
+
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_SERIAL_PORT,
+                default=defaults.get(CONF_SERIAL_PORT, "/dev/ttyUSB0"),
+            ): str,
         }
     )

@@ -51,6 +51,7 @@
         "menu_options": {
           "network_scan_config": "Skanuj sieć (Auto-wykrywanie)",
           "local_modbus": "Modbus TCP (RS485 adapter)",
+          "local_serial": "USB Serial (RS485 adapter)",
           "local_dongle": "WiFi Dongle"
         }
       },
@@ -115,6 +116,34 @@
           "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
           "inverter_serial": "10-character serial from device nameplate (required for authentication)",
           "dongle_port": "TCP port (default: 8000)"
+        }
+      },
+      "local_serial": {
+        "title": "Connect via USB Serial",
+        "description": "Select your USB-to-RS485 serial adapter. Device serial, model, and firmware are automatically detected.",
+        "data": {
+          "serial_port": "Serial Port",
+          "serial_baudrate": "Baud Rate",
+          "serial_parity": "Parity",
+          "serial_stopbits": "Stop Bits",
+          "modbus_unit_id": "Unit ID"
+        },
+        "data_description": {
+          "serial_port": "Select your USB serial adapter or enter manually",
+          "serial_baudrate": "Communication speed (default: 19200)",
+          "serial_parity": "Parity bit setting (default: None)",
+          "serial_stopbits": "Number of stop bits (default: 1)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
+        }
+      },
+      "local_serial_manual": {
+        "title": "Enter Serial Port Path",
+        "description": "Enter the path to your USB-to-RS485 serial adapter manually.",
+        "data": {
+          "serial_port": "Serial Port Path"
+        },
+        "data_description": {
+          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
       },
       "local_device_confirmed": {
@@ -229,6 +258,7 @@
         "menu_options": {
           "network_scan_config": "Scan Network (Auto-Discover)",
           "reconfigure_add_modbus": "Modbus TCP (RS485 adapter)",
+          "reconfigure_add_serial": "USB Serial (RS485 adapter)",
           "reconfigure_add_dongle": "WiFi Dongle"
         }
       },
@@ -261,6 +291,34 @@
           "inverter_serial": "10-character serial from device nameplate (required for authentication)",
           "dongle_port": "TCP port (default: 8000)"
         }
+      },
+      "reconfigure_add_serial": {
+        "title": "Add USB Serial Device",
+        "description": "Configure a new USB-to-RS485 serial connection. Device info is auto-detected.",
+        "data": {
+          "serial_port": "Serial Port",
+          "serial_baudrate": "Baud Rate",
+          "serial_parity": "Parity",
+          "serial_stopbits": "Stop Bits",
+          "modbus_unit_id": "Unit ID"
+        },
+        "data_description": {
+          "serial_port": "Select your USB serial adapter or enter manually",
+          "serial_baudrate": "Communication speed (default: 19200)",
+          "serial_parity": "Parity bit setting (default: None)",
+          "serial_stopbits": "Number of stop bits (default: 1)",
+          "modbus_unit_id": "Modbus slave ID (default: 1)"
+        }
+      },
+      "reconfigure_add_serial_manual": {
+        "title": "Enter Serial Port Path",
+        "description": "Enter the path to your USB-to-RS485 serial adapter manually.",
+        "data": {
+          "serial_port": "Serial Port Path"
+        },
+        "data_description": {
+          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
+        }
       }
     },
     "error": {
@@ -279,7 +337,11 @@
       "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "invalid_ip_range": "Nieprawidłowy zakres IP. Użyj notacji CIDR (np. 192.168.1.0/24) lub zakresu (np. 192.168.1.1-192.168.1.254). Dozwolone są tylko prywatne zakresy IP.",
       "no_scan_type_selected": "Wybierz co najmniej jeden typ skanowania (Modbus lub Dongle).",
-      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination."
+      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination.",
+      "serial_timeout": "Serial port connection timed out. Please verify the port path and ensure the USB adapter is connected.",
+      "serial_permission_denied": "Permission denied accessing the serial port. On Linux, ensure your user is in the 'dialout' group. On macOS, grant Home Assistant access to the USB device.",
+      "serial_port_error": "Failed to open serial port. Please check: (1) port path is correct, (2) USB adapter is connected, (3) device is not in use by another application.",
+      "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

@@ -17,6 +17,10 @@ from ..const import (
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
+    DEFAULT_SERIAL_BAUDRATE,
+    DEFAULT_SERIAL_PARITY,
+    DEFAULT_SERIAL_STOPBITS,
+    DEFAULT_SERIAL_TIMEOUT,
     INVERTER_FAMILY_LXP_EU,
     INVERTER_FAMILY_PV_SERIES,
     INVERTER_FAMILY_SNA,
@@ -113,6 +117,81 @@ def _get_model_from_device_type(device_type_code: int) -> tuple[str, str]:
     return model_map.get(device_type_code, ("Unknown", INVERTER_FAMILY_PV_SERIES))
 
 
+async def _read_device_info_from_transport(
+    transport: Any,
+    serial: str,
+) -> DiscoveredDevice:
+    """Read device information from an already-connected transport.
+
+    Extracts device type, firmware, runtime, and parallel config from registers.
+    This shared helper eliminates duplication across modbus/dongle/serial discovery.
+
+    Args:
+        transport: Connected transport object with read methods.
+        serial: Device serial number (either auto-detected or provided).
+
+    Returns:
+        DiscoveredDevice with all extracted information.
+    """
+    # Read device type code from holding register 19
+    device_type_code = await transport.read_device_type()
+    model, family = _get_model_from_device_type(device_type_code)
+    is_gridboss = device_type_code == DEVICE_TYPE_CODE_GRIDBOSS
+
+    # Read firmware version
+    firmware_version = ""
+    try:
+        firmware_version = await transport.read_firmware_version()
+    except Exception as err:
+        _LOGGER.debug("Could not read firmware version: %s", err)
+
+    # Read runtime data for verification (skip for GridBOSS)
+    pv_power = 0.0
+    battery_soc = 0
+    if not is_gridboss:
+        try:
+            runtime = await transport.read_runtime()
+            pv_power = runtime.pv_total_power or 0.0
+            battery_soc = runtime.battery_soc or 0
+        except Exception as err:
+            _LOGGER.debug("Could not read runtime data: %s", err)
+
+    # Read parallel group configuration from input register 113
+    parallel_number = 0
+    parallel_master_slave = 0
+    parallel_phase = 0
+    try:
+        reg113_raw = await transport.read_parallel_config()
+        if reg113_raw > 0:
+            parallel_master_slave = reg113_raw & 0x03
+            parallel_phase = (reg113_raw >> 2) & 0x03
+            parallel_number = (reg113_raw >> 8) & 0xFF
+            _LOGGER.debug(
+                "Parallel config for %s: raw=0x%04X, role=%d, phase=%d, group=%d",
+                serial,
+                reg113_raw,
+                parallel_master_slave,
+                parallel_phase,
+                parallel_number,
+            )
+    except Exception as err:
+        _LOGGER.debug("Could not read parallel config: %s", err)
+
+    return DiscoveredDevice(
+        serial=serial,
+        model=model,
+        family=family,
+        device_type_code=device_type_code,
+        firmware_version=firmware_version or "Unknown",
+        is_gridboss=is_gridboss,
+        pv_power=pv_power,
+        battery_soc=battery_soc,
+        parallel_number=parallel_number,
+        parallel_master_slave=parallel_master_slave,
+        parallel_phase=parallel_phase,
+    )
+
+
 async def discover_modbus_device(
     host: str,
     port: int = DEFAULT_MODBUS_PORT,
@@ -157,74 +236,21 @@ async def discover_modbus_device(
         if not serial:
             raise ValueError("Failed to read serial number from device")
 
-        # Read device type code from holding register 19
-        device_type_code = await transport.read_device_type()
-        model, family = _get_model_from_device_type(device_type_code)
-        is_gridboss = device_type_code == DEVICE_TYPE_CODE_GRIDBOSS
-
-        # Read firmware version from holding registers 7-10
-        firmware_version = ""
-        try:
-            firmware_version = await transport.read_firmware_version()
-        except Exception as err:
-            _LOGGER.debug("Could not read firmware version: %s", err)
-
-        # Read runtime data for verification (and to show in UI)
-        pv_power = 0.0
-        battery_soc = 0
-        if not is_gridboss:
-            try:
-                runtime = await transport.read_runtime()
-                pv_power = runtime.pv_total_power or 0.0
-                battery_soc = runtime.battery_soc or 0
-            except Exception as err:
-                _LOGGER.debug("Could not read runtime data: %s", err)
-
-        # Read parallel group configuration from input register 113
-        # Format: bits 0-1 = master/slave, bits 2-3 = phase, bits 8-15 = number
-        parallel_number = 0
-        parallel_master_slave = 0
-        parallel_phase = 0
-        try:
-            reg113_raw = await transport.read_parallel_config()
-            if reg113_raw > 0:
-                parallel_master_slave = reg113_raw & 0x03
-                parallel_phase = (reg113_raw >> 2) & 0x03
-                parallel_number = (reg113_raw >> 8) & 0xFF
-                _LOGGER.debug(
-                    "Parallel config for %s: raw=0x%04X, role=%d, phase=%d, group=%d",
-                    serial,
-                    reg113_raw,
-                    parallel_master_slave,
-                    parallel_phase,
-                    parallel_number,
-                )
-        except Exception as err:
-            _LOGGER.debug("Could not read parallel config: %s", err)
+        device = await _read_device_info_from_transport(transport, serial)
 
         _LOGGER.info(
             "Discovered %s device: serial=%s, model=%s, family=%s, fw=%s, parallel=%s",
-            "GridBOSS" if is_gridboss else "inverter",
-            serial,
-            model,
-            family,
-            firmware_version,
-            f"group {parallel_number}" if parallel_number > 0 else "standalone",
+            "GridBOSS" if device.is_gridboss else "inverter",
+            device.serial,
+            device.model,
+            device.family,
+            device.firmware_version,
+            f"group {device.parallel_number}"
+            if device.parallel_number > 0
+            else "standalone",
         )
 
-        return DiscoveredDevice(
-            serial=serial,
-            model=model,
-            family=family,
-            device_type_code=device_type_code,
-            firmware_version=firmware_version or "Unknown",
-            is_gridboss=is_gridboss,
-            pv_power=pv_power,
-            battery_soc=battery_soc,
-            parallel_number=parallel_number,
-            parallel_master_slave=parallel_master_slave,
-            parallel_phase=parallel_phase,
-        )
+        return device
 
     finally:
         await transport.disconnect()
@@ -277,74 +303,89 @@ async def discover_dongle_device(
         # Use the provided serial (we can't auto-detect it for dongle)
         serial = inverter_serial
 
-        # Read device type code from holding register 19
-        device_type_code = await transport.read_device_type()
-        model, family = _get_model_from_device_type(device_type_code)
-        is_gridboss = device_type_code == DEVICE_TYPE_CODE_GRIDBOSS
-
-        # Read firmware version from holding registers 7-10
-        firmware_version = ""
-        try:
-            firmware_version = await transport.read_firmware_version()
-        except Exception as err:
-            _LOGGER.debug("Could not read firmware version: %s", err)
-
-        # Read runtime data for verification (and to show in UI)
-        pv_power = 0.0
-        battery_soc = 0
-        if not is_gridboss:
-            try:
-                runtime = await transport.read_runtime()
-                pv_power = runtime.pv_total_power or 0.0
-                battery_soc = runtime.battery_soc or 0
-            except Exception as err:
-                _LOGGER.debug("Could not read runtime data: %s", err)
-
-        # Read parallel group configuration from input register 113
-        # Format: bits 0-1 = master/slave, bits 2-3 = phase, bits 8-15 = number
-        parallel_number = 0
-        parallel_master_slave = 0
-        parallel_phase = 0
-        try:
-            reg113_raw = await transport.read_parallel_config()
-            if reg113_raw > 0:
-                parallel_master_slave = reg113_raw & 0x03
-                parallel_phase = (reg113_raw >> 2) & 0x03
-                parallel_number = (reg113_raw >> 8) & 0xFF
-                _LOGGER.debug(
-                    "Parallel config for %s: raw=0x%04X, role=%d, phase=%d, group=%d",
-                    serial,
-                    reg113_raw,
-                    parallel_master_slave,
-                    parallel_phase,
-                    parallel_number,
-                )
-        except Exception as err:
-            _LOGGER.debug("Could not read parallel config: %s", err)
+        device = await _read_device_info_from_transport(transport, serial)
 
         _LOGGER.info(
             "Discovered %s device via dongle: serial=%s, model=%s, family=%s, fw=%s, parallel=%s",
-            "GridBOSS" if is_gridboss else "inverter",
-            serial,
-            model,
-            family,
-            firmware_version,
-            f"group {parallel_number}" if parallel_number > 0 else "standalone",
+            "GridBOSS" if device.is_gridboss else "inverter",
+            device.serial,
+            device.model,
+            device.family,
+            device.firmware_version,
+            f"group {device.parallel_number}"
+            if device.parallel_number > 0
+            else "standalone",
         )
 
-        return DiscoveredDevice(
-            serial=serial,
-            model=model,
-            family=family,
-            device_type_code=device_type_code,
-            firmware_version=firmware_version or "Unknown",
-            is_gridboss=is_gridboss,
-            pv_power=pv_power,
-            battery_soc=battery_soc,
-            parallel_number=parallel_number,
-            parallel_master_slave=parallel_master_slave,
-            parallel_phase=parallel_phase,
+        return device
+
+    finally:
+        await transport.disconnect()
+
+
+async def discover_serial_device(
+    port: str,
+    baudrate: int = DEFAULT_SERIAL_BAUDRATE,
+    unit_id: int = DEFAULT_MODBUS_UNIT_ID,
+    parity: str = DEFAULT_SERIAL_PARITY,
+    stopbits: int = DEFAULT_SERIAL_STOPBITS,
+) -> DiscoveredDevice:
+    """Connect to Modbus RTU over serial and auto-detect device information.
+
+    Similar to discover_modbus_device() but uses USB/RS485 serial transport.
+
+    Args:
+        port: Serial port path (e.g., /dev/ttyUSB0, COM3).
+        baudrate: Serial baudrate (default 19200 for EG4 inverters).
+        unit_id: Modbus unit/slave ID (default 1).
+        parity: Parity setting ('N', 'E', 'O').
+        stopbits: Stop bits (1 or 2).
+
+    Returns:
+        DiscoveredDevice with all auto-detected information.
+
+    Raises:
+        TimeoutError: If connection times out.
+        PermissionError: If serial port access is denied.
+        OSError: If serial port cannot be opened.
+        Exception: If device discovery fails.
+    """
+    from pylxpweb.transports import create_serial_transport
+
+    transport = create_serial_transport(
+        port=port,
+        serial="",  # Will be auto-detected
+        baudrate=baudrate,
+        parity=parity,
+        stopbits=stopbits,
+        unit_id=unit_id,
+        timeout=DEFAULT_SERIAL_TIMEOUT,
+    )
+
+    try:
+        await transport.connect()
+
+        # Read serial number from input registers 115-119
+        serial = await transport.read_serial_number()
+        if not serial:
+            raise ValueError("Failed to read serial number from device")
+
+        device = await _read_device_info_from_transport(transport, serial)
+
+        _LOGGER.info(
+            "Discovered %s device via serial: port=%s, serial=%s, model=%s, family=%s, fw=%s, parallel=%s",
+            "GridBOSS" if device.is_gridboss else "inverter",
+            port,
+            device.serial,
+            device.model,
+            device.family,
+            device.firmware_version,
+            f"group {device.parallel_number}"
+            if device.parallel_number > 0
+            else "standalone",
         )
+
+        return device
 
     finally:
         await transport.disconnect()
@@ -353,31 +394,39 @@ async def discover_dongle_device(
 def build_device_config(
     discovered: DiscoveredDevice,
     transport_type: str,
-    host: str,
-    port: int,
+    host: str | None = None,
+    port: int | None = None,
     dongle_serial: str | None = None,
     unit_id: int | None = None,
+    serial_port: str | None = None,
+    serial_baudrate: int | None = None,
+    serial_parity: str | None = None,
+    serial_stopbits: int | None = None,
 ) -> dict[str, Any]:
     """Build a device configuration dict from discovered info.
 
     Args:
         discovered: Auto-detected device information.
-        transport_type: "modbus_tcp" or "wifi_dongle".
-        host: IP address of the device/gateway.
-        port: TCP port.
+        transport_type: "modbus_tcp", "wifi_dongle", or "modbus_serial".
+        host: IP address of the device/gateway (TCP transports).
+        port: TCP port (TCP transports).
         dongle_serial: Dongle serial (for wifi_dongle only).
-        unit_id: Modbus unit ID (for modbus_tcp only).
+        unit_id: Modbus unit ID (for modbus_tcp and modbus_serial).
+        serial_port: Serial port path (for modbus_serial only).
+        serial_baudrate: Serial baudrate (for modbus_serial only).
+        serial_parity: Serial parity (for modbus_serial only).
+        serial_stopbits: Serial stop bits (for modbus_serial only).
 
     Returns:
         Configuration dict ready for storage.
     """
     config: dict[str, Any] = {
         "transport_type": transport_type,
-        "host": host,
-        "port": port,
         "serial": discovered.serial,
         "model": discovered.model,
         "inverter_family": discovered.family,
+        "device_type_code": discovered.device_type_code,
+        "firmware_version": discovered.firmware_version,
         "is_gridboss": discovered.is_gridboss,
         # Parallel group configuration
         "parallel_number": discovered.parallel_number,
@@ -385,9 +434,25 @@ def build_device_config(
         "parallel_phase": discovered.parallel_phase,
     }
 
-    if transport_type == "modbus_tcp" and unit_id is not None:
-        config["unit_id"] = unit_id
-    elif transport_type == "wifi_dongle" and dongle_serial:
-        config["dongle_serial"] = dongle_serial
+    if transport_type == "modbus_tcp":
+        config["host"] = host
+        config["port"] = port
+        if unit_id is not None:
+            config["unit_id"] = unit_id
+    elif transport_type == "wifi_dongle":
+        config["host"] = host
+        config["port"] = port
+        if dongle_serial:
+            config["dongle_serial"] = dongle_serial
+    elif transport_type == "modbus_serial":
+        config["serial_port"] = serial_port
+        if serial_baudrate is not None:
+            config["serial_baudrate"] = serial_baudrate
+        if serial_parity is not None:
+            config["serial_parity"] = serial_parity
+        if serial_stopbits is not None:
+            config["serial_stopbits"] = serial_stopbits
+        if unit_id is not None:
+            config["unit_id"] = unit_id
 
     return config
