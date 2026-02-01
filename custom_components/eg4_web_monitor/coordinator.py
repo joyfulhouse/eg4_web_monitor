@@ -780,8 +780,16 @@ class EG4DataUpdateCoordinator(
             ]
 
             for start, count in register_ranges:
-                named_params = await transport.read_named_parameters(start, count)
-                params.update(named_params)
+                try:
+                    named_params = await transport.read_named_parameters(start, count)
+                    params.update(named_params)
+                except Exception as range_err:
+                    _LOGGER.warning(
+                        "Failed to read param registers %d-%d: %s",
+                        start,
+                        start + count - 1,
+                        range_err,
+                    )
 
             _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
             # Debug: log key number entity parameters
@@ -1057,30 +1065,42 @@ class EG4DataUpdateCoordinator(
             connection_type=CONNECTION_TYPE_DONGLE,
         )
 
-    async def _async_update_local_data(self) -> dict[str, Any]:
-        """Fetch data from multiple local transports (Modbus + Dongle mix).
+    async def _process_local_transport_group(
+        self,
+        configs: list[dict[str, Any]],
+        processed: dict[str, Any],
+        device_availability: dict[str, bool],
+    ) -> None:
+        """Process a group of local transport configs that share an endpoint.
 
-        LOCAL mode allows configuring multiple inverters with different transport
-        types in a single config entry, without any cloud credentials.
+        Configs within a group are processed sequentially (they share a
+        physical connection), but different groups can run concurrently.
 
-        Devices are processed sequentially to avoid overwhelming the local network
-        with concurrent TCP connections (similar to how single-device Modbus/Dongle
-        modes work). Individual device failures are isolated - one device failing
-        doesn't break others. Only if ALL devices fail does this method raise
-        UpdateFailed.
+        Args:
+            configs: Transport configs sharing the same host:port or serial_port
+            processed: Shared output dict (devices, parameters, etc.)
+            device_availability: Shared per-device availability tracking
+        """
 
-        Returns:
-            Dictionary containing data from all local devices:
-            {
-                "plant_id": None,
-                "devices": {serial1: {...}, serial2: {...}},
-                "parameters": {serial1: {...}, serial2: {...}},
-                "last_update": datetime,
-                "connection_type": "local"
-            }
+        for config in configs:
+            await self._process_single_local_device(
+                config,
+                processed,
+                device_availability,
+            )
 
-        Raises:
-            UpdateFailed: If no transports configured or ALL devices failed.
+    async def _process_single_local_device(
+        self,
+        config: dict[str, Any],
+        processed: dict[str, Any],
+        device_availability: dict[str, bool],
+    ) -> None:
+        """Process a single local transport device config.
+
+        Args:
+            config: Transport configuration dict
+            processed: Shared output dict
+            device_availability: Shared per-device availability tracking
         """
         from pylxpweb.devices import MIDDevice
         from pylxpweb.transports import create_transport
@@ -1091,6 +1111,359 @@ class EG4DataUpdateCoordinator(
             TransportTimeoutError,
         )
 
+        serial = config.get("serial", "")
+        transport_type = config.get("transport_type", "modbus_tcp")
+        host = config.get("host", "")
+        port = config.get("port", DEFAULT_MODBUS_PORT)
+
+        # Serial transport doesn't require host
+        if not serial or (not host and transport_type != "modbus_serial"):
+            _LOGGER.warning(
+                "LOCAL: Skipping invalid config (missing serial or host): %s",
+                config,
+            )
+            return
+
+        try:
+            # Convert inverter family string to enum
+            family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
+            inverter_family = self._get_inverter_family(family_str)
+
+            # Get model from config, or derive from family
+            model = config.get("model", "")
+            if not model:
+                model = INVERTER_FAMILY_DEFAULT_MODELS.get(family_str, "18kPV")
+
+            # Create or reuse transport based on type
+            is_gridboss = config.get("is_gridboss", False) or (
+                serial in self._mid_device_cache
+            )
+
+            needs_creation = (
+                serial not in self._mid_device_cache
+                and serial not in self._inverter_cache
+            )
+
+            if needs_creation:
+                transport: Any = None
+                if transport_type == "modbus_tcp":
+                    transport = create_transport(
+                        "modbus",
+                        host=host,
+                        serial=serial,
+                        port=port,
+                        unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                        timeout=DEFAULT_MODBUS_TIMEOUT,
+                        inverter_family=inverter_family,
+                    )
+                elif transport_type == "wifi_dongle":
+                    transport = create_transport(
+                        "dongle",
+                        host=host,
+                        dongle_serial=config.get("dongle_serial", ""),
+                        inverter_serial=serial,
+                        port=port,
+                        timeout=DEFAULT_DONGLE_TIMEOUT,
+                        inverter_family=inverter_family,
+                    )
+                elif transport_type == "modbus_serial":
+                    transport = create_transport(
+                        "serial",
+                        port=config.get("serial_port", ""),
+                        serial=serial,
+                        baudrate=config.get("serial_baudrate", 19200),
+                        parity=config.get("serial_parity", "N"),
+                        stopbits=config.get("serial_stopbits", 1),
+                        unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                        timeout=DEFAULT_MODBUS_TIMEOUT,
+                        inverter_family=inverter_family,
+                    )
+                else:
+                    _LOGGER.error(
+                        "LOCAL: Unknown transport type '%s' for %s",
+                        transport_type,
+                        serial,
+                    )
+                    device_availability[serial] = False
+                    return
+
+                if not transport.is_connected:
+                    await transport.connect()
+
+                if is_gridboss:
+                    _LOGGER.debug(
+                        "LOCAL: Creating GridBOSS/MIDDevice from %s transport for %s",
+                        transport_type,
+                        serial,
+                    )
+                    mid_device = await MIDDevice.from_transport(
+                        transport, model="GridBOSS"
+                    )
+                    self._mid_device_cache[serial] = mid_device
+                else:
+                    try:
+                        _LOGGER.debug(
+                            "LOCAL: Creating inverter from %s transport for %s",
+                            transport_type,
+                            serial,
+                        )
+                        if transport_type == "wifi_dongle":
+                            inverter = await BaseInverter.from_dongle_transport(
+                                transport, model=model
+                            )
+                        else:
+                            inverter = await BaseInverter.from_modbus_transport(
+                                transport, model=model
+                            )
+                        self._inverter_cache[serial] = inverter
+                    except LuxpowerDeviceError as e:
+                        if "GridBOSS" in str(e) or "MIDbox" in str(e):
+                            _LOGGER.info(
+                                "LOCAL: Device %s is a GridBOSS, creating MIDDevice",
+                                serial,
+                            )
+                            mid_device = await MIDDevice.from_transport(
+                                transport, model="GridBOSS"
+                            )
+                            self._mid_device_cache[serial] = mid_device
+                            is_gridboss = True
+                        else:
+                            raise
+
+            # Process based on device type
+            if is_gridboss:
+                mid_device = self._mid_device_cache[serial]
+
+                transport = mid_device._transport
+                if transport and not transport.is_connected:
+                    await transport.connect()
+
+                await mid_device.refresh()
+
+                firmware_version: str = "Unknown"
+                if hasattr(mid_device, "firmware_version"):
+                    firmware_version = mid_device.firmware_version or "Unknown"
+
+                if not mid_device.has_data:
+                    raise TransportReadError(
+                        f"Failed to read runtime data for GridBOSS {serial}"
+                    )
+
+                sensors = _build_gridboss_sensor_mapping(mid_device)
+                sensors = {k: v for k, v in sensors.items() if v is not None}
+                self._filter_unused_smart_port_sensors(sensors, mid_device)
+                self._calculate_gridboss_aggregates(sensors)
+                sensors["firmware_version"] = firmware_version
+                sensors["connection_transport"] = self._get_transport_label(
+                    "dongle" if transport_type == "wifi_dongle" else "modbus"
+                )
+                sensors["transport_host"] = host
+
+                device_data: dict[str, Any] = {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                    "serial": serial,
+                    "firmware_version": firmware_version,
+                    "sensors": sensors,
+                    "binary_sensors": {},
+                }
+
+                processed["devices"][serial] = device_data
+                device_availability[serial] = True
+
+                processed["parameters"][serial] = {}
+
+                _LOGGER.debug(
+                    "LOCAL: Updated GridBOSS %s (%s) - FW: %s, Grid: %sW, Load: %sW",
+                    serial,
+                    transport_type,
+                    firmware_version,
+                    sensors.get("grid_power", "N/A"),
+                    sensors.get("load_power", "N/A"),
+                )
+            else:
+                inverter = self._inverter_cache[serial]
+
+                transport = inverter._transport
+                if transport and not transport.is_connected:
+                    await transport.connect()
+
+                await inverter.refresh(force=True, include_parameters=True)
+
+                features: dict[str, Any] = {}
+                if hasattr(inverter, "detect_features"):
+                    try:
+                        await inverter.detect_features()
+                        features = self._extract_inverter_features(inverter)
+                        _LOGGER.debug(
+                            "LOCAL: Detected features for %s: family=%s, "
+                            "split_phase=%s, three_phase=%s",
+                            serial,
+                            features.get("inverter_family"),
+                            features.get("supports_split_phase"),
+                            features.get("supports_three_phase"),
+                        )
+                    except Exception as e:
+                        _LOGGER.warning(
+                            "LOCAL: Could not detect features for %s: %s",
+                            serial,
+                            e,
+                        )
+
+                firmware_version = "Unknown"
+                transport = inverter._transport
+                if transport and hasattr(transport, "read_firmware_version"):
+                    read_fw = getattr(transport, "read_firmware_version")
+                    firmware_version = await read_fw() or "Unknown"
+
+                runtime_data = inverter._transport_runtime
+                energy_data = inverter._transport_energy
+
+                if runtime_data is None:
+                    raise TransportReadError(
+                        f"Failed to read runtime data for {serial}"
+                    )
+
+                parallel_number = runtime_data.parallel_number or 0
+                parallel_master_slave = runtime_data.parallel_master_slave or 0
+                parallel_phase = runtime_data.parallel_phase or 0
+
+                if parallel_number == 0:
+                    parallel_number = config.get("parallel_number", 0)
+                    parallel_master_slave = config.get("parallel_master_slave", 0)
+                    parallel_phase = config.get("parallel_phase", 0)
+
+                if parallel_number > 0:
+                    _LOGGER.debug(
+                        "LOCAL: Parallel config for %s: group=%d, role=%d (from %s)",
+                        serial,
+                        parallel_number,
+                        parallel_master_slave,
+                        "runtime"
+                        if (runtime_data.parallel_number or 0) > 0
+                        else "config",
+                    )
+
+                device_data = {
+                    "type": "inverter",
+                    "model": model,
+                    "serial": serial,
+                    "firmware_version": firmware_version,
+                    "sensors": _build_runtime_sensor_mapping(runtime_data),
+                    "batteries": {},
+                    "features": features,
+                    "parallel_number": parallel_number,
+                    "parallel_master_slave": parallel_master_slave,
+                    "parallel_phase": parallel_phase,
+                }
+
+                if energy_data:
+                    device_data["sensors"].update(
+                        _build_energy_sensor_mapping(energy_data)
+                    )
+
+                battery_data = inverter._transport_battery
+                if battery_data:
+                    device_data["sensors"].update(
+                        _build_battery_bank_sensor_mapping(battery_data)
+                    )
+
+                    if hasattr(battery_data, "batteries") and battery_data.batteries:
+                        for batt in battery_data.batteries:
+                            battery_key = f"{serial}-{batt.battery_index + 1:02d}"
+                            device_data["batteries"][battery_key] = (
+                                _build_individual_battery_mapping(batt)
+                            )
+                        _LOGGER.debug(
+                            "LOCAL: Added %d individual batteries for %s",
+                            len(battery_data.batteries),
+                            serial,
+                        )
+
+                device_data["sensors"]["firmware_version"] = firmware_version
+                device_data["sensors"]["connection_transport"] = (
+                    self._get_transport_label(
+                        "dongle" if transport_type == "wifi_dongle" else "modbus"
+                    )
+                )
+                device_data["sensors"]["transport_host"] = host
+
+                processed["devices"][serial] = device_data
+                device_availability[serial] = True
+
+                transport = inverter._transport
+                if transport:
+                    param_data = await self._read_modbus_parameters(transport)
+                else:
+                    param_data = {}
+                processed["parameters"][serial] = param_data
+
+                _LOGGER.debug(
+                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                    serial,
+                    transport_type,
+                    firmware_version,
+                    runtime_data.pv_total_power,
+                    runtime_data.battery_soc,
+                    runtime_data.grid_power,
+                )
+
+                _LOGGER.debug(
+                    "LOCAL: Extended sensors for %s: gen_freq=%s, gen_volt=%s, "
+                    "grid_l1=%s, grid_l2=%s, eps_l1=%s, eps_l2=%s, out_pwr=%s",
+                    serial,
+                    getattr(runtime_data, "generator_frequency", None),
+                    getattr(runtime_data, "generator_voltage", None),
+                    getattr(runtime_data, "grid_l1_voltage", None),
+                    getattr(runtime_data, "grid_l2_voltage", None),
+                    getattr(runtime_data, "eps_l1_voltage", None),
+                    getattr(runtime_data, "eps_l2_voltage", None),
+                    getattr(runtime_data, "output_power", None),
+                )
+
+        except (
+            TransportConnectionError,
+            TransportTimeoutError,
+            TransportReadError,
+            TransportError,
+        ) as e:
+            _LOGGER.warning(
+                "LOCAL: Failed to update %s (%s): %s",
+                serial,
+                transport_type,
+                e,
+            )
+            device_availability[serial] = False
+
+        except Exception as e:
+            _LOGGER.exception(
+                "LOCAL: Unexpected error updating %s (%s): %s",
+                serial,
+                transport_type,
+                e,
+            )
+            device_availability[serial] = False
+
+    async def _async_update_local_data(self) -> dict[str, Any]:
+        """Fetch data from multiple local transports (Modbus + Dongle mix).
+
+        LOCAL mode allows configuring multiple inverters with different transport
+        types in a single config entry, without any cloud credentials.
+
+        Transports on different endpoints (host:port or serial port) are polled
+        concurrently via asyncio.gather. Transports sharing the same endpoint
+        are processed sequentially to avoid contention on the shared connection.
+
+        Individual device failures are isolated - one device failing doesn't
+        break others. Only if ALL devices fail does this method raise
+        UpdateFailed.
+
+        Returns:
+            Dictionary containing data from all local devices.
+
+        Raises:
+            UpdateFailed: If no transports configured or ALL devices failed.
+        """
         if not self._local_transport_configs:
             raise UpdateFailed("No local transports configured")
 
@@ -1107,387 +1480,50 @@ class EG4DataUpdateCoordinator(
         # Track per-device availability for partial failure handling
         device_availability: dict[str, bool] = {}
 
-        # Process each local transport configuration
+        # Group transports by connection endpoint so that devices sharing
+        # the same physical connection are polled sequentially, while
+        # independent endpoints are polled concurrently.
+        endpoint_groups: dict[str, list[dict[str, Any]]] = {}
         for config in self._local_transport_configs:
-            serial = config.get("serial", "")
             transport_type = config.get("transport_type", "modbus_tcp")
-            host = config.get("host", "")
-            port = config.get("port", DEFAULT_MODBUS_PORT)
+            if transport_type == "modbus_serial":
+                key = config.get("serial_port", "")
+            else:
+                key = f"{config.get('host', '')}:{config.get('port', DEFAULT_MODBUS_PORT)}"
+            endpoint_groups.setdefault(key, []).append(config)
 
-            # Serial transport doesn't require host
-            if not serial or (not host and transport_type != "modbus_serial"):
-                _LOGGER.warning(
-                    "LOCAL: Skipping invalid config (missing serial or host): %s",
-                    config,
-                )
-                continue
-
-            try:
-                # Convert inverter family string to enum
-                family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
-                inverter_family = self._get_inverter_family(family_str)
-
-                # Get model from config, or derive from family
-                model = config.get("model", "")
-                if not model:
-                    model = INVERTER_FAMILY_DEFAULT_MODELS.get(family_str, "18kPV")
-
-                # Create or reuse transport based on type
-                # Use plain serial as cache key for get_inverter_object() compatibility
-                # Check config flag first (from discovery), then cache
-                is_gridboss = config.get("is_gridboss", False) or (
-                    serial in self._mid_device_cache
-                )
-
-                # Check if device needs to be created (not in any cache)
-                needs_creation = (
-                    serial not in self._mid_device_cache
-                    and serial not in self._inverter_cache
-                )
-
-                if needs_creation:
-                    # Create transport using unified factory
-                    transport: Any = None
-                    if transport_type == "modbus_tcp":
-                        transport = create_transport(
-                            "modbus",
-                            host=host,
-                            serial=serial,
-                            port=port,
-                            unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                            timeout=DEFAULT_MODBUS_TIMEOUT,
-                            inverter_family=inverter_family,
-                        )
-                    elif transport_type == "wifi_dongle":
-                        transport = create_transport(
-                            "dongle",
-                            host=host,
-                            dongle_serial=config.get("dongle_serial", ""),
-                            inverter_serial=serial,
-                            port=port,
-                            timeout=DEFAULT_DONGLE_TIMEOUT,
-                            inverter_family=inverter_family,
-                        )
-                    elif transport_type == "modbus_serial":
-                        transport = create_transport(
-                            "serial",
-                            port=config.get("serial_port", ""),
-                            serial=serial,
-                            baudrate=config.get("serial_baudrate", 19200),
-                            parity=config.get("serial_parity", "N"),
-                            stopbits=config.get("serial_stopbits", 1),
-                            unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                            timeout=DEFAULT_MODBUS_TIMEOUT,
-                            inverter_family=inverter_family,
-                        )
-                    else:
-                        _LOGGER.error(
-                            "LOCAL: Unknown transport type '%s' for %s",
-                            transport_type,
-                            serial,
-                        )
-                        device_availability[serial] = False
-                        continue
-
-                    # Connect transport
-                    if not transport.is_connected:
-                        await transport.connect()
-
-                    # Create device based on config (from discovery) or auto-detect
-                    if is_gridboss:
-                        # Config says it's a GridBOSS - create MIDDevice directly
-                        _LOGGER.debug(
-                            "LOCAL: Creating GridBOSS/MIDDevice from %s transport for %s",
-                            transport_type,
-                            serial,
-                        )
-                        mid_device = await MIDDevice.from_transport(
-                            transport, model="GridBOSS"
-                        )
-                        self._mid_device_cache[serial] = mid_device
-                    else:
-                        # Try to create BaseInverter, fall back to MIDDevice if needed
-                        try:
-                            _LOGGER.debug(
-                                "LOCAL: Creating inverter from %s transport for %s",
-                                transport_type,
-                                serial,
-                            )
-                            if transport_type == "wifi_dongle":
-                                inverter = await BaseInverter.from_dongle_transport(
-                                    transport, model=model
-                                )
-                            else:
-                                inverter = await BaseInverter.from_modbus_transport(
-                                    transport, model=model
-                                )
-                            self._inverter_cache[serial] = inverter
-                        except LuxpowerDeviceError as e:
-                            # Device is a GridBOSS, not an inverter
-                            if "GridBOSS" in str(e) or "MIDbox" in str(e):
-                                _LOGGER.info(
-                                    "LOCAL: Device %s is a GridBOSS, creating MIDDevice",
-                                    serial,
-                                )
-                                mid_device = await MIDDevice.from_transport(
-                                    transport, model="GridBOSS"
-                                )
-                                self._mid_device_cache[serial] = mid_device
-                                is_gridboss = True
-                            else:
-                                raise
-
-                # Process based on device type
-                if is_gridboss:
-                    # GridBOSS/MID device processing
-                    mid_device = self._mid_device_cache[serial]
-
-                    # Ensure transport is connected
-                    transport = mid_device._transport
-                    if transport and not transport.is_connected:
-                        await transport.connect()
-
-                    # Refresh data from transport
-                    await mid_device.refresh()
-
-                    # Read firmware version
-                    firmware_version: str = "Unknown"
-                    if hasattr(mid_device, "firmware_version"):
-                        firmware_version = mid_device.firmware_version or "Unknown"
-
-                    # Check if device has data
-                    if not mid_device.has_data:
-                        raise TransportReadError(
-                            f"Failed to read runtime data for GridBOSS {serial}"
-                        )
-
-                    # Build GridBOSS device data with sensor mappings
-                    sensors = _build_gridboss_sensor_mapping(mid_device)
-                    # Filter out None values
-                    sensors = {k: v for k, v in sensors.items() if v is not None}
-                    self._filter_unused_smart_port_sensors(sensors, mid_device)
-                    self._calculate_gridboss_aggregates(sensors)
-                    sensors["firmware_version"] = firmware_version
-                    sensors["connection_transport"] = self._get_transport_label(
-                        "dongle" if transport_type == "wifi_dongle" else "modbus"
+        # Process groups concurrently — devices within each group sequentially
+        if len(endpoint_groups) > 1:
+            _LOGGER.debug(
+                "LOCAL: Polling %d endpoint groups concurrently",
+                len(endpoint_groups),
+            )
+            results = await asyncio.gather(
+                *(
+                    self._process_local_transport_group(
+                        group,
+                        processed,
+                        device_availability,
                     )
-                    sensors["transport_host"] = host
-
-                    device_data: dict[str, Any] = {
-                        "type": "gridboss",
-                        "model": "GridBOSS",
-                        "serial": serial,
-                        "firmware_version": firmware_version,
-                        "sensors": sensors,
-                        "binary_sensors": {},
-                    }
-
-                    # Store device data
-                    processed["devices"][serial] = device_data
-                    device_availability[serial] = True
-
-                    # GridBOSS doesn't have parameters like inverters
-                    processed["parameters"][serial] = {}
-
-                    _LOGGER.debug(
-                        "LOCAL: Updated GridBOSS %s (%s) - FW: %s, Grid: %sW, Load: %sW",
-                        serial,
-                        transport_type,
-                        firmware_version,
-                        sensors.get("grid_power", "N/A"),
-                        sensors.get("load_power", "N/A"),
+                    for group in endpoint_groups.values()
+                ),
+                return_exceptions=True,
+            )
+            # Log any unexpected exceptions from gather
+            for result in results:
+                if isinstance(result, Exception):
+                    _LOGGER.exception(
+                        "LOCAL: Unexpected error in transport group: %s",
+                        result,
                     )
-                else:
-                    # Inverter processing
-                    inverter = self._inverter_cache[serial]
-
-                    # Ensure transport is connected
-                    transport = inverter._transport
-                    if transport and not transport.is_connected:
-                        await transport.connect()
-
-                    # Refresh data from transport
-                    await inverter.refresh(force=True, include_parameters=True)
-
-                    # Detect inverter features for capability-based sensor filtering
-                    features: dict[str, Any] = {}
-                    if hasattr(inverter, "detect_features"):
-                        try:
-                            await inverter.detect_features()
-                            features = self._extract_inverter_features(inverter)
-                            _LOGGER.debug(
-                                "LOCAL: Detected features for %s: family=%s, "
-                                "split_phase=%s, three_phase=%s",
-                                serial,
-                                features.get("inverter_family"),
-                                features.get("supports_split_phase"),
-                                features.get("supports_three_phase"),
-                            )
-                        except Exception as e:
-                            _LOGGER.warning(
-                                "LOCAL: Could not detect features for %s: %s",
-                                serial,
-                                e,
-                            )
-
-                    # Read firmware version from transport
-                    firmware_version = "Unknown"
-                    transport = inverter._transport
-                    if transport and hasattr(transport, "read_firmware_version"):
-                        read_fw = getattr(transport, "read_firmware_version")
-                        firmware_version = await read_fw() or "Unknown"
-
-                    # Get data from transport via inverter's internal storage
-                    runtime_data = inverter._transport_runtime
-                    energy_data = inverter._transport_energy
-
-                    if runtime_data is None:
-                        raise TransportReadError(
-                            f"Failed to read runtime data for {serial}"
-                        )
-
-                    # Read parallel config from fresh runtime data (register 113).
-                    # RuntimeData decodes this on every read_runtime() call, so we
-                    # always get the live master/slave role — not stale discovery config.
-                    parallel_number = runtime_data.parallel_number or 0
-                    parallel_master_slave = runtime_data.parallel_master_slave or 0
-                    parallel_phase = runtime_data.parallel_phase or 0
-
-                    # Fall back to config only if runtime didn't provide values
-                    if parallel_number == 0:
-                        parallel_number = config.get("parallel_number", 0)
-                        parallel_master_slave = config.get("parallel_master_slave", 0)
-                        parallel_phase = config.get("parallel_phase", 0)
-
-                    if parallel_number > 0:
-                        _LOGGER.debug(
-                            "LOCAL: Parallel config for %s: group=%d, role=%d (from %s)",
-                            serial,
-                            parallel_number,
-                            parallel_master_slave,
-                            "runtime"
-                            if (runtime_data.parallel_number or 0) > 0
-                            else "config",
-                        )
-
-                    # Build device data structure with sensor mappings
-                    device_data = {
-                        "type": "inverter",
-                        "model": model,
-                        "serial": serial,
-                        "firmware_version": firmware_version,
-                        "sensors": _build_runtime_sensor_mapping(runtime_data),
-                        "batteries": {},
-                        "features": features,  # For capability-based sensor filtering
-                        # Parallel group info (for dynamic grouping)
-                        "parallel_number": parallel_number,
-                        "parallel_master_slave": parallel_master_slave,
-                        "parallel_phase": parallel_phase,
-                    }
-
-                    # Add energy sensors if available
-                    if energy_data:
-                        device_data["sensors"].update(
-                            _build_energy_sensor_mapping(energy_data)
-                        )
-
-                    # Add battery bank data if available
-                    battery_data = inverter._transport_battery
-                    if battery_data:
-                        device_data["sensors"].update(
-                            _build_battery_bank_sensor_mapping(battery_data)
-                        )
-
-                        # Add individual batteries from battery bank
-                        if (
-                            hasattr(battery_data, "batteries")
-                            and battery_data.batteries
-                        ):
-                            for batt in battery_data.batteries:
-                                # Use HTTP-compatible key format (e.g., "1234567890-01")
-                                # to avoid duplicate entities when transitioning local→hybrid
-                                battery_key = f"{serial}-{batt.battery_index + 1:02d}"
-                                device_data["batteries"][battery_key] = (
-                                    _build_individual_battery_mapping(batt)
-                                )
-                            _LOGGER.debug(
-                                "LOCAL: Added %d individual batteries for %s",
-                                len(battery_data.batteries),
-                                serial,
-                            )
-
-                    # Add firmware version and transport as diagnostic sensors
-                    device_data["sensors"]["firmware_version"] = firmware_version
-                    device_data["sensors"]["connection_transport"] = (
-                        self._get_transport_label(
-                            "dongle" if transport_type == "wifi_dongle" else "modbus"
-                        )
-                    )
-                    device_data["sensors"]["transport_host"] = host
-
-                    # Store device data
-                    processed["devices"][serial] = device_data
-                    device_availability[serial] = True
-
-                    # Read parameters with proper HTTP API-style names
-                    # Note: inverter.parameters stores raw reg_N values, but entities
-                    # expect HTTP API-style names like FUNC_EPS_EN, HOLD_AC_CHARGE_SOC_LIMIT
-                    transport = inverter._transport
-                    if transport:
-                        param_data = await self._read_modbus_parameters(transport)
-                    else:
-                        param_data = {}
-                    processed["parameters"][serial] = param_data
-
-                    _LOGGER.debug(
-                        "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
-                        serial,
-                        transport_type,
-                        firmware_version,
-                        runtime_data.pv_total_power,
-                        runtime_data.battery_soc,
-                        runtime_data.grid_power,
-                    )
-
-                    # Debug extended sensors
-                    _LOGGER.debug(
-                        "LOCAL: Extended sensors for %s: gen_freq=%s, gen_volt=%s, "
-                        "grid_l1=%s, grid_l2=%s, eps_l1=%s, eps_l2=%s, out_pwr=%s",
-                        serial,
-                        getattr(runtime_data, "generator_frequency", None),
-                        getattr(runtime_data, "generator_voltage", None),
-                        getattr(runtime_data, "grid_l1_voltage", None),
-                        getattr(runtime_data, "grid_l2_voltage", None),
-                        getattr(runtime_data, "eps_l1_voltage", None),
-                        getattr(runtime_data, "eps_l2_voltage", None),
-                        getattr(runtime_data, "output_power", None),
-                    )
-
-            except (
-                TransportConnectionError,
-                TransportTimeoutError,
-                TransportReadError,
-                TransportError,
-            ) as e:
-                _LOGGER.warning(
-                    "LOCAL: Failed to update %s (%s): %s",
-                    serial,
-                    transport_type,
-                    e,
+        else:
+            # Single group — process directly without gather overhead
+            for group in endpoint_groups.values():
+                await self._process_local_transport_group(
+                    group,
+                    processed,
+                    device_availability,
                 )
-                device_availability[serial] = False
-                # Continue with other devices rather than failing entire update
-                continue
-
-            except Exception as e:
-                _LOGGER.exception(
-                    "LOCAL: Unexpected error updating %s (%s): %s",
-                    serial,
-                    transport_type,
-                    e,
-                )
-                device_availability[serial] = False
-                continue
 
         # Check if we got any device data
         successful_devices = sum(1 for v in device_availability.values() if v)
