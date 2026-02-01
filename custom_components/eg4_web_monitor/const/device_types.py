@@ -52,16 +52,6 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "grid_voltage_l1",
         "grid_voltage_l2",
-        "grid_current_l1",
-        "grid_current_l2",
-        "grid_power_l1",
-        "grid_power_l2",
-        "load_voltage_l1",
-        "load_voltage_l2",
-        "load_current_l1",
-        "load_current_l2",
-        "load_power_l1",
-        "load_power_l2",
         "output_power",
     }
 )
@@ -73,14 +63,9 @@ THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "grid_voltage_r",
         "grid_voltage_s",
         "grid_voltage_t",
-        "grid_current_l3",
-        "grid_power_l3",
         "eps_voltage_r",
         "eps_voltage_s",
         "eps_voltage_t",
-        "load_voltage_l3",
-        "load_current_l3",
-        "load_power_l3",
     }
 )
 
