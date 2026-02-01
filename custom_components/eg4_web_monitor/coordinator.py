@@ -1310,11 +1310,14 @@ class EG4DataUpdateCoordinator(
                             e,
                         )
 
-                firmware_version = "Unknown"
-                transport = inverter._transport
-                if transport and hasattr(transport, "read_firmware_version"):
-                    read_fw = getattr(transport, "read_firmware_version")
-                    firmware_version = await read_fw() or "Unknown"
+                if serial not in self._firmware_cache:
+                    fw = "Unknown"
+                    transport = inverter._transport
+                    if transport and hasattr(transport, "read_firmware_version"):
+                        read_fw = getattr(transport, "read_firmware_version")
+                        fw = await read_fw() or "Unknown"
+                    self._firmware_cache[serial] = fw
+                firmware_version = self._firmware_cache[serial]
 
                 runtime_data = inverter._transport_runtime
                 energy_data = inverter._transport_energy
