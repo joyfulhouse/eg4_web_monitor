@@ -24,6 +24,7 @@ CONF_LIBRARY_DEBUG = "library_debug"
 # Options flow configuration keys (configurable via UI after setup)
 CONF_SENSOR_UPDATE_INTERVAL = "sensor_update_interval"
 CONF_PARAMETER_REFRESH_INTERVAL = "parameter_refresh_interval"
+CONF_CLOUD_REFRESH_INTERVAL = "cloud_refresh_interval"
 
 # Connection type configuration
 CONF_CONNECTION_TYPE = "connection_type"
@@ -80,12 +81,15 @@ HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP = 30  # seconds for HTTP mode
 DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL = 5  # seconds for Modbus/Dongle modes
 DEFAULT_PARAMETER_REFRESH_INTERVAL = 60  # minutes (1 hour)
+DEFAULT_CLOUD_REFRESH_INTERVAL = 300  # seconds (5 minutes) for hybrid cloud polling
 
 # Options flow limits
 MIN_SENSOR_UPDATE_INTERVAL = 5  # seconds
 MAX_SENSOR_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 MIN_PARAMETER_REFRESH_INTERVAL = 5  # minutes
 MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
+MIN_CLOUD_REFRESH_INTERVAL = 30  # seconds
+MAX_CLOUD_REFRESH_INTERVAL = 600  # seconds (10 minutes)
 
 # Modbus default values
 DEFAULT_MODBUS_PORT = 502

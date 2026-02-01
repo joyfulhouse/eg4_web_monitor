@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -37,6 +38,7 @@ from pylxpweb.exceptions import (
 
 from .const import (
     CONF_BASE_URL,
+    CONF_CLOUD_REFRESH_INTERVAL,
     CONF_CONNECTION_TYPE,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
@@ -59,6 +61,7 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
+    DEFAULT_CLOUD_REFRESH_INTERVAL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_INVERTER_FAMILY,
@@ -659,6 +662,14 @@ class EG4DataUpdateCoordinator(
             CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
         self._parameter_refresh_interval = timedelta(minutes=param_refresh_minutes)
+
+        # Cloud refresh throttling for hybrid mode
+        self._last_cloud_refresh: float | None = None
+        self._cached_http_data: dict[str, Any] | None = None
+        cloud_refresh_seconds = entry.options.get(
+            CONF_CLOUD_REFRESH_INTERVAL, DEFAULT_CLOUD_REFRESH_INTERVAL
+        )
+        self._cloud_refresh_interval = timedelta(seconds=cloud_refresh_seconds)
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1983,7 +1994,28 @@ class EG4DataUpdateCoordinator(
             local_successes = await self._hybrid_legacy_read(local_successes)
 
         # Get HTTP data for discovery, batteries, and features
-        http_data = await self._async_update_http_data()
+        # Throttle cloud API calls in hybrid mode to avoid hammering the server
+        now = time.monotonic()
+        cloud_due = (
+            self._last_cloud_refresh is None
+            or (now - self._last_cloud_refresh)
+            >= self._cloud_refresh_interval.total_seconds()
+        )
+        if cloud_due:
+            http_data = await self._async_update_http_data()
+            self._cached_http_data = http_data
+            self._last_cloud_refresh = now
+            _LOGGER.debug(
+                "Hybrid: refreshed cloud data (interval: %ss)",
+                self._cloud_refresh_interval.total_seconds(),
+            )
+        elif self._cached_http_data is not None:
+            http_data = self._cached_http_data
+        else:
+            # Safety fallback: no cache yet, fetch anyway
+            http_data = await self._async_update_http_data()
+            self._cached_http_data = http_data
+            self._last_cloud_refresh = now
 
         # Merge local data into HTTP data for each successful local device
         for serial, local_info in local_successes.items():
