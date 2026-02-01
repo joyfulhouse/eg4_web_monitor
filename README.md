@@ -51,7 +51,7 @@ No technical knowledge of solar systems is required - if you can use the EG4 Mon
 - **Complete Device Support**: FlexBOSS, 18kPV, 12kPV, XP inverters, GridBOSS, and individual batteries
 - **Real-time Monitoring**: Power, voltage, current, temperature, frequency, and energy statistics
 - **Fast Local Polling**: 5-second updates via Modbus or dongle, no internet dependency
-- **Hybrid Mode**: Enrich local data with battery details and energy history from the EG4 monitoring portal
+- **Hybrid Mode**: Enrich local data with cloud features like DST auto-sync and quick charge control
 - **Control & Automation**: Quick charge, battery backup (EPS), operating modes, and SOC limits
 - **Multi-Station Support**: Monitor multiple solar installations from one account
 - **GridBOSS Integration**: Grid management, smart load ports, AC coupling, and generator monitoring
@@ -66,7 +66,8 @@ Before installing this integration, you need:
 1. **EG4 Solar Equipment**: At least one EG4 inverter (FlexBOSS, 18kPV, 12kPV, XP) or GridBOSS device
 2. **Connection Method** (at least one):
    - **Cloud**: An active account on [monitor.eg4electronics.com](https://monitor.eg4electronics.com)
-   - **Local Modbus**: An RS485-to-Ethernet adapter (e.g., Waveshare) connected to your inverter
+   - **Local Modbus TCP**: An RS485-to-Ethernet adapter (e.g., Waveshare) connected to your inverter
+   - **Serial Modbus (USB/RS485)**: A USB-to-RS485 adapter plugged into your Home Assistant host
    - **WiFi Dongle**: Direct network access to your inverter's WiFi dongle
 3. **Home Assistant**: Version 2024.1 or newer
 4. **HACS** (recommended): For easy installation and automatic updates
@@ -112,7 +113,8 @@ This integration supports four connection methods:
 | **Cloud API (HTTP)** | Connect via EG4's cloud service | 30 seconds | Yes |
 | **Local Modbus TCP** | Direct RS485 connection via adapter | 5 seconds | No |
 | **WiFi Dongle** | Direct connection via inverter's WiFi dongle | 5 seconds | No |
-| **Hybrid** | Local polling + Cloud for battery data | 5 seconds | Yes (for batteries) |
+| **Serial Modbus (USB/RS485)** | Direct USB-to-RS485 serial connection | 5 seconds | No |
+| **Hybrid** | Local polling + Cloud for DST sync & quick charge | 5 seconds | Yes (for cloud features) |
 
 ### Cloud API (HTTP) - Easiest Setup
 
@@ -198,11 +200,28 @@ If your inverter has a WiFi dongle, you can connect directly to it on port 8000.
 
 > **Note:** Some newer dongle firmware versions may block port 8000 access for security reasons. If connection fails, try the Modbus or Cloud API method instead.
 
+### Serial Modbus (USB/RS485) Connection
+
+Connect directly to your inverter using a USB-to-RS485 adapter plugged into the machine running Home Assistant. No network adapter needed.
+
+**Requirements:**
+- USB-to-RS485 adapter (e.g., FTDI, CH340, or CP2102-based) - [Amazon](https://amzn.to/4sSOUyp)
+- RS485 cable wired to your inverter's Modbus port (same wiring as Waveshare setup above)
+- The adapter must be accessible to the Home Assistant host (for Docker/HAOS, pass through the USB device)
+
+**Setup:**
+1. Plug the USB-to-RS485 adapter into your Home Assistant host
+2. During integration setup, select **Local Device** → **Serial (USB/RS485)**
+3. Select your serial port from the dropdown (RS485 adapters are prioritized) or enter a path manually
+4. The integration will auto-discover your inverter model and serial number
+
+> **Docker/HAOS Users:** You may need to pass through the USB device to your container. For Docker, add `--device /dev/ttyUSB0:/dev/ttyUSB0` to your run command. For HAOS, USB devices are typically auto-detected.
+
 ### Hybrid Connection
 
-Combines local polling (Modbus or Dongle) for fast sensor updates with Cloud API for individual battery data.
+Combines local polling (Modbus, Dongle, or Serial) for fast sensor updates with Cloud API for cloud-only features.
 
-**Best for:** Users who want fast local updates but also need detailed per-battery monitoring (the cloud API provides individual battery cell data that isn't available via Modbus).
+**Best for:** Users who want fast local updates and also need cloud features like DST auto-sync and quick charge control. Battery data is available via all local connection types — cloud is not required for battery monitoring.
 
 ## Configuration
 
@@ -221,14 +240,14 @@ Combines local polling (Modbus or Dongle) for fast sensor updates with Cloud API
 - Optionally add a local device for faster polling (creates a hybrid connection)
 
 **Local Device Setup:**
-- Choose Modbus TCP or WiFi Dongle
-- Enter connection details (IP address, port, serial numbers)
+- Choose Modbus TCP, WiFi Dongle, or Serial (USB/RS485)
+- Enter connection details (IP/port for network, or select serial port for USB)
 - The device model and serial number are auto-detected
 
 The connection type is automatically determined:
 - Cloud credentials only → **HTTP** mode (30s polling)
 - Local devices only → **Local** mode (5s polling)
-- Both cloud + local → **Hybrid** mode (5s polling + cloud battery data)
+- Both cloud + local → **Hybrid** mode (5s polling + cloud features like DST sync & quick charge)
 
 ### Reconfiguring the Integration
 
@@ -239,7 +258,7 @@ Need to change settings? The reconfigure menu provides several options:
 3. Click the three dots (⋮) menu → **Reconfigure**
 4. Choose from the menu:
    - **Update Cloud Credentials**: Change username, password, base URL, or station
-   - **Add Local Device**: Add a Modbus or Dongle connection (upgrades HTTP → Hybrid)
+   - **Add Local Device**: Add a Modbus, Dongle, or Serial connection (upgrades HTTP → Hybrid)
    - **Remove Local Device**: Remove a local transport
    - **Detach Cloud**: Switch from Hybrid to Local-only mode
 
@@ -460,7 +479,7 @@ This is normal! The integration only creates sensors for features your equipment
 - **Cloud API (HTTP)**: No - requires internet to communicate with EG4's cloud service
 - **Local Modbus TCP**: Yes - communicates directly with your inverter via RS485 adapter
 - **WiFi Dongle**: Yes - communicates directly with your inverter's WiFi dongle
-- **Hybrid**: Partial - sensor data works locally, but battery details require internet
+- **Hybrid**: Partial - sensor and battery data works locally, but cloud features (DST sync, quick charge) require internet
 
 If using cloud API and your internet is down, entities will be marked "unavailable" and will automatically reconnect when internet is restored.
 
@@ -478,7 +497,7 @@ Yes, for supported features like:
 
 **How controls work by connection type:**
 - **Cloud API/Hybrid**: Commands sent through EG4's cloud API (same as mobile app)
-- **Local Modbus/Dongle**: Direct register writes to inverter (faster, works offline)
+- **Local Modbus/Dongle/Serial**: Direct register writes to inverter (faster, works offline)
 
 > **Note:** Quick Charge is only available with Cloud API or Hybrid modes because it's a cloud-scheduled task feature, not a local register setting.
 
