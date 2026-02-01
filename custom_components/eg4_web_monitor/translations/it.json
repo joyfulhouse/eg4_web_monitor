@@ -17,16 +17,14 @@
           "password": "Password",
           "base_url": "Base URL",
           "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization",
-          "library_debug": "Library Debug Logging"
+          "dst_sync": "DST Synchronization"
         },
         "data_description": {
           "username": "Your {brand_name} Web Monitor account username",
           "password": "Your {brand_name} Web Monitor account password",
           "base_url": "The base URL for the {brand_name} Web Monitor API",
           "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone",
-          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone"
         }
       },
       "cloud_station": {
@@ -166,16 +164,14 @@
           "password": "Password",
           "base_url": "Base URL",
           "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization",
-          "library_debug": "Library Debug Logging"
+          "dst_sync": "DST Synchronization"
         },
         "data_description": {
           "username": "Your {brand_name} Web Monitor account username",
           "password": "Your {brand_name} Web Monitor account password",
           "base_url": "The base URL for the {brand_name} Web Monitor API",
           "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
-          "library_debug": "Enable DEBUG logging for the pylxpweb library"
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
         }
       },
       "reconfigure_cloud_add": {
@@ -186,16 +182,14 @@
           "password": "Password",
           "base_url": "Base URL",
           "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization",
-          "library_debug": "Library Debug Logging"
+          "dst_sync": "DST Synchronization"
         },
         "data_description": {
           "username": "Your {brand_name} Web Monitor account username",
           "password": "Your {brand_name} Web Monitor account password",
           "base_url": "The base URL for the {brand_name} Web Monitor API",
           "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings",
-          "library_debug": "Enable DEBUG logging for the pylxpweb library"
+          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
         }
       },
       "reconfigure_cloud_station": {
@@ -302,11 +296,13 @@
         "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
         "data": {
           "sensor_update_interval": "Sensor Update Interval (seconds)",
-          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)"
+          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
+          "library_debug": "Library Debug Logging"
         },
         "data_description": {
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
-          "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes)."
+          "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
+          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       }
     }
