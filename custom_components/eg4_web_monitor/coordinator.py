@@ -156,6 +156,10 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "radiator2_temperature": runtime_data.radiator_temperature_2,
         # Status
         "status_code": runtime_data.device_status,
+        # Grid current (3-phase R/S/T mapped to L1/L2/L3)
+        "grid_current_l1": runtime_data.grid_current_r,
+        "grid_current_l2": runtime_data.grid_current_s,
+        "grid_current_l3": runtime_data.grid_current_t,
     }
 
 
