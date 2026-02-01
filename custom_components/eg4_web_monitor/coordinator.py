@@ -2516,14 +2516,27 @@ class EG4DataUpdateCoordinator(
 
         # Process parallel group data if available
         if hasattr(self.station, "parallel_groups") and self.station.parallel_groups:
-            _LOGGER.debug(
-                "Processing %d parallel groups", len(self.station.parallel_groups)
-            )
-            for group in self.station.parallel_groups:
+            groups = self.station.parallel_groups
+            _LOGGER.debug("Processing %d parallel groups", len(groups))
+
+            # Refresh only PG energy data concurrently.
+            # Inverter/MID data is already refreshed by refresh_all_data(),
+            # and on first load Station.load() warms the energy cache too.
+            # Using _fetch_energy_data directly avoids re-refreshing
+            # inverters and MID devices a second time.
+            energy_tasks = []
+            for group in groups:
+                if group.inverters:
+                    energy_tasks.append(
+                        group._fetch_energy_data(group.inverters[0].serial_number)
+                    )
+            if energy_tasks:
+                await asyncio.gather(*energy_tasks, return_exceptions=True)
+
+            for group in groups:
                 try:
-                    await group.refresh()
                     _LOGGER.debug(
-                        "Parallel group %s refreshed: energy=%s, today_yielding=%.2f kWh",
+                        "Parallel group %s: energy=%s, today_yielding=%.2f kWh",
                         group.name,
                         group._energy is not None,
                         group.today_yielding,
