@@ -1112,11 +1112,9 @@ class DeviceInfoMixin:
 
         clean_battery_name = clean_battery_display_name(battery_key, serial)
         battery_bank_identifier = f"{serial}_battery_bank"
-        # Include serial in identifier to distinguish batteries from different inverters
-        battery_identifier = f"{serial}_battery_{battery_key}"
 
         device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, battery_identifier)},
+            "identifiers": {(DOMAIN, battery_key)},
             "name": f"Battery {clean_battery_name}",
             "manufacturer": MANUFACTURER,
             "model": model,
@@ -1130,7 +1128,7 @@ class DeviceInfoMixin:
             battery_key,
             device_info["name"],
             model,
-            battery_identifier,
+            battery_key,
             battery_bank_identifier,
         )
 
