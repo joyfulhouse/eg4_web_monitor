@@ -18,7 +18,7 @@ if TYPE_CHECKING:
         UpdateFailed,
     )
 
-    from pylxpweb.transports import ModbusTransport
+    from pylxpweb.transports import ModbusSerialTransport, ModbusTransport
 else:
     from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
         DataUpdateCoordinator,
@@ -411,24 +411,45 @@ def _build_transport_configs(
                 extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
             elif transport_type == TransportType.WIFI_DONGLE:
                 extra_kwargs["dongle_serial"] = item.get("dongle_serial", "")
+            elif transport_type == TransportType.MODBUS_SERIAL:
+                extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+                extra_kwargs["serial_port"] = item.get("serial_port", "")
+                extra_kwargs["serial_baudrate"] = item.get("serial_baudrate", 19200)
+                extra_kwargs["serial_parity"] = item.get("serial_parity", "N")
+                extra_kwargs["serial_stopbits"] = item.get("serial_stopbits", 1)
 
-            config = TransportConfig(
-                host=item["host"],
-                port=item["port"],
-                serial=item["serial"],
-                transport_type=transport_type,
-                inverter_family=inverter_family,
-                **extra_kwargs,
-            )
+            # For serial transport, host/port are optional
+            if transport_type == TransportType.MODBUS_SERIAL:
+                config = TransportConfig(
+                    serial=item["serial"],
+                    transport_type=transport_type,
+                    inverter_family=inverter_family,
+                    **extra_kwargs,
+                )
+                _LOGGER.debug(
+                    "Built TransportConfig for %s: type=%s, port=%s",
+                    item["serial"],
+                    transport_type_str,
+                    item.get("serial_port", ""),
+                )
+            else:
+                config = TransportConfig(
+                    host=item["host"],
+                    port=item["port"],
+                    serial=item["serial"],
+                    transport_type=transport_type,
+                    inverter_family=inverter_family,
+                    **extra_kwargs,
+                )
+                _LOGGER.debug(
+                    "Built TransportConfig for %s: type=%s, host=%s:%d",
+                    item["serial"],
+                    transport_type_str,
+                    item["host"],
+                    item["port"],
+                )
 
             configs.append(config)
-            _LOGGER.debug(
-                "Built TransportConfig for %s: type=%s, host=%s:%d",
-                item["serial"],
-                transport_type_str,
-                item["host"],
-                item["port"],
-            )
 
         except (KeyError, ValueError) as err:
             _LOGGER.warning("Failed to build TransportConfig from %s: %s", item, err)
@@ -488,7 +509,7 @@ class EG4DataUpdateCoordinator(
 
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
-        self._modbus_transport: ModbusTransport | None = None
+        self._modbus_transport: ModbusTransport | ModbusSerialTransport | None = None
         self._dongle_transport: Any = None
         self._hybrid_local_type: str | None = None
         local_transports: list[dict[str, Any]] = entry.data.get(
@@ -508,6 +529,21 @@ class EG4DataUpdateCoordinator(
                         host=tc["host"],
                         serial=tc.get("serial", ""),
                         port=tc.get("port", DEFAULT_MODBUS_PORT),
+                        unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
+                        timeout=DEFAULT_MODBUS_TIMEOUT,
+                        inverter_family=self._get_inverter_family(family_str),
+                    )
+                    self._modbus_serial = tc.get("serial", "")
+                    self._modbus_model = tc.get("model", "")
+                    self._hybrid_local_type = HYBRID_LOCAL_MODBUS
+                elif transport_type == "modbus_serial" and not self._modbus_transport:
+                    self._modbus_transport = create_transport(
+                        "serial",
+                        port=tc.get("serial_port", ""),
+                        serial=tc.get("serial", ""),
+                        baudrate=tc.get("serial_baudrate", 19200),
+                        parity=tc.get("serial_parity", "N"),
+                        stopbits=tc.get("serial_stopbits", 1),
                         unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
                         timeout=DEFAULT_MODBUS_TIMEOUT,
                         inverter_family=self._get_inverter_family(family_str),

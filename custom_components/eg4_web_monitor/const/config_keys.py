@@ -49,6 +49,12 @@ CONF_DONGLE_HOST = "dongle_host"
 CONF_DONGLE_PORT = "dongle_port"
 CONF_DONGLE_SERIAL = "dongle_serial"
 
+# Modbus Serial (RS485) configuration keys
+CONF_SERIAL_PORT = "serial_port"
+CONF_SERIAL_BAUDRATE = "serial_baudrate"
+CONF_SERIAL_PARITY = "serial_parity"
+CONF_SERIAL_STOPBITS = "serial_stopbits"
+
 # =============================================================================
 # Connection Types
 # =============================================================================
@@ -90,6 +96,12 @@ DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
 # WiFi Dongle default values (pylxpweb 0.5.15+)
 DEFAULT_DONGLE_PORT = 8000
 DEFAULT_DONGLE_TIMEOUT = 10.0  # seconds
+
+# Modbus Serial (RS485) default values
+DEFAULT_SERIAL_BAUDRATE = 19200
+DEFAULT_SERIAL_PARITY = "N"  # None
+DEFAULT_SERIAL_STOPBITS = 1
+DEFAULT_SERIAL_TIMEOUT = 10.0  # seconds
 
 # Update intervals for local connections (faster than HTTP due to local network)
 MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
