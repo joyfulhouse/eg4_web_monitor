@@ -609,6 +609,15 @@ class DeviceProcessingMixin:
             # Status and metadata
             "battery_count": "battery_bank_count",
             "status": "battery_bank_status",
+            # Cross-battery diagnostics (pylxpweb >= 0.6.7)
+            "soc_delta": "battery_bank_soc_delta",
+            "min_soh": "battery_bank_min_soh",
+            "soh_delta": "battery_bank_soh_delta",
+            "voltage_delta": "battery_bank_voltage_delta",
+            "cell_voltage_delta_max": "battery_bank_cell_voltage_delta_max",
+            "cycle_count_delta": "battery_bank_cycle_count_delta",
+            "max_cell_temp": "battery_bank_max_cell_temp",
+            "temp_delta": "battery_bank_temp_delta",
         }
 
     async def _process_parallel_group_object(self, group: Any) -> dict[str, Any]:
