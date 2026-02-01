@@ -296,14 +296,15 @@ class TestAsyncSetupEntry:
         ) as mock_forward:
             await async_setup_entry(hass, mock_config_entry)
 
-            # Verify all platforms were forwarded
-            call_args = mock_forward.call_args
-            platforms = call_args[0][1]
-            assert "sensor" in [p.value for p in platforms]
-            assert "number" in [p.value for p in platforms]
-            assert "switch" in [p.value for p in platforms]
-            assert "button" in [p.value for p in platforms]
-            assert "select" in [p.value for p in platforms]
+            # Verify all platforms were forwarded across both calls
+            all_platforms = []
+            for call in mock_forward.call_args_list:
+                all_platforms.extend(p.value for p in call[0][1])
+            assert "sensor" in all_platforms
+            assert "number" in all_platforms
+            assert "switch" in all_platforms
+            assert "button" in all_platforms
+            assert "select" in all_platforms
 
 
 class TestAsyncUnloadEntry:
