@@ -472,7 +472,7 @@ SENSOR_TYPES = {
         "unit": None,
         "device_class": None,
         "state_class": "measurement",
-        "icon": "mdi:battery-multiple",
+        "icon": "mdi:counter",
     },
     # Battery charge/discharge energy sensors (pylxpweb 0.3.3+)
     "battery_charge": {

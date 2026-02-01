@@ -25,7 +25,6 @@ from custom_components.eg4_web_monitor.const import (
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
-    CONF_LIBRARY_DEBUG,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
@@ -89,7 +88,6 @@ class TestBuildHttpCredentialsSchema:
                 CONF_BASE_URL: "https://custom.example.com",
                 CONF_VERIFY_SSL: False,
                 CONF_DST_SYNC: True,
-                CONF_LIBRARY_DEBUG: True,
             }
         )
         assert result[CONF_USERNAME] == "user@example.com"
@@ -97,7 +95,6 @@ class TestBuildHttpCredentialsSchema:
         assert result[CONF_BASE_URL] == "https://custom.example.com"
         assert result[CONF_VERIFY_SSL] is False
         assert result[CONF_DST_SYNC] is True
-        assert result[CONF_LIBRARY_DEBUG] is True
 
     def test_dst_sync_default_can_be_customized(self):
         """Test that DST sync default can be customized."""

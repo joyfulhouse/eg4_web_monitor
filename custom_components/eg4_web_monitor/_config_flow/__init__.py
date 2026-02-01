@@ -67,7 +67,6 @@ from ..const import (
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_INVERTER_SERIAL,
-    CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
@@ -127,7 +126,7 @@ class EG4ConfigFlow(
         self._base_url: str = DEFAULT_BASE_URL
         self._verify_ssl: bool = DEFAULT_VERIFY_SSL
         self._dst_sync: bool = True
-        self._library_debug: bool = False
+        self._library_debug: bool = False  # Legacy: kept for migration only
         self._plant_id: str | None = None
         self._plant_name: str | None = None
         self._plants: list[dict[str, Any]] | None = None
@@ -710,7 +709,7 @@ class EG4ConfigFlow(
         self._base_url = entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
         self._verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         self._dst_sync = entry.data.get(CONF_DST_SYNC, True)
-        self._library_debug = entry.data.get(CONF_LIBRARY_DEBUG, False)
+        # library_debug now in options flow, not loaded here
         self._plant_id = entry.data.get(CONF_PLANT_ID)
         self._plant_name = entry.data.get(CONF_PLANT_NAME)
         self._local_transports = list(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
@@ -833,9 +832,8 @@ class EG4ConfigFlow(
             self._base_url = DEFAULT_BASE_URL
             self._verify_ssl = DEFAULT_VERIFY_SSL
             self._plant_id = None
-            self._plant_name = None
+            self._plant_name = self._plant_name or "Local"
             self._dst_sync = False
-            self._library_debug = False
             return self._update_entry()
 
         return self.async_show_form(
@@ -1062,7 +1060,7 @@ class EG4ConfigFlow(
         self._base_url = user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL)
         self._verify_ssl = user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         self._dst_sync = user_input.get(CONF_DST_SYNC, True)
-        self._library_debug = user_input.get(CONF_LIBRARY_DEBUG, False)
+        # library_debug moved to options flow; no longer in cloud credentials form
 
     async def _validate_cloud_credentials(self) -> dict[str, str]:
         """Test cloud credentials and return errors dict (empty on success)."""
@@ -1111,7 +1109,7 @@ class EG4ConfigFlow(
             CONF_LOCAL_TRANSPORTS: self._local_transports,
             CONF_VERIFY_SSL: self._verify_ssl,
             CONF_DST_SYNC: self._dst_sync,
-            CONF_LIBRARY_DEBUG: self._library_debug,
+            # CONF_LIBRARY_DEBUG moved to options flow
         }
 
         if self._has_cloud:
@@ -1136,7 +1134,7 @@ class EG4ConfigFlow(
     def _build_title(self) -> str:
         """Build entry title from current state."""
         connection_type = _derive_connection_type(self._has_cloud, self._has_local)
-        return format_entry_title(connection_type, self._plant_name or "Unknown")
+        return format_entry_title(connection_type, self._plant_name or "Local")
 
     async def _create_entry(self) -> ConfigFlowResult:
         """Create a new config entry from current flow state."""

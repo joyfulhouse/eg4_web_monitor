@@ -83,11 +83,24 @@ def _map_device_properties(device: Any, property_map: dict[str, str]) -> dict[st
     sensors: dict[str, Any] = {}
 
     for property_name, sensor_key in property_map.items():
-        if hasattr(device, property_name):
+        try:
             value = getattr(device, property_name, None)
-            # Skip None values and empty strings (which indicate no data)
-            if value is not None and value != "":
-                sensors[sensor_key] = value
+        except (TypeError, ValueError, AttributeError) as exc:
+            # Property getter may call float()/int() on None internal data
+            # when the device object hasn't been fully populated yet.
+            # Note: hasattr() is not safe here — it only catches AttributeError,
+            # so a property raising TypeError (e.g. float(None)) propagates.
+            _LOGGER.debug(
+                "Property %s on %s raised %s: %s",
+                property_name,
+                getattr(device, "serial_number", "unknown"),
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        # Skip None values and empty strings (which indicate no data)
+        if value is not None and value != "":
+            sensors[sensor_key] = value
 
     return sensors
 
@@ -629,12 +642,22 @@ class DeviceProcessingMixin:
         Returns:
             Processed device data dictionary with sensors
         """
+        member_serials = [
+            inv.serial_number
+            for inv in getattr(group, "inverters", [])
+            if hasattr(inv, "serial_number")
+        ]
+        first_serial = getattr(group, "first_device_serial", "")
+
         processed: dict[str, Any] = {
             "name": f"Parallel Group {group.name}"
             if hasattr(group, "name") and group.name
             else "Parallel Group",
             "type": "parallel_group",
             "model": "Parallel Group",
+            "first_device_serial": first_serial,
+            "member_serials": member_serials,
+            "member_count": len(member_serials),
             "sensors": {},
             "binary_sensors": {},
         }
@@ -1426,8 +1449,12 @@ class BackgroundTaskMixin:
         if hasattr(self, "_shutdown_listener_remove") and not getattr(
             self, "_shutdown_listener_fired", False
         ):
-            self._shutdown_listener_remove()
-            _LOGGER.debug("Removed homeassistant_stop event listener")
+            try:
+                self._shutdown_listener_remove()
+                _LOGGER.debug("Removed homeassistant_stop event listener")
+            except ValueError:
+                # Listener already removed (e.g. integration re-added in same session)
+                _LOGGER.debug("Shutdown listener already removed")
 
         await self._cancel_background_tasks()
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")

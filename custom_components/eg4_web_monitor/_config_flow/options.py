@@ -15,6 +15,7 @@ from homeassistant import config_entries
 from ..const import (
     BRAND_NAME,
     CONF_CONNECTION_TYPE,
+    CONF_LIBRARY_DEBUG,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_DONGLE,
@@ -96,6 +97,12 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
 
+        # Library debug: check options first, fall back to data for migration
+        current_library_debug = self.config_entry.options.get(
+            CONF_LIBRARY_DEBUG,
+            self.config_entry.data.get(CONF_LIBRARY_DEBUG, False),
+        )
+
         options_schema = vol.Schema(
             {
                 vol.Required(
@@ -118,6 +125,10 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                         max=MAX_PARAMETER_REFRESH_INTERVAL,
                     ),
                 ),
+                vol.Optional(
+                    CONF_LIBRARY_DEBUG,
+                    default=current_library_debug,
+                ): bool,
             }
         )
 

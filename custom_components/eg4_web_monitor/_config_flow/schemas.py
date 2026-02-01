@@ -14,7 +14,6 @@ from ..const import (
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
-    CONF_LIBRARY_DEBUG,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
@@ -91,7 +90,6 @@ def build_http_credentials_schema(dst_sync_default: bool = True) -> vol.Schema:
             vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
             vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
             vol.Optional(CONF_DST_SYNC, default=dst_sync_default): bool,
-            vol.Optional(CONF_LIBRARY_DEBUG, default=False): bool,
         }
     )
 

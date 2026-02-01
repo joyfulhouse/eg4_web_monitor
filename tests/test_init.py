@@ -262,7 +262,8 @@ class TestAsyncSetupEntry:
             assert result is True
             mock_coordinator.async_config_entry_first_refresh.assert_called_once()
             assert mock_config_entry.runtime_data == mock_coordinator
-            mock_forward.assert_called_once()
+            # Called twice: sensor platform first, then remaining platforms
+            assert mock_forward.call_count == 2
 
     @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
     async def test_setup_entry_creates_coordinator_with_correct_params(

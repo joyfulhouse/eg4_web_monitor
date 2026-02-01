@@ -234,17 +234,17 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                         return int(soc_limit)
                 return None
 
-            # HTTP/Hybrid mode: try inverter object first
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                soc_limit = inverter.system_charge_soc_limit
-                if soc_limit is not None and 10 <= soc_limit <= 101:
-                    return int(soc_limit)
-
-            # Fallback to parameters for Hybrid mode
+            # HTTP/Hybrid mode: try local parameters first (fresh every cycle)
             params = self._parameter_data
             if params:
                 soc_limit = params.get("HOLD_SYSTEM_CHARGE_SOC_LIMIT")
+                if soc_limit is not None and 10 <= soc_limit <= 101:
+                    return int(soc_limit)
+
+            # Fall back to inverter object (HTTP API)
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                soc_limit = inverter.system_charge_soc_limit
                 if soc_limit is not None and 10 <= soc_limit <= 101:
                     return int(soc_limit)
 
@@ -476,14 +476,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                             return power_kw
                 return None
 
-            # HTTP/Hybrid mode: try inverter object first
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                power_limit = inverter.pv_charge_power_limit
-                if power_limit is not None and 0 <= power_limit <= 15:
-                    return int(power_limit)
-
-            # Fallback to parameters for Hybrid mode
+            # HTTP/Hybrid mode: try local parameters first (fresh every cycle)
             params = self._parameter_data
             if params:
                 pct_value = params.get(PARAM_HOLD_CHG_POWER_PERCENT)
@@ -491,6 +484,13 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                     power_kw = int(float(pct_value) / 100.0 * 15)
                     if 0 <= power_kw <= 15:
                         return power_kw
+
+            # Fall back to inverter object (HTTP API)
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                power_limit = inverter.pv_charge_power_limit
+                if power_limit is not None and 0 < power_limit <= 15:
+                    return int(power_limit)
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug("Error getting PV charge power for %s: %s", self.serial, e)
