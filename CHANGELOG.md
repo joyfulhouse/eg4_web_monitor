@@ -5,6 +5,23 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.7] - 2026-02-01
+
+### Changed
+
+- **Local Transport Concurrency**: Refactored `_async_update_local_data` to group transports by endpoint, enabling concurrent processing of independent connections while keeping sequential access for shared physical links.
+- **Parallel Group Refresh Optimization**: Replaced sequential `group.refresh()` calls with concurrent PG energy-only fetches, eliminating redundant inverter/MID re-refreshes that `refresh_all_data()` already covers.
+
+### Fixed
+
+- **Firmware Version Cache Regression**: Restored `_firmware_cache` lookup in `_process_single_local_device` — firmware was being read from Modbus on every 5-second update cycle instead of cached after first read.
+- **Per-Register Error Handling**: A single failing Modbus register range no longer aborts the entire parameter fetch; each range is read independently with individual error logging.
+
+### Documentation
+
+- Updated README to document Serial Modbus (USB/RS485) transport option.
+- Clarified hybrid mode description (DST auto-sync and quick charge control).
+
 ## [3.2.0] - 2026-01-30
 
 ### Breaking Changes
