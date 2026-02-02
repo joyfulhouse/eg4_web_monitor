@@ -1,6 +1,7 @@
 """Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
+import copy
 import logging
 import time
 from datetime import datetime, timedelta
@@ -2010,7 +2011,7 @@ class EG4DataUpdateCoordinator(
                 self._cloud_refresh_interval.total_seconds(),
             )
         elif self._cached_http_data is not None:
-            http_data = self._cached_http_data
+            http_data = copy.deepcopy(self._cached_http_data)
         else:
             # Safety fallback: no cache yet, fetch anyway
             http_data = await self._async_update_http_data()
