@@ -359,13 +359,11 @@
         "data": {
           "sensor_update_interval": "Sensor Update Interval (seconds)",
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
-          "cloud_refresh_interval": "Cloud Refresh Interval (seconds)",
           "library_debug": "Library Debug Logging"
         },
         "data_description": {
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
-          "cloud_refresh_interval": "How often to fetch data from the cloud API in hybrid mode ({min_cloud_interval}-{max_cloud_interval} seconds). Local data updates at the sensor interval; cloud data updates at this slower rate.",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
         }
       }

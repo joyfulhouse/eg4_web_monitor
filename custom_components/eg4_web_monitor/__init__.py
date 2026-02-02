@@ -317,13 +317,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         ):
             await coordinator._dongle_transport.disconnect()
 
-        # Clean up hybrid transport cache (multiple local transports)
-        if hasattr(coordinator, "_hybrid_transport_cache"):
-            for transport in coordinator._hybrid_transport_cache.values():
-                if transport is not None and transport.is_connected:
-                    await transport.disconnect()
-            coordinator._hybrid_transport_cache.clear()
-
     return bool(unload_ok)
 
 

@@ -14,7 +14,6 @@ from homeassistant import config_entries
 
 from ..const import (
     BRAND_NAME,
-    CONF_CLOUD_REFRESH_INTERVAL,
     CONF_CONNECTION_TYPE,
     CONF_LIBRARY_DEBUG,
     CONF_PARAMETER_REFRESH_INTERVAL,
@@ -24,14 +23,11 @@ from ..const import (
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
-    DEFAULT_CLOUD_REFRESH_INTERVAL,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
-    MAX_CLOUD_REFRESH_INTERVAL,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
-    MIN_CLOUD_REFRESH_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
 )
@@ -107,55 +103,34 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_LIBRARY_DEBUG, False),
         )
 
-        schema_fields: dict[vol.Marker, Any] = {
-            vol.Required(
-                CONF_SENSOR_UPDATE_INTERVAL,
-                default=current_sensor_interval,
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_SENSOR_UPDATE_INTERVAL,
-                    max=MAX_SENSOR_UPDATE_INTERVAL,
-                ),
-            ),
-            vol.Required(
-                CONF_PARAMETER_REFRESH_INTERVAL,
-                default=current_param_interval,
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_PARAMETER_REFRESH_INTERVAL,
-                    max=MAX_PARAMETER_REFRESH_INTERVAL,
-                ),
-            ),
-        }
-
-        # Show cloud refresh interval only for hybrid mode
-        if connection_type == CONNECTION_TYPE_HYBRID:
-            current_cloud_interval = self.config_entry.options.get(
-                CONF_CLOUD_REFRESH_INTERVAL, DEFAULT_CLOUD_REFRESH_INTERVAL
-            )
-            schema_fields[
+        options_schema = vol.Schema(
+            {
                 vol.Required(
-                    CONF_CLOUD_REFRESH_INTERVAL,
-                    default=current_cloud_interval,
-                )
-            ] = vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_CLOUD_REFRESH_INTERVAL,
-                    max=MAX_CLOUD_REFRESH_INTERVAL,
+                    CONF_SENSOR_UPDATE_INTERVAL,
+                    default=current_sensor_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_SENSOR_UPDATE_INTERVAL,
+                        max=MAX_SENSOR_UPDATE_INTERVAL,
+                    ),
                 ),
-            )
-
-        schema_fields[
-            vol.Optional(
-                CONF_LIBRARY_DEBUG,
-                default=current_library_debug,
-            )
-        ] = bool
-
-        options_schema = vol.Schema(schema_fields)
+                vol.Required(
+                    CONF_PARAMETER_REFRESH_INTERVAL,
+                    default=current_param_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_PARAMETER_REFRESH_INTERVAL,
+                        max=MAX_PARAMETER_REFRESH_INTERVAL,
+                    ),
+                ),
+                vol.Optional(
+                    CONF_LIBRARY_DEBUG,
+                    default=current_library_debug,
+                ): bool,
+            }
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -166,7 +141,5 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 "max_sensor_interval": str(MAX_SENSOR_UPDATE_INTERVAL),
                 "min_param_interval": str(MIN_PARAMETER_REFRESH_INTERVAL),
                 "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
-                "min_cloud_interval": str(MIN_CLOUD_REFRESH_INTERVAL),
-                "max_cloud_interval": str(MAX_CLOUD_REFRESH_INTERVAL),
             },
         )

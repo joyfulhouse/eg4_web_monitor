@@ -39,7 +39,6 @@ def mock_coordinator():
     # Transports are None for HTTP-only connections
     coordinator._modbus_transport = None
     coordinator._dongle_transport = None
-    coordinator._hybrid_transport_cache = {}
     # Add minimal data structure for platforms to work with
     coordinator.data = {
         "devices": {},

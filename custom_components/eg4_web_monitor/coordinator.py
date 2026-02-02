@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,7 +37,6 @@ from pylxpweb.exceptions import (
 
 from .const import (
     CONF_BASE_URL,
-    CONF_CLOUD_REFRESH_INTERVAL,
     CONF_CONNECTION_TYPE,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
@@ -61,7 +59,6 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
-    DEFAULT_CLOUD_REFRESH_INTERVAL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_INVERTER_FAMILY,
@@ -575,13 +572,7 @@ class EG4DataUpdateCoordinator(
             CONF_LOCAL_TRANSPORTS, []
         )
 
-        if local_transports:
-            # New format: local_transports list is handled by
-            # _async_update_hybrid_data (via _hybrid_transport_cache) and
-            # _async_update_local_data (via _inverter_cache/_mid_device_cache).
-            # No legacy single-transport init needed.
-            pass
-        else:
+        if not local_transports:
             # DEPRECATED: Old flat-key config format (pre-v3.2).
             # Remove in v4.0 — all new configs use local_transports list.
             # This path only supports single Modbus or Dongle transport
@@ -663,13 +654,6 @@ class EG4DataUpdateCoordinator(
         )
         self._parameter_refresh_interval = timedelta(minutes=param_refresh_minutes)
 
-        # Cloud refresh throttling for hybrid mode
-        self._last_cloud_refresh: float | None = None
-        cloud_refresh_seconds = entry.options.get(
-            CONF_CLOUD_REFRESH_INTERVAL, DEFAULT_CLOUD_REFRESH_INTERVAL
-        )
-        self._cloud_refresh_interval = timedelta(seconds=cloud_refresh_seconds)
-
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
         self._dst_sync_interval = timedelta(hours=1)
@@ -696,9 +680,6 @@ class EG4DataUpdateCoordinator(
 
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
-
-        # Transport cache for hybrid mode (serial -> transport)
-        self._hybrid_transport_cache: dict[str, Any] = {}
 
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
@@ -1830,432 +1811,38 @@ class EG4DataUpdateCoordinator(
             )
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
-        """Fetch data using local transports + HTTP (discovery/battery).
+        """Fetch data using library transport routing (local + cloud).
 
-        Hybrid mode provides the best of both worlds:
-        - Fast 1-5 second runtime updates via local transports (Modbus/Dongle)
-        - Device discovery and individual battery data via HTTP cloud API
-
-        Supports multiple local transports from local_transports config list.
-        Each local device's runtime/energy data is merged with the HTTP data
-        for that serial. Devices without local transports fall back to HTTP.
+        When local transports are attached via Station.attach_local_transports(),
+        inverter.refresh() automatically routes runtime/energy through the local
+        transport and battery data through the cloud API. Internal cache TTLs
+        prevent redundant calls. This method simply delegates to the HTTP path
+        and overrides the connection type label.
 
         Returns:
-            Dictionary containing merged data from both sources.
+            Dictionary containing device data with transport-aware labels.
         """
-        from pylxpweb.devices import MIDDevice
-        from pylxpweb.transports import create_transport
-        from pylxpweb.transports.exceptions import TransportError
+        data = await self._async_update_http_data()
+        data["connection_type"] = CONNECTION_TYPE_HYBRID
 
-        # Track which serials have successful local data
-        local_successes: dict[str, dict[str, Any]] = {}
-        # serial -> {"transport_name": str, "host": str}
-
-        # Read local data from all configured transports
-        for tc in self._local_transport_configs:
-            serial = tc.get("serial", "")
-            host = tc.get("host", "")
-            transport_type = tc.get("transport_type", "modbus_tcp")
-            if transport_type == "modbus_tcp":
-                transport_name = "Modbus"
-            elif transport_type == "modbus_serial":
-                transport_name = "Serial"
-            else:
-                transport_name = "Dongle"
-            is_gridboss = (
-                tc.get("is_gridboss", False)
-                or tc.get("inverter_family") == "MID_DEVICE"
-            )
-
-            # Serial transport doesn't require host
-            if not serial or (not host and transport_type != "modbus_serial"):
-                continue
-
-            try:
-                # Get or create transport from cache
-                transport = self._hybrid_transport_cache.get(serial)
-                if transport is None:
-                    family_str = tc.get("inverter_family", DEFAULT_INVERTER_FAMILY)
-                    if transport_type == "modbus_tcp":
-                        transport = create_transport(
-                            "modbus",
-                            host=host,
-                            serial=serial,
-                            port=tc.get("port", DEFAULT_MODBUS_PORT),
-                            unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                            timeout=DEFAULT_MODBUS_TIMEOUT,
-                            inverter_family=self._get_inverter_family(family_str),
-                        )
-                    elif transport_type == "wifi_dongle":
-                        transport = create_transport(
-                            "dongle",
-                            host=host,
-                            dongle_serial=tc.get("dongle_serial", ""),
-                            inverter_serial=serial,
-                            port=tc.get("port", DEFAULT_DONGLE_PORT),
-                            timeout=DEFAULT_DONGLE_TIMEOUT,
-                            inverter_family=self._get_inverter_family(family_str),
-                        )
-                    elif transport_type == "modbus_serial":
-                        transport = create_transport(
-                            "serial",
-                            port=tc.get("serial_port", ""),
-                            serial=serial,
-                            baudrate=tc.get("serial_baudrate", 19200),
-                            parity=tc.get("serial_parity", "N"),
-                            stopbits=tc.get("serial_stopbits", 1),
-                            unit_id=tc.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                            timeout=DEFAULT_MODBUS_TIMEOUT,
-                            inverter_family=self._get_inverter_family(family_str),
-                        )
-                    else:
-                        continue
-                    self._hybrid_transport_cache[serial] = transport
-
-                if not transport.is_connected:
-                    await transport.connect()
-
-                if is_gridboss:
-                    # GridBOSS: use MIDDevice for proper register interpretation.
-                    # read_runtime() uses the inverter register map which produces
-                    # garbage on GridBOSS hardware — MIDDevice.from_transport()
-                    # reads via read_midbox_runtime() with the correct register map.
-                    mid_device = self._mid_device_cache.get(serial)
-                    if (
-                        mid_device is None
-                        or getattr(mid_device, "_transport", None) is not transport
-                    ):
-                        # Create fresh MIDDevice when uncached or transport changed
-                        mid_device = await MIDDevice.from_transport(
-                            transport,
-                            model="GridBOSS",
-                        )
-                        self._mid_device_cache[serial] = mid_device
-
-                    await mid_device.refresh()
-
-                    if not mid_device.has_data:
-                        raise TransportError(
-                            f"Failed to read runtime data for GridBOSS {serial}"
-                        )
-
-                    local_successes[serial] = {
-                        "is_gridboss": True,
-                        "mid_device": mid_device,
-                        "transport_name": transport_name,
-                        "host": host,
-                    }
-                    _LOGGER.debug(
-                        "Hybrid: %s read for GridBOSS %s - Grid: %.0fW, UPS: %.0fW",
-                        transport_name,
-                        serial,
-                        mid_device.grid_power or 0,
-                        mid_device.ups_power or 0,
-                    )
-                else:
-                    runtime_data = await transport.read_runtime()
-                    energy_data = await transport.read_energy()
-                    param_data = await self._read_modbus_parameters(transport)
-
-                    local_successes[serial] = {
-                        "runtime": runtime_data,
-                        "energy": energy_data,
-                        "parameters": param_data,
-                        "transport_name": transport_name,
-                        "host": host,
-                    }
-                    _LOGGER.debug(
-                        "Hybrid: %s read for %s - PV: %.0fW, SOC: %d%%",
-                        transport_name,
-                        serial,
-                        runtime_data.pv_total_power,
-                        runtime_data.battery_soc,
-                    )
-            except TransportError as e:
-                _LOGGER.warning(
-                    "Hybrid: %s read failed for %s, using HTTP: %s",
-                    transport_name,
-                    serial,
-                    e,
-                )
-                # Disconnect and evict the stale transport so the next cycle
-                # creates a fresh connection (resets pymodbus transaction IDs).
-                try:
-                    if transport is not None:
-                        await transport.disconnect()
-                except Exception:
-                    pass
-                self._hybrid_transport_cache.pop(serial, None)
-                self._mid_device_cache.pop(serial, None)
-
-        # Fall back to legacy single-transport if no local_transport_configs
-        if not self._local_transport_configs:
-            local_successes = await self._hybrid_legacy_read(local_successes)
-
-        # Get HTTP data for discovery, batteries, and features
-        # Throttle cloud API calls in hybrid mode to avoid hammering the server.
-        # When cloud isn't due, _async_update_http_data still rebuilds the dict
-        # from existing station objects — it just skips station.refresh_all_data().
-        now = time.monotonic()
-        cloud_due = (
-            self._last_cloud_refresh is None
-            or (now - self._last_cloud_refresh)
-            >= self._cloud_refresh_interval.total_seconds()
-        )
-        if cloud_due:
-            self._last_cloud_refresh = now
-        http_data = await self._async_update_http_data(
-            skip_cloud_refresh=not cloud_due,
-        )
-
-        # Merge local data into HTTP data for each successful local device
-        for serial, local_info in local_successes.items():
-            device = http_data.get("devices", {}).get(serial)
-            if device is None:
-                continue
-            if local_info.get("is_gridboss"):
-                # GridBOSS: replace HTTP sensors with local MIDDevice data
-                mid_device = local_info["mid_device"]
-                sensors = _build_gridboss_sensor_mapping(mid_device)
-                sensors = {k: v for k, v in sensors.items() if v is not None}
-                device["sensors"].update(sensors)
-                self._filter_unused_smart_port_sensors(device["sensors"], mid_device)
-                self._calculate_gridboss_aggregates(device["sensors"])
-                _LOGGER.debug(
-                    "Hybrid: Merged %s GridBOSS data for %s",
-                    local_info["transport_name"],
-                    serial,
-                )
-            else:
-                self._merge_local_data_with_http(
-                    device,
-                    local_info["runtime"],
-                    local_info["energy"],
-                    serial,
-                    local_info["transport_name"],
-                )
-
-        # Merge local parameters into HTTP data for hybrid mode
-        for serial, local_info in local_successes.items():
-            if local_info.get("parameters"):
-                if "parameters" not in http_data:
-                    http_data["parameters"] = {}
-                http_data["parameters"][serial] = local_info["parameters"]
-
-        # Aggregate local inverter data into parallel group sensors
-        self._merge_local_into_parallel_groups(http_data, local_successes)
-
-        http_data["connection_type"] = CONNECTION_TYPE_HYBRID
-
-        # Set transport labels per device (skip virtual devices like parallel groups)
-        for dev_serial, device_data in http_data.get("devices", {}).items():
+        # Set transport labels per device based on attached transports
+        for serial, device_data in data.get("devices", {}).items():
             if "sensors" not in device_data:
                 continue
             if device_data.get("type") == "parallel_group":
                 continue
-            if dev_serial in local_successes:
-                info = local_successes[dev_serial]
-                device_data["sensors"]["connection_transport"] = (
-                    f"Hybrid ({info['transport_name']})"
-                )
-                device_data["sensors"]["transport_host"] = info["host"]
+            inverter = self._inverter_cache.get(serial)
+            transport = getattr(inverter, "_transport", None) if inverter else None
+            if transport is not None:
+                transport_type = getattr(transport, "transport_type", "local")
+                label = self._get_transport_label(transport_type)
+                device_data["sensors"]["connection_transport"] = f"Hybrid ({label})"
+                if hasattr(transport, "host"):
+                    device_data["sensors"]["transport_host"] = transport.host
             else:
                 device_data["sensors"]["connection_transport"] = "Cloud"
 
-        return http_data
-
-    async def _hybrid_legacy_read(
-        self, local_successes: dict[str, dict[str, Any]]
-    ) -> dict[str, dict[str, Any]]:
-        """Legacy single-transport read for hybrid mode (old flat-key config).
-
-        DEPRECATED: Used only when no local_transport_configs are set.
-        Remove in v4.0 — all new configs use local_transports list.
-        Does NOT support GridBOSS devices (calls read_runtime which uses
-        the inverter register map, producing garbage on GridBOSS hardware).
-        """
-        from pylxpweb.transports.exceptions import TransportError
-
-        for transport, serial, name in [
-            (self._modbus_transport, self._modbus_serial, "Modbus"),
-            (self._dongle_transport, self._dongle_serial, "Dongle"),
-        ]:
-            if transport is None or serial in local_successes:
-                continue
-            try:
-                if not transport.is_connected:
-                    await transport.connect()
-                runtime_data = await transport.read_runtime()
-                energy_data = await transport.read_energy()
-                param_data = await self._read_modbus_parameters(transport)
-                host = getattr(transport, "host", "")
-                local_successes[serial] = {
-                    "runtime": runtime_data,
-                    "energy": energy_data,
-                    "parameters": param_data,
-                    "transport_name": name,
-                    "host": host,
-                }
-            except TransportError as e:
-                _LOGGER.warning("Hybrid: %s read failed: %s", name, e)
-                # Disconnect stale transport to force fresh reconnect next cycle
-                try:
-                    await transport.disconnect()
-                except Exception:
-                    pass
-
-        return local_successes
-
-    @staticmethod
-    def _merge_local_data_with_http(
-        device: dict[str, Any],
-        runtime: Any,
-        energy: Any,
-        serial: str,
-        transport_name: str,
-    ) -> None:
-        """Merge local transport data with HTTP device data.
-
-        Overrides HTTP sensor values with faster local transport values.
-        Reuses the shared runtime/energy mapping functions for consistency.
-
-        Args:
-            device: The device dictionary from HTTP data to update.
-            runtime: InverterRuntimeData from local transport.
-            energy: InverterEnergyData from local transport.
-            serial: Inverter serial number for logging.
-            transport_name: Name of local transport for logging (Modbus/Dongle).
-        """
-        device["sensors"].update(_build_runtime_sensor_mapping(runtime))
-        device["sensors"].update(_build_energy_sensor_mapping(energy))
-
-        _LOGGER.debug(
-            "Hybrid: Merged %s runtime with HTTP data for %s",
-            transport_name,
-            serial,
-        )
-
-    def _merge_local_into_parallel_groups(
-        self,
-        http_data: dict[str, Any],
-        local_successes: dict[str, dict[str, Any]],
-    ) -> None:
-        """Aggregate local inverter data into parallel group sensors.
-
-        In hybrid mode, individual inverter sensors are already merged with local
-        data, but the parallel group device still uses HTTP-only aggregated values.
-        This method re-aggregates from the (now locally-enriched) member inverters
-        so the parallel group reflects the faster local data.
-
-        Args:
-            http_data: The full HTTP data dict (with local data already merged into inverters).
-            local_successes: Dict of serial -> local read info for devices with local data.
-        """
-        if not local_successes:
-            return
-
-        devices = http_data.get("devices", {})
-
-        # Find parallel groups and their members
-        for device_id, device_data in list(devices.items()):
-            if device_data.get("type") != "parallel_group":
-                continue
-
-            member_serials = device_data.get("member_serials", [])
-            if not member_serials:
-                continue
-
-            # Check if any member has local data
-            members_with_local = [s for s in member_serials if s in local_successes]
-            if not members_with_local:
-                continue
-
-            # Re-aggregate from member inverter sensors (already merged with local)
-            group_sensors = device_data.get("sensors", {})
-
-            # Power sensors to sum (battery handled separately as parallel_battery_*)
-            # Note: PV string sensors (pv1/2/3) excluded — per-inverter detail
-            # is not useful at group level; pv_total_power covers the aggregate.
-            power_sensors = [
-                "pv_total_power",
-                "grid_power",
-                "grid_export_power",
-                "load_power",
-                "ac_power",
-                "eps_power",
-            ]
-
-            # Energy sensors to sum
-            energy_sensors = [
-                "yield",
-                "charging",
-                "discharging",
-                "grid_import",
-                "grid_export",
-                "consumption",
-                "yield_lifetime",
-                "charging_lifetime",
-                "discharging_lifetime",
-                "grid_import_lifetime",
-                "grid_export_lifetime",
-                "consumption_lifetime",
-            ]
-
-            total_soc = 0.0
-            soc_count = 0
-            total_voltage = 0.0
-            voltage_count = 0
-            total_charge = 0.0
-            total_discharge = 0.0
-
-            for sensor_key in power_sensors + energy_sensors:
-                total = 0.0
-                has_value = False
-                for serial in member_serials:
-                    member = devices.get(serial, {})
-                    value = member.get("sensors", {}).get(sensor_key)
-                    if value is not None:
-                        total += float(value)
-                        has_value = True
-                if has_value:
-                    group_sensors[sensor_key] = total
-
-            for serial in member_serials:
-                member = devices.get(serial, {})
-                member_sensors = member.get("sensors", {})
-                soc = member_sensors.get("state_of_charge")
-                if soc is not None:
-                    total_soc += float(soc)
-                    soc_count += 1
-                voltage = member_sensors.get("battery_voltage")
-                if voltage is not None:
-                    total_voltage += float(voltage)
-                    voltage_count += 1
-                # Sum battery power for parallel_battery_* keys
-                cp = member_sensors.get("battery_charge_power")
-                if cp is not None:
-                    total_charge += float(cp)
-                dp = member_sensors.get("battery_discharge_power")
-                if dp is not None:
-                    total_discharge += float(dp)
-
-            # Use parallel_battery_* keys to match cloud mode entity IDs
-            group_sensors["parallel_battery_charge_power"] = total_charge
-            group_sensors["parallel_battery_discharge_power"] = total_discharge
-            group_sensors["parallel_battery_power"] = total_charge - total_discharge
-            if soc_count > 0:
-                group_sensors["parallel_battery_soc"] = round(total_soc / soc_count, 1)
-            if voltage_count > 0:
-                group_sensors["parallel_battery_voltage"] = round(
-                    total_voltage / voltage_count, 1
-                )
-
-            _LOGGER.debug(
-                "Hybrid: Re-aggregated parallel group %s from %d members (%d local)",
-                device_id,
-                len(member_serials),
-                len(members_with_local),
-            )
+        return data
 
     async def _attach_local_transports_to_station(self) -> None:
         """Attach local transports to HTTP-discovered station devices.
@@ -2317,19 +1904,11 @@ class EG4DataUpdateCoordinator(
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
 
-    async def _async_update_http_data(
-        self, *, skip_cloud_refresh: bool = False
-    ) -> dict[str, Any]:
+    async def _async_update_http_data(self) -> dict[str, Any]:
         """Fetch data from HTTP cloud API using device objects.
 
         This is the original HTTP-based update method using LuxpowerClient
         and Station/Inverter device objects.
-
-        Args:
-            skip_cloud_refresh: If True, skip station.refresh_all_data() and
-                rebuild the dict from existing (cached) station objects. Used
-                by hybrid mode to throttle cloud API calls while still allowing
-                local data merges every cycle.
 
         Returns:
             Dictionary containing all device data, sensors, and station information.
@@ -2374,10 +1953,6 @@ class EG4DataUpdateCoordinator(
                     and not self._local_transports_attached
                 ):
                     await self._attach_local_transports_to_station()
-            elif skip_cloud_refresh:
-                _LOGGER.debug(
-                    "Hybrid: skipping cloud refresh, rebuilding from station cache"
-                )
             else:
                 _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
                 await self.station.refresh_all_data()

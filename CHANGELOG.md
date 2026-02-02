@@ -5,6 +5,21 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.10] - 2026-02-01
+
+### Changed
+
+- **Hybrid Mode Simplification**: Replaced ~430-line manual local-read/merge pipeline with library transport routing. `_async_update_hybrid_data()` now delegates to `_async_update_http_data()` — pylxpweb's `inverter.refresh()` automatically routes runtime/energy through attached local transports with internal TTL caching.
+- **Removed Cloud Refresh Throttling**: The `cloud_refresh_interval` option and associated state (`_last_cloud_refresh`, `_cloud_refresh_interval`, `skip_cloud_refresh`) are removed; library-level cache TTLs handle throttling.
+- **Transport Labels via Introspection**: Hybrid transport labels (`Hybrid (Modbus)`, `Hybrid (Dongle)`) now detected from `inverter._transport` instead of manual tracking.
+
+### Removed
+
+- `_async_update_hybrid_data()` manual pipeline, `_hybrid_legacy_read()`, `_merge_local_data_with_http()`, `_merge_local_into_parallel_groups()`
+- `_hybrid_transport_cache` state and cleanup in `async_unload_entry()`
+- `CONF_CLOUD_REFRESH_INTERVAL`, `DEFAULT_CLOUD_REFRESH_INTERVAL`, `MIN_CLOUD_REFRESH_INTERVAL`, `MAX_CLOUD_REFRESH_INTERVAL` constants
+- Cloud refresh interval from options UI and all 14 translation files
+
 ## [3.2.0-beta.7] - 2026-02-01
 
 ### Changed
