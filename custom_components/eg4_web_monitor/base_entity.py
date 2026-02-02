@@ -1002,6 +1002,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 parameter, value, serial=self._serial
             )
 
+            # Optimistically update coordinator parameter data so any
+            # concurrent coordinator cycle sees the new value immediately
+            if self.coordinator.data and "parameters" in self.coordinator.data:
+                params = self.coordinator.data["parameters"].get(self._serial)
+                if params is not None:
+                    params[parameter] = value
+
             _LOGGER.info(
                 "Successfully %s %s for device %s",
                 action_verb.lower()[:-3] + "ed",

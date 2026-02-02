@@ -333,32 +333,40 @@ class DeviceProcessingMixin:
                 processed["quick_charge_status"] = prev
 
         # Battery backup (EPS) status
-        bb_key = f"bb_{serial}"
-        last_bb = self._last_status_fetch.get(bb_key, 0.0)
-        if now - last_bb >= _STATUS_FETCH_INTERVAL:
-            try:
-                if hasattr(inverter, "get_battery_backup_status"):
-                    battery_backup_enabled = await inverter.get_battery_backup_status()
-                    processed["battery_backup_status"] = {
-                        "enabled": battery_backup_enabled,
-                    }
+        # Skip cloud API call when local transport is attached — the parameter
+        # data from local Modbus already provides FUNC_EPS_EN which the switch
+        # entity uses as a fallback. The cloud remoteRead endpoint frequently
+        # returns apiBlocked anyway since the dongle relay is often busy.
+        has_local_transport = getattr(inverter, "_transport", None) is not None
+        if not has_local_transport:
+            bb_key = f"bb_{serial}"
+            last_bb = self._last_status_fetch.get(bb_key, 0.0)
+            if now - last_bb >= _STATUS_FETCH_INTERVAL:
+                try:
+                    if hasattr(inverter, "get_battery_backup_status"):
+                        battery_backup_enabled = (
+                            await inverter.get_battery_backup_status()
+                        )
+                        processed["battery_backup_status"] = {
+                            "enabled": battery_backup_enabled,
+                        }
+                        self._last_status_fetch[bb_key] = now
+                        _LOGGER.debug(
+                            "Battery backup status for %s: %s",
+                            serial,
+                            battery_backup_enabled,
+                        )
+                except Exception as e:
                     self._last_status_fetch[bb_key] = now
                     _LOGGER.debug(
-                        "Battery backup status for %s: %s",
+                        "Could not fetch battery backup status for %s: %s",
                         serial,
-                        battery_backup_enabled,
+                        e,
                     )
-            except Exception as e:
-                self._last_status_fetch[bb_key] = now
-                _LOGGER.debug(
-                    "Could not fetch battery backup status for %s: %s",
-                    serial,
-                    e,
-                )
-        elif self.data and serial in self.data.get("devices", {}):
-            prev = self.data["devices"][serial].get("battery_backup_status")
-            if prev is not None:
-                processed["battery_backup_status"] = prev
+            elif self.data and serial in self.data.get("devices", {}):
+                prev = self.data["devices"][serial].get("battery_backup_status")
+                if prev is not None:
+                    processed["battery_backup_status"] = prev
 
         return processed
 

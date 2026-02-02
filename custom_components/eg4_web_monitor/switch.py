@@ -330,8 +330,14 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable battery backup."""
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
+        if self.coordinator.has_local_transport(self._serial):
+            # Prefer local Modbus write — immediate, no cloud relay
+            await self._execute_named_parameter_action(
+                action_name="battery backup (EPS)",
+                parameter=PARAM_FUNC_EPS_EN,
+                value=True,
+            )
+        elif self.coordinator.has_http_api():
             await self._execute_switch_action(
                 action_name="battery backup",
                 enable_method="enable_battery_backup",
@@ -340,17 +346,19 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use named parameter write for local-only mode
-            await self._execute_named_parameter_action(
-                action_name="battery backup (EPS)",
-                parameter=PARAM_FUNC_EPS_EN,
-                value=True,
+            raise HomeAssistantError(
+                "No transport available for battery backup control"
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable battery backup."""
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
+        if self.coordinator.has_local_transport(self._serial):
+            await self._execute_named_parameter_action(
+                action_name="battery backup (EPS)",
+                parameter=PARAM_FUNC_EPS_EN,
+                value=False,
+            )
+        elif self.coordinator.has_http_api():
             await self._execute_switch_action(
                 action_name="battery backup",
                 enable_method="enable_battery_backup",
@@ -359,11 +367,8 @@ class EG4BatteryBackupSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use named parameter write for local-only mode
-            await self._execute_named_parameter_action(
-                action_name="battery backup (EPS)",
-                parameter=PARAM_FUNC_EPS_EN,
-                value=False,
+            raise HomeAssistantError(
+                "No transport available for battery backup control"
             )
 
 
@@ -422,8 +427,13 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable off-grid mode."""
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
+        if self.coordinator.has_local_transport(self._serial):
+            await self._execute_named_parameter_action(
+                action_name="off-grid mode (Green Mode)",
+                parameter=PARAM_FUNC_GREEN_EN,
+                value=True,
+            )
+        elif self.coordinator.has_http_api():
             await self._execute_switch_action(
                 action_name="off-grid mode",
                 enable_method="enable_green_mode",
@@ -432,17 +442,17 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use named parameter write for local-only mode
-            await self._execute_named_parameter_action(
-                action_name="off-grid mode (Green Mode)",
-                parameter=PARAM_FUNC_GREEN_EN,
-                value=True,
-            )
+            raise HomeAssistantError("No transport available for off-grid mode control")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable off-grid mode."""
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
+        if self.coordinator.has_local_transport(self._serial):
+            await self._execute_named_parameter_action(
+                action_name="off-grid mode (Green Mode)",
+                parameter=PARAM_FUNC_GREEN_EN,
+                value=False,
+            )
+        elif self.coordinator.has_http_api():
             await self._execute_switch_action(
                 action_name="off-grid mode",
                 enable_method="enable_green_mode",
@@ -451,12 +461,7 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
                 refresh_params=True,
             )
         else:
-            # Use named parameter write for local-only mode
-            await self._execute_named_parameter_action(
-                action_name="off-grid mode (Green Mode)",
-                parameter=PARAM_FUNC_GREEN_EN,
-                value=False,
-            )
+            raise HomeAssistantError("No transport available for off-grid mode control")
 
 
 # Mapping of working mode parameters to inverter method names (HTTP API)
@@ -579,64 +584,45 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        param = self._mode_config["param"]
-
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
-            methods = _WORKING_MODE_METHODS.get(param)
-            if not methods:
-                raise HomeAssistantError(f"Unknown working mode parameter: {param}")
-
-            await self._execute_switch_action(
-                action_name=f"working mode {param}",
-                enable_method=methods[0],
-                disable_method=methods[1],
-                turn_on=True,
-                refresh_params=True,
-            )
-        else:
-            # Use named parameter write for local-only mode
-            param_name = _WORKING_MODE_PARAMETERS.get(param)
-            if not param_name:
-                raise HomeAssistantError(
-                    f"Working mode {param} not available via local transport"
-                )
-
-            await self._execute_named_parameter_action(
-                action_name=f"working mode {param}",
-                parameter=param_name,
-                value=True,
-            )
+        await self._execute_working_mode(turn_on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        param = self._mode_config["param"]
+        await self._execute_working_mode(turn_on=False)
 
-        if self.coordinator.has_http_api():
-            # Use HTTP API for HTTP and Hybrid modes
+    async def _execute_working_mode(self, turn_on: bool) -> None:
+        """Execute working mode toggle, preferring local transport."""
+        param = self._mode_config["param"]
+        param_name = _WORKING_MODE_PARAMETERS.get(param)
+
+        # Prefer local transport when available and parameter has a local mapping
+        if param_name and self.coordinator.has_local_transport(self._serial):
+            await self._execute_named_parameter_action(
+                action_name=f"working mode {param}",
+                parameter=param_name,
+                value=turn_on,
+            )
+        elif self.coordinator.has_http_api():
             methods = _WORKING_MODE_METHODS.get(param)
             if not methods:
                 raise HomeAssistantError(f"Unknown working mode parameter: {param}")
-
             await self._execute_switch_action(
                 action_name=f"working mode {param}",
                 enable_method=methods[0],
                 disable_method=methods[1],
-                turn_on=False,
+                turn_on=turn_on,
                 refresh_params=True,
             )
-        else:
-            # Use named parameter write for local-only mode
-            param_name = _WORKING_MODE_PARAMETERS.get(param)
-            if not param_name:
-                raise HomeAssistantError(
-                    f"Working mode {param} not available via local transport"
-                )
-
+        elif param_name:
+            # Local-only mode, parameter available
             await self._execute_named_parameter_action(
                 action_name=f"working mode {param}",
                 parameter=param_name,
-                value=False,
+                value=turn_on,
+            )
+        else:
+            raise HomeAssistantError(
+                f"Working mode {param} not available via local transport"
             )
 
 
