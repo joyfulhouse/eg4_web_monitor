@@ -1,7 +1,6 @@
 """Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
-import copy
 import logging
 import time
 from datetime import datetime, timedelta
@@ -666,7 +665,6 @@ class EG4DataUpdateCoordinator(
 
         # Cloud refresh throttling for hybrid mode
         self._last_cloud_refresh: float | None = None
-        self._cached_http_data: dict[str, Any] | None = None
         cloud_refresh_seconds = entry.options.get(
             CONF_CLOUD_REFRESH_INTERVAL, DEFAULT_CLOUD_REFRESH_INTERVAL
         )
@@ -1995,7 +1993,9 @@ class EG4DataUpdateCoordinator(
             local_successes = await self._hybrid_legacy_read(local_successes)
 
         # Get HTTP data for discovery, batteries, and features
-        # Throttle cloud API calls in hybrid mode to avoid hammering the server
+        # Throttle cloud API calls in hybrid mode to avoid hammering the server.
+        # When cloud isn't due, _async_update_http_data still rebuilds the dict
+        # from existing station objects — it just skips station.refresh_all_data().
         now = time.monotonic()
         cloud_due = (
             self._last_cloud_refresh is None
@@ -2003,20 +2003,10 @@ class EG4DataUpdateCoordinator(
             >= self._cloud_refresh_interval.total_seconds()
         )
         if cloud_due:
-            http_data = await self._async_update_http_data()
-            self._cached_http_data = http_data
             self._last_cloud_refresh = now
-            _LOGGER.debug(
-                "Hybrid: refreshed cloud data (interval: %ss)",
-                self._cloud_refresh_interval.total_seconds(),
-            )
-        elif self._cached_http_data is not None:
-            http_data = copy.deepcopy(self._cached_http_data)
-        else:
-            # Safety fallback: no cache yet, fetch anyway
-            http_data = await self._async_update_http_data()
-            self._cached_http_data = http_data
-            self._last_cloud_refresh = now
+        http_data = await self._async_update_http_data(
+            skip_cloud_refresh=not cloud_due,
+        )
 
         # Merge local data into HTTP data for each successful local device
         for serial, local_info in local_successes.items():
@@ -2327,11 +2317,19 @@ class EG4DataUpdateCoordinator(
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
 
-    async def _async_update_http_data(self) -> dict[str, Any]:
+    async def _async_update_http_data(
+        self, *, skip_cloud_refresh: bool = False
+    ) -> dict[str, Any]:
         """Fetch data from HTTP cloud API using device objects.
 
         This is the original HTTP-based update method using LuxpowerClient
         and Station/Inverter device objects.
+
+        Args:
+            skip_cloud_refresh: If True, skip station.refresh_all_data() and
+                rebuild the dict from existing (cached) station objects. Used
+                by hybrid mode to throttle cloud API calls while still allowing
+                local data merges every cycle.
 
         Returns:
             Dictionary containing all device data, sensors, and station information.
@@ -2376,6 +2374,10 @@ class EG4DataUpdateCoordinator(
                     and not self._local_transports_attached
                 ):
                     await self._attach_local_transports_to_station()
+            elif skip_cloud_refresh:
+                _LOGGER.debug(
+                    "Hybrid: skipping cloud refresh, rebuilding from station cache"
+                )
             else:
                 _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
                 await self.station.refresh_all_data()
