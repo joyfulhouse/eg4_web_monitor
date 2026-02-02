@@ -2129,19 +2129,23 @@ class EG4DataUpdateCoordinator(
             groups = self.station.parallel_groups
             _LOGGER.debug("Processing %d parallel groups", len(groups))
 
-            # Refresh only PG energy data concurrently.
-            # Inverter/MID data is already refreshed by refresh_all_data(),
-            # and on first load Station.load() warms the energy cache too.
-            # Using _fetch_energy_data directly avoids re-refreshing
-            # inverters and MID devices a second time.
-            energy_tasks = []
-            for group in groups:
-                if group.inverters:
-                    energy_tasks.append(
-                        group._fetch_energy_data(group.inverters[0].serial_number)
-                    )
-            if energy_tasks:
-                await asyncio.gather(*energy_tasks, return_exceptions=True)
+            # Refresh PG energy data with throttling (cloud API call).
+            # Energy data changes slowly — throttle to 60s intervals.
+            import time as _time
+
+            _PG_ENERGY_INTERVAL = 60  # seconds
+            now_mono = _time.monotonic()
+            last_pg = getattr(self, "_last_pg_energy_fetch", 0.0)
+            if now_mono - last_pg >= _PG_ENERGY_INTERVAL:
+                energy_tasks = []
+                for group in groups:
+                    if group.inverters:
+                        energy_tasks.append(
+                            group._fetch_energy_data(group.inverters[0].serial_number)
+                        )
+                if energy_tasks:
+                    await asyncio.gather(*energy_tasks, return_exceptions=True)
+                self._last_pg_energy_fetch = now_mono
 
             for group in groups:
                 try:

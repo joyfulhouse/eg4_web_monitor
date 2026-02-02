@@ -13,6 +13,7 @@ final coordinator class inheriting all mixins together.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -55,6 +56,7 @@ class CoordinatorProtocol(Protocol):
     _dst_sync_interval: timedelta
     _background_tasks: set[asyncio.Task[Any]]
     _debounced_refresh: Any
+    _last_status_fetch: dict[str, float]
 
     # Methods that mixins may call on each other
     def get_inverter_object(self, serial: str) -> "BaseInverter | None": ...
@@ -294,43 +296,69 @@ class DeviceProcessingMixin:
                     e,
                 )
 
-        # Fetch quick charge status for switch entity
-        try:
-            if hasattr(inverter, "get_quick_charge_status"):
-                quick_charge_active = await inverter.get_quick_charge_status()
-                processed["quick_charge_status"] = {
-                    "hasUnclosedQuickChargeTask": quick_charge_active,
-                }
-                _LOGGER.debug(
-                    "Quick charge status for %s: %s",
-                    inverter.serial_number,
-                    quick_charge_active,
-                )
-        except Exception as e:
-            _LOGGER.debug(
-                "Could not fetch quick charge status for %s: %s",
-                inverter.serial_number,
-                e,
-            )
+        # Fetch quick charge and battery backup status with 30s throttle
+        # These are cloud API calls that should not run every update cycle
+        _STATUS_FETCH_INTERVAL = 30  # seconds
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch: dict[str, float] = {}
+        now = time.monotonic()
+        serial = inverter.serial_number
 
-        # Fetch battery backup (EPS) status for switch entity
-        try:
-            if hasattr(inverter, "get_battery_backup_status"):
-                battery_backup_enabled = await inverter.get_battery_backup_status()
-                processed["battery_backup_status"] = {
-                    "enabled": battery_backup_enabled,
-                }
+        # Quick charge status
+        qc_key = f"qc_{serial}"
+        last_qc = self._last_status_fetch.get(qc_key, 0.0)
+        if now - last_qc >= _STATUS_FETCH_INTERVAL:
+            try:
+                if hasattr(inverter, "get_quick_charge_status"):
+                    quick_charge_active = await inverter.get_quick_charge_status()
+                    processed["quick_charge_status"] = {
+                        "hasUnclosedQuickChargeTask": quick_charge_active,
+                    }
+                    self._last_status_fetch[qc_key] = now
+                    _LOGGER.debug(
+                        "Quick charge status for %s: %s",
+                        serial,
+                        quick_charge_active,
+                    )
+            except Exception as e:
+                self._last_status_fetch[qc_key] = now
                 _LOGGER.debug(
-                    "Battery backup status for %s: %s",
-                    inverter.serial_number,
-                    battery_backup_enabled,
+                    "Could not fetch quick charge status for %s: %s",
+                    serial,
+                    e,
                 )
-        except Exception as e:
-            _LOGGER.debug(
-                "Could not fetch battery backup status for %s: %s",
-                inverter.serial_number,
-                e,
-            )
+        elif self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("quick_charge_status")
+            if prev is not None:
+                processed["quick_charge_status"] = prev
+
+        # Battery backup (EPS) status
+        bb_key = f"bb_{serial}"
+        last_bb = self._last_status_fetch.get(bb_key, 0.0)
+        if now - last_bb >= _STATUS_FETCH_INTERVAL:
+            try:
+                if hasattr(inverter, "get_battery_backup_status"):
+                    battery_backup_enabled = await inverter.get_battery_backup_status()
+                    processed["battery_backup_status"] = {
+                        "enabled": battery_backup_enabled,
+                    }
+                    self._last_status_fetch[bb_key] = now
+                    _LOGGER.debug(
+                        "Battery backup status for %s: %s",
+                        serial,
+                        battery_backup_enabled,
+                    )
+            except Exception as e:
+                self._last_status_fetch[bb_key] = now
+                _LOGGER.debug(
+                    "Could not fetch battery backup status for %s: %s",
+                    serial,
+                    e,
+                )
+        elif self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("battery_backup_status")
+            if prev is not None:
+                processed["battery_backup_status"] = prev
 
         return processed
 
