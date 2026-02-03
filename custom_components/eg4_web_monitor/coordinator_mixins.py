@@ -731,7 +731,9 @@ class DeviceProcessingMixin:
         return {
             # Aggregate power properties (calculated from all inverters)
             "pv_total_power": "pv_total_power",
+            "inverter_power": "ac_power",
             "grid_power": "grid_power",
+            "grid_import_power": "grid_import_power",
             "load_power": "load_power",
             "eps_power": "eps_power",
             # Today energy values
