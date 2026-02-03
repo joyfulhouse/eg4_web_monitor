@@ -734,6 +734,7 @@ class DeviceProcessingMixin:
             "inverter_power": "ac_power",
             "grid_power": "grid_power",
             "grid_import_power": "grid_import_power",
+            "grid_export_power": "grid_export_power",
             "load_power": "load_power",
             "eps_power": "eps_power",
             # Today energy values
