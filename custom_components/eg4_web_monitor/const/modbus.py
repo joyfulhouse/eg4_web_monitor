@@ -36,6 +36,16 @@ MODBUS_BIT_GREEN_EN = 8  # Green mode / Off-grid priority (FUNC_GREEN_EN)
 MODBUS_BIT_BATTERY_ECO_EN = 9  # Battery ECO mode
 
 # =============================================================================
+# Function Enable Register 2 (179) - 18kPV/12kPV Only
+# =============================================================================
+# Generator port mode control - PV series inverters only (not FlexBOSS)
+# These modes are mutually exclusive - enabling one disables the others
+
+MODBUS_REG_FUNC_EN_2 = 179  # uFunctionEn2
+MODBUS_BIT_AC_COUPLING_FUNCTION = 11  # AC coupling on generator port (0x0800)
+MODBUS_BIT_SMART_LOAD_ENABLE = 13  # Smart load on generator port (0x2000)
+
+# =============================================================================
 # Direct Value Registers - Charge/Discharge Power
 # =============================================================================
 
@@ -71,6 +81,11 @@ PARAM_FUNC_FORCED_CHG_EN = "FUNC_FORCED_CHG_EN"
 # Bit field parameter names (register 110)
 PARAM_FUNC_GREEN_EN = "FUNC_GREEN_EN"
 PARAM_FUNC_BATTERY_ECO_EN = "FUNC_BATTERY_ECO_EN"
+PARAM_FUNC_MICRO_GRID_EN = "FUNC_MICRO_GRID_EN"
+
+# Bit field parameter names (register 179) - 18kPV/12kPV generator port modes
+PARAM_FUNC_AC_COUPLING_FUNCTION = "FUNC_AC_COUPLING_FUNCTION"
+PARAM_FUNC_SMART_LOAD_ENABLE = "FUNC_SMART_LOAD_ENABLE"
 
 # Direct value parameter names
 PARAM_HOLD_CHG_POWER_PERCENT = "HOLD_CHG_POWER_PERCENT_CMD"
