@@ -2272,31 +2272,85 @@ class EG4DataUpdateCoordinator(
                 _LOGGER.debug("No inverter object found for serial %s", serial)
                 continue
 
-            # Prefer transport battery data (local Modbus) over cloud battery_bank
-            # In hybrid mode, _transport_battery has fresh individual battery data
-            # from registers 5000+, while _battery_bank may be stale from initial load
+            # Get cloud battery metadata (already cached, no API call)
+            battery_bank = getattr(inverter, "_battery_bank", None)
+            cloud_batteries = (
+                getattr(battery_bank, "batteries", None) if battery_bank else None
+            )
+
+            # Get transport battery data (local Modbus real-time values)
             transport_battery = getattr(inverter, "_transport_battery", None)
-            if (
-                transport_battery
-                and hasattr(transport_battery, "batteries")
-                and transport_battery.batteries
-            ):
+            transport_batteries = (
+                transport_battery.batteries
+                if transport_battery and hasattr(transport_battery, "batteries")
+                else None
+            )
+
+            # HYBRID MODE: Merge cloud metadata with transport real-time data
+            # Cloud provides: model, serial_number, bms_model, battery_type_text
+            # Transport provides: fresh voltage, current, SOC, cell voltages, temps
+            if transport_batteries and cloud_batteries:
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
-                for batt in transport_battery.batteries:
+
+                # Build lookup of cloud batteries by index for merging
+                cloud_by_index: dict[int, Any] = {}
+                for cloud_batt in cloud_batteries:
+                    idx = getattr(cloud_batt, "index", None)
+                    if idx is not None:
+                        cloud_by_index[idx] = cloud_batt
+
+                for batt in transport_batteries:
+                    battery_key = f"{serial}-{batt.battery_index + 1:02d}"
+                    # Start with transport data (real-time values)
+                    battery_sensors = _build_individual_battery_mapping(batt)
+
+                    # Merge cloud-only metadata if available (no API call - already cached)
+                    cloud_batt = cloud_by_index.get(batt.battery_index)
+                    if cloud_batt:
+                        # Cloud-only fields that transport doesn't have
+                        if hasattr(cloud_batt, "battery_sn") and cloud_batt.battery_sn:
+                            battery_sensors["battery_serial_number"] = (
+                                cloud_batt.battery_sn
+                            )
+                        if hasattr(cloud_batt, "model") and cloud_batt.model:
+                            battery_sensors["battery_model"] = cloud_batt.model
+                        if hasattr(cloud_batt, "bms_model") and cloud_batt.bms_model:
+                            battery_sensors["battery_bms_model"] = cloud_batt.bms_model
+                        if (
+                            hasattr(cloud_batt, "battery_type_text")
+                            and cloud_batt.battery_type_text
+                        ):
+                            battery_sensors["battery_type_text"] = (
+                                cloud_batt.battery_type_text
+                            )
+
+                    device_data["batteries"][battery_key] = battery_sensors
+
+                _LOGGER.debug(
+                    "HYBRID: Merged %d batteries (transport + cloud metadata) for %s",
+                    len(transport_batteries),
+                    serial,
+                )
+                continue
+
+            # LOCAL-ONLY: Use transport battery data without cloud metadata
+            if transport_batteries:
+                if "batteries" not in device_data:
+                    device_data["batteries"] = {}
+                for batt in transport_batteries:
                     battery_key = f"{serial}-{batt.battery_index + 1:02d}"
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(batt)
                     )
                 _LOGGER.debug(
-                    "HYBRID: Added %d individual batteries from transport for %s",
-                    len(transport_battery.batteries),
+                    "LOCAL: Added %d individual batteries for %s",
+                    len(transport_batteries),
                     serial,
                 )
                 continue
 
-            # Fall back to cloud battery_bank for cloud-only mode
-            battery_bank = getattr(inverter, "_battery_bank", None)
+            # CLOUD-ONLY: Fall back to cloud battery_bank
             if not battery_bank:
                 _LOGGER.debug(
                     "No battery_bank for inverter %s (battery_bank=%s)",
