@@ -1807,8 +1807,11 @@ class EG4DataUpdateCoordinator(
                 continue
             if device_data.get("type") == "parallel_group":
                 continue
-            inverter = self._inverter_cache.get(serial)
-            transport = getattr(inverter, "_transport", None) if inverter else None
+            # Check both inverter and MID device caches for transport
+            device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
+                serial
+            )
+            transport = getattr(device, "_transport", None) if device else None
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")
                 label = self._get_transport_label(transport_type)
