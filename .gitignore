@@ -152,3 +152,4 @@ deps/
 # Docker and Development Environment
 homeassistant-dev/
 docker-compose.override.yml.trash/
+.trash/
