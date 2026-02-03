@@ -1605,12 +1605,12 @@ class EG4DataUpdateCoordinator(
             # Power sensors to sum (battery handled separately as parallel_battery_*)
             # Note: PV string sensors (pv1/2/3) excluded — per-inverter detail
             # is not useful at group level; pv_total_power covers the aggregate.
+            # Note: grid_export_power is redundant — grid_power is signed
+            # (positive=import, negative=export).
             power_sensors = [
                 "pv_total_power",
                 "grid_power",
-                "grid_export_power",
                 "load_power",
-                "ac_power",
                 "eps_power",
             ]
 
