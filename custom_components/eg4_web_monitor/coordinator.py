@@ -43,6 +43,7 @@ from .const import (
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
     CONF_HYBRID_LOCAL_TYPE,
+    CONF_INCLUDE_AC_COUPLE_PV,
     CONF_INVERTER_FAMILY,
     CONF_INVERTER_MODEL,
     CONF_INVERTER_SERIAL,
@@ -1789,6 +1790,43 @@ class EG4DataUpdateCoordinator(
                             gb_val,
                             pg_key,
                         )
+
+                # Add AC couple power to pv_total_power for smart ports in AC couple mode
+                # Smart port status 2 = AC Couple (solar inverter connected)
+                # This is configurable via options (default: disabled)
+                include_ac_couple = self.entry.options.get(
+                    CONF_INCLUDE_AC_COUPLE_PV,
+                    self.entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, False),
+                )
+                if include_ac_couple:
+                    ac_couple_total = 0.0
+                    for port_num in range(1, 5):  # Ports 1-4
+                        status_key = f"smart_port{port_num}_status"
+                        status = gb_sensors.get(status_key)
+                        if status == 2:  # AC Couple mode
+                            l1_power = gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
+                            l2_power = gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
+                            port_power = float(l1_power) + float(l2_power)
+                            ac_couple_total += port_power
+                            _LOGGER.debug(
+                                "LOCAL: Parallel group %s: AC couple port %d power=%sW",
+                                group_name,
+                                port_num,
+                                port_power,
+                            )
+
+                    if ac_couple_total > 0:
+                        current_pv = group_sensors.get("pv_total_power", 0.0)
+                        group_sensors["pv_total_power"] = current_pv + ac_couple_total
+                        _LOGGER.debug(
+                            "LOCAL: Parallel group %s: pv_total_power=%sW "
+                            "(inverters=%sW + AC couple=%sW)",
+                            group_name,
+                            group_sensors["pv_total_power"],
+                            current_pv,
+                            ac_couple_total,
+                        )
+
                 break  # Only one GridBOSS per system
 
             # Create parallel group device entry
