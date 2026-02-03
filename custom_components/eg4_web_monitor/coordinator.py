@@ -1791,16 +1791,10 @@ class EG4DataUpdateCoordinator(
                         )
                 break  # Only one GridBOSS per system
 
-            # Only create parallel groups with more than 1 device
-            if device_count <= 1:
-                _LOGGER.debug(
-                    "LOCAL: Skipping parallel group %s - only %d device(s)",
-                    group_name,
-                    device_count,
-                )
-                continue
-
             # Create parallel group device entry
+            # Note: We create groups even with 1 inverter if parallel_number > 0,
+            # since this indicates the inverter is configured for parallel operation
+            # (e.g., single inverter + GridBOSS setup)
             group_device_id = f"parallel_group_{first_serial}"
             processed["devices"][group_device_id] = {
                 "type": "parallel_group",
