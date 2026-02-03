@@ -210,57 +210,32 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_voltage": battery_data.voltage,
         "battery_bank_charge_power": battery_data.charge_power,
         "battery_bank_discharge_power": battery_data.discharge_power,
+        "battery_bank_power": battery_data.battery_power,
+        "battery_bank_max_capacity": battery_data.max_capacity,
+        "battery_bank_current_capacity": battery_data.current_capacity,
+        "battery_bank_remain_capacity": battery_data.remain_capacity,
+        "battery_bank_full_capacity": battery_data.full_capacity,
+        "battery_bank_capacity_percent": battery_data.capacity_percent,
+        "battery_bank_count": battery_data.battery_count,
+        "battery_bank_status": battery_data.status,
+        "battery_status": battery_data.status,
     }
 
-    # Cross-battery diagnostics (mirrors BatteryBank properties from pylxpweb)
-    batteries = getattr(battery_data, "batteries", [])
-    if batteries:
-        soc_values = [b.soc for b in batteries if b.soc is not None]
-        soh_values = [b.soh for b in batteries if b.soh is not None]
-        voltages = [b.voltage for b in batteries if b.voltage is not None]
-        cycle_counts = [b.cycle_count for b in batteries if b.cycle_count is not None]
-        max_cell_temps = [
-            b.max_cell_temperature
-            for b in batteries
-            if b.max_cell_temperature is not None
-        ]
-        min_cell_temps = [
-            b.min_cell_temperature
-            for b in batteries
-            if b.min_cell_temperature is not None
-        ]
-
-        # Single-battery metrics (need >= 1 battery with valid data)
-        if soh_values:
-            sensors["battery_bank_min_soh"] = min(soh_values)
-        if max_cell_temps:
-            sensors["battery_bank_max_cell_temp"] = max(max_cell_temps)
-        if max_cell_temps and min_cell_temps:
-            sensors["battery_bank_temp_delta"] = round(
-                max(max_cell_temps) - min(min_cell_temps), 1
-            )
-
-        # Cell voltage delta max: worst-case cell imbalance across all batteries
-        cell_deltas = []
-        for b in batteries:
-            if b.max_cell_voltage and b.min_cell_voltage:
-                cell_deltas.append(round(b.max_cell_voltage - b.min_cell_voltage, 3))
-        if cell_deltas:
-            sensors["battery_bank_cell_voltage_delta_max"] = max(cell_deltas)
-
-        # Delta metrics (need >= 2 batteries with valid data)
-        if len(soc_values) >= 2:
-            sensors["battery_bank_soc_delta"] = max(soc_values) - min(soc_values)
-        if len(soh_values) >= 2:
-            sensors["battery_bank_soh_delta"] = max(soh_values) - min(soh_values)
-        if len(voltages) >= 2:
-            sensors["battery_bank_voltage_delta"] = round(
-                max(voltages) - min(voltages), 2
-            )
-        if len(cycle_counts) >= 2:
-            sensors["battery_bank_cycle_count_delta"] = max(cycle_counts) - min(
-                cycle_counts
-            )
+    # Cross-battery diagnostics — computed by BatteryBankData properties
+    # Properties return None when insufficient data, so only add if available
+    diagnostic_map = {
+        "battery_bank_min_soh": battery_data.min_soh,
+        "battery_bank_max_cell_temp": battery_data.max_cell_temp,
+        "battery_bank_temp_delta": battery_data.temp_delta,
+        "battery_bank_cell_voltage_delta_max": battery_data.cell_voltage_delta_max,
+        "battery_bank_soc_delta": battery_data.soc_delta,
+        "battery_bank_soh_delta": battery_data.soh_delta,
+        "battery_bank_voltage_delta": battery_data.voltage_delta,
+        "battery_bank_cycle_count_delta": battery_data.cycle_count_delta,
+    }
+    for key, value in diagnostic_map.items():
+        if value is not None:
+            sensors[key] = value
 
     return sensors
 
@@ -277,17 +252,11 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    # Calculate cell voltage delta if min/max available
-    cell_voltage_delta = None
-    if battery.max_cell_voltage and battery.min_cell_voltage:
-        cell_voltage_delta = round(
-            battery.max_cell_voltage - battery.min_cell_voltage, 3
-        )
-
     return {
         # Core battery metrics
         "battery_real_voltage": battery.voltage,
         "battery_real_current": battery.current,
+        "battery_real_power": battery.power,
         "battery_rsoc": battery.soc,
         "state_of_health": battery.soh,
         # Temperature sensors
@@ -300,10 +269,15 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         "battery_min_cell_voltage": battery.min_cell_voltage,
         "battery_max_cell_voltage_num": battery.max_cell_num_voltage,
         "battery_min_cell_voltage_num": battery.min_cell_num_voltage,
-        "battery_cell_voltage_delta": cell_voltage_delta,
+        "battery_cell_voltage_delta": battery.cell_voltage_delta,
+        "battery_cell_temp_delta": battery.cell_temp_delta,
         # Capacity sensors
         "battery_remaining_capacity": battery.current_capacity,
         "battery_full_capacity": battery.max_capacity,
+        "battery_capacity_percentage": battery.capacity_percent,
+        # BMS limits
+        "battery_max_charge_current": battery.charge_current_limit,
+        "battery_charge_voltage_ref": battery.charge_voltage_ref,
         # Lifecycle
         "cycle_count": battery.cycle_count,
         "battery_firmware_version": battery.firmware_version,
