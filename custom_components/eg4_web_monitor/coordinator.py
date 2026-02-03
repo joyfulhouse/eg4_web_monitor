@@ -282,6 +282,8 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         "cycle_count": battery.cycle_count,
         "battery_firmware_version": battery.firmware_version,
         # Metadata
+        "battery_type": battery.battery_type,
+        "battery_type_text": battery.battery_type_text,
         "battery_serial_number": battery.serial_number,
         "battery_model": battery.model,
         "battery_index": battery.battery_index,
