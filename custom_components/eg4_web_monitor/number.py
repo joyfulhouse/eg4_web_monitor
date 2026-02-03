@@ -279,18 +279,21 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local mode: write via Modbus register 227
+            # Prefer local transport if available (works for local, hybrid, or any mode)
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing System Charge SOC Limit via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT, int_value, serial=self.serial
                 )
-            else:
-                # HTTP mode: use cloud API
-                if self.coordinator.client is None:
-                    raise HomeAssistantError(
-                        "Setting SOC limit requires cloud API connection."
-                    )
-
+            elif self.coordinator.client is not None:
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing System Charge SOC Limit via CLOUD API for %s",
+                    self.serial,
+                )
                 result = await self.coordinator.client.api.control.set_system_charge_soc_limit(
                     self.serial, int_value
                 )
@@ -302,6 +305,10 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 inverter = self.coordinator.get_inverter_object(self.serial)
                 if inverter:
                     await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
 
             _LOGGER.info(
                 "Parameter changed for %s, refreshing parameters for all inverters",
@@ -394,8 +401,11 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting AC Charge Power for %s to %.1f kW", self.serial, value)
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local-only mode: write via Modbus register 66
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing AC Charge Power via LOCAL transport for %s", self.serial
+                )
                 register_value = int(value * 10)
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_AC_CHARGE_POWER, register_value, serial=self.serial
@@ -409,7 +419,10 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing AC Charge Power via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_ac_charge_power(power_kw=value)
@@ -513,8 +526,11 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         _LOGGER.info("Setting PV Charge Power for %s to %d kW", self.serial, int_value)
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local-only mode: write via Modbus register 64
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing PV Charge Power via LOCAL transport for %s", self.serial
+                )
                 # Parameter expects percentage (0-100%) where 100% = 15kW
                 register_value = int(int_value / 15.0 * 100)
                 await self.coordinator.write_named_parameter(
@@ -529,7 +545,10 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing PV Charge Power via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_pv_charge_power(power_kw=int_value)
@@ -632,8 +651,12 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            # Local-only mode: write via Modbus register directly
-            if self.coordinator.is_local_only():
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing Grid Peak Shaving Power via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     "_12K_HOLD_GRID_PEAK_SHAVING_POWER", value, serial=self.serial
                 )
@@ -644,7 +667,10 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing Grid Peak Shaving Power via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_grid_peak_shaving_power(power_kw=value)
@@ -749,8 +775,12 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local-only mode: write via Modbus register 67
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing AC Charge SOC Limit via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_AC_CHARGE_SOC_LIMIT, int_value, serial=self.serial
                 )
@@ -762,7 +792,10 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing AC Charge SOC Limit via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_ac_charge_soc_limit(soc_percent=int_value)
@@ -869,8 +902,12 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local-only mode: write via Modbus register 105
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing On-Grid SOC Cut-Off via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_ONGRID_DISCHG_SOC, int_value, serial=self.serial
                 )
@@ -881,7 +918,10 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing On-Grid SOC Cut-Off via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_soc_limits(on_grid_limit=int_value)
@@ -993,8 +1033,12 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            if self.coordinator.is_local_only():
-                # Local-only mode: write via Modbus register 125
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing Off-Grid SOC Cut-Off via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_OFFGRID_DISCHG_SOC, int_value, serial=self.serial
                 )
@@ -1006,7 +1050,10 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
 
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing Off-Grid SOC Cut-Off via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_soc_limits(
@@ -1116,8 +1163,12 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            # Local-only mode: write via Modbus register directly
-            if self.coordinator.is_local_only():
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing Battery Charge Current via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_CHARGE_CURRENT, int_value, serial=self.serial
                 )
@@ -1129,7 +1180,10 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing Battery Charge Current via CLOUD API for %s", self.serial
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_charge_current(
@@ -1233,8 +1287,12 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         )
 
         with optimistic_value_context(self, value):
-            # Local-only mode: write via Modbus register directly
-            if self.coordinator.is_local_only():
+            # Prefer local transport if available
+            if self.coordinator.has_local_transport(self.serial):
+                _LOGGER.debug(
+                    "Writing Battery Discharge Current via LOCAL transport for %s",
+                    self.serial,
+                )
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_DISCHARGE_CURRENT, int_value, serial=self.serial
                 )
@@ -1246,7 +1304,11 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
                 )
                 await asyncio.sleep(0.5)
             else:
-                # HTTP/Hybrid mode: use cloud API
+                # Fall back to cloud API
+                _LOGGER.debug(
+                    "Writing Battery Discharge Current via CLOUD API for %s",
+                    self.serial,
+                )
                 inverter = self._get_inverter_or_raise()
 
                 success = await inverter.set_battery_discharge_current(

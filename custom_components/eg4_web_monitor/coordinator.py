@@ -2375,23 +2375,25 @@ class EG4DataUpdateCoordinator(
         """Get the Modbus or Dongle transport for local register operations.
 
         Args:
-            serial: Optional device serial for LOCAL mode with multiple devices.
-                    If not provided, uses single-device transport (MODBUS/DONGLE/HYBRID).
+            serial: Optional device serial. Required for LOCAL/HYBRID modes
+                    with multiple devices attached via local_transports config.
 
         Returns:
             ModbusTransport, DongleTransport, or None if using HTTP-only mode.
         """
-        # For LOCAL mode with multiple devices, get transport from inverter cache
+        # Check for transport attached to Station device (HYBRID with local_transports)
+        if serial and self.station:
+            inverter = self.get_inverter_object(serial)
+            if inverter and hasattr(inverter, "_transport") and inverter._transport:
+                return inverter._transport
+
+        # Check LOCAL mode inverter cache
         if serial and self.connection_type == CONNECTION_TYPE_LOCAL:
             inverter = self._inverter_cache.get(serial)
             if inverter and hasattr(inverter, "_transport"):
                 return inverter._transport
-            _LOGGER.warning(
-                "LOCAL: No transport found for serial %s in inverter cache", serial
-            )
-            return None
 
-        # Single-device modes (MODBUS, DONGLE, HYBRID)
+        # Deprecated single-device modes (MODBUS, DONGLE, old HYBRID format)
         if self._modbus_transport:
             return self._modbus_transport
         if self._dongle_transport:
@@ -2399,16 +2401,18 @@ class EG4DataUpdateCoordinator(
         return None
 
     def has_local_transport(self, serial: str | None = None) -> bool:
-        """Check if local Modbus or Dongle transport is available.
+        """Check if local Modbus or Dongle transport is available for a device.
 
         Args:
-            serial: Optional device serial for LOCAL mode with multiple devices.
+            serial: Device serial to check. Required for accurate check in
+                    LOCAL/HYBRID modes with multiple devices.
 
         Returns:
-            True if Modbus or Dongle transport is configured.
+            True if local transport is available for the specified device.
         """
-        if serial and self.connection_type == CONNECTION_TYPE_LOCAL:
+        if serial:
             return self.get_local_transport(serial) is not None
+        # Fallback for no serial: check deprecated single-transport fields
         return self._modbus_transport is not None or self._dongle_transport is not None
 
     def has_http_api(self) -> bool:

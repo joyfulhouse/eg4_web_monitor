@@ -897,7 +897,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         action_verb = "Enabling" if turn_on else "Disabling"
 
         try:
-            _LOGGER.debug("%s %s for device %s", action_verb, action_name, self._serial)
+            _LOGGER.debug(
+                "%s %s via CLOUD API for device %s", action_verb, action_name, self._serial
+            )
 
             # Set optimistic state immediately for UI feedback
             self._optimistic_state = turn_on
@@ -921,7 +923,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 )
 
             _LOGGER.info(
-                "Successfully %s %s for device %s",
+                "Successfully %s %s via CLOUD API for device %s",
                 action_verb.lower()[:-3] + "ed",  # Enabling -> enabled
                 action_name,
                 self._serial,
@@ -986,7 +988,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         try:
             _LOGGER.debug(
-                "%s %s for device %s (parameter %s)",
+                "%s %s via LOCAL transport for device %s (parameter %s)",
                 action_verb,
                 action_name,
                 self._serial,
@@ -1010,7 +1012,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     params[parameter] = value
 
             _LOGGER.info(
-                "Successfully %s %s for device %s",
+                "Successfully %s %s via LOCAL transport for device %s",
                 action_verb.lower()[:-3] + "ed",
                 action_name,
                 self._serial,
