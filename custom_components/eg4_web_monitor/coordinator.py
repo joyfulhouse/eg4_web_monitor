@@ -1685,10 +1685,16 @@ class EG4DataUpdateCoordinator(
                     total_battery_voltage / voltage_count, 1
                 )
 
-            # Count actual batteries and sum capacity across all member devices
-            total_batteries = sum(
-                len(dd.get("batteries", {})) for _, dd in group_devices
-            )
+            # Sum battery_bank_count from all member devices
+            # Use battery_bank_count from sensors (from Modbus register 96 or cloud batParallelNum)
+            # rather than counting batteries dict entries, which may be empty if CAN bus
+            # communication with battery BMS isn't established (common with LXP-EU devices)
+            total_batteries = 0
+            for _, dd in group_devices:
+                ds = dd.get("sensors", {})
+                bat_count = ds.get("battery_bank_count")
+                if bat_count is not None and bat_count > 0:
+                    total_batteries += bat_count
             group_sensors["parallel_battery_count"] = total_batteries
 
             # Sum max/current capacity from inverter battery bank sensors
@@ -1770,9 +1776,8 @@ class EG4DataUpdateCoordinator(
             from homeassistant.helpers import device_registry as dr
 
             device_registry = dr.async_get(self.hass)
-            assert self.config_entry is not None
             device_registry.async_get_or_create(
-                config_entry_id=self.config_entry.entry_id,
+                config_entry_id=self.entry.entry_id,
                 identifiers={(DOMAIN, group_device_id)},
                 name=f"Parallel Group {group_name}",
                 manufacturer=MANUFACTURER,

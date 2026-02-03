@@ -427,3 +427,147 @@ class TestDeviceInfo:
         device_info = coordinator.get_device_info("1234567890")
 
         assert device_info is None
+
+
+class TestParallelGroupBatteryCount:
+    """Test parallel group battery count aggregation."""
+
+    async def test_parallel_group_battery_count_uses_battery_bank_count(
+        self, hass, mock_config_entry
+    ):
+        """Test parallel group sums battery_bank_count from sensors, not batteries dict.
+
+        For LXP-EU devices, the batteries dict may be empty when CAN bus
+        communication with battery BMS isn't established, but battery_bank_count
+        (from Modbus register 96 or cloud batParallelNum) is correct.
+        """
+        # Add config entry to hass for device registry access
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        # Create processed data with two inverters in a parallel group
+        # Each has battery_bank_count=3 but empty batteries dict (simulating LXP-EU)
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,  # In parallel group 1
+                    "parallel_master_slave": 1,  # Master
+                    "sensors": {
+                        "battery_bank_count": 3,  # Has 3 batteries
+                        "battery_soc": 50,
+                        "battery_voltage": 52.0,
+                        "battery_charge_power": 500,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},  # Empty - no CAN bus data
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,  # Same parallel group
+                    "parallel_master_slave": 2,  # Slave
+                    "sensors": {
+                        "battery_bank_count": 3,  # Has 3 batteries
+                        "battery_soc": 55,
+                        "battery_voltage": 52.5,
+                        "battery_charge_power": 600,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},  # Empty - no CAN bus data
+                },
+            }
+        }
+
+        # Process the parallel groups
+        await coordinator._process_local_parallel_groups(processed)
+
+        # Check the parallel group device was created with correct battery count
+        parallel_group = processed["devices"].get("parallel_group_INV001")
+        assert parallel_group is not None
+        assert parallel_group["type"] == "parallel_group"
+
+        # Battery count should be 6 (3 + 3), not 0 (empty batteries dicts)
+        sensors = parallel_group.get("sensors", {})
+        assert sensors.get("parallel_battery_count") == 6
+
+    async def test_parallel_group_battery_count_handles_none_values(
+        self, hass, mock_config_entry
+    ):
+        """Test parallel group handles None battery_bank_count gracefully."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {
+                        "battery_bank_count": 2,
+                        "battery_soc": 50,
+                    },
+                    "batteries": {},
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,
+                    "sensors": {
+                        "battery_bank_count": None,  # Unknown
+                        "battery_soc": 55,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        parallel_group = processed["devices"].get("parallel_group_INV001")
+        assert parallel_group is not None
+
+        # Should only count the valid battery_bank_count (2), not None
+        sensors = parallel_group.get("sensors", {})
+        assert sensors.get("parallel_battery_count") == 2
+
+    async def test_parallel_group_battery_count_handles_zero_values(
+        self, hass, mock_config_entry
+    ):
+        """Test parallel group skips zero battery_bank_count values."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {
+                        "battery_bank_count": 3,
+                        "battery_soc": 50,
+                    },
+                    "batteries": {},
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,
+                    "sensors": {
+                        "battery_bank_count": 0,  # No batteries (or BMS issue)
+                        "battery_soc": 55,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        parallel_group = processed["devices"].get("parallel_group_INV001")
+        assert parallel_group is not None
+
+        # Should only count non-zero values (3), not 0
+        sensors = parallel_group.get("sensors", {})
+        assert sensors.get("parallel_battery_count") == 3
