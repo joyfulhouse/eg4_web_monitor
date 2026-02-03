@@ -230,23 +230,29 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 params = self._parameter_data
                 if params:
                     soc_limit = params.get("HOLD_SYSTEM_CHARGE_SOC_LIMIT")
-                    if soc_limit is not None and 10 <= soc_limit <= 101:
-                        return int(soc_limit)
+                    if soc_limit is not None:
+                        soc_limit = int(soc_limit)  # May be string from transport
+                        if 10 <= soc_limit <= 101:
+                            return soc_limit
                 return None
 
             # HTTP/Hybrid mode: try local parameters first (fresh every cycle)
             params = self._parameter_data
             if params:
                 soc_limit = params.get("HOLD_SYSTEM_CHARGE_SOC_LIMIT")
-                if soc_limit is not None and 10 <= soc_limit <= 101:
-                    return int(soc_limit)
+                if soc_limit is not None:
+                    soc_limit = int(soc_limit)  # API may return string
+                    if 10 <= soc_limit <= 101:
+                        return soc_limit
 
             # Fall back to inverter object (HTTP API)
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
                 soc_limit = inverter.system_charge_soc_limit
-                if soc_limit is not None and 10 <= soc_limit <= 101:
-                    return int(soc_limit)
+                if soc_limit is not None:
+                    soc_limit = int(soc_limit)  # API may return string
+                    if 10 <= soc_limit <= 101:
+                        return soc_limit
 
         except (ValueError, TypeError, AttributeError) as e:
             _LOGGER.debug(
