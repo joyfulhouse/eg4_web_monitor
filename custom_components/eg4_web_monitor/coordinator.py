@@ -1824,9 +1824,9 @@ class EG4DataUpdateCoordinator(
                             break
             # Fallback to local caches
             if device is None:
-                device = self._inverter_cache.get(
+                device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
                     serial
-                ) or self._mid_device_cache.get(serial)
+                )
             transport = getattr(device, "_transport", None) if device else None
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")

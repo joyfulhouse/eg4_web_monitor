@@ -924,13 +924,21 @@ class DeviceProcessingMixin:
         - Status 1: Smart Load - keep Smart Load sensors, remove AC Couple sensors
         - Status 2: AC Couple - keep AC Couple sensors, remove Smart Load sensors
 
+        Invalid status values (None, or outside 0-2 range) are logged as warnings
+        and those ports are skipped (no filtering applied). This can occur with
+        certain WiFi dongle firmware versions that don't properly expose these
+        registers.
+
         Modifies the sensors dictionary in place.
 
         Args:
             sensors: Dictionary of sensor values to modify
             mid_device: MID device object to read port statuses from
         """
-        smart_port_statuses = {}
+        # Valid smart port status values
+        VALID_STATUS_VALUES = {0, 1, 2}
+
+        smart_port_statuses: dict[int, int | None] = {}
         for port in range(1, 5):
             status_property = f"smart_port{port}_status"
             if hasattr(mid_device, status_property):
@@ -942,10 +950,38 @@ class DeviceProcessingMixin:
             smart_port_statuses,
         )
 
+        # Check for invalid values and log warnings with diagnostic info
+        invalid_ports: dict[int, int | None] = {}
+        for port, status in smart_port_statuses.items():
+            if status is None or status not in VALID_STATUS_VALUES:
+                invalid_ports[port] = status
+
+        if invalid_ports:
+            # Get device info for troubleshooting
+            serial = getattr(mid_device, "serial_number", "unknown")
+            firmware = getattr(mid_device, "firmware_version", "unknown")
+            has_transport = (
+                hasattr(mid_device, "_transport") and mid_device._transport is not None
+            )
+
+            _LOGGER.warning(
+                "Invalid Smart Port status values detected for MID device %s "
+                "(firmware: %s, has_local_transport: %s). "
+                "Invalid ports: %s. Valid values are 0=Unused, 1=SmartLoad, 2=ACCouple. "
+                "This may indicate firmware that doesn't support these registers. "
+                "Please report this issue with your dongle firmware version.",
+                serial,
+                firmware,
+                has_transport,
+                invalid_ports,
+            )
+
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():
-            if status == 0:
-                # Unused port - remove all sensors
+            # Invalid status values treated same as "unused" - remove all sensors
+            # This ensures we don't create sensors when register reads fail
+            if status is None or status not in VALID_STATUS_VALUES or status == 0:
+                # Unused or invalid port - remove all sensors
                 sensors_to_remove.extend(
                     [
                         # Smart Load power sensors

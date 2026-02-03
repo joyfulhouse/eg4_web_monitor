@@ -163,6 +163,78 @@ Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for deta
 - **v3.2.0-beta.5** — Unified config flow, pylxpweb>=0.6.5
 - See `CHANGELOG.md` for full history
 
+## Docker Development Environment
+
+### Container Setup
+- **Container**: `homeassistant-dev`
+- **Docker Compose**: `/Users/bryanli/Projects/joyfulhouse/homeassistant-dev/docker-compose.yaml`
+- **Image**: `homeassistant/home-assistant:latest` (Python 3.13)
+- **Port**: 8123 → http://localhost:8123
+
+### Volume Mappings (Host → Container)
+```
+eg4_web_monitor integration:
+  ./eg4_web_monitor/custom_components/eg4_web_monitor → /config/custom_components/eg4_web_monitor
+
+pylxpweb library (editable install):
+  ../python/pylxpweb/src/pylxpweb → /usr/local/lib/python3.13/site-packages/pylxpweb
+```
+
+Code changes are live-mounted. Restart container to pick up Python import changes:
+```bash
+docker restart homeassistant-dev
+docker logs -f homeassistant-dev  # Check for errors
+```
+
+### Multi-Mode Testing (Cloud vs Local vs Hybrid)
+
+Three separate HA config directories allow testing each connection mode in isolation:
+
+| Mode | Config Directory | Purpose |
+|------|------------------|---------|
+| `cloud` | `./config` | Baseline/reference - all data validated against this |
+| `local` | `./config-local` | Local-only (Modbus TCP or WiFi Dongle) |
+| `hybrid` | `./config-hybrid` | Local polling + cloud supplemental data |
+
+**Switch modes** using the helper script:
+```bash
+cd /Users/bryanli/Projects/joyfulhouse/homeassistant-dev
+./scripts/eg4-switch-mode.sh cloud   # Switch to cloud mode
+./scripts/eg4-switch-mode.sh local   # Switch to local mode
+./scripts/eg4-switch-mode.sh hybrid  # Switch to hybrid mode
+```
+
+**Check current mode**:
+```bash
+grep ":/config" docker-compose.yaml | head -1
+# Returns: - ./config:/config OR - ./config-local:/config OR - ./config-hybrid:/config
+```
+
+**Setup details**:
+- All configs share the same HA user accounts/UI (copied from `./config`)
+- Each config has EG4 integration entry removed for fresh configuration
+- Integration titles: Cloud/Hybrid use plant name (e.g., "EG4 Electronics - 6245 N WILLARD"), Local uses custom name
+- Only ONE mode runs at a time to avoid API rate limits and Modbus collisions
+
+**Validation requirements**:
+- Cloud mode is baseline - all data should match production
+- Local mode must have ALL entities present in cloud (minimum parity)
+- Hybrid mode should poll locally with cloud supplemental data
+- Allow small margin of error for live readings due to cloud lag
+
+### Common Issues
+
+**pylxpweb import errors** (e.g., "cannot import name 'LuxpowerClient'"):
+```bash
+cd /Users/bryanli/Projects/joyfulhouse/python/pylxpweb
+git restore src/pylxpweb/  # Restore accidentally deleted source files
+docker restart homeassistant-dev
+```
+
+**Integration not loading**: Check `docker logs homeassistant-dev` for import errors
+
+**Changes not reflecting**: Container restart required for Python imports
+
 ## Testing & Validation
 
 ### Local Testing
