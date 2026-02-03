@@ -216,6 +216,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                 "Removed stale local-format battery entity: %s", entity.entity_id
             )
 
+    # One-time migration: rename power_output to output_power for consistency
+    # HTTP mode used "power_output", local mode used "output_power"
+    # Now standardized on "output_power" across all modes
+    for entity in entities:
+        if entity.domain != "sensor":
+            continue
+        if "_power_output" in entity.unique_id:
+            new_unique_id = entity.unique_id.replace("_power_output", "_output_power")
+            entity_registry.async_update_entity(
+                entity.entity_id, new_unique_id=new_unique_id
+            )
+            _LOGGER.info(
+                "Migrated entity %s: power_output -> output_power", entity.entity_id
+            )
+
     # Parallel group identity stabilization.
     # If the coordinator now produces a different serial for a PG than what's
     # already registered (e.g., roleText master vs old arbitrary order), remap

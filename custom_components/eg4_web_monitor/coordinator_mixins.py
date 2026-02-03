@@ -257,6 +257,12 @@ class DeviceProcessingMixin:
             power_to_grid = _safe_numeric(inverter.power_to_grid)
             processed["sensors"]["grid_power"] = power_to_user - power_to_grid
 
+        # Add load_power as alias for grid_import_power (power_to_user)
+        # This ensures entity consistency between cloud and local modes
+        # In Modbus, register 27 (pToUser) is labeled "Load power"
+        if hasattr(inverter, "power_to_user"):
+            processed["sensors"]["load_power"] = inverter.power_to_user
+
         # Calculate total load power (EPS + consumption)
         eps_power = processed["sensors"].get("eps_power")
         consumption_power = processed["sensors"].get("consumption_power")
@@ -397,7 +403,9 @@ class DeviceProcessingMixin:
         """
         return {
             # Power sensors
-            "power_output": "power_output",
+            # Note: pylxpweb uses power_output property, but we map to output_power
+            # for consistency with local mode (which uses output_power from Modbus)
+            "power_output": "output_power",
             "pv_total_power": "pv_total_power",
             "pv1_power": "pv1_power",
             "pv2_power": "pv2_power",

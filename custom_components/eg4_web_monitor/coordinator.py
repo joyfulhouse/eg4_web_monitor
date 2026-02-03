@@ -272,7 +272,9 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         "battery_cell_voltage_delta": battery.cell_voltage_delta,
         "battery_cell_temp_delta": battery.cell_temp_delta,
         # Capacity sensors
-        "battery_remaining_capacity": battery.current_capacity,
+        # Use remaining_capacity (computed: max_capacity * soc / 100) not current_capacity
+        # which returns 0 from Modbus individual battery registers
+        "battery_remaining_capacity": battery.remaining_capacity,
         "battery_full_capacity": battery.max_capacity,
         "battery_capacity_percentage": battery.capacity_percent,
         # BMS limits
@@ -845,6 +847,19 @@ class EG4DataUpdateCoordinator(
         device_data["sensors"]["connection_transport"] = self._get_transport_label(
             connection_type
         )
+
+        # Add computed sensors from inverter properties (for deprecated code path)
+        if (val := inverter.consumption_power) is not None:
+            device_data["sensors"]["consumption_power"] = val
+        if (val := inverter.total_load_power) is not None:
+            device_data["sensors"]["total_load_power"] = val
+        if (val := inverter.battery_power) is not None:
+            device_data["sensors"]["battery_power"] = val
+        if (val := inverter.rectifier_power) is not None:
+            device_data["sensors"]["rectifier_power"] = val
+        if (val := inverter.power_to_user) is not None:
+            device_data["sensors"]["grid_import_power"] = val
+
         transport = getattr(inverter, "_transport", None)
         if transport and hasattr(transport, "host"):
             device_data["sensors"]["transport_host"] = transport.host
@@ -1357,6 +1372,33 @@ class EG4DataUpdateCoordinator(
                     )
                 )
                 device_data["sensors"]["transport_host"] = host
+
+                # Add computed sensors from inverter properties
+                # These use stable library interfaces for consistency
+                sensors = device_data["sensors"]
+
+                # Computed power sensors from pylxpweb library
+                if (val := inverter.consumption_power) is not None:
+                    sensors["consumption_power"] = val
+                if (val := inverter.total_load_power) is not None:
+                    sensors["total_load_power"] = val
+                if (val := inverter.battery_power) is not None:
+                    sensors["battery_power"] = val
+                if (val := inverter.rectifier_power) is not None:
+                    sensors["rectifier_power"] = val
+                if (val := inverter.power_to_user) is not None:
+                    sensors["grid_import_power"] = val
+
+                _LOGGER.debug(
+                    "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "
+                    "battery=%s, rectifier=%s, grid_import=%s",
+                    serial,
+                    sensors.get("consumption_power"),
+                    sensors.get("total_load_power"),
+                    sensors.get("battery_power"),
+                    sensors.get("rectifier_power"),
+                    sensors.get("grid_import_power"),
+                )
 
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
