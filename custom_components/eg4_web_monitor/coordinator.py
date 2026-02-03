@@ -1802,15 +1802,31 @@ class EG4DataUpdateCoordinator(
         data["connection_type"] = CONNECTION_TYPE_HYBRID
 
         # Set transport labels per device based on attached transports
+        # In hybrid mode, devices are in the station object, not local caches
         for serial, device_data in data.get("devices", {}).items():
             if "sensors" not in device_data:
                 continue
             if device_data.get("type") == "parallel_group":
                 continue
-            # Check both inverter and MID device caches for transport
-            device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
-                serial
-            )
+            # Look up device from station (hybrid mode) or local caches (fallback)
+            device = None
+            if self.station:
+                # Check station inverters
+                for inv in self.station.all_inverters:
+                    if inv.serial_number == serial:
+                        device = inv
+                        break
+                # Check station MID devices
+                if device is None:
+                    for mid in self.station.all_mid_devices:
+                        if mid.serial_number == serial:
+                            device = mid
+                            break
+            # Fallback to local caches
+            if device is None:
+                device = self._inverter_cache.get(
+                    serial
+                ) or self._mid_device_cache.get(serial)
             transport = getattr(device, "_transport", None) if device else None
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")
