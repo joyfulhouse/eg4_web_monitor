@@ -280,21 +280,39 @@ class DeviceProcessingMixin:
             )
 
         # Process battery bank aggregate data if available
-        # Note: Aggregate data (soc, voltage, power) can exist even when totalNumber=0
-        # (i.e., no individual batteries in batteryArray but aggregate stats are present)
-        battery_bank = getattr(inverter, "_battery_bank", None)
-        if battery_bank:
+        # Prefer transport battery data (local Modbus) over cloud battery_bank
+        # In hybrid mode, _transport_battery is refreshed each cycle while
+        # _battery_bank may be stale from initial cloud station load
+        transport_battery = getattr(inverter, "_transport_battery", None)
+        if transport_battery:
             try:
-                battery_bank_sensors = self._extract_battery_bank_from_object(
-                    battery_bank
+                from .coordinator import _build_battery_bank_sensor_mapping
+
+                battery_bank_sensors = _build_battery_bank_sensor_mapping(
+                    transport_battery
                 )
                 processed["sensors"].update(battery_bank_sensors)
             except Exception as e:
                 _LOGGER.warning(
-                    "Error extracting battery bank data for inverter %s: %s",
+                    "Error extracting transport battery bank data for inverter %s: %s",
                     inverter.serial_number,
                     e,
                 )
+        else:
+            # Fall back to cloud battery_bank for cloud-only mode
+            battery_bank = getattr(inverter, "_battery_bank", None)
+            if battery_bank:
+                try:
+                    battery_bank_sensors = self._extract_battery_bank_from_object(
+                        battery_bank
+                    )
+                    processed["sensors"].update(battery_bank_sensors)
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Error extracting battery bank data for inverter %s: %s",
+                        inverter.serial_number,
+                        e,
+                    )
 
         # Fetch quick charge and battery backup status with 30s throttle
         # These are cloud API calls that should not run every update cycle

@@ -2230,7 +2230,30 @@ class EG4DataUpdateCoordinator(
                 _LOGGER.debug("No inverter object found for serial %s", serial)
                 continue
 
-            # Access battery_bank through the inverter object
+            # Prefer transport battery data (local Modbus) over cloud battery_bank
+            # In hybrid mode, _transport_battery has fresh individual battery data
+            # from registers 5000+, while _battery_bank may be stale from initial load
+            transport_battery = getattr(inverter, "_transport_battery", None)
+            if (
+                transport_battery
+                and hasattr(transport_battery, "batteries")
+                and transport_battery.batteries
+            ):
+                if "batteries" not in device_data:
+                    device_data["batteries"] = {}
+                for batt in transport_battery.batteries:
+                    battery_key = f"{serial}-{batt.battery_index + 1:02d}"
+                    device_data["batteries"][battery_key] = (
+                        _build_individual_battery_mapping(batt)
+                    )
+                _LOGGER.debug(
+                    "HYBRID: Added %d individual batteries from transport for %s",
+                    len(transport_battery.batteries),
+                    serial,
+                )
+                continue
+
+            # Fall back to cloud battery_bank for cloud-only mode
             battery_bank = getattr(inverter, "_battery_bank", None)
             if not battery_bank:
                 _LOGGER.debug(
