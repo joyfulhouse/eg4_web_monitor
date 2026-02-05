@@ -5,9 +5,19 @@ This module contains all device type and inverter family constants including:
 - Inverter family constants
 - Feature-based sensor classification sets
 - Inverter family to default model mapping
+
+Deprecated Constants (v3.2.0):
+    The following constants are deprecated and will be removed in a future version:
+    - INVERTER_FAMILY_SNA → use INVERTER_FAMILY_EG4_OFFGRID
+    - INVERTER_FAMILY_PV_SERIES → use INVERTER_FAMILY_EG4_HYBRID
+    - INVERTER_FAMILY_LXP_EU → use INVERTER_FAMILY_LXP
+    - INVERTER_FAMILY_LXP_LV → use INVERTER_FAMILY_LXP
 """
 
 from __future__ import annotations
+
+import warnings
+from typing import Any
 
 # =============================================================================
 # Device Types
@@ -32,11 +42,33 @@ INVERTER_FAMILY_EG4_HYBRID = "EG4_HYBRID"  # Grid-tied hybrid (18kPV, 12kPV, Fle
 INVERTER_FAMILY_LXP = "LXP"  # Luxpower (LXP-EU, LXP-LB-BR, LXP-LV)
 INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
 
-# Legacy aliases for backwards compatibility with existing config entries
-INVERTER_FAMILY_SNA = "EG4_OFFGRID"  # Deprecated: use INVERTER_FAMILY_EG4_OFFGRID
-INVERTER_FAMILY_PV_SERIES = "EG4_HYBRID"  # Deprecated: use INVERTER_FAMILY_EG4_HYBRID
-INVERTER_FAMILY_LXP_EU = "LXP"  # Deprecated: use INVERTER_FAMILY_LXP
-INVERTER_FAMILY_LXP_LV = "LXP"  # Deprecated: use INVERTER_FAMILY_LXP
+# =============================================================================
+# Deprecated Legacy Aliases
+# =============================================================================
+# These emit DeprecationWarning when accessed via module-level __getattr__
+_DEPRECATED_FAMILY_CONSTANTS: dict[str, tuple[str, str]] = {
+    # name -> (value, replacement_name)
+    "INVERTER_FAMILY_SNA": ("EG4_OFFGRID", "INVERTER_FAMILY_EG4_OFFGRID"),
+    "INVERTER_FAMILY_PV_SERIES": ("EG4_HYBRID", "INVERTER_FAMILY_EG4_HYBRID"),
+    "INVERTER_FAMILY_LXP_EU": ("LXP", "INVERTER_FAMILY_LXP"),
+    "INVERTER_FAMILY_LXP_LV": ("LXP", "INVERTER_FAMILY_LXP"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Module-level attribute access for deprecation warnings.
+
+    Emits DeprecationWarning when deprecated constants are accessed.
+    """
+    if name in _DEPRECATED_FAMILY_CONSTANTS:
+        value, replacement = _DEPRECATED_FAMILY_CONSTANTS[name]
+        warnings.warn(
+            f"'{name}' is deprecated since v3.2.0. Use '{replacement}' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Map legacy family names to new names for config entry migration
 LEGACY_FAMILY_MAP: dict[str, str] = {
@@ -63,7 +95,7 @@ INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
 # =============================================================================
 # These sets define which sensors are only available on specific device families
 
-# Sensors only available on split-phase (SNA) inverters (12000XP, 6000XP)
+# Sensors only available on split-phase (EG4_OFFGRID) inverters (12000XP, 6000XP)
 # These inverters use L1/L2 phase naming convention
 SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
@@ -77,7 +109,7 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
-# Sensors only available on three-phase capable inverters (PV Series, LXP-EU)
+# Sensors only available on three-phase capable inverters (EG4_HYBRID, LXP)
 # These inverters use R/S/T phase naming convention
 THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
@@ -93,7 +125,7 @@ THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
-# Sensors related to discharge recovery hysteresis (SNA series only)
+# Sensors related to discharge recovery hysteresis (EG4_OFFGRID series only)
 # These parameters prevent oscillation when SOC is near the cutoff threshold
 DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
     {
@@ -102,7 +134,7 @@ DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
-# Sensors related to Volt-Watt curve (PV Series, LXP-EU only)
+# Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {
         "volt_watt_v1",
