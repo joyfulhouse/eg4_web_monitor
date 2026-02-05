@@ -2,369 +2,371 @@
   "config": {
     "step": {
       "user": {
-        "title": "EG4 Web Monitor Setup",
-        "description": "Connect your EG4 cloud account for full access to all features including GridBOSS, Quick Charge, and firmware updates. You can add local devices later for faster polling.",
+        "title": "EG4 Web Monitor 設定",
+        "description": "連接您的 EG4 雲端帳戶以獲取所有功能，包括 GridBOSS、快速充電和韌體更新。您可以稍後新增本機裝置以實現更快的輪詢。",
         "menu_options": {
-          "cloud_credentials": "Connect Cloud Account",
-          "local_device_type": "Skip — Local Only"
+          "cloud_credentials": "連接雲端帳戶",
+          "local_device_type": "略過 — 僅本機"
         }
       },
       "cloud_credentials": {
-        "title": "{brand_name} Cloud API Credentials",
-        "description": "Connect to your {brand_name} Web Monitor account to manage your solar inverters, GridBOSS devices, and battery systems.",
+        "title": "{brand_name} 雲端 API 憑證",
+        "description": "連接到您的 {brand_name} Web Monitor 帳戶，管理您的太陽能逆變器、GridBOSS 裝置和電池系統。",
         "data": {
-          "username": "Username",
-          "password": "Password",
-          "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization"
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步"
         },
         "data_description": {
-          "username": "Your {brand_name} Web Monitor account username",
-          "password": "Your {brand_name} Web Monitor account password",
-          "base_url": "The base URL for the {brand_name} Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings to your inverter based on your Home Assistant timezone"
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連線",
+          "dst_sync": "根據您的 Home Assistant 時區自動同步逆變器的夏令時間設定"
         }
       },
       "cloud_station": {
-        "title": "Select Station",
-        "description": "Choose which solar station/plant to monitor.",
+        "title": "選擇電站",
+        "description": "選擇要監控的太陽能電站/電廠。",
         "data": {
-          "plant_id": "Station/Plant"
+          "plant_id": "電站/電廠"
         },
         "data_description": {
-          "plant_id": "Select the solar installation you want to monitor"
+          "plant_id": "選擇您要監控的太陽能安裝系統"
         }
       },
       "cloud_add_local": {
-        "title": "Add Local Devices?",
-        "description": "Your cloud connection is ready. You can optionally add local devices for faster polling (5-second updates via Modbus/Dongle vs 30-second cloud polling).",
+        "title": "新增本機裝置？",
+        "description": "您的雲端連線已就緒。您可以選擇新增本機裝置以實現更快的輪詢（透過 Modbus/Dongle 5秒更新，而雲端輪詢為30秒）。",
         "menu_options": {
-          "local_device_type": "Add Local Device",
-          "cloud_finish": "Finish (Cloud Only)"
+          "local_device_type": "新增本機裝置",
+          "cloud_finish": "完成（僅雲端）"
         }
       },
       "local_device_type": {
-        "title": "Select Device Connection",
-        "description": "Choose how your device is connected locally.",
+        "title": "選擇裝置連線方式",
+        "description": "選擇您的裝置如何在本機連線。",
         "menu_options": {
           "network_scan_config": "掃描網路（自動發現）",
-          "local_modbus": "Modbus TCP (RS485 adapter)",
-          "local_serial": "USB Serial (RS485 adapter)",
-          "local_dongle": "WiFi Dongle"
+          "local_modbus": "Modbus TCP（手動輸入）",
+          "local_serial": "USB 序列埠（RS485 轉接器）",
+          "local_dongle": "WiFi Dongle（手動輸入）"
         }
       },
       "network_scan_config": {
         "title": "網路掃描設定",
-        "description": "掃描本地網路以尋找 {brand_name} 裝置。Modbus 裝置（連接埠 502）可完全識別。WiFi 加密狗候選裝置（連接埠 8000）需要手動輸入序號。",
+        "description": "掃描本機網路以尋找 {brand_name} 裝置。Modbus 裝置（連接埠 502）可完全識別。WiFi Dongle 候選裝置（連接埠 8000）需要您之後輸入序號。",
         "data": {
           "ip_range": "IP 範圍（CIDR）",
           "scan_modbus": "掃描 Modbus TCP（連接埠 502）",
-          "scan_dongle": "掃描 WiFi 加密狗（連接埠 8000）",
+          "scan_dongle": "掃描 WiFi Dongle（連接埠 8000）",
           "timeout": "連線逾時（秒）"
         },
         "data_description": {
-          "ip_range": "CIDR 表示法的網路範圍（例如 192.168.1.0/24）。從 Home Assistant 網路自動偵測。",
-          "timeout": "每個裝置的等待時間。較低 = 更快掃描，較高 = 更可靠。"
+          "ip_range": "CIDR 表示法的網路範圍（例如 192.168.1.0/24）。從您的 Home Assistant 網路自動偵測。",
+          "timeout": "等待每個裝置回應的時間。較低 = 更快掃描，較高 = 更可靠。"
         }
       },
       "network_scan_progress": {
         "title": "正在掃描網路...",
-        "description": "正在掃描本地網路以尋找 {brand_name} 裝置。這可能需要一些時間。"
+        "description": "正在掃描本機網路以尋找 {brand_name} 裝置。這可能需要一些時間。"
       },
       "network_scan_results": {
         "title": "找到 {device_count} 個裝置",
-        "description": "從掃描結果中選擇裝置（{scanned_range}）。Modbus 裝置已完全識別。加密狗候選裝置需要輸入序號。",
+        "description": "從掃描結果中選擇裝置（已掃描 {scanned_range}）。Modbus 裝置已完全識別。Dongle 候選裝置需要在下一畫面輸入序號。",
         "data": {
           "device": "選擇裝置"
         }
       },
       "network_scan_empty": {
         "title": "未找到裝置",
-        "description": "{scanned_range} 的網路掃描未找到 {brand_name} 裝置。您可以手動輸入連線詳情。",
+        "description": "網路掃描 {scanned_range} 未找到 {brand_name} 裝置。您可以手動輸入連線詳情。",
         "menu_options": {
           "local_modbus": "手動輸入 Modbus",
-          "local_dongle": "手動輸入加密狗"
+          "local_dongle": "手動輸入 Dongle"
         }
       },
       "local_modbus": {
-        "title": "Connect via Modbus TCP",
-        "description": "Enter the IP address of your Modbus TCP gateway. Device serial, model, and firmware are automatically detected.",
+        "title": "透過 Modbus TCP 連線",
+        "description": "輸入您的 Modbus TCP 閘道的 IP 位址。裝置序號、型號和韌體會自動偵測。",
         "data": {
-          "modbus_host": "Gateway IP Address",
-          "modbus_port": "Port",
-          "modbus_unit_id": "Unit ID"
+          "modbus_host": "閘道 IP 位址",
+          "modbus_port": "連接埠",
+          "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
-          "modbus_port": "TCP port (default: 502)",
-          "modbus_unit_id": "Modbus slave ID (default: 1)"
+          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_port": "TCP 連接埠（預設：502）",
+          "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }
       },
       "local_dongle": {
-        "title": "Connect via WiFi Dongle",
-        "description": "Enter the dongle connection details. The dongle serial is printed on the device label (also the WiFi AP name). Note: Recent firmware updates may block this access.",
+        "title": "透過 WiFi Dongle 連線",
+        "description": "輸入 Dongle 連線詳情。Dongle 序號印在裝置標籤上（也是 WiFi AP 名稱）。注意：最近的韌體更新可能會阻止此存取。",
         "data": {
-          "dongle_host": "Dongle IP Address",
-          "dongle_serial": "Dongle Serial Number",
-          "inverter_serial": "Inverter Serial Number",
-          "dongle_port": "Port"
+          "dongle_host": "Dongle IP 位址",
+          "dongle_serial": "Dongle 序號",
+          "inverter_serial": "逆變器序號",
+          "dongle_port": "連接埠"
         },
         "data_description": {
-          "dongle_host": "IP address of your WiFi dongle on your local network",
-          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
-          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
-          "dongle_port": "TCP port (default: 8000)"
+          "dongle_host": "您本機網路上 WiFi Dongle 的 IP 位址",
+          "dongle_serial": "10位 Dongle 序號（逆變器用 BJ/BA，GridBOSS 用 DJ）",
+          "inverter_serial": "裝置銘牌上的10位序號（身分驗證必需）",
+          "dongle_port": "TCP 連接埠（預設：8000）"
         }
       },
       "local_serial": {
-        "title": "Connect via USB Serial",
-        "description": "Select your USB-to-RS485 serial adapter. Device serial, model, and firmware are automatically detected.",
+        "title": "透過 USB 序列埠連線",
+        "description": "選擇您的 USB 轉 RS485 序列埠轉接器。裝置序號、型號和韌體會自動偵測。",
         "data": {
-          "serial_port": "Serial Port",
-          "serial_baudrate": "Baud Rate",
-          "serial_parity": "Parity",
-          "serial_stopbits": "Stop Bits",
-          "modbus_unit_id": "Unit ID"
+          "serial_port": "序列埠",
+          "serial_baudrate": "鮑率",
+          "serial_parity": "同位檢查",
+          "serial_stopbits": "停止位元",
+          "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "serial_port": "Select your USB serial adapter or enter manually",
-          "serial_baudrate": "Communication speed (default: 19200)",
-          "serial_parity": "Parity bit setting (default: None)",
-          "serial_stopbits": "Number of stop bits (default: 1)",
-          "modbus_unit_id": "Modbus slave ID (default: 1)"
+          "serial_port": "選擇您的 USB 序列埠轉接器或手動輸入",
+          "serial_baudrate": "通訊速度（預設：19200）",
+          "serial_parity": "同位檢查位元設定（預設：無）",
+          "serial_stopbits": "停止位元數量（預設：1）",
+          "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }
       },
       "local_serial_manual": {
-        "title": "Enter Serial Port Path",
-        "description": "Enter the path to your USB-to-RS485 serial adapter manually.",
+        "title": "輸入序列埠路徑",
+        "description": "手動輸入您的 USB 轉 RS485 序列埠轉接器的路徑。",
         "data": {
-          "serial_port": "Serial Port Path"
+          "serial_port": "序列埠路徑"
         },
         "data_description": {
-          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
+          "serial_port": "例如 /dev/ttyUSB0 (Linux)、COM1 (Windows)、/dev/tty.usbserial-* (macOS)"
         }
       },
       "local_device_confirmed": {
-        "title": "Device Found",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nDevice #{device_count} added. What next?",
+        "title": "已找到裝置",
+        "description": "**{device_type}**: {device_model}\n**序號**: {device_serial}\n**系列**: {device_family}\n**韌體**: {device_firmware}\n**PV 功率**: {device_pv_power}W | **電池 SOC**: {device_battery_soc}%\n\n已新增第 {device_count} 個裝置。下一步？",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "新增另一個裝置",
+          "local_add_cloud": "新增雲端憑證",
+          "local_finish": "完成設定"
         }
       },
       "local_finish": {
-        "title": "Name Your Installation",
-        "description": "Give your solar installation a friendly name.\n\n**Configured devices**: {device_summary}",
+        "title": "命名您的安裝系統",
+        "description": "為您的太陽能安裝系統起一個友善的名稱。\n\n**已設定裝置**: {device_summary}",
         "data": {
-          "station_name": "Installation Name (optional)"
+          "station_name": "安裝系統名稱（選填）"
         },
         "data_description": {
-          "station_name": "Leave blank to use the device model and serial as the name"
+          "station_name": "留空則使用裝置型號和序號作為名稱"
         }
       },
       "reauth_confirm": {
-        "title": "Reauthenticate {brand_name}",
-        "description": "Your session has expired. Please re-enter your password to restore access.",
+        "title": "重新驗證 {brand_name}",
+        "description": "您的工作階段已過期。請重新輸入密碼以恢復存取。",
         "data": {
-          "password": "Password"
+          "password": "密碼"
         },
         "data_description": {
-          "password": "Your {brand_name} Web Monitor account password"
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼"
         }
       },
       "reconfigure_menu": {
-        "title": "Reconfigure",
-        "description": "What would you like to change?",
+        "title": "重新設定",
+        "description": "您想變更什麼？",
         "menu_options": {
-          "reconfigure_cloud_update": "Update Cloud Credentials",
-          "reconfigure_cloud_remove": "Remove Cloud Connection",
-          "reconfigure_cloud_add": "Add Cloud Credentials",
-          "reconfigure_devices": "Manage Local Devices"
+          "reconfigure_cloud_update": "更新雲端憑證",
+          "reconfigure_cloud_remove": "移除雲端連線",
+          "reconfigure_cloud_add": "新增雲端憑證",
+          "reconfigure_devices": "管理本機裝置"
         }
       },
       "reconfigure_cloud_update": {
-        "title": "Update Cloud Credentials",
-        "description": "Update your {brand_name} Web Monitor account credentials.",
+        "title": "更新雲端憑證",
+        "description": "更新您的 {brand_name} Web Monitor 帳戶憑證。",
         "data": {
-          "username": "Username",
-          "password": "Password",
-          "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization"
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步"
         },
         "data_description": {
-          "username": "Your {brand_name} Web Monitor account username",
-          "password": "Your {brand_name} Web Monitor account password",
-          "base_url": "The base URL for the {brand_name} Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連線",
+          "dst_sync": "自動同步夏令時間設定"
         }
       },
       "reconfigure_cloud_add": {
-        "title": "Add Cloud Credentials",
-        "description": "Add cloud API credentials to enable battery details, remote control, and device discovery.",
+        "title": "新增雲端憑證",
+        "description": "新增雲端 API 憑證以啟用電池詳情、遠端控制和裝置發現。",
         "data": {
-          "username": "Username",
-          "password": "Password",
-          "base_url": "Base URL",
-          "verify_ssl": "Verify SSL Certificate",
-          "dst_sync": "DST Synchronization"
+          "username": "使用者名稱",
+          "password": "密碼",
+          "base_url": "基礎 URL",
+          "verify_ssl": "驗證 SSL 憑證",
+          "dst_sync": "夏令時間同步"
         },
         "data_description": {
-          "username": "Your {brand_name} Web Monitor account username",
-          "password": "Your {brand_name} Web Monitor account password",
-          "base_url": "The base URL for the {brand_name} Web Monitor API",
-          "verify_ssl": "Enable SSL certificate verification for secure connections",
-          "dst_sync": "Automatically synchronize Daylight Saving Time settings"
+          "username": "您的 {brand_name} Web Monitor 帳戶使用者名稱",
+          "password": "您的 {brand_name} Web Monitor 帳戶密碼",
+          "base_url": "{brand_name} Web Monitor API 的基礎 URL",
+          "verify_ssl": "啟用 SSL 憑證驗證以確保安全連線",
+          "dst_sync": "自動同步夏令時間設定"
         }
       },
       "reconfigure_cloud_station": {
-        "title": "Change Station",
-        "description": "Select a different solar station/plant to monitor.",
+        "title": "變更電站",
+        "description": "選擇不同的太陽能電站/電廠進行監控。",
         "data": {
-          "plant_id": "Station/Plant"
+          "plant_id": "電站/電廠"
         },
         "data_description": {
-          "plant_id": "Select the solar installation you want to monitor"
+          "plant_id": "選擇您要監控的太陽能安裝系統"
         }
       },
       "reconfigure_cloud_remove": {
-        "title": "Remove Cloud Connection",
-        "description": "This will remove cloud credentials from your configuration. Your local devices will continue to work.\n\nFeatures that require cloud and will be disabled:\n- Quick Charge switch\n- GridBOSS/MID device sensors\n- Firmware update notifications\n\nAll other controls (Battery Backup, AC Charge, SOC limits, etc.) work locally via Modbus registers.",
-        "submit": "Remove Cloud Connection"
+        "title": "移除雲端連線",
+        "description": "這將從您的設定中移除雲端憑證。您的本機裝置將繼續運作。\n\n需要雲端且將被停用的功能：\n- 快速充電開關\n- GridBOSS/MID 裝置感測器\n- 韌體更新通知\n\n所有其他控制（電池備份、交流充電、SOC 限制等）透過 Modbus 暫存器在本機運作。",
+        "submit": "移除雲端連線"
       },
       "reconfigure_devices": {
-        "title": "Manage Local Devices",
+        "title": "管理本機裝置",
         "description": "{device_list}",
         "menu_options": {
-          "reconfigure_device_add": "Add Device",
-          "reconfigure_device_remove": "Remove Device",
-          "reconfigure_devices_save": "Save & Close"
+          "reconfigure_device_add": "新增裝置",
+          "reconfigure_device_remove": "移除裝置",
+          "reconfigure_devices_save": "儲存並關閉"
         }
       },
       "reconfigure_device_remove": {
-        "title": "Remove Local Device",
-        "description": "Select the device to remove from this configuration.",
+        "title": "移除本機裝置",
+        "description": "選擇要從此設定中移除的裝置。",
         "data": {
-          "device": "Device"
+          "device": "裝置"
         }
       },
       "reconfigure_device_add": {
-        "title": "Add Local Device",
-        "description": "Select the connection type for your new device.",
+        "title": "新增本機裝置",
+        "description": "為您的新裝置選擇連線類型。",
         "menu_options": {
-          "network_scan_config": "Scan Network (Auto-Discover)",
-          "reconfigure_add_modbus": "Modbus TCP (RS485 adapter)",
-          "reconfigure_add_serial": "USB Serial (RS485 adapter)",
-          "reconfigure_add_dongle": "WiFi Dongle"
+          "network_scan_config": "掃描網路（自動發現）",
+          "reconfigure_add_modbus": "Modbus TCP（手動輸入）",
+          "reconfigure_add_serial": "USB 序列埠（RS485 轉接器）",
+          "reconfigure_add_dongle": "WiFi Dongle（手動輸入）"
         }
       },
       "reconfigure_add_modbus": {
-        "title": "Add Modbus Device",
-        "description": "Configure a new Modbus TCP connection. Device info is auto-detected.",
+        "title": "新增 Modbus 裝置",
+        "description": "設定新的 Modbus TCP 連線。裝置資訊會自動偵測。",
         "data": {
-          "modbus_host": "Gateway IP Address",
-          "modbus_port": "Port",
-          "modbus_unit_id": "Unit ID"
+          "modbus_host": "閘道 IP 位址",
+          "modbus_port": "連接埠",
+          "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
-          "modbus_port": "TCP port (default: 502)",
-          "modbus_unit_id": "Modbus slave ID (default: 1)"
+          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_port": "TCP 連接埠（預設：502）",
+          "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }
       },
       "reconfigure_add_dongle": {
-        "title": "Add WiFi Dongle Device",
-        "description": "Configure a new WiFi dongle connection. Device info is auto-detected.",
+        "title": "新增 WiFi Dongle 裝置",
+        "description": "設定新的 WiFi Dongle 連線。裝置資訊會自動偵測。",
         "data": {
-          "dongle_host": "Dongle IP Address",
-          "dongle_serial": "Dongle Serial Number",
-          "inverter_serial": "Inverter Serial Number",
-          "dongle_port": "Port"
+          "dongle_host": "Dongle IP 位址",
+          "dongle_serial": "Dongle 序號",
+          "inverter_serial": "逆變器序號",
+          "dongle_port": "連接埠"
         },
         "data_description": {
-          "dongle_host": "IP address of your WiFi dongle on your local network",
-          "dongle_serial": "10-character dongle serial (BJ/BA for inverters, DJ for GridBOSS)",
-          "inverter_serial": "10-character serial from device nameplate (required for authentication)",
-          "dongle_port": "TCP port (default: 8000)"
+          "dongle_host": "您本機網路上 WiFi Dongle 的 IP 位址",
+          "dongle_serial": "10位 Dongle 序號（逆變器用 BJ/BA，GridBOSS 用 DJ）",
+          "inverter_serial": "裝置銘牌上的10位序號（身分驗證必需）",
+          "dongle_port": "TCP 連接埠（預設：8000）"
         }
       },
       "reconfigure_add_serial": {
-        "title": "Add USB Serial Device",
-        "description": "Configure a new USB-to-RS485 serial connection. Device info is auto-detected.",
+        "title": "新增 USB 序列埠裝置",
+        "description": "設定新的 USB 轉 RS485 序列埠連線。裝置資訊會自動偵測。",
         "data": {
-          "serial_port": "Serial Port",
-          "serial_baudrate": "Baud Rate",
-          "serial_parity": "Parity",
-          "serial_stopbits": "Stop Bits",
-          "modbus_unit_id": "Unit ID"
+          "serial_port": "序列埠",
+          "serial_baudrate": "鮑率",
+          "serial_parity": "同位檢查",
+          "serial_stopbits": "停止位元",
+          "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "serial_port": "Select your USB serial adapter or enter manually",
-          "serial_baudrate": "Communication speed (default: 19200)",
-          "serial_parity": "Parity bit setting (default: None)",
-          "serial_stopbits": "Number of stop bits (default: 1)",
-          "modbus_unit_id": "Modbus slave ID (default: 1)"
+          "serial_port": "選擇您的 USB 序列埠轉接器或手動輸入",
+          "serial_baudrate": "通訊速度（預設：19200）",
+          "serial_parity": "同位檢查位元設定（預設：無）",
+          "serial_stopbits": "停止位元數量（預設：1）",
+          "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }
       },
       "reconfigure_add_serial_manual": {
-        "title": "Enter Serial Port Path",
-        "description": "Enter the path to your USB-to-RS485 serial adapter manually.",
+        "title": "輸入序列埠路徑",
+        "description": "手動輸入您的 USB 轉 RS485 序列埠轉接器的路徑。",
         "data": {
-          "serial_port": "Serial Port Path"
+          "serial_port": "序列埠路徑"
         },
         "data_description": {
-          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
+          "serial_port": "例如 /dev/ttyUSB0 (Linux)、COM1 (Windows)、/dev/tty.usbserial-* (macOS)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to {brand_name} Web Monitor. Please check your network connection and try again.",
-      "invalid_auth": "Invalid username or password. Please check your credentials and try again.",
-      "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
-      "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your {brand_name} Web Monitor account.",
-      "invalid_plant": "The selected station/plant is no longer available. Please select a different station.",
-      "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
-      "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
-      "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
-      "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
-      "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
-      "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
-      "duplicate_serial": "A device with this serial number has already been added to this installation.",
-      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
+      "cannot_connect": "無法連線到 {brand_name} Web Monitor。請檢查您的網路連線並重試。",
+      "invalid_auth": "使用者名稱或密碼無效。請檢查您的憑證並重試。",
+      "unknown": "發生意外錯誤。請重試或檢視日誌以獲取更多詳情。",
+      "no_plants": "在您的帳戶中未找到太陽能電站/電廠。請確保您在 {brand_name} Web Monitor 帳戶中至少設定了一個電站。",
+      "invalid_plant": "所選電站/電廠已不可用。請選擇其他電站。",
+      "timeout": "連線 {brand_name} Web Monitor 逾時。請檢查您的網路連線並重試。",
+      "modbus_not_installed": "pymodbus 程式庫未安裝。請使用以下指令安裝：pip install pymodbus",
+      "modbus_timeout": "Modbus 連線逾時。請驗證 IP 位址並確保 Modbus 閘道已開機並連線。",
+      "modbus_connection_failed": "無法連線到 Modbus 閘道。請檢查：(1) IP 位址是否正確，(2) 連接埠 502 是否未被阻擋，(3) 閘道上是否已啟用 Modbus TCP。",
+      "dongle_timeout": "WiFi Dongle 連線逾時。請驗證 IP 位址並確保 Dongle 已連線到您的網路。",
+      "dongle_connection_failed": "無法連線到 WiFi Dongle。請檢查：(1) IP 位址是否正確，(2) 連接埠 8000 是否未被阻擋，(3) Dongle 韌體是否支援本機存取（最近的更新可能會阻擋此功能）。",
+      "duplicate_serial": "具有此序號的裝置已新增到此安裝系統。",
+      "duplicate_transport": "此位址和連接埠的裝置已新增。每個本機連線必須使用唯一的 主機:連接埠 組合。",
+      "serial_mismatch": "此位址的裝置序號與預期不同。這可能表示裝置已更換或設定錯誤。",
+      "serial_timeout": "序列埠連線逾時。請驗證連接埠路徑並確保 USB 轉接器已連線。",
+      "serial_permission_denied": "存取序列埠被拒絕。在 Linux 上，請確保您的使用者屬於 'dialout' 群組。在 macOS 上，請授予 Home Assistant 存取 USB 裝置的權限。",
+      "serial_port_error": "無法開啟序列埠。請檢查：(1) 連接埠路徑是否正確，(2) USB 轉接器是否已連線，(3) 裝置是否未被其他應用程式使用。",
+      "serial_port_in_use": "序列埠已被其他應用程式使用。請關閉使用此連接埠的其他應用程式並重試。",
       "invalid_ip_range": "無效的 IP 範圍。請使用 CIDR 表示法（例如 192.168.1.0/24）或範圍（例如 192.168.1.1-192.168.1.254）。僅允許私有 IP 範圍。",
-      "no_scan_type_selected": "請至少選擇一種掃描類型（Modbus 或加密狗）。",
-      "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination.",
-      "serial_timeout": "Serial port connection timed out. Please verify the port path and ensure the USB adapter is connected.",
-      "serial_permission_denied": "Permission denied accessing the serial port. On Linux, ensure your user is in the 'dialout' group. On macOS, grant Home Assistant access to the USB device.",
-      "serial_port_error": "Failed to open serial port. Please check: (1) port path is correct, (2) USB adapter is connected, (3) device is not in use by another application.",
-      "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again."
+      "no_scan_type_selected": "請至少選擇一種掃描類型（Modbus 或 Dongle）。"
     },
     "abort": {
-      "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
-      "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
-      "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated.",
-      "entry_not_found": "Configuration entry not found. The integration may have been removed. Please add it again from the Integrations page.",
-      "serial_already_configured": "Inverter {serial} is already configured in \"{entry_title}\". Remove that entry first, or use the Reconfigure flow to change connection types."
+      "already_configured": "此 {brand_name} Web Monitor 電站已設定。每個電站需要單獨的整合實例。",
+      "reauth_successful": "重新驗證成功！您的 {brand_name} Web Monitor 整合現已重新連線。",
+      "reconfigure_successful": "重新設定成功！您的 {brand_name} Web Monitor 設定已更新。",
+      "entry_not_found": "未找到設定項目。整合可能已被移除。請從整合頁面重新新增。",
+      "serial_already_configured": "逆變器 {serial} 已在 \"{entry_title}\" 中設定。請先移除該項目，或使用重新設定流程變更連線類型。"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "{brand_name} Web Monitor Options",
-        "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
+        "title": "{brand_name} Web Monitor 選項",
+        "description": "設定您的 {brand_name} Web Monitor 整合的輪詢間隔。感測器更新控制取得裝置資料的頻率。參數重新整理控制設定同步的頻率。",
         "data": {
-          "sensor_update_interval": "Sensor Update Interval (seconds)",
-          "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
-          "library_debug": "Library Debug Logging"
+          "sensor_update_interval": "感測器更新間隔（秒）",
+          "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
+          "library_debug": "程式庫偵錯日誌",
+          "include_ac_couple_pv": "在總計中包含 AC 耦合 PV"
         },
         "data_description": {
-          "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Lower values provide faster updates but increase API load.",
-          "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
-          "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)"
+          "sensor_update_interval": "輪詢感測器更新的頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較低的值提供更快的更新，但會增加 API 負載。",
+          "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
+          "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
+          "include_ac_couple_pv": "將 AC 耦合太陽能逆變器功率（來自 GridBOSS 智慧連接埠）新增到並聯組 PV 總計"
         }
       }
     }
@@ -372,234 +374,136 @@
   "selector": {
     "operating_mode": {
       "options": {
-        "normal": "Normal",
-        "standby": "Standby"
+        "normal": "正常",
+        "standby": "待機"
       }
     }
   },
   "entity": {
     "binary_sensor": {
       "dongle_connectivity": {
-        "name": "Dongle Connectivity",
+        "name": "Dongle 連線狀態",
         "state": {
-          "on": "Connected",
-          "off": "Disconnected"
+          "on": "已連線",
+          "off": "已斷線"
         }
       }
     },
     "sensor": {
-      "ac_power": {
-        "name": "AC Power"
-      },
-      "ac_voltage": {
-        "name": "AC Voltage"
-      },
-      "ac_current": {
-        "name": "AC Current"
-      },
-      "frequency": {
-        "name": "Frequency"
-      },
-      "dc_power": {
-        "name": "DC Power"
-      },
-      "dc_voltage": {
-        "name": "DC Voltage"
-      },
-      "dc_current": {
-        "name": "DC Current"
-      },
-      "battery_power": {
-        "name": "Battery Power"
-      },
-      "battery_voltage": {
-        "name": "Battery Voltage"
-      },
-      "battery_current": {
-        "name": "Battery Current"
-      },
-      "state_of_charge": {
-        "name": "State of Charge"
-      },
-      "state_of_health": {
-        "name": "State of Health"
-      },
-      "total_energy": {
-        "name": "Total Energy"
-      },
-      "daily_energy": {
-        "name": "Daily Energy"
-      },
-      "monthly_energy": {
-        "name": "Monthly Energy"
-      },
-      "yearly_energy": {
-        "name": "Yearly Energy"
-      },
-      "internal_temperature": {
-        "name": "Internal Temperature"
-      },
-      "radiator1_temperature": {
-        "name": "Radiator 1 Temperature"
-      },
-      "radiator2_temperature": {
-        "name": "Radiator 2 Temperature"
-      },
-      "status_code": {
-        "name": "Status Code"
-      },
-      "status_text": {
-        "name": "Status"
-      },
-      "grid_power": {
-        "name": "Grid Power"
-      },
-      "load_power": {
-        "name": "Load Power"
-      },
-      "pv_total_power": {
-        "name": "PV Total Power"
-      },
-      "pv1_power": {
-        "name": "PV1 Power"
-      },
-      "pv2_power": {
-        "name": "PV2 Power"
-      },
-      "pv3_power": {
-        "name": "PV3 Power"
-      },
-      "cell_voltage_max": {
-        "name": "Maximum Cell Voltage"
-      },
-      "cell_voltage_min": {
-        "name": "Minimum Cell Voltage"
-      },
-      "cell_voltage_delta": {
-        "name": "Cell Voltage Delta"
-      },
-      "cycle_count": {
-        "name": "Cycle Count"
-      },
-      "firmware_version": {
-        "name": "Firmware Version"
-      },
-      "grid_voltage_r": {
-        "name": "Grid Voltage R"
-      },
-      "grid_voltage_s": {
-        "name": "Grid Voltage S"
-      },
-      "grid_voltage_t": {
-        "name": "Grid Voltage T"
-      },
-      "grid_frequency": {
-        "name": "Grid Frequency"
-      },
-      "eps_voltage_r": {
-        "name": "EPS Voltage R"
-      },
-      "eps_voltage_s": {
-        "name": "EPS Voltage S"
-      },
-      "eps_voltage_t": {
-        "name": "EPS Voltage T"
-      },
-      "eps_frequency": {
-        "name": "EPS Frequency"
-      },
-      "eps_power": {
-        "name": "EPS Power"
-      },
-      "eps_power_l1": {
-        "name": "EPS Power L1"
-      },
-      "eps_power_l2": {
-        "name": "EPS Power L2"
-      },
-      "power_output": {
-        "name": "Power Output"
-      },
-      "rectifier_power": {
-        "name": "Rectifier Power"
-      },
-      "ac_couple_power": {
-        "name": "AC Couple Power"
-      },
-      "bus1_voltage": {
-        "name": "Bus 1 Voltage"
-      },
-      "bus2_voltage": {
-        "name": "Bus 2 Voltage"
-      },
-      "total_load_power": {
-        "name": "Total Load Power"
-      }
+      "ac_power": {"name": "交流功率"},
+      "ac_voltage": {"name": "交流電壓"},
+      "ac_current": {"name": "交流電流"},
+      "frequency": {"name": "頻率"},
+      "dc_power": {"name": "直流功率"},
+      "dc_voltage": {"name": "直流電壓"},
+      "dc_current": {"name": "直流電流"},
+      "battery_power": {"name": "電池功率"},
+      "battery_voltage": {"name": "電池電壓"},
+      "battery_current": {"name": "電池電流"},
+      "state_of_charge": {"name": "電量狀態"},
+      "state_of_health": {"name": "健康狀態"},
+      "total_energy": {"name": "總電量"},
+      "daily_energy": {"name": "日電量"},
+      "monthly_energy": {"name": "月電量"},
+      "yearly_energy": {"name": "年電量"},
+      "internal_temperature": {"name": "內部溫度"},
+      "radiator1_temperature": {"name": "散熱器 1 溫度"},
+      "radiator2_temperature": {"name": "散熱器 2 溫度"},
+      "status_code": {"name": "狀態代碼"},
+      "status_text": {"name": "狀態"},
+      "grid_power": {"name": "電網功率"},
+      "load_power": {"name": "負載功率"},
+      "pv_total_power": {"name": "PV 總功率"},
+      "pv1_power": {"name": "PV1 功率"},
+      "pv2_power": {"name": "PV2 功率"},
+      "pv3_power": {"name": "PV3 功率"},
+      "cell_voltage_max": {"name": "最大電芯電壓"},
+      "cell_voltage_min": {"name": "最小電芯電壓"},
+      "cell_voltage_delta": {"name": "電芯電壓差"},
+      "cycle_count": {"name": "循環次數"},
+      "firmware_version": {"name": "韌體版本"},
+      "grid_voltage_r": {"name": "電網電壓 R"},
+      "grid_voltage_s": {"name": "電網電壓 S"},
+      "grid_voltage_t": {"name": "電網電壓 T"},
+      "grid_frequency": {"name": "電網頻率"},
+      "eps_voltage_r": {"name": "EPS 電壓 R"},
+      "eps_voltage_s": {"name": "EPS 電壓 S"},
+      "eps_voltage_t": {"name": "EPS 電壓 T"},
+      "eps_frequency": {"name": "EPS 頻率"},
+      "eps_power": {"name": "EPS 功率"},
+      "eps_power_l1": {"name": "EPS 功率 L1"},
+      "eps_power_l2": {"name": "EPS 功率 L2"},
+      "power_output": {"name": "輸出功率"},
+      "rectifier_power": {"name": "整流器功率"},
+      "ac_couple_power": {"name": "AC 耦合功率"},
+      "bus1_voltage": {"name": "母線 1 電壓"},
+      "bus2_voltage": {"name": "母線 2 電壓"},
+      "total_load_power": {"name": "總負載功率"}
     },
     "switch": {
       "quick_charge": {
-        "name": "Quick Charge"
+        "name": "快速充電"
       },
       "battery_backup_eps": {
-        "name": "Battery Backup (EPS)"
+        "name": "電池備份 (EPS)"
       },
       "off_grid_mode": {
-        "name": "Off Grid Mode"
+        "name": "離網模式"
       }
     },
     "number": {
       "system_charge_soc_limit": {
-        "name": "System Charge SOC Limit"
+        "name": "系統充電 SOC 限制"
       },
       "ac_charge_power": {
-        "name": "AC Charge Power"
+        "name": "交流充電功率"
       },
       "pv_charge_power": {
-        "name": "PV Charge Power"
+        "name": "PV 充電功率"
       },
       "ac_charge_soc_limit": {
-        "name": "AC Charge SOC Limit"
+        "name": "交流充電 SOC 限制"
       },
       "soc_cutoff": {
-        "name": "SOC Cut-Off"
+        "name": "SOC 截止"
       }
     },
     "button": {
       "refresh_data": {
-        "name": "Refresh Data"
+        "name": "重新整理資料"
       }
     },
     "select": {
       "operating_mode": {
-        "name": "Operating Mode",
+        "name": "運作模式",
         "state": {
-          "normal": "Normal",
-          "standby": "Standby"
+          "normal": "正常",
+          "standby": "待機"
         }
       }
     }
   },
   "services": {
     "refresh_data": {
-      "name": "Refresh Data",
-      "description": "Force an immediate refresh of device data from the {brand_name} API, bypassing the normal polling interval.",
+      "name": "重新整理資料",
+      "description": "強制立即從 {brand_name} API 重新整理裝置資料，略過正常輪詢間隔。",
       "fields": {
         "entry_id": {
-          "name": "Configuration Entry ID",
-          "description": "The configuration entry ID to refresh. If not provided, all {brand_name} Web Monitor integrations will be refreshed."
+          "name": "設定項目 ID",
+          "description": "要重新整理的設定項目 ID。如果未提供，將重新整理所有 {brand_name} Web Monitor 整合。"
         }
       }
     }
   },
   "exceptions": {
     "entry_not_found": {
-      "message": "Configuration entry {entry_id} not found. Please verify the entry ID is correct."
+      "message": "未找到設定項目 {entry_id}。請驗證項目 ID 是否正確。"
     },
     "entry_not_loaded": {
-      "message": "Configuration entry {entry_id} is not loaded. Please ensure the integration is properly configured and running."
+      "message": "設定項目 {entry_id} 未載入。請確保整合已正確設定並正在執行。"
     },
     "no_coordinators": {
-      "message": "No {brand_name} coordinators found to refresh. Please ensure at least one {brand_name} Web Monitor integration is configured and loaded."
+      "message": "未找到可重新整理的 {brand_name} 協調器。請確保至少設定並載入了一個 {brand_name} Web Monitor 整合。"
     }
   }
 }
