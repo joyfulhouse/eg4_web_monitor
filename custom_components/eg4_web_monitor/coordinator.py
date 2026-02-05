@@ -1750,6 +1750,8 @@ class EG4DataUpdateCoordinator(
                 "eps_power",
                 "battery_charge_power",
                 "battery_discharge_power",
+                "ac_power",  # Inverter output power (matches HTTP mode)
+                "output_power",  # Split-phase total output
             ]
 
             # Energy sensors to sum
