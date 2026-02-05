@@ -74,6 +74,7 @@ from .const import (
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
     INVERTER_FAMILY_DEFAULT_MODELS,
+    LEGACY_FAMILY_MAP,
 )
 from .coordinator_mixins import (
     BackgroundTaskMixin,
@@ -454,7 +455,8 @@ def _parse_inverter_family(family_str: str | None) -> Any:
     """Convert inverter family string to InverterFamily enum.
 
     Args:
-        family_str: Family string from config (e.g., "pv_series", "sna", "lxp_eu").
+        family_str: Family string from config (e.g., "EG4_HYBRID", "EG4_OFFGRID", "LXP").
+            Also handles legacy names (e.g., "PV_SERIES", "SNA", "LXP_EU", "LXP_LV").
 
     Returns:
         InverterFamily enum value, or None if invalid/not provided.
@@ -462,10 +464,18 @@ def _parse_inverter_family(family_str: str | None) -> Any:
     if not family_str or family_str == "MID_DEVICE":
         # MID_DEVICE is a GridBOSS/MIDBox — not an inverter family
         return None
+
+    # Map legacy family names to current names
+    mapped_family = LEGACY_FAMILY_MAP.get(family_str, family_str)
+    if mapped_family != family_str:
+        _LOGGER.debug(
+            "Mapped legacy inverter family '%s' to '%s'", family_str, mapped_family
+        )
+
     try:
         from pylxpweb.devices.inverters._features import InverterFamily
 
-        return InverterFamily(family_str)
+        return InverterFamily(mapped_family)
     except ValueError:
         _LOGGER.warning("Unknown inverter family '%s', using default", family_str)
         return None

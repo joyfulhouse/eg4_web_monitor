@@ -19,7 +19,7 @@ reconcile_history:
   fields:
     lookback_hours:
       name: Lookback Hours
-      description: Number of hours to look back for gaps (default: 48)
+      description: "Number of hours to look back for gaps (default: 48)"
       required: false
       default: 48
       selector:
