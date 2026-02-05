@@ -133,7 +133,8 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,
-        "load_power": runtime_data.load_power,
+        # Note: load_power removed - register 27 (pToUser) is grid import, NOT consumption
+        # Use consumption_power sensor instead (computed from energy balance)
         # EPS/Backup - 3-phase R/S/T (LXP-EU) and split-phase L1/L2 (SNA/PV_SERIES)
         "eps_voltage_r": runtime_data.eps_voltage_r,
         "eps_voltage_s": runtime_data.eps_voltage_s,
@@ -142,6 +143,8 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "eps_voltage_l2": runtime_data.eps_l2_voltage,
         "eps_frequency": runtime_data.eps_frequency,
         "eps_power": runtime_data.eps_power,
+        # Note: consumption_power is NOT set here - it's computed by the coordinator
+        # using inverter.consumption_power (energy balance calculation from pylxpweb)
         # Output power (split-phase total)
         "output_power": runtime_data.output_power,
         # Generator
@@ -206,12 +209,65 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
     Returns:
         Dictionary mapping sensor keys to values.
     """
+    # Calculate battery_power with fallback if voltage/current unavailable
+    # Primary: voltage * current (from battery_power property)
+    # Fallback: charge_power - discharge_power (positive = charging, negative = discharging)
+    battery_power = battery_data.battery_power
+    voltage = battery_data.voltage
+    current = battery_data.current
+    charge = battery_data.charge_power
+    discharge = battery_data.discharge_power
+
+    # Log battery_bank_count for debugging issue #129
+    battery_count = battery_data.battery_count
+    _LOGGER.debug(
+        "LOCAL battery_bank: count=%s, voltage=%s, current=%s, "
+        "charge=%s, discharge=%s, soc=%s, capacity=%s",
+        battery_count,
+        voltage,
+        current,
+        charge,
+        discharge,
+        battery_data.soc,
+        battery_data.max_capacity,
+    )
+
+    if battery_power is not None:
+        _LOGGER.debug(
+            "LOCAL battery_bank_power: using V*I calculation: "
+            "voltage=%s, current=%s, result=%s",
+            voltage,
+            current,
+            battery_power,
+        )
+    else:
+        if charge is not None and discharge is not None:
+            battery_power = charge - discharge
+            _LOGGER.debug(
+                "LOCAL battery_bank_power: using charge-discharge fallback: "
+                "charge=%s, discharge=%s, result=%s (V=%s, I=%s were None)",
+                charge,
+                discharge,
+                battery_power,
+                voltage,
+                current,
+            )
+        else:
+            _LOGGER.warning(
+                "LOCAL battery_bank_power: cannot calculate - "
+                "voltage=%s, current=%s, charge=%s, discharge=%s",
+                voltage,
+                current,
+                charge,
+                discharge,
+            )
+
     sensors: dict[str, Any] = {
         "battery_bank_soc": battery_data.soc,
         "battery_bank_voltage": battery_data.voltage,
         "battery_bank_charge_power": battery_data.charge_power,
         "battery_bank_discharge_power": battery_data.discharge_power,
-        "battery_bank_power": battery_data.battery_power,
+        "battery_bank_power": battery_power,
         "battery_bank_max_capacity": battery_data.max_capacity,
         "battery_bank_current_capacity": battery_data.current_capacity,
         "battery_bank_remain_capacity": battery_data.remain_capacity,
@@ -220,6 +276,8 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_count": battery_data.battery_count,
         "battery_bank_status": battery_data.status,
         "battery_status": battery_data.status,
+        # Last polled timestamp for battery bank device
+        "battery_bank_last_polled": dt_util.utcnow(),
     }
 
     # Cross-battery diagnostics — computed by BatteryBankData properties
@@ -290,6 +348,8 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         "battery_serial_number": battery.serial_number,
         "battery_model": battery.model,
         "battery_index": battery.battery_index,
+        # Last polled timestamp for individual battery device
+        "battery_last_polled": dt_util.utcnow(),
     }
 
 
@@ -331,6 +391,8 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
         "load_power_l2": getattr(mid_device, "load_l2_power", None),
         "load_current_l1": getattr(mid_device, "load_l1_current", None),
         "load_current_l2": getattr(mid_device, "load_l2_current", None),
+        # Consumption power for GridBOSS = load_power (CT measurement)
+        "consumption_power": getattr(mid_device, "load_power", None),
         # Generator sensors
         "generator_power": getattr(mid_device, "generator_power", None),
         "generator_voltage": getattr(mid_device, "generator_voltage", None),
@@ -375,6 +437,8 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
         "grid_import_total": getattr(mid_device, "e_to_user_total", None),
         "load_today": getattr(mid_device, "e_load_today", None),
         "load_total": getattr(mid_device, "e_load_total", None),
+        # Last polled timestamp for midbox/GridBOSS device
+        "midbox_last_polled": dt_util.utcnow(),
     }
 
 
@@ -864,6 +928,10 @@ class EG4DataUpdateCoordinator(
         transport = getattr(inverter, "_transport", None)
         if transport and hasattr(transport, "host"):
             device_data["sensors"]["transport_host"] = transport.host
+
+        # Add last_polled timestamp so users can see when data was last fetched
+        # (not just when it last changed)
+        device_data["sensors"]["last_polled"] = dt_util.utcnow()
 
         # Extract features for capability-based sensor filtering
         if features := self._extract_inverter_features(inverter):
@@ -1390,6 +1458,10 @@ class EG4DataUpdateCoordinator(
                 if (val := inverter.power_to_user) is not None:
                     sensors["grid_import_power"] = val
 
+                # Add last_polled timestamp so users can see when data was last fetched
+                # (not just when it last changed)
+                sensors["last_polled"] = dt_util.utcnow()
+
                 _LOGGER.debug(
                     "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "
                     "battery=%s, rectifier=%s, grid_import=%s",
@@ -1642,7 +1714,7 @@ class EG4DataUpdateCoordinator(
             first_serial = master_serial
 
             # Collect sensor data from all devices in the group
-            group_sensors: dict[str, float] = {}
+            group_sensors: dict[str, Any] = {}
             device_count = 0
 
             # Power sensors to sum (battery handled separately as parallel_battery_*)
@@ -1653,8 +1725,10 @@ class EG4DataUpdateCoordinator(
             power_sensors = [
                 "pv_total_power",
                 "grid_power",
-                "load_power",
+                "consumption_power",
                 "eps_power",
+                "battery_charge_power",
+                "battery_discharge_power",
             ]
 
             # Energy sensors to sum
@@ -1718,7 +1792,8 @@ class EG4DataUpdateCoordinator(
             discharge = group_sensors.pop("battery_discharge_power", 0.0)
             group_sensors["parallel_battery_charge_power"] = charge
             group_sensors["parallel_battery_discharge_power"] = discharge
-            group_sensors["parallel_battery_power"] = charge - discharge
+            # Battery power: positive = discharging (adds to sources), negative = charging
+            group_sensors["parallel_battery_power"] = discharge - charge
 
             if soc_count > 0:
                 group_sensors["parallel_battery_soc"] = round(total_soc / soc_count, 1)
@@ -1790,6 +1865,22 @@ class EG4DataUpdateCoordinator(
                             gb_val,
                             pg_key,
                         )
+                # Add GridBOSS load_power to consumption_power total.
+                # Total consumption = inverter eps_power (already aggregated) + GridBOSS load_power
+                # The GridBOSS CT measures main panel loads; inverter EPS loads are on separate
+                # backup circuits not measured by GridBOSS.
+                load_power = gb_sensors.get("load_power")
+                if load_power is not None:
+                    existing = group_sensors.get("consumption_power", 0.0)
+                    group_sensors["consumption_power"] = existing + float(load_power)
+                    _LOGGER.debug(
+                        "LOCAL: Parallel group %s: consumption_power = inverter_sum(%s) + "
+                        "gridboss_load(%s) = %s",
+                        group_name,
+                        existing,
+                        load_power,
+                        group_sensors["consumption_power"],
+                    )
 
                 # Add AC couple power to pv_total_power for smart ports in AC couple mode
                 # Smart port status 2 = AC Couple (solar inverter connected)
@@ -1804,8 +1895,12 @@ class EG4DataUpdateCoordinator(
                         status_key = f"smart_port{port_num}_status"
                         status = gb_sensors.get(status_key)
                         if status == 2:  # AC Couple mode
-                            l1_power = gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
-                            l2_power = gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
+                            l1_power = (
+                                gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
+                            )
+                            l2_power = (
+                                gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
+                            )
                             port_power = float(l1_power) + float(l2_power)
                             ac_couple_total += port_power
                             _LOGGER.debug(
@@ -1827,7 +1922,23 @@ class EG4DataUpdateCoordinator(
                             ac_couple_total,
                         )
 
+                # Calculate AC couple power for consumption (always include, regardless of option)
+                ac_couple_for_consumption = 0.0
+                for port_num in range(1, 5):
+                    status_key = f"smart_port{port_num}_status"
+                    status = gb_sensors.get(status_key)
+                    if status == 2:  # AC Couple mode
+                        l1 = gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
+                        l2 = gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
+                        ac_couple_for_consumption += float(l1) + float(l2)
+
+                # Skip energy balance recalculation - GridBOSS load_power (CT measurement)
+                # is the authoritative source for consumption, already set above
+
                 break  # Only one GridBOSS per system
+
+            # Add last polled timestamp for parallel group
+            group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
             # Create parallel group device entry
             # Note: We create groups even with 1 inverter if parallel_number > 0,
@@ -1888,7 +1999,7 @@ class EG4DataUpdateCoordinator(
             if device_data.get("type") == "parallel_group":
                 continue
             # Look up device from station (hybrid mode) or local caches (fallback)
-            device = None
+            device: Any = None
             if self.station:
                 # Check station inverters
                 for inv in self.station.all_inverters:
@@ -2150,6 +2261,7 @@ class EG4DataUpdateCoordinator(
         processed["station"] = {
             "name": self.station.name,
             "plant_id": self.station.id,
+            "station_last_polled": dt_util.utcnow(),
         }
 
         if timezone := getattr(self.station, "timezone", None):
@@ -2328,7 +2440,7 @@ class EG4DataUpdateCoordinator(
                 # Build lookup of cloud batteries by index for merging
                 cloud_by_index: dict[int, Any] = {}
                 for cloud_batt in cloud_batteries:
-                    idx = getattr(cloud_batt, "index", None)
+                    idx = getattr(cloud_batt, "battery_index", None)
                     if idx is not None:
                         cloud_by_index[idx] = cloud_batt
 
@@ -2415,6 +2527,7 @@ class EG4DataUpdateCoordinator(
                         serial,  # Parent serial is known from inverter iteration
                     )
                     battery_sensors = self._extract_battery_from_object(battery)
+                    battery_sensors["battery_last_polled"] = dt_util.utcnow()
 
                     if "batteries" not in device_data:
                         device_data["batteries"] = {}

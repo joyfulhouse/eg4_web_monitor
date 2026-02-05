@@ -257,21 +257,11 @@ class DeviceProcessingMixin:
             power_to_grid = _safe_numeric(inverter.power_to_grid)
             processed["sensors"]["grid_power"] = power_to_user - power_to_grid
 
-        # Add load_power as alias for grid_import_power (power_to_user)
-        # This ensures entity consistency between cloud and local modes
-        # In Modbus, register 27 (pToUser) is labeled "Load power"
-        if hasattr(inverter, "power_to_user"):
-            processed["sensors"]["load_power"] = inverter.power_to_user
-
-        # Calculate total load power (EPS + consumption)
-        eps_power = processed["sensors"].get("eps_power")
-        consumption_power = processed["sensors"].get("consumption_power")
-        if eps_power is not None or consumption_power is not None:
-            processed["sensors"]["total_load_power"] = _safe_numeric(
-                eps_power
-            ) + _safe_numeric(consumption_power)
-        else:
-            processed["sensors"]["total_load_power"] = None
+        # Note: load_power sensor removed - it was confusingly named as grid_import
+        # Use consumption_power instead, which represents actual household consumption
+        # calculated as: pv_total + grid_import - grid_export (clamped to >= 0)
+        #
+        # total_load_power is now computed in pylxpweb as alias for consumption_power
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):
@@ -291,6 +281,10 @@ class DeviceProcessingMixin:
         # _battery_bank may be stale from initial cloud station load
         transport_battery = getattr(inverter, "_transport_battery", None)
         if transport_battery:
+            _LOGGER.debug(
+                "Battery bank for %s: using LOCAL transport data (hybrid/local mode)",
+                inverter.serial_number,
+            )
             try:
                 from .coordinator import _build_battery_bank_sensor_mapping
 
@@ -308,6 +302,10 @@ class DeviceProcessingMixin:
             # Fall back to cloud battery_bank for cloud-only mode
             battery_bank = getattr(inverter, "_battery_bank", None)
             if battery_bank:
+                _LOGGER.debug(
+                    "Battery bank for %s: using CLOUD data (no local transport attached)",
+                    inverter.serial_number,
+                )
                 try:
                     battery_bank_sensors = self._extract_battery_bank_from_object(
                         battery_bank
@@ -319,6 +317,11 @@ class DeviceProcessingMixin:
                         inverter.serial_number,
                         e,
                     )
+            else:
+                _LOGGER.debug(
+                    "Battery bank for %s: NO DATA (no transport or cloud battery_bank)",
+                    inverter.serial_number,
+                )
 
         # Fetch quick charge and battery backup status with 30s throttle
         # These are cloud API calls that should not run every update cycle
@@ -391,6 +394,13 @@ class DeviceProcessingMixin:
                 prev = self.data["devices"][serial].get("battery_backup_status")
                 if prev is not None:
                     processed["battery_backup_status"] = prev
+
+        # Add last_polled timestamps so users can see when data was last fetched
+        # (not just when it last changed)
+        processed["sensors"]["last_polled"] = dt_util.utcnow()
+        # Battery bank last_polled — only when battery bank data exists
+        if any(k.startswith("battery_bank_") for k in processed["sensors"]):
+            processed["sensors"]["battery_bank_last_polled"] = dt_util.utcnow()
 
         return processed
 
@@ -659,6 +669,38 @@ class DeviceProcessingMixin:
         if "battery_bank_status" in sensors:
             sensors["battery_status"] = sensors["battery_bank_status"]
 
+        # Calculate battery_bank_power if not available from API (batPower is optional)
+        # Formula: charge_power - discharge_power (positive = charging, negative = discharging)
+        battery_power = sensors.get("battery_bank_power")
+        charge = sensors.get("battery_bank_charge_power")
+        discharge = sensors.get("battery_bank_discharge_power")
+
+        if battery_power is not None:
+            _LOGGER.debug(
+                "HTTP battery_bank_power: from API batPower=%s "
+                "(charge=%s, discharge=%s)",
+                battery_power,
+                charge,
+                discharge,
+            )
+        elif charge is not None and discharge is not None:
+            sensors["battery_bank_power"] = charge - discharge
+            _LOGGER.debug(
+                "HTTP battery_bank_power: using charge-discharge fallback: "
+                "charge=%s, discharge=%s, result=%s",
+                charge,
+                discharge,
+                sensors["battery_bank_power"],
+            )
+        else:
+            _LOGGER.warning(
+                "HTTP battery_bank_power: cannot calculate - "
+                "batPower=%s, charge=%s, discharge=%s",
+                battery_power,
+                charge,
+                discharge,
+            )
+
         return sensors
 
     @staticmethod
@@ -726,6 +768,7 @@ class DeviceProcessingMixin:
 
         property_map = self._get_parallel_group_property_map()
         processed["sensors"] = _map_device_properties(group, property_map)
+        processed["sensors"]["parallel_group_last_polled"] = dt_util.utcnow()
 
         return processed
 
@@ -743,7 +786,7 @@ class DeviceProcessingMixin:
             "grid_power": "grid_power",
             "grid_import_power": "grid_import_power",
             "grid_export_power": "grid_export_power",
-            "load_power": "load_power",
+            "consumption_power": "consumption_power",
             "eps_power": "eps_power",
             # Today energy values
             "today_yielding": "yield",
@@ -814,6 +857,7 @@ class DeviceProcessingMixin:
             processed["sensors"]["firmware_version"] = firmware_version
             self._filter_unused_smart_port_sensors(processed["sensors"], mid_device)
             self._calculate_gridboss_aggregates(processed["sensors"])
+            processed["sensors"]["midbox_last_polled"] = dt_util.utcnow()
         else:
             _LOGGER.warning("MID device %s has no data", mid_device.serial_number)
 
@@ -983,6 +1027,18 @@ class DeviceProcessingMixin:
                 has_transport,
                 invalid_ports,
             )
+
+        # If all statuses are 0 or None, the dongle likely returned unreliable data.
+        # Skip filtering entirely to avoid removing sensors for ports that are
+        # actually in use. On subsequent polls with correct data, the filter will
+        # correctly remove sensors for genuinely unused ports.
+        valid_statuses = [s for s in smart_port_statuses.values() if s is not None]
+        if valid_statuses and all(s == 0 for s in valid_statuses):
+            _LOGGER.debug(
+                "All Smart Port statuses are 0 — skipping sensor filtering "
+                "(dongle may have returned unreliable data on initial poll)"
+            )
+            return
 
         sensors_to_remove = []
         for port, status in smart_port_statuses.items():

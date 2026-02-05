@@ -1690,4 +1690,45 @@ SENSOR_TYPES = {
         "icon": "mdi:connection",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
+    # -------------------------------------------------------------------------
+    # Last Polled Diagnostic Sensors
+    # These sensors show when data was last fetched, not when it last changed.
+    # Helps users understand if their device is being actively polled.
+    # -------------------------------------------------------------------------
+    "last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "battery_bank_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "battery_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "parallel_group_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "station_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    "midbox_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
 }

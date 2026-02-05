@@ -108,7 +108,9 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         # AC couple PV inclusion option
         current_include_ac_couple = self.config_entry.options.get(
             CONF_INCLUDE_AC_COUPLE_PV,
-            self.config_entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, DEFAULT_INCLUDE_AC_COUPLE_PV),
+            self.config_entry.data.get(
+                CONF_INCLUDE_AC_COUPLE_PV, DEFAULT_INCLUDE_AC_COUPLE_PV
+            ),
         )
 
         options_schema = vol.Schema(

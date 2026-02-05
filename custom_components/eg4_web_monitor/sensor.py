@@ -414,5 +414,7 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
             return station_data.get("createDate")
         if self._sensor_key == "station_address":
             return station_data.get("address")
+        if self._sensor_key == "station_last_polled":
+            return station_data.get("station_last_polled")
 
         return None

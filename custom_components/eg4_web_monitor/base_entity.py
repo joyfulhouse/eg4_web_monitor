@@ -309,8 +309,15 @@ class EG4BaseSensor(EG4DeviceEntity):
             self._attr_suggested_display_precision = precision
 
         # Set entity category for diagnostic sensors
-        if sensor_key in DIAGNOSTIC_DEVICE_SENSOR_KEYS:
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        entity_category = self._sensor_config.get("entity_category")
+        if sensor_key in DIAGNOSTIC_DEVICE_SENSOR_KEYS or entity_category is not None:
+            if isinstance(entity_category, str):
+                entity_category = EntityCategory(entity_category)
+            self._attr_entity_category = (
+                entity_category
+                if entity_category is not None
+                else EntityCategory.DIAGNOSTIC
+            )
 
     def _setup_entity_id(self, model: str, device_type: str) -> None:
         """Set up entity_id based on device type."""
@@ -436,11 +443,15 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
             self._attr_suggested_display_precision = precision
 
         # Set entity category for diagnostic sensors
-        if (
-            sensor_key in DIAGNOSTIC_BATTERY_SENSOR_KEYS
-            or self._sensor_config.get("entity_category") == "diagnostic"
-        ):
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        entity_category = self._sensor_config.get("entity_category")
+        if sensor_key in DIAGNOSTIC_BATTERY_SENSOR_KEYS or entity_category is not None:
+            if isinstance(entity_category, str):
+                entity_category = EntityCategory(entity_category)
+            self._attr_entity_category = (
+                entity_category
+                if entity_category is not None
+                else EntityCategory.DIAGNOSTIC
+            )
 
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from battery data."""
@@ -538,8 +549,11 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         self._attr_icon = self._sensor_config.get("icon")
 
         # Set entity category
-        if self._sensor_config.get("entity_category") == "diagnostic":
-            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        entity_category = self._sensor_config.get("entity_category")
+        if entity_category is not None:
+            if isinstance(entity_category, str):
+                entity_category = EntityCategory(entity_category)
+            self._attr_entity_category = entity_category
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -898,7 +912,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         try:
             _LOGGER.debug(
-                "%s %s via CLOUD API for device %s", action_verb, action_name, self._serial
+                "%s %s via CLOUD API for device %s",
+                action_verb,
+                action_name,
+                self._serial,
             )
 
             # Set optimistic state immediately for UI feedback

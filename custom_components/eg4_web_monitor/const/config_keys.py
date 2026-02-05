@@ -81,7 +81,9 @@ HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP = 30  # seconds for HTTP mode
 DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL = 5  # seconds for Modbus/Dongle modes
 DEFAULT_PARAMETER_REFRESH_INTERVAL = 60  # minutes (1 hour)
-DEFAULT_INCLUDE_AC_COUPLE_PV = False  # AC couple power NOT included in PV totals by default
+DEFAULT_INCLUDE_AC_COUPLE_PV = (
+    False  # AC couple power NOT included in PV totals by default
+)
 
 # Options flow limits
 MIN_SENSOR_UPDATE_INTERVAL = 5  # seconds

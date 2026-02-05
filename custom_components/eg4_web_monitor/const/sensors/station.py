@@ -34,4 +34,15 @@ STATION_SENSOR_TYPES = {
         "icon": "mdi:map-marker-outline",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
+    # -------------------------------------------------------------------------
+    # Last Polled Diagnostic Sensor
+    # Shows when station data was last fetched, not when it last changed.
+    # Helps users understand if the integration is actively polling.
+    # -------------------------------------------------------------------------
+    "station_last_polled": {
+        "name": "Last Polled",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-check",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
 }
