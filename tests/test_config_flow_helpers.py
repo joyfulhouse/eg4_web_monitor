@@ -9,6 +9,7 @@ from custom_components.eg4_web_monitor._config_flow.helpers import (
     find_plant_by_id,
     format_entry_title,
     get_ha_timezone,
+    migrate_legacy_entry,
     timezone_observes_dst,
 )
 
@@ -220,3 +221,159 @@ class TestFindPlantById:
         result = find_plant_by_id(plants, "dup")
 
         assert result == {"plantId": "dup", "name": "First"}
+
+
+class TestMigrateLegacyEntry:
+    """Tests for migrate_legacy_entry function."""
+
+    def test_migrates_modbus_entry(self):
+        """Test migration of legacy modbus entry to unified local format."""
+        legacy_data = {
+            "connection_type": "modbus",
+            "inverter_serial": "1234567890",
+            "inverter_family": "EG4_HYBRID",
+            "modbus_host": "192.168.1.100",
+            "modbus_port": 502,
+            "modbus_unit_id": 1,
+            "other_field": "preserved",
+        }
+
+        result = migrate_legacy_entry(legacy_data)
+
+        assert result["connection_type"] == "local"
+        assert "local_transports" in result
+        assert len(result["local_transports"]) == 1
+
+        transport = result["local_transports"][0]
+        assert transport["transport_type"] == "modbus_tcp"
+        assert transport["serial"] == "1234567890"
+        assert transport["family"] == "EG4_HYBRID"
+        assert transport["host"] == "192.168.1.100"
+        assert transport["port"] == 502
+        assert transport["unit_id"] == 1
+
+        # Legacy keys should be removed
+        assert "inverter_serial" not in result
+        assert "inverter_family" not in result
+        assert "modbus_host" not in result
+        assert "modbus_port" not in result
+        assert "modbus_unit_id" not in result
+
+        # Other fields should be preserved
+        assert result["other_field"] == "preserved"
+
+    def test_migrates_dongle_entry(self):
+        """Test migration of legacy dongle entry to unified local format."""
+        legacy_data = {
+            "connection_type": "dongle",
+            "inverter_serial": "9876543210",
+            "inverter_family": "LXP",
+            "dongle_host": "192.168.1.200",
+            "dongle_port": 8000,
+            "dongle_serial": "DONGLE123",
+            "other_field": "preserved",
+        }
+
+        result = migrate_legacy_entry(legacy_data)
+
+        assert result["connection_type"] == "local"
+        assert "local_transports" in result
+        assert len(result["local_transports"]) == 1
+
+        transport = result["local_transports"][0]
+        assert transport["transport_type"] == "wifi_dongle"
+        assert transport["serial"] == "9876543210"
+        assert transport["family"] == "LXP"
+        assert transport["host"] == "192.168.1.200"
+        assert transport["port"] == 8000
+        assert transport["dongle_serial"] == "DONGLE123"
+
+        # Legacy keys should be removed
+        assert "inverter_serial" not in result
+        assert "inverter_family" not in result
+        assert "dongle_host" not in result
+        assert "dongle_port" not in result
+        assert "dongle_serial" not in result
+
+        # Other fields should be preserved
+        assert result["other_field"] == "preserved"
+
+    def test_does_not_migrate_http_entry(self):
+        """Test that HTTP entries are returned unchanged."""
+        http_data = {
+            "connection_type": "http",
+            "username": "user@example.com",
+            "password": "secret",
+            "plant_id": "12345",
+        }
+
+        result = migrate_legacy_entry(http_data)
+
+        # Should return unchanged
+        assert result == http_data
+
+    def test_does_not_migrate_local_entry(self):
+        """Test that already-migrated local entries are returned unchanged."""
+        local_data = {
+            "connection_type": "local",
+            "local_transports": [
+                {
+                    "transport_type": "modbus_tcp",
+                    "serial": "1234567890",
+                    "host": "192.168.1.100",
+                }
+            ],
+        }
+
+        result = migrate_legacy_entry(local_data)
+
+        # Should return unchanged
+        assert result == local_data
+
+    def test_does_not_migrate_hybrid_entry(self):
+        """Test that hybrid entries are returned unchanged."""
+        hybrid_data = {
+            "connection_type": "hybrid",
+            "username": "user@example.com",
+            "local_transports": [
+                {
+                    "transport_type": "modbus_tcp",
+                    "serial": "1234567890",
+                }
+            ],
+        }
+
+        result = migrate_legacy_entry(hybrid_data)
+
+        # Should return unchanged
+        assert result == hybrid_data
+
+    def test_modbus_with_default_values(self):
+        """Test migration fills in defaults for missing optional fields."""
+        legacy_data = {
+            "connection_type": "modbus",
+            "inverter_serial": "1234567890",
+        }
+
+        result = migrate_legacy_entry(legacy_data)
+
+        transport = result["local_transports"][0]
+        assert transport["family"] == "EG4_HYBRID"  # Default
+        assert transport["host"] == ""  # Default empty
+        assert transport["port"] == 502  # Default
+        assert transport["unit_id"] == 1  # Default
+
+    def test_dongle_with_default_values(self):
+        """Test migration fills in defaults for missing optional fields."""
+        legacy_data = {
+            "connection_type": "dongle",
+            "inverter_serial": "1234567890",
+        }
+
+        result = migrate_legacy_entry(legacy_data)
+
+        transport = result["local_transports"][0]
+        assert transport["family"] == "EG4_HYBRID"  # Default
+        assert transport["host"] == ""  # Default empty
+        assert transport["port"] == 8000  # Default
+        assert transport["dongle_serial"] == ""  # Default empty

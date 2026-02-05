@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import (
+    async_migrate_entry,
     async_setup,
     async_setup_entry,
     async_unload_entry,
@@ -382,3 +383,129 @@ class TestAsyncUnloadEntry:
             assert "switch" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
+
+
+class TestAsyncMigrateEntry:
+    """Test async_migrate_entry function."""
+
+    async def test_migrate_v1_modbus_to_v2(self, hass: HomeAssistant):
+        """Test migration of version 1 modbus entry to version 2."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=1,
+            data={
+                "connection_type": "modbus",
+                "inverter_serial": "1234567890",
+                "inverter_family": "EG4_HYBRID",
+                "modbus_host": "192.168.1.100",
+                "modbus_port": 502,
+                "modbus_unit_id": 1,
+            },
+            entry_id="test_modbus_entry",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is True
+        assert entry.version == 2
+        assert entry.data["connection_type"] == "local"
+        assert "local_transports" in entry.data
+        assert len(entry.data["local_transports"]) == 1
+
+        transport = entry.data["local_transports"][0]
+        assert transport["transport_type"] == "modbus_tcp"
+        assert transport["serial"] == "1234567890"
+        assert transport["host"] == "192.168.1.100"
+
+    async def test_migrate_v1_dongle_to_v2(self, hass: HomeAssistant):
+        """Test migration of version 1 dongle entry to version 2."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=1,
+            data={
+                "connection_type": "dongle",
+                "inverter_serial": "9876543210",
+                "inverter_family": "LXP",
+                "dongle_host": "192.168.1.200",
+                "dongle_port": 8000,
+                "dongle_serial": "DONGLE123",
+            },
+            entry_id="test_dongle_entry",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is True
+        assert entry.version == 2
+        assert entry.data["connection_type"] == "local"
+        assert "local_transports" in entry.data
+
+        transport = entry.data["local_transports"][0]
+        assert transport["transport_type"] == "wifi_dongle"
+        assert transport["serial"] == "9876543210"
+        assert transport["host"] == "192.168.1.200"
+        assert transport["dongle_serial"] == "DONGLE123"
+
+    async def test_migrate_v1_http_unchanged(self, hass: HomeAssistant):
+        """Test migration of version 1 HTTP entry (should be unchanged but version updated)."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=1,
+            data={
+                "connection_type": "http",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "secret",
+                CONF_PLANT_ID: "12345",
+            },
+            entry_id="test_http_entry",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is True
+        assert entry.version == 2
+        # HTTP entry data should be unchanged
+        assert entry.data["connection_type"] == "http"
+        assert entry.data[CONF_USERNAME] == "user@example.com"
+        assert entry.data[CONF_PLANT_ID] == "12345"
+
+    async def test_migrate_v2_no_change(self, hass: HomeAssistant):
+        """Test that version 2 entries are not modified."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "local",
+                "local_transports": [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1234567890",
+                        "host": "192.168.1.100",
+                    }
+                ],
+            },
+            entry_id="test_v2_entry",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is True
+        assert entry.version == 2
+
+    async def test_migrate_future_version_fails(self, hass: HomeAssistant):
+        """Test that migration from future version fails."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=99,
+            data={"connection_type": "http"},
+            entry_id="test_future_entry",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is False

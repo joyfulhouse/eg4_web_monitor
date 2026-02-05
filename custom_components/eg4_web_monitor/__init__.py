@@ -16,6 +16,7 @@ from homeassistant.exceptions import ServiceValidationError
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EG4DataUpdateCoordinator
 from .services import async_reconcile_history
+from ._config_flow.helpers import migrate_legacy_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -131,6 +132,46 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         handle_reconcile_history,
         schema=RECONCILE_HISTORY_SCHEMA,
     )
+
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate config entry to current version.
+
+    Version 1 -> 2: Migrate legacy modbus/dongle entries to unified local format.
+    Old format stored connection details at root level (modbus_host, dongle_host, etc.)
+    New format uses local_transports array with transport configs.
+    """
+    if config_entry.version > 2:
+        # Can't downgrade from future version
+        _LOGGER.error(
+            "Cannot migrate config entry %s from version %s (future version)",
+            config_entry.entry_id,
+            config_entry.version,
+        )
+        return False
+
+    if config_entry.version == 1:
+        _LOGGER.info(
+            "Migrating config entry %s from version 1 to 2",
+            config_entry.entry_id,
+        )
+
+        # Use the helper function to migrate legacy modbus/dongle entries
+        new_data = migrate_legacy_entry(dict(config_entry.data))
+
+        # Update the entry with migrated data and new version
+        hass.config_entries.async_update_entry(
+            config_entry,
+            data=new_data,
+            version=2,
+        )
+
+        _LOGGER.info(
+            "Migration complete for config entry %s",
+            config_entry.entry_id,
+        )
 
     return True
 

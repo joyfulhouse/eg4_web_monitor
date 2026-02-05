@@ -127,7 +127,7 @@ class EG4ConfigFlow(
     Connection type is derived from configured data, not chosen upfront.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize flow state."""
