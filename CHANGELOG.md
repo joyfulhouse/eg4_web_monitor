@@ -5,6 +5,20 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.22] - 2026-02-05
+
+### Fixed
+
+- **Local Parallel Group AC Power**: Added `ac_power` and `output_power` sensors to local mode parallel groups for parity with HTTP/hybrid modes
+- **Shutdown Listener Warnings**: Prevent "Unable to remove unknown job listener" warnings by properly tracking one-time listener state
+- **Smart Port Status Warning Spam**: Only log Smart Port status warning once per device instead of every update cycle
+- **Legacy Inverter Family Names**: Map legacy family names (e.g., `LXP_EU`, `PV_SERIES`) to new names to prevent "Unknown inverter family" warnings
+- **services.yaml YAML Syntax**: Fixed YAML parser error by quoting description containing colon
+
+### Dependencies
+
+- Requires `pylxpweb>=0.8.3`
+
 ## [3.2.0-beta.21] - 2026-02-05
 
 ### Fixed
