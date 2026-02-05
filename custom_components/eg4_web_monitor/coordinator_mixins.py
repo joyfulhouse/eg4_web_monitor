@@ -33,6 +33,10 @@ from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
+# Track devices that have already been warned about invalid smart port status
+# to avoid log spam on every poll cycle
+_warned_smart_port_devices: set[str] = set()
+
 
 class CoordinatorProtocol(Protocol):
     """Protocol defining the interface that mixins expect from the coordinator.
@@ -1016,17 +1020,20 @@ class DeviceProcessingMixin:
                 hasattr(mid_device, "_transport") and mid_device._transport is not None
             )
 
-            _LOGGER.warning(
-                "Invalid Smart Port status values detected for MID device %s "
-                "(firmware: %s, has_local_transport: %s). "
-                "Invalid ports: %s. Valid values are 0=Unused, 1=SmartLoad, 2=ACCouple. "
-                "This may indicate firmware that doesn't support these registers. "
-                "Please report this issue with your dongle firmware version.",
-                serial,
-                firmware,
-                has_transport,
-                invalid_ports,
-            )
+            # Only log warning once per device to avoid log spam
+            if serial not in _warned_smart_port_devices:
+                _warned_smart_port_devices.add(serial)
+                _LOGGER.warning(
+                    "Invalid Smart Port status values detected for MID device %s "
+                    "(firmware: %s, has_local_transport: %s). "
+                    "Invalid ports: %s. Valid values are 0=Unused, 1=SmartLoad, 2=ACCouple. "
+                    "This may indicate firmware that doesn't support these registers. "
+                    "Please report this issue with your dongle firmware version.",
+                    serial,
+                    firmware,
+                    has_transport,
+                    invalid_ports,
+                )
 
         # If all statuses are 0 or None, the dongle likely returned unreliable data.
         # Skip filtering entirely to avoid removing sensors for ports that are
