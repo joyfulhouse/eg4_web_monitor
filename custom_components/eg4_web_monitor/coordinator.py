@@ -169,8 +169,12 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         ),
         # Status
         "status_code": runtime_data.device_status,
-        # Note: Grid current (L1/L2/L3) is only available on GridBOSS devices,
-        # not inverters. The cloud API doesn't return grid current for inverters.
+        # Inverter RMS current (3-phase R/S/T mapped to L1/L2/L3)
+        # For local mode (Modbus): I_IINV_RMS (reg 18), I_IINV_RMS_S (reg 190), I_IINV_RMS_T (reg 191)
+        # For HTTP mode: These values are not returned by the cloud API
+        "grid_current_l1": runtime_data.inverter_rms_current_r,
+        "grid_current_l2": runtime_data.inverter_rms_current_s,
+        "grid_current_l3": runtime_data.inverter_rms_current_t,
     }
 
 
