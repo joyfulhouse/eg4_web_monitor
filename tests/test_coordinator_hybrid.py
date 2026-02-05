@@ -63,7 +63,7 @@ class TestBuildTransportConfigs:
                 "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
-                "inverter_family": "PV_SERIES",
+                "inverter_family": "EG4_HYBRID",
             }
         ]
 
@@ -83,7 +83,7 @@ class TestBuildTransportConfigs:
                 "host": "192.168.1.101",
                 "port": 8000,
                 "dongle_serial": "BA12345678",
-                "inverter_family": "PV_SERIES",
+                "inverter_family": "EG4_HYBRID",
             }
         ]
 
@@ -104,7 +104,7 @@ class TestBuildTransportConfigs:
                 "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
-                "inverter_family": "PV_SERIES",
+                "inverter_family": "EG4_HYBRID",
             },
             {
                 "serial": "CE22222222",
@@ -112,7 +112,7 @@ class TestBuildTransportConfigs:
                 "host": "192.168.1.101",
                 "port": 502,
                 "unit_id": 2,
-                "inverter_family": "SNA",
+                "inverter_family": "EG4_OFFGRID",
             },
         ]
 
@@ -197,7 +197,7 @@ class TestCoordinatorHybridInit:
                     "host": "192.168.1.100",
                     "port": DEFAULT_MODBUS_PORT,
                     "unit_id": DEFAULT_MODBUS_UNIT_ID,
-                    "inverter_family": "PV_SERIES",
+                    "inverter_family": "EG4_HYBRID",
                 }
             ],
         }
@@ -328,7 +328,7 @@ class TestAttachLocalTransports:
                 "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
-                "inverter_family": "PV_SERIES",
+                "inverter_family": "EG4_HYBRID",
             }
         ]
         mock_self._local_transports_attached = False

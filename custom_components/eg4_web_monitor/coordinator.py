@@ -119,9 +119,9 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "battery_charge_power": runtime_data.battery_charge_power,
         "battery_discharge_power": runtime_data.battery_discharge_power,
         "battery_temperature": runtime_data.battery_temperature,
-        # Grid - 3-phase R/S/T (LXP-EU) and split-phase L1/L2 (SNA/PV_SERIES)
-        # Note: R/S/T registers valid on LXP-EU, garbage on US split-phase systems
-        # Note: L1/L2 registers valid on SNA/PV_SERIES split-phase systems
+        # Grid - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
+        # Note: R/S/T registers valid on LXP, garbage on US split-phase systems
+        # Note: L1/L2 registers valid on EG4_OFFGRID/EG4_HYBRID split-phase systems
         # Sensor platform filters based on inverter family
         "grid_voltage_r": runtime_data.grid_voltage_r,
         "grid_voltage_s": runtime_data.grid_voltage_s,
@@ -135,7 +135,7 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "ac_power": runtime_data.inverter_power,
         # Note: load_power removed - register 27 (pToUser) is grid import, NOT consumption
         # Use consumption_power sensor instead (computed from energy balance)
-        # EPS/Backup - 3-phase R/S/T (LXP-EU) and split-phase L1/L2 (SNA/PV_SERIES)
+        # EPS/Backup - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
         "eps_voltage_r": runtime_data.eps_voltage_r,
         "eps_voltage_s": runtime_data.eps_voltage_s,
         "eps_voltage_t": runtime_data.eps_voltage_t,

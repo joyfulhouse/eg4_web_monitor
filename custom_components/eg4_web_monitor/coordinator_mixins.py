@@ -513,7 +513,7 @@ class DeviceProcessingMixin:
         if inverter_features is None:
             return features
 
-        # Extract inverter family (SNA, PV_SERIES, LXP_EU, etc.)
+        # Extract inverter family (EG4_OFFGRID, EG4_HYBRID, LXP, etc.)
         if hasattr(inverter_features, "model_family"):
             family = inverter_features.model_family
             features["inverter_family"] = (

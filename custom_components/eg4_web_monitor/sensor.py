@@ -50,19 +50,19 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
     if not features:
         return True
 
-    # Check split-phase sensors (only for SNA series)
+    # Check split-phase sensors (only for EG4_OFFGRID series)
     if sensor_key in SPLIT_PHASE_ONLY_SENSORS:
         return bool(features.get("supports_split_phase", True))
 
-    # Check three-phase sensors (only for PV Series, LXP-EU)
+    # Check three-phase sensors (only for EG4_HYBRID, LXP)
     if sensor_key in THREE_PHASE_ONLY_SENSORS:
         return bool(features.get("supports_three_phase", True))
 
-    # Check discharge recovery sensors (only for SNA series)
+    # Check discharge recovery sensors (only for EG4_OFFGRID series)
     if sensor_key in DISCHARGE_RECOVERY_SENSORS:
         return bool(features.get("supports_discharge_recovery_hysteresis", True))
 
-    # Check Volt-Watt sensors (only for PV Series, LXP-EU)
+    # Check Volt-Watt sensors (only for EG4_HYBRID, LXP)
     if sensor_key in VOLT_WATT_SENSORS:
         return bool(features.get("supports_volt_watt_curve", True))
 

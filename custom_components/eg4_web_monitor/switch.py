@@ -58,11 +58,11 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
         # but the parameter control may be different
         inverter_family = features.get("inverter_family")
         if inverter_family == INVERTER_FAMILY_EG4_OFFGRID:
-            # SNA devices support EPS but may use different parameter
+            # EG4_OFFGRID devices support EPS but may use different parameter
             # For now, keep them enabled until we confirm parameter support
             return bool(features.get("supports_off_grid", True))
 
-        # PV Series and others generally support the EPS parameter
+        # EG4_HYBRID and others generally support the EPS parameter
         return bool(features.get("supports_off_grid", True))
 
     # Fallback to string matching for backward compatibility

@@ -50,7 +50,7 @@ async def test():
         serial='SERIAL_NUMBER',
         port=502,
         unit_id=1,
-        inverter_family=InverterFamily.PV_SERIES
+        inverter_family=InverterFamily.EG4_HYBRID
     )
     await transport.connect()
     data = await transport.read_runtime()
@@ -114,7 +114,7 @@ Before releasing scaling changes:
 - [ ] Cloud value matches EG4 web portal display
 - [ ] Local (Modbus) value matches cloud value (±1% tolerance for timing)
 - [ ] Hybrid mode shows consistent values
-- [ ] All inverter families tested (PV_SERIES, 6K_12K, MID_DEVICE)
+- [ ] All inverter families tested (EG4_HYBRID, EG4_OFFGRID, LXP, GridBOSS)
 - [ ] Individual battery sensors match expected per-battery values
 - [ ] Parallel group aggregates sum correctly
 

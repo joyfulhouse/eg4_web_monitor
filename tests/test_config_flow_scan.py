@@ -27,7 +27,7 @@ def _make_scan_result(
     port: int = 502,
     device_type_name: str = "MODBUS_VERIFIED",
     serial: str | None = "4512345678",
-    model_family: str | None = "PV_SERIES",
+    model_family: str | None = "EG4_HYBRID",
     mac_vendor: str | None = None,
 ):
     """Create a mock ScanResult."""
