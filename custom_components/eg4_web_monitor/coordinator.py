@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -771,8 +772,10 @@ class EG4DataUpdateCoordinator(
         )
 
         # Register shutdown listener to cancel background tasks on Home Assistant stop
-        self._shutdown_listener_remove = hass.bus.async_listen_once(
-            "homeassistant_stop", self._async_handle_shutdown
+        # Initialize flag before registering to ensure it exists
+        self._shutdown_listener_fired = False
+        self._shutdown_listener_remove: Callable[[], None] | None = (
+            hass.bus.async_listen_once("homeassistant_stop", self._async_handle_shutdown)
         )
 
     async def _async_update_data(self) -> dict[str, Any]:

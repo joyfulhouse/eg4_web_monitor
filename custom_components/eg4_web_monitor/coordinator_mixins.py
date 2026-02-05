@@ -1598,10 +1598,12 @@ class BackgroundTaskMixin:
         """Handle Home Assistant stop event to cancel background tasks.
 
         When this fires, the listener auto-removes itself from the event bus.
-        We set a flag so async_shutdown() doesn't try to remove it again.
+        We set flags so async_shutdown() doesn't try to remove it again.
         """
         _LOGGER.debug("Handling Home Assistant stop event, cancelling background tasks")
         self._shutdown_listener_fired = True
+        # Mark removal function as used - the one-time listener auto-removes itself
+        self._shutdown_listener_remove = None
 
         if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
             self._debounced_refresh.async_cancel()
@@ -1613,15 +1615,22 @@ class BackgroundTaskMixin:
 
     async def async_shutdown(self) -> None:
         """Clean up background tasks and event listeners on shutdown."""
-        if hasattr(self, "_shutdown_listener_remove") and not getattr(
-            self, "_shutdown_listener_fired", False
-        ):
+        # Only try to remove listener if:
+        # - It exists (not None)
+        # - The shutdown event hasn't fired (which auto-removes the one-time listener)
+        remove_func = getattr(self, "_shutdown_listener_remove", None)
+        listener_fired = getattr(self, "_shutdown_listener_fired", False)
+
+        if remove_func is not None and not listener_fired:
             try:
-                self._shutdown_listener_remove()
+                remove_func()
                 _LOGGER.debug("Removed homeassistant_stop event listener")
             except ValueError:
                 # Listener already removed (e.g. integration re-added in same session)
                 _LOGGER.debug("Shutdown listener already removed")
+            finally:
+                # Mark as removed to prevent double-removal attempts
+                self._shutdown_listener_remove = None
 
         await self._cancel_background_tasks()
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")
