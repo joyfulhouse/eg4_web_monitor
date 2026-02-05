@@ -169,10 +169,8 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         ),
         # Status
         "status_code": runtime_data.device_status,
-        # Grid current (3-phase R/S/T mapped to L1/L2/L3)
-        "grid_current_l1": runtime_data.grid_current_r,
-        "grid_current_l2": runtime_data.grid_current_s,
-        "grid_current_l3": runtime_data.grid_current_t,
+        # Note: Grid current (L1/L2/L3) is only available on GridBOSS devices,
+        # not inverters. The cloud API doesn't return grid current for inverters.
     }
 
 
@@ -775,7 +773,9 @@ class EG4DataUpdateCoordinator(
         # Initialize flag before registering to ensure it exists
         self._shutdown_listener_fired = False
         self._shutdown_listener_remove: Callable[[], None] | None = (
-            hass.bus.async_listen_once("homeassistant_stop", self._async_handle_shutdown)
+            hass.bus.async_listen_once(
+                "homeassistant_stop", self._async_handle_shutdown
+            )
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -2737,6 +2737,12 @@ class EG4DataUpdateCoordinator(
             raise HomeAssistantError("No local transport available for parameter write")
 
         try:
+            if not transport.is_connected:
+                _LOGGER.debug(
+                    "Reconnecting transport for %s before writing %s", serial, parameter
+                )
+                await transport.connect()
+
             await transport.write_named_parameters({parameter: value})
             _LOGGER.debug("Wrote parameter %s = %s", parameter, value)
             return True
