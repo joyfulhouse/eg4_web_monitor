@@ -5,6 +5,30 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.18] - 2026-02-04
+
+### Changed
+
+- **BREAKING: Inverter family constants renamed** for clarity (aligns with pylxpweb 0.8.0):
+  - `INVERTER_FAMILY_SNA` → `INVERTER_FAMILY_EG4_OFFGRID`
+  - `INVERTER_FAMILY_PV_SERIES` → `INVERTER_FAMILY_EG4_HYBRID`
+  - `INVERTER_FAMILY_LXP_EU` → `INVERTER_FAMILY_LXP`
+  - `INVERTER_FAMILY_LXP_LV` → `INVERTER_FAMILY_LXP`
+  - Old constants emit `DeprecationWarning` but continue to work
+
+### Added
+
+- **Deprecation warnings** for legacy family constants via module-level `__getattr__`
+- **LXP-LB-BR 10kW support** - Brazil model device type for local discovery
+
+### Fixed
+
+- Updated all code comments to use new family names
+
+### Dependencies
+
+- Requires `pylxpweb>=0.8.0`
+
 ## [3.2.0-beta.10] - 2026-02-01
 
 ### Changed
