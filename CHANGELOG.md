@@ -5,6 +5,17 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.21] - 2026-02-05
+
+### Fixed
+
+- **Automatic Config Entry Migration**: Added `async_migrate_entry()` hook so Home Assistant automatically migrates legacy modbus/dongle config entries to the unified local format on startup. Previously, migration only ran when users manually clicked the reconfigure gear icon, causing broken integrations that required deletion and recreation. ([#83](https://github.com/joyfulhouse/eg4_web_monitor/issues/83))
+
+### Changed
+
+- **Config Flow Version**: Bumped from v1 to v2 to trigger automatic migration for existing entries
+- **AC-Coupled PV Option**: Temporarily disabled in options UI until feature is fully implemented (constants and translations preserved)
+
 ## [3.2.0-beta.18] - 2026-02-04
 
 ### Changed
