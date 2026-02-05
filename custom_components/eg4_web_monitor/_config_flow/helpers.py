@@ -142,7 +142,7 @@ def migrate_legacy_entry(data: dict[str, Any]) -> dict[str, Any]:
 
     migrated = dict(data)
     serial = migrated.pop(CONF_INVERTER_SERIAL, "")
-    family = migrated.pop(CONF_INVERTER_FAMILY, "PV_SERIES")
+    family = migrated.pop(CONF_INVERTER_FAMILY, "EG4_HYBRID")
 
     if connection_type == "modbus":
         transport: dict[str, Any] = {

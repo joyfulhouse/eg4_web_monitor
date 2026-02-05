@@ -95,7 +95,7 @@ MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
 DEFAULT_MODBUS_PORT = 502
 DEFAULT_MODBUS_UNIT_ID = 1
 DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
-DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
+DEFAULT_INVERTER_FAMILY = "EG4_HYBRID"  # Default to EG4 Hybrid (18kPV, FlexBOSS) register map
 
 # WiFi Dongle default values (pylxpweb 0.5.15+)
 DEFAULT_DONGLE_PORT = 8000

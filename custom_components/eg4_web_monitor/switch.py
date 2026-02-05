@@ -23,7 +23,7 @@ from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
 from .const import (
     FUNCTION_PARAM_MAPPING,
-    INVERTER_FAMILY_SNA,
+    INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
@@ -54,10 +54,10 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
 
     # If features are available, use feature-based detection
     if features:
-        # SNA series (off-grid focused like 12000XP) supports EPS natively
+        # EG4 Off-Grid series (12000XP, 6000XP) supports EPS natively
         # but the parameter control may be different
         inverter_family = features.get("inverter_family")
-        if inverter_family == INVERTER_FAMILY_SNA:
+        if inverter_family == INVERTER_FAMILY_EG4_OFFGRID:
             # SNA devices support EPS but may use different parameter
             # For now, keep them enabled until we confirm parameter support
             return bool(features.get("supports_off_grid", True))

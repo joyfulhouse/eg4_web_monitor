@@ -76,9 +76,9 @@ from .const import (
     DOMAIN,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
-    INVERTER_FAMILY_LXP_EU,
-    INVERTER_FAMILY_PV_SERIES,
-    INVERTER_FAMILY_SNA,
+    INVERTER_FAMILY_EG4_HYBRID,
+    INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_LXP,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
@@ -324,9 +324,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Build Modbus configuration schema
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         # Serial is optional - auto-detected from Modbus registers if not provided
@@ -472,9 +472,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Build dongle configuration schema
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         dongle_schema = vol.Schema(
@@ -771,9 +771,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         dongle_schema = vol.Schema(
@@ -856,9 +856,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         modbus_schema = vol.Schema(
@@ -1346,9 +1346,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         # Build Modbus reconfiguration schema with current values
@@ -1479,9 +1479,9 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Inverter family options for register map selection
         inverter_family_options = {
-            INVERTER_FAMILY_PV_SERIES: "EG4 18kPV / FlexBOSS (PV Series)",
-            INVERTER_FAMILY_SNA: "EG4 12000XP / 6000XP (SNA Series)",
-            INVERTER_FAMILY_LXP_EU: "LXP-EU 12K (European)",
+            INVERTER_FAMILY_EG4_HYBRID: "EG4 Hybrid (18kPV, 12kPV, FlexBOSS)",
+            INVERTER_FAMILY_EG4_OFFGRID: "EG4 Off-Grid (12000XP, 6000XP)",
+            INVERTER_FAMILY_LXP: "Luxpower (LXP-EU, LXP-BR, LXP-LV)",
         }
 
         # Build hybrid reconfiguration schema with current values

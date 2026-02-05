@@ -22,19 +22,40 @@ DEVICE_TYPE_STATION = "station"
 # Inverter Family Constants
 # =============================================================================
 # From pylxpweb InverterFamily enum - used for feature-based sensor filtering
+#
+# Family naming convention:
+# - EG4_* families: EG4 Electronics branded inverters (US market)
+# - LXP: Luxpower branded inverters (EU, Brazil, low-voltage - all use same registers)
 
-INVERTER_FAMILY_SNA = "SNA"  # Split-phase, North America (12000XP, 6000XP)
-INVERTER_FAMILY_PV_SERIES = "PV_SERIES"  # High-voltage DC (18KPV, etc.)
-INVERTER_FAMILY_LXP_EU = "LXP_EU"  # European market
-INVERTER_FAMILY_LXP_LV = "LXP_LV"  # Low-voltage DC
+INVERTER_FAMILY_EG4_OFFGRID = "EG4_OFFGRID"  # Off-grid (12000XP, 6000XP) - no grid sellback
+INVERTER_FAMILY_EG4_HYBRID = "EG4_HYBRID"  # Grid-tied hybrid (18kPV, 12kPV, FlexBOSS)
+INVERTER_FAMILY_LXP = "LXP"  # Luxpower (LXP-EU, LXP-LB-BR, LXP-LV)
 INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
+
+# Legacy aliases for backwards compatibility with existing config entries
+INVERTER_FAMILY_SNA = "EG4_OFFGRID"  # Deprecated: use INVERTER_FAMILY_EG4_OFFGRID
+INVERTER_FAMILY_PV_SERIES = "EG4_HYBRID"  # Deprecated: use INVERTER_FAMILY_EG4_HYBRID
+INVERTER_FAMILY_LXP_EU = "LXP"  # Deprecated: use INVERTER_FAMILY_LXP
+INVERTER_FAMILY_LXP_LV = "LXP"  # Deprecated: use INVERTER_FAMILY_LXP
+
+# Map legacy family names to new names for config entry migration
+LEGACY_FAMILY_MAP: dict[str, str] = {
+    "SNA": "EG4_OFFGRID",
+    "PV_SERIES": "EG4_HYBRID",
+    "LXP_EU": "LXP",
+    "LXP_LV": "LXP",
+}
 
 # Mapping from inverter family to default model for entity compatibility checks
 # Used when inverter_model is not provided in config entry (Modbus/Dongle modes)
 INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
-    "PV_SERIES": "18kPV",  # Matches "18kpv" in SUPPORTED_INVERTER_MODELS
-    "SNA": "12000XP",  # Matches "xp" in SUPPORTED_INVERTER_MODELS
-    "LXP_EU": "LXP-EU",  # LuxPower EU models - matches "lxp" in SUPPORTED_INVERTER_MODELS
+    "EG4_HYBRID": "18kPV",  # Matches "18kpv" in SUPPORTED_INVERTER_MODELS
+    "EG4_OFFGRID": "12000XP",  # Matches "xp" in SUPPORTED_INVERTER_MODELS
+    "LXP": "LXP",  # Luxpower models - matches "lxp" in SUPPORTED_INVERTER_MODELS
+    # Legacy keys for backwards compatibility
+    "PV_SERIES": "18kPV",
+    "SNA": "12000XP",
+    "LXP_EU": "LXP",
 }
 
 # =============================================================================
