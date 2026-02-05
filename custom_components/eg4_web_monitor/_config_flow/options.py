@@ -15,7 +15,8 @@ from homeassistant import config_entries
 from ..const import (
     BRAND_NAME,
     CONF_CONNECTION_TYPE,
-    CONF_INCLUDE_AC_COUPLE_PV,
+    # TODO: Re-enable when AC-coupled PV feature is implemented
+    # CONF_INCLUDE_AC_COUPLE_PV,
     CONF_LIBRARY_DEBUG,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
@@ -24,7 +25,8 @@ from ..const import (
     CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
-    DEFAULT_INCLUDE_AC_COUPLE_PV,
+    # TODO: Re-enable when AC-coupled PV feature is implemented
+    # DEFAULT_INCLUDE_AC_COUPLE_PV,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
@@ -105,13 +107,14 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_LIBRARY_DEBUG, False),
         )
 
+        # TODO: Re-enable when AC-coupled PV feature is implemented
         # AC couple PV inclusion option
-        current_include_ac_couple = self.config_entry.options.get(
-            CONF_INCLUDE_AC_COUPLE_PV,
-            self.config_entry.data.get(
-                CONF_INCLUDE_AC_COUPLE_PV, DEFAULT_INCLUDE_AC_COUPLE_PV
-            ),
-        )
+        # current_include_ac_couple = self.config_entry.options.get(
+        #     CONF_INCLUDE_AC_COUPLE_PV,
+        #     self.config_entry.data.get(
+        #         CONF_INCLUDE_AC_COUPLE_PV, DEFAULT_INCLUDE_AC_COUPLE_PV
+        #     ),
+        # )
 
         options_schema = vol.Schema(
             {
@@ -139,10 +142,11 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                     CONF_LIBRARY_DEBUG,
                     default=current_library_debug,
                 ): bool,
-                vol.Optional(
-                    CONF_INCLUDE_AC_COUPLE_PV,
-                    default=current_include_ac_couple,
-                ): bool,
+                # TODO: Re-enable when AC-coupled PV feature is implemented
+                # vol.Optional(
+                #     CONF_INCLUDE_AC_COUPLE_PV,
+                #     default=current_include_ac_couple,
+                # ): bool,
             }
         )
 
