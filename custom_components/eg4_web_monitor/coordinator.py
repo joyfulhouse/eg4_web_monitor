@@ -217,13 +217,13 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         Dictionary mapping sensor keys to values.
     """
     # Calculate battery_power with fallback if voltage/current unavailable
-    # Primary: voltage * current (from battery_power property)
-    # Fallback: charge_power - discharge_power (positive = charging, negative = discharging)
-    battery_power = battery_data.battery_power
-    voltage = battery_data.voltage
-    current = battery_data.current
+    # Primary: charge_power - discharge_power (positive = charging, negative = discharging)
+    # This matches the charge/discharge sensors for consistency
+    # Fallback: voltage * current (from battery_power property)
     charge = battery_data.charge_power
     discharge = battery_data.discharge_power
+    voltage = battery_data.voltage
+    current = battery_data.current
 
     # Log battery_bank_count for debugging issue #129
     battery_count = battery_data.battery_count
@@ -239,35 +239,36 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         battery_data.max_capacity,
     )
 
-    if battery_power is not None:
+    battery_power: float | None = None
+    if charge is not None and discharge is not None:
+        # Use charge - discharge for consistency with charge/discharge power sensors
+        battery_power = charge - discharge
         _LOGGER.debug(
-            "LOCAL battery_bank_power: using V*I calculation: "
+            "LOCAL battery_bank_power: using charge-discharge: "
+            "charge=%s, discharge=%s, result=%s",
+            charge,
+            discharge,
+            battery_power,
+        )
+    elif battery_data.battery_power is not None:
+        # Fallback to V*I calculation
+        battery_power = battery_data.battery_power
+        _LOGGER.debug(
+            "LOCAL battery_bank_power: using V*I fallback: "
             "voltage=%s, current=%s, result=%s",
             voltage,
             current,
             battery_power,
         )
     else:
-        if charge is not None and discharge is not None:
-            battery_power = charge - discharge
-            _LOGGER.debug(
-                "LOCAL battery_bank_power: using charge-discharge fallback: "
-                "charge=%s, discharge=%s, result=%s (V=%s, I=%s were None)",
-                charge,
-                discharge,
-                battery_power,
-                voltage,
-                current,
-            )
-        else:
-            _LOGGER.warning(
-                "LOCAL battery_bank_power: cannot calculate - "
-                "voltage=%s, current=%s, charge=%s, discharge=%s",
-                voltage,
-                current,
-                charge,
-                discharge,
-            )
+        _LOGGER.warning(
+            "LOCAL battery_bank_power: cannot calculate - "
+            "voltage=%s, current=%s, charge=%s, discharge=%s",
+            voltage,
+            current,
+            charge,
+            discharge,
+        )
 
     sensors: dict[str, Any] = {
         "battery_bank_soc": battery_data.soc,
