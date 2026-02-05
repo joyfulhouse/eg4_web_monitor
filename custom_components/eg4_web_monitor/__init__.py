@@ -15,6 +15,7 @@ from homeassistant.exceptions import ServiceValidationError
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EG4DataUpdateCoordinator
+from .services import async_reconcile_history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,9 +36,21 @@ OTHER_PLATFORMS: list[Platform] = [
 PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
 
 SERVICE_REFRESH_DATA = "refresh_data"
+SERVICE_RECONCILE_HISTORY = "reconcile_history"
 
 REFRESH_DATA_SCHEMA = vol.Schema(
     {
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+RECONCILE_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Optional("lookback_hours", default=48): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=8760)
+        ),
+        vol.Optional("start_date"): cv.string,
+        vol.Optional("end_date"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -105,6 +118,18 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         SERVICE_REFRESH_DATA,
         handle_refresh_data,
         schema=REFRESH_DATA_SCHEMA,
+    )
+
+    # Register reconcile_history service
+    async def handle_reconcile_history(call: ServiceCall) -> None:
+        """Handle reconcile_history service call."""
+        await async_reconcile_history(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RECONCILE_HISTORY,
+        handle_reconcile_history,
+        schema=RECONCILE_HISTORY_SCHEMA,
     )
 
     return True

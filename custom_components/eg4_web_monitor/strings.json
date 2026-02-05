@@ -409,6 +409,7 @@
       "internal_temperature": {"name": "Internal Temperature"},
       "radiator1_temperature": {"name": "Radiator 1 Temperature"},
       "radiator2_temperature": {"name": "Radiator 2 Temperature"},
+      "bt_temperature": {"name": "BT Temperature"},
       "status_code": {"name": "Status Code"},
       "status_text": {"name": "Status"},
       "grid_power": {"name": "Grid Power"},
@@ -493,6 +494,28 @@
           "description": "The configuration entry ID to refresh. If not provided, all {brand_name} Web Monitor integrations will be refreshed."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Reconcile Energy History",
+      "description": "Backfill missing energy statistics from the {brand_name} cloud API. This service fetches historical energy data and imports it into Home Assistant's statistics database for any gaps in your energy sensor history. Requires cloud credentials (HTTP or Hybrid connection mode).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Lookback Hours",
+          "description": "Number of hours to look back for gaps in energy statistics. Default is 48 hours."
+        },
+        "start_date": {
+          "name": "Start Date",
+          "description": "Explicit start date for reconciliation (YYYY-MM-DD format). If provided, end_date is also required."
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "Explicit end date for reconciliation (YYYY-MM-DD format). If provided, start_date is also required."
+        },
+        "entry_id": {
+          "name": "Configuration Entry ID",
+          "description": "The configuration entry ID to reconcile. If not provided, all {brand_name} Web Monitor integrations with cloud credentials will be reconciled."
+        }
+      }
     }
   },
   "exceptions": {
@@ -504,6 +527,9 @@
     },
     "no_coordinators": {
       "message": "No {brand_name} coordinators found to refresh. Please ensure at least one {brand_name} Web Monitor integration is configured and loaded."
+    },
+    "invalid_date_format": {
+      "message": "Invalid date format. Please use YYYY-MM-DD format."
     }
   }
 }

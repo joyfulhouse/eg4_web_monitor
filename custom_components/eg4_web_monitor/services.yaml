@@ -8,3 +8,44 @@ refresh_data:
       required: false
       selector:
         text:
+
+reconcile_history:
+  name: Reconcile Energy History
+  description: >-
+    Backfill missing energy statistics from the EG4 cloud API.
+    This service fetches historical energy data and imports it into Home Assistant's
+    statistics database for any gaps in your energy sensor history.
+    Requires cloud credentials (HTTP or Hybrid connection mode).
+  fields:
+    lookback_hours:
+      name: Lookback Hours
+      description: Number of hours to look back for gaps (default: 48)
+      required: false
+      default: 48
+      selector:
+        number:
+          min: 1
+          max: 8760
+          step: 1
+          mode: box
+          unit_of_measurement: hours
+    start_date:
+      name: Start Date
+      description: Explicit start date (YYYY-MM-DD). If provided, end_date is also required.
+      required: false
+      example: "2025-01-01"
+      selector:
+        date:
+    end_date:
+      name: End Date
+      description: Explicit end date (YYYY-MM-DD). If provided, start_date is also required.
+      required: false
+      example: "2025-01-31"
+      selector:
+        date:
+    entry_id:
+      name: Config Entry ID
+      description: The configuration entry ID to reconcile (optional, reconciles all if not specified)
+      required: false
+      selector:
+        text:

@@ -37,7 +37,9 @@ DEVICE_TYPE_STATION = "station"
 # - EG4_* families: EG4 Electronics branded inverters (US market)
 # - LXP: Luxpower branded inverters (EU, Brazil, low-voltage - all use same registers)
 
-INVERTER_FAMILY_EG4_OFFGRID = "EG4_OFFGRID"  # Off-grid (12000XP, 6000XP) - no grid sellback
+INVERTER_FAMILY_EG4_OFFGRID = (
+    "EG4_OFFGRID"  # Off-grid (12000XP, 6000XP) - no grid sellback
+)
 INVERTER_FAMILY_EG4_HYBRID = "EG4_HYBRID"  # Grid-tied hybrid (18kPV, 12kPV, FlexBOSS)
 INVERTER_FAMILY_LXP = "LXP"  # Luxpower (LXP-EU, LXP-LB-BR, LXP-LV)
 INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
@@ -69,6 +71,7 @@ def __getattr__(name: str) -> Any:
         )
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Map legacy family names to new names for config entry migration
 LEGACY_FAMILY_MAP: dict[str, str] = {

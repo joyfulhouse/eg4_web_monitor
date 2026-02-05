@@ -1211,6 +1211,16 @@ SENSOR_TYPES = {
         "icon": "mdi:radiator",
         "entity_category": "diagnostic",
     },
+    # BT Temperature Sensor (Modbus register 108, local-only)
+    # "12K BT temperature" per LuxPower Modbus documentation
+    "bt_temperature": {
+        "name": "BT Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer",
+        "entity_category": "diagnostic",
+    },
     # GridBOSS Smart Load sensors
     "smart_load_power": {
         "name": "Smart Load Power",

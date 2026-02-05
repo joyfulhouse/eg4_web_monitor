@@ -158,6 +158,13 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "internal_temperature": runtime_data.internal_temperature,
         "radiator1_temperature": runtime_data.radiator_temperature_1,
         "radiator2_temperature": runtime_data.radiator_temperature_2,
+        # BT Temperature (Modbus register 108, local-only)
+        # Only include if value is present (not available via HTTP API)
+        **(
+            {"bt_temperature": runtime_data.temperature_t1}
+            if runtime_data.temperature_t1 is not None
+            else {}
+        ),
         # Status
         "status_code": runtime_data.device_status,
         # Grid current (3-phase R/S/T mapped to L1/L2/L3)
