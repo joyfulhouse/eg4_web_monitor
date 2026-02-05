@@ -224,12 +224,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
             continue
         if "_power_output" in entity.unique_id:
             new_unique_id = entity.unique_id.replace("_power_output", "_output_power")
-            entity_registry.async_update_entity(
-                entity.entity_id, new_unique_id=new_unique_id
+            existing = entity_registry.async_get_entity_id(
+                "sensor", DOMAIN, new_unique_id
             )
-            _LOGGER.info(
-                "Migrated entity %s: power_output -> output_power", entity.entity_id
-            )
+            if existing:
+                # Target unique_id already exists — remove the stale power_output entity
+                entity_registry.async_remove(entity.entity_id)
+                _LOGGER.info(
+                    "Removed stale power_output entity %s (target %s already exists)",
+                    entity.entity_id,
+                    existing,
+                )
+            else:
+                entity_registry.async_update_entity(
+                    entity.entity_id, new_unique_id=new_unique_id
+                )
+                _LOGGER.info(
+                    "Migrated entity %s: power_output -> output_power",
+                    entity.entity_id,
+                )
 
     # Parallel group identity stabilization.
     # If the coordinator now produces a different serial for a PG than what's
