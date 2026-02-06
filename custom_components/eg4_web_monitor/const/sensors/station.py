@@ -64,11 +64,11 @@ STATION_SENSOR_TYPES = {
         "state_class": "measurement",
     },
     "api_requests_per_hour": {
-        "name": "API Requests per Hour",
+        "name": "API Requests This Hour",
         "icon": "mdi:counter",
         "entity_category": EntityCategory.DIAGNOSTIC,
         "unit_of_measurement": "requests",
-        "state_class": "measurement",
+        "state_class": "total",
     },
     "api_requests_today": {
         "name": "API Requests Today",
