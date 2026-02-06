@@ -170,8 +170,6 @@ class EG4WebMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): vol.In(
                     {
                         CONNECTION_TYPE_HTTP: "Cloud API (HTTP)",
-                        CONNECTION_TYPE_MODBUS: "Local Modbus TCP",
-                        CONNECTION_TYPE_HYBRID: "Hybrid (Local + Cloud)",
                     }
                 ),
             }

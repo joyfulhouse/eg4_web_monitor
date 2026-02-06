@@ -122,30 +122,14 @@ class EG4DataUpdateCoordinator(
                 iana_timezone=iana_timezone,
             )
 
-        # Initialize Modbus transport for Modbus and Hybrid modes
+        # Local Modbus transport disabled in v3.1.8 (rate limit protection).
+        # All connections route through HTTP at 180s interval.
         self._modbus_transport: ModbusTransport | None = None
         if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
-            from pylxpweb.devices.inverters._features import InverterFamily
-            from pylxpweb.transports import create_modbus_transport
-
-            # Convert string family to InverterFamily enum
-            inverter_family = None
-            family_str = entry.data.get(CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY)
-            if family_str:
-                try:
-                    inverter_family = InverterFamily(family_str)
-                except ValueError:
-                    _LOGGER.warning(
-                        "Unknown inverter family '%s', using default", family_str
-                    )
-
-            self._modbus_transport = create_modbus_transport(
-                host=entry.data[CONF_MODBUS_HOST],
-                port=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
-                unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
-                serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                timeout=DEFAULT_MODBUS_TIMEOUT,
-                inverter_family=inverter_family,
+            _LOGGER.warning(
+                "Local Modbus transport is disabled in v3.1.8. "
+                "All connections will use cloud HTTP at 180s interval. "
+                "Local transport support will return in v3.2.0"
             )
             self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
             self._modbus_model = entry.data.get(CONF_INVERTER_MODEL, "Unknown")
@@ -189,12 +173,8 @@ class EG4DataUpdateCoordinator(
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 
-        # Determine update interval based on connection type
-        # Modbus and Hybrid can poll faster since they use local network
-        if self.connection_type in (CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_HYBRID):
-            update_interval = timedelta(seconds=MODBUS_UPDATE_INTERVAL)
-        else:
-            update_interval = timedelta(seconds=DEFAULT_UPDATE_INTERVAL)
+        # Fixed 180s polling interval for all modes (v3.1.8 rate limit protection)
+        update_interval = timedelta(seconds=DEFAULT_UPDATE_INTERVAL)
 
         super().__init__(
             hass,
@@ -221,11 +201,12 @@ class EG4DataUpdateCoordinator(
             ConfigEntryAuthFailed: If authentication fails.
             UpdateFailed: If connection or API errors occur.
         """
-        if self.connection_type == CONNECTION_TYPE_MODBUS:
-            return await self._async_update_modbus_data()
-        if self.connection_type == CONNECTION_TYPE_HYBRID:
-            return await self._async_update_hybrid_data()
-        # Default to HTTP
+        # v3.1.8: All connections route through HTTP (local transport disabled)
+        if self.connection_type == CONNECTION_TYPE_MODBUS and self.client is None:
+            raise UpdateFailed(
+                "Local Modbus transport is disabled in v3.1.8. "
+                "Please reconfigure with cloud credentials or upgrade to v3.2.0"
+            )
         return await self._async_update_http_data()
 
     async def _async_update_modbus_data(self) -> dict[str, Any]:

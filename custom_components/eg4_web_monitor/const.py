@@ -102,7 +102,7 @@ DEFAULT_VERIFY_SSL = CURRENT_BRAND.default_verify_ssl
 BRAND_NAME = CURRENT_BRAND.brand_name
 ENTITY_PREFIX = CURRENT_BRAND.entity_prefix
 MANUFACTURER = CURRENT_BRAND.manufacturer
-DEFAULT_UPDATE_INTERVAL = 30  # seconds
+DEFAULT_UPDATE_INTERVAL = 180  # seconds (rate limit protection)
 
 # Configuration keys
 CONF_BASE_URL = "base_url"
@@ -132,8 +132,8 @@ DEFAULT_MODBUS_UNIT_ID = 1
 DEFAULT_MODBUS_TIMEOUT = 10.0  # seconds
 DEFAULT_INVERTER_FAMILY = "PV_SERIES"  # Default to EG4-18KPV register map
 
-# Modbus update interval (can be much faster than HTTP due to local network)
-MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
+# Modbus update interval (disabled in v3.1.8 — local transport not yet stable)
+MODBUS_UPDATE_INTERVAL = 180  # seconds (same as HTTP for rate limit protection)
 
 # Device types
 DEVICE_TYPE_INVERTER = "inverter"
