@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Cloud-Verbindung entfernen",
-        "description": "Dadurch werden die Cloud-Zugangsdaten aus Ihrer Konfiguration entfernt. Ihre lokalen Geräte funktionieren weiterhin.\n\nFunktionen, die Cloud erfordern und deaktiviert werden:\n- Schnellladung-Schalter\n- GridBOSS/MID-Gerätesensoren\n- Firmware-Update-Benachrichtigungen\n\nAlle anderen Steuerungen (Batterie-Backup, AC-Ladung, SOC-Grenzwerte usw.) funktionieren lokal über Modbus-Register.",
+        "description": "Dadurch werden die Cloud-Zugangsdaten aus Ihrer Konfiguration entfernt. Ihre lokalen Geräte funktionieren weiterhin.\n\nFunktionen, die Cloud erfordern und deaktiviert werden:\n- Schnellladung-Schalter\n- Firmware-Update-Benachrichtigungen\n\nAlle anderen Steuerungen (Batterie-Backup, AC-Ladung, SOC-Grenzwerte usw.) funktionieren lokal über Modbus-Register.",
         "submit": "Cloud-Verbindung entfernen"
       },
       "reconfigure_devices": {

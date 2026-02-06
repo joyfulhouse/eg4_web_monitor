@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Supprimer la connexion cloud",
-        "description": "Cela supprimera les identifiants cloud de votre configuration. Vos appareils locaux continueront de fonctionner.\n\nFonctionnalites necessitant le cloud qui seront desactivees :\n- Interrupteur Quick Charge\n- Capteurs des appareils GridBOSS/MID\n- Notifications de mise a jour du firmware\n\nToutes les autres commandes (Battery Backup, AC Charge, limites SOC, etc.) fonctionnent localement via les registres Modbus.",
+        "description": "Cela supprimera les identifiants cloud de votre configuration. Vos appareils locaux continueront de fonctionner.\n\nFonctionnalites necessitant le cloud qui seront desactivees :\n- Interrupteur Quick Charge\n- Notifications de mise a jour du firmware\n\nToutes les autres commandes (Battery Backup, AC Charge, limites SOC, etc.) fonctionnent localement via les registres Modbus.",
         "submit": "Supprimer la connexion cloud"
       },
       "reconfigure_devices": {

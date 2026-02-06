@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "移除雲端連線",
-        "description": "這將從您的設定中移除雲端憑證。您的本機裝置將繼續運作。\n\n需要雲端且將被停用的功能：\n- 快速充電開關\n- GridBOSS/MID 裝置感測器\n- 韌體更新通知\n\n所有其他控制（電池備份、交流充電、SOC 限制等）透過 Modbus 暫存器在本機運作。",
+        "description": "這將從您的設定中移除雲端憑證。您的本機裝置將繼續運作。\n\n需要雲端且將被停用的功能：\n- 快速充電開關\n- 韌體更新通知\n\n所有其他控制（電池備份、交流充電、SOC 限制等）透過 Modbus 暫存器在本機運作。",
         "submit": "移除雲端連線"
       },
       "reconfigure_devices": {

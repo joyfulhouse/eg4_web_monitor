@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Usun polaczenie z chmura",
-        "description": "Spowoduje to usuniecie danych chmury z konfiguracji. Urzadzenia lokalne beda nadal dzialac.\n\nFunkcje wymagajace chmury, ktore zostana wylaczone:\n- Przelacznik szybkiego ladowania\n- Czujniki urzadzenia GridBOSS/MID\n- Powiadomienia o aktualizacjach oprogramowania\n\nWszystkie inne funkcje sterowania (Backup baterii, Ladowanie AC, limity SOC itp.) dzialaja lokalnie przez rejestry Modbus.",
+        "description": "Spowoduje to usuniecie danych chmury z konfiguracji. Urzadzenia lokalne beda nadal dzialac.\n\nFunkcje wymagajace chmury, ktore zostana wylaczone:\n- Przelacznik szybkiego ladowania\n- Powiadomienia o aktualizacjach oprogramowania\n\nWszystkie inne funkcje sterowania (Backup baterii, Ladowanie AC, limity SOC itp.) dzialaja lokalnie przez rejestry Modbus.",
         "submit": "Usun polaczenie z chmura"
       },
       "reconfigure_devices": {

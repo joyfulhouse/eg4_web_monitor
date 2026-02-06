@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Cloudverbinding verwijderen",
-        "description": "Dit verwijdert de cloudinloggegevens uit uw configuratie. Uw lokale apparaten blijven werken.\n\nFuncties die cloud vereisen en worden uitgeschakeld:\n- Snel Laden-schakelaar\n- GridBOSS/MID-apparaatsensoren\n- Firmware-updatemeldingen\n\nAlle andere bedieningselementen (Batterij-backup, AC-laden, SOC-limieten, enz.) werken lokaal via Modbus-registers.",
+        "description": "Dit verwijdert de cloudinloggegevens uit uw configuratie. Uw lokale apparaten blijven werken.\n\nFuncties die cloud vereisen en worden uitgeschakeld:\n- Snel Laden-schakelaar\n- Firmware-updatemeldingen\n\nAlle andere bedieningselementen (Batterij-backup, AC-laden, SOC-limieten, enz.) werken lokaal via Modbus-registers.",
         "submit": "Cloudverbinding verwijderen"
       },
       "reconfigure_devices": {

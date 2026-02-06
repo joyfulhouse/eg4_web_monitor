@@ -233,7 +233,7 @@
       },
       "reconfigure_cloud_remove": {
         "title": "Eliminar Conexion de Nube",
-        "description": "Esto eliminara las credenciales de nube de su configuracion. Sus dispositivos locales continuaran funcionando.\n\nFunciones que requieren nube y seran deshabilitadas:\n- Interruptor de Carga Rapida\n- Sensores de dispositivos GridBOSS/MID\n- Notificaciones de actualizacion de firmware\n\nTodos los demas controles (Respaldo de Bateria, Carga AC, limites SOC, etc.) funcionan localmente via registros Modbus.",
+        "description": "Esto eliminara las credenciales de nube de su configuracion. Sus dispositivos locales continuaran funcionando.\n\nFunciones que requieren nube y seran deshabilitadas:\n- Interruptor de Carga Rapida\n- Notificaciones de actualizacion de firmware\n\nTodos los demas controles (Respaldo de Bateria, Carga AC, limites SOC, etc.) funcionan localmente via registros Modbus.",
         "submit": "Eliminar Conexion de Nube"
       },
       "reconfigure_devices": {
