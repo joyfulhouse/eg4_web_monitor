@@ -53,7 +53,7 @@ STATION_SENSOR_TYPES = {
         "name": "API Request Rate",
         "icon": "mdi:api",
         "entity_category": EntityCategory.DIAGNOSTIC,
-        "unit_of_measurement": "req/min",
+        "unit_of_measurement": "req/hr",
         "state_class": "measurement",
     },
     "api_peak_request_rate": {
@@ -62,13 +62,6 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
         "unit_of_measurement": "req/min",
         "state_class": "measurement",
-    },
-    "api_requests_per_hour": {
-        "name": "API Requests This Hour",
-        "icon": "mdi:counter",
-        "entity_category": EntityCategory.DIAGNOSTIC,
-        "unit_of_measurement": "requests",
-        "state_class": "total",
     },
     "api_requests_today": {
         "name": "API Requests Today",

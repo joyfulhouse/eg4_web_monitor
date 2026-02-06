@@ -466,8 +466,6 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
             return station_data.get("api_request_rate")
         if self._sensor_key == "api_peak_request_rate":
             return station_data.get("api_peak_request_rate")
-        if self._sensor_key == "api_requests_per_hour":
-            return station_data.get("api_requests_per_hour")
         if self._sensor_key == "api_requests_today":
             return station_data.get("api_requests_today")
 

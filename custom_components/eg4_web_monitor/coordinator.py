@@ -1061,21 +1061,11 @@ class EG4DataUpdateCoordinator(
         # Store HTTP polling interval for client cache alignment
         self._http_polling_interval: int = http_interval_seconds
 
-        # Hourly/daily API counter persistence — survives config entry reloads
-        # via hass.data (client instance gets destroyed/recreated on reload).
+        # Daily API counter persistence — survives config entry reloads via
+        # hass.data (client instance gets destroyed/recreated on reload).
         # On reload: offset = stored total, client starts at 0, coordinator
-        # returns offset + client_count. On boundary change: both reset to 0.
-        lt = time.localtime()
-        hour_key = (lt.tm_year, lt.tm_mon, lt.tm_mday, lt.tm_hour)
-        today_ymd = lt[:3]
-
-        hourly_store = hass.data.get(f"{DOMAIN}_hourly_api_count_{self.plant_id}")
-        if hourly_store and hourly_store.get("key") == hour_key:
-            self._hourly_api_offset: int = hourly_store["count"]
-        else:
-            self._hourly_api_offset = 0
-        self._hourly_api_key: tuple[int, int, int, int] = hour_key
-
+        # returns offset + client_today. On day change: both reset to 0.
+        today_ymd = time.localtime()[:3]
         daily_store = hass.data.get(f"{DOMAIN}_daily_api_count_{self.plant_id}")
         if daily_store and daily_store.get("ymd") == today_ymd:
             self._daily_api_offset: int = daily_store["count"]
@@ -2849,27 +2839,15 @@ class EG4DataUpdateCoordinator(
         # API metrics from client — only tracked when an HTTP client exists
         if self.client is not None:
             processed["station"]["api_request_rate"] = (
-                self.client.api_requests_per_minute
+                self.client.api_requests_last_hour
             )
             processed["station"]["api_peak_request_rate"] = (
                 self.client.api_peak_rate_per_hour
             )
-            # Hourly counter: offset (pre-reload) + client count since reload.
-            # Resets at the top of each clock hour. Persisted in hass.data.
-            lt = time.localtime()
-            hour_key = (lt.tm_year, lt.tm_mon, lt.tm_mday, lt.tm_hour)
-            if hour_key != self._hourly_api_key:
-                self._hourly_api_offset = 0
-                self._hourly_api_key = hour_key
-            total_hour = self._hourly_api_offset + self.client.api_requests_this_hour
-            processed["station"]["api_requests_per_hour"] = total_hour
-            self.hass.data[f"{DOMAIN}_hourly_api_count_{self.plant_id}"] = {
-                "count": total_hour,
-                "key": hour_key,
-            }
 
-            # Daily counter: same pattern, resets at midnight.
-            today_ymd = lt[:3]
+            # Daily counter: offset (pre-reload total) + client's count since reload.
+            # Persisted in hass.data to survive config entry reloads.
+            today_ymd = time.localtime()[:3]
             if today_ymd != self._daily_api_ymd:
                 self._daily_api_offset = 0
                 self._daily_api_ymd = today_ymd
