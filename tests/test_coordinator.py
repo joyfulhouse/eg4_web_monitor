@@ -12,14 +12,35 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
+    CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_HTTP_POLLING_INTERVAL,
     CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
+    CONNECTION_TYPE_HTTP,
+    CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_LOCAL,
+    DEFAULT_HTTP_POLLING_INTERVAL,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DOMAIN,
 )
-from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
+from custom_components.eg4_web_monitor.coordinator import (
+    ALL_INVERTER_SENSOR_KEYS,
+    BATTERY_BANK_KEYS,
+    EG4DataUpdateCoordinator,
+    GRIDBOSS_SENSOR_KEYS,
+    INVERTER_ENERGY_KEYS,
+    INVERTER_RUNTIME_KEYS,
+    _build_battery_bank_sensor_mapping,
+    _build_energy_sensor_mapping,
+    _build_gridboss_sensor_mapping,
+    _build_runtime_sensor_mapping,
+    _features_from_family,
+)
 from pylxpweb.exceptions import (
     LuxpowerAPIError,
     LuxpowerAuthError,
@@ -571,3 +592,846 @@ class TestParallelGroupBatteryCount:
         # Should only count non-zero values (3), not 0
         sensors = parallel_group.get("sensors", {})
         assert sensors.get("parallel_battery_count") == 3
+
+
+class TestDeferredLocalParameters:
+    """Test deferred parameter loading for local transport modes."""
+
+    @pytest.fixture
+    def local_config_entry(self):
+        """Config entry for LOCAL connection type."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - FlexBOSS21",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1234567890",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="local_test_entry",
+        )
+
+    async def test_local_parameters_deferred_flag_init(self, hass, local_config_entry):
+        """Verify _local_parameters_loaded starts False."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        assert coordinator._local_parameters_loaded is False
+
+    async def test_first_refresh_skips_parameters(self, hass, local_config_entry):
+        """Verify include_parameters=False on first local refresh."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter._transport = MagicMock()
+        mock_inverter._transport.is_connected = True
+        mock_inverter._transport_runtime = MagicMock()
+        mock_inverter._transport_runtime.pv_total_power = 0
+        mock_inverter._transport_runtime.battery_soc = 50
+        mock_inverter._transport_runtime.grid_power = 0
+        mock_inverter._transport_runtime.parallel_number = 0
+        mock_inverter._transport_runtime.parallel_master_slave = 0
+        mock_inverter._transport_runtime.parallel_phase = 0
+        mock_inverter._transport_energy = None
+        mock_inverter._transport_battery = None
+        mock_inverter.consumption_power = None
+        mock_inverter.total_load_power = None
+        mock_inverter.battery_power = None
+        mock_inverter.rectifier_power = None
+        mock_inverter.power_to_user = None
+
+        coordinator._inverter_cache["1234567890"] = mock_inverter
+        coordinator._firmware_cache["1234567890"] = "TEST-FW"
+
+        # Simulate processing a single local device
+        processed = {"devices": {}, "parameters": {}}
+        device_availability: dict[str, bool] = {}
+
+        config = local_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
+        await coordinator._process_single_local_device(
+            config, processed, device_availability
+        )
+
+        # First refresh should use include_parameters=False
+        mock_inverter.refresh.assert_called_once_with(
+            force=True, include_parameters=False
+        )
+        # Parameters should be empty dict (deferred)
+        assert processed["parameters"]["1234567890"] == {}
+
+    async def test_second_refresh_includes_parameters(self, hass, local_config_entry):
+        """After flag is set, include_parameters=True on subsequent refreshes."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._local_parameters_loaded = True  # Simulate post-first-refresh
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = MagicMock()
+        mock_inverter._transport.is_connected = True
+        mock_inverter._transport_runtime = MagicMock()
+        mock_inverter._transport_runtime.pv_total_power = 0
+        mock_inverter._transport_runtime.battery_soc = 50
+        mock_inverter._transport_runtime.grid_power = 0
+        mock_inverter._transport_runtime.parallel_number = 0
+        mock_inverter._transport_runtime.parallel_master_slave = 0
+        mock_inverter._transport_runtime.parallel_phase = 0
+        mock_inverter._transport_energy = None
+        mock_inverter._transport_battery = None
+        mock_inverter.consumption_power = None
+        mock_inverter.total_load_power = None
+        mock_inverter.battery_power = None
+        mock_inverter.rectifier_power = None
+        mock_inverter.power_to_user = None
+
+        coordinator._inverter_cache["1234567890"] = mock_inverter
+        coordinator._firmware_cache["1234567890"] = "TEST-FW"
+
+        processed = {"devices": {}, "parameters": {}}
+        device_availability: dict[str, bool] = {}
+
+        with patch.object(
+            coordinator,
+            "_read_modbus_parameters",
+            new_callable=AsyncMock,
+            return_value={"FUNC_EPS_EN": True},
+        ) as mock_params:
+            config = local_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
+            await coordinator._process_single_local_device(
+                config, processed, device_availability
+            )
+
+        # Second refresh should use include_parameters=True
+        mock_inverter.refresh.assert_called_once_with(
+            force=True, include_parameters=True
+        )
+        # Feature detection should be called
+        mock_inverter.detect_features.assert_called_once()
+        # Parameters should be populated
+        mock_params.assert_called_once()
+        assert processed["parameters"]["1234567890"] == {"FUNC_EPS_EN": True}
+
+    async def test_deferred_background_task_loads_parameters(
+        self, hass, local_config_entry
+    ):
+        """Background task loads parameters and calls detect_features."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.async_request_refresh = AsyncMock()
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        coordinator._inverter_cache["1234567890"] = mock_inverter
+
+        await coordinator._deferred_local_parameter_load()
+
+        # Should use force=False to avoid re-reading cached data
+        mock_inverter.refresh.assert_called_once_with(
+            force=False, include_parameters=True
+        )
+        mock_inverter.detect_features.assert_called_once()
+        coordinator.async_request_refresh.assert_called_once()
+
+
+class TestStaticLocalData:
+    """Tests for static device data pre-population (zero-read first refresh)."""
+
+    @pytest.fixture
+    def local_config_entry(self):
+        """Config entry for LOCAL connection type with one inverter."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - FlexBOSS21",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1234567890",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "device_type_code": 10284,
+                        "model": "FlexBOSS21",
+                        "firmware_version": "ARM-1.0",
+                    },
+                ],
+            },
+            entry_id="static_test_entry",
+        )
+
+    @pytest.fixture
+    def gridboss_config_entry(self):
+        """Config entry for LOCAL connection type with one GridBOSS."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - GridBOSS",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "GB001",
+                        "host": "192.168.1.200",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "model": "GridBOSS",
+                        "is_gridboss": True,
+                        "device_type_code": 50,
+                        "firmware_version": "GB-2.0",
+                    },
+                ],
+            },
+            entry_id="gridboss_test_entry",
+        )
+
+    @pytest.fixture
+    def multi_device_config_entry(self):
+        """Config entry for LOCAL with GridBOSS + 2 inverters (Issue #83)."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Multi-Device",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "GB001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "model": "GridBOSS",
+                        "is_gridboss": True,
+                    },
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": "INV002",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="multi_test_entry",
+        )
+
+    async def test_first_refresh_returns_static_data(self, hass, local_config_entry):
+        """First local refresh returns static data without Modbus reads."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        # First refresh should return static data
+        result = await coordinator._async_update_local_data()
+
+        # Static phase flag should be set
+        assert coordinator._local_static_phase_done is True
+
+        # Result should contain device data
+        assert "1234567890" in result["devices"]
+        device = result["devices"]["1234567890"]
+        assert device["type"] == "inverter"
+        assert device["model"] == "FlexBOSS21"
+        assert device["serial"] == "1234567890"
+        assert device["firmware_version"] == "ARM-1.0"
+        assert device["batteries"] == {}
+        # Features should be derived from inverter_family in config
+        # EG4_HYBRID is US split-phase (L1/L2), NOT three-phase (R/S/T)
+        assert device["features"]["inverter_family"] == "EG4_HYBRID"
+        assert device["features"]["supports_split_phase"] is True
+        assert device["features"]["supports_three_phase"] is False
+
+        # Sensors should have None values (except metadata)
+        sensors = device["sensors"]
+        assert sensors["pv1_voltage"] is None
+        assert sensors["state_of_charge"] is None
+        assert sensors["firmware_version"] == "ARM-1.0"
+        assert sensors["connection_transport"] == "Modbus"
+        assert sensors["transport_host"] == "192.168.1.100"
+
+    async def test_static_data_has_all_inverter_sensor_keys(
+        self, hass, local_config_entry
+    ):
+        """Static data includes all expected inverter sensor keys."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        result = await coordinator._async_update_local_data()
+        sensors = result["devices"]["1234567890"]["sensors"]
+
+        # Every key from ALL_INVERTER_SENSOR_KEYS should be present
+        for key in ALL_INVERTER_SENSOR_KEYS:
+            assert key in sensors, f"Missing sensor key: {key}"
+
+    async def test_static_data_has_all_gridboss_sensor_keys(
+        self, hass, gridboss_config_entry
+    ):
+        """Static data includes all expected GridBOSS sensor keys."""
+        coordinator = EG4DataUpdateCoordinator(hass, gridboss_config_entry)
+        result = await coordinator._async_update_local_data()
+        sensors = result["devices"]["GB001"]["sensors"]
+
+        # Every key from GRIDBOSS_SENSOR_KEYS should be present
+        for key in GRIDBOSS_SENSOR_KEYS:
+            assert key in sensors, f"Missing GridBOSS sensor key: {key}"
+
+        # GridBOSS device should have binary_sensors dict
+        assert "binary_sensors" in result["devices"]["GB001"]
+
+    async def test_second_refresh_reads_registers(self, hass, local_config_entry):
+        """Second refresh goes through normal register read path."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        # First refresh: static data
+        await coordinator._async_update_local_data()
+        assert coordinator._local_static_phase_done is True
+
+        # Second refresh: should attempt real Modbus reads.
+        # Without real transports, this will raise UpdateFailed because
+        # all devices fail to connect — which proves it entered the
+        # normal register-read code path.
+        with pytest.raises(UpdateFailed, match="All .* local transports failed"):
+            await coordinator._async_update_local_data()
+
+    async def test_multi_device_static_data(self, hass, multi_device_config_entry):
+        """Static data correctly handles mixed GridBOSS + inverter configs."""
+        coordinator = EG4DataUpdateCoordinator(hass, multi_device_config_entry)
+        result = await coordinator._async_update_local_data()
+
+        assert len(result["devices"]) == 3
+        assert result["devices"]["GB001"]["type"] == "gridboss"
+        assert result["devices"]["INV001"]["type"] == "inverter"
+        assert result["devices"]["INV002"]["type"] == "inverter"
+
+        # GridBOSS should use GRIDBOSS_SENSOR_KEYS
+        gb_keys = set(result["devices"]["GB001"]["sensors"].keys())
+        assert GRIDBOSS_SENSOR_KEYS.issubset(gb_keys)
+
+        # Inverters should use ALL_INVERTER_SENSOR_KEYS
+        inv_keys = set(result["devices"]["INV001"]["sensors"].keys())
+        assert ALL_INVERTER_SENSOR_KEYS.issubset(inv_keys)
+
+    async def test_static_data_lxp_eu_features(self, hass):
+        """Static data uses device_type_code for LXP-EU three-phase features."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="LXP-EU 12K",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "EU12345678",
+                        "host": "192.168.1.50",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "LXP",
+                        "device_type_code": 12,
+                        "model": "LXP-EU 12K",
+                    },
+                ],
+            },
+            entry_id="lxp_eu_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        result = await coordinator._async_update_local_data()
+
+        device = result["devices"]["EU12345678"]
+        assert device["features"]["supports_three_phase"] is True
+        assert device["features"]["supports_split_phase"] is False
+
+    async def test_static_data_lxp_lb_features(self, hass):
+        """Static data uses device_type_code for LXP-LB split-phase features."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="LXP-LB-BR 10K",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "BR12345678",
+                        "host": "192.168.1.51",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "LXP",
+                        "device_type_code": 44,
+                        "model": "LXP-LB-BR 10K",
+                    },
+                ],
+            },
+            entry_id="lxp_lb_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        result = await coordinator._async_update_local_data()
+
+        device = result["devices"]["BR12345678"]
+        assert device["features"]["supports_three_phase"] is False
+        assert device["features"]["supports_split_phase"] is True
+
+    def test_static_keys_match_runtime_mapping(self):
+        """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys."""
+        mock_runtime = MagicMock()
+        # bt_temperature is conditionally included, so we ensure it's present
+        mock_runtime.temperature_t1 = 25.0
+        mapping = _build_runtime_sensor_mapping(mock_runtime)
+        assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
+
+    def test_static_keys_match_energy_mapping(self):
+        """INVERTER_ENERGY_KEYS matches _build_energy_sensor_mapping keys."""
+        mock_energy = MagicMock()
+        mapping = _build_energy_sensor_mapping(mock_energy)
+        assert set(mapping.keys()) == INVERTER_ENERGY_KEYS
+
+    def test_static_keys_match_battery_bank_mapping(self):
+        """BATTERY_BANK_KEYS matches _build_battery_bank_sensor_mapping keys."""
+        mock_battery = MagicMock()
+        # Ensure diagnostic values are non-None so all keys are present
+        mock_battery.min_soh = 95.0
+        mock_battery.max_cell_temp = 30.0
+        mock_battery.temp_delta = 2.0
+        mock_battery.cell_voltage_delta_max = 0.05
+        mock_battery.soc_delta = 1.0
+        mock_battery.soh_delta = 2.0
+        mock_battery.voltage_delta = 0.1
+        mock_battery.cycle_count_delta = 5
+        mock_battery.charge_power = 500
+        mock_battery.discharge_power = 0
+        mock_battery.battery_power = 500
+        mapping = _build_battery_bank_sensor_mapping(mock_battery)
+        assert set(mapping.keys()) == BATTERY_BANK_KEYS
+
+    def test_static_keys_match_gridboss_mapping(self):
+        """GRIDBOSS_SENSOR_KEYS covers _build_gridboss_sensor_mapping keys + metadata."""
+        mock_mid = MagicMock()
+        mapping = _build_gridboss_sensor_mapping(mock_mid)
+        mapping_keys = set(mapping.keys())
+
+        # The mapping function produces all keys except coordinator-added metadata
+        gridboss_metadata = {
+            "firmware_version",
+            "connection_transport",
+            "transport_host",
+        }
+
+        # All mapping keys must be in the constant
+        assert mapping_keys.issubset(GRIDBOSS_SENSOR_KEYS), (
+            f"Mapping has keys not in GRIDBOSS_SENSOR_KEYS: "
+            f"{mapping_keys - GRIDBOSS_SENSOR_KEYS}"
+        )
+        # The only extra keys in the constant should be the metadata keys
+        extra = GRIDBOSS_SENSOR_KEYS - mapping_keys
+        assert extra == gridboss_metadata, (
+            f"Unexpected extra keys in GRIDBOSS_SENSOR_KEYS: "
+            f"{extra - gridboss_metadata}"
+        )
+
+    @pytest.mark.parametrize(
+        ("family", "split_phase", "three_phase"),
+        [
+            ("EG4_OFFGRID", True, False),
+            ("EG4_HYBRID", True, False),
+        ],
+    )
+    def test_features_from_family(self, family, split_phase, three_phase):
+        """_features_from_family returns correct phase flags per family."""
+        features = _features_from_family(family)
+        assert features["supports_split_phase"] is split_phase
+        assert features["supports_three_phase"] is three_phase
+
+    def test_features_from_family_unknown_returns_empty(self):
+        """Unknown family returns empty dict (conservative: all sensors created)."""
+        assert _features_from_family(None) == {}
+        assert _features_from_family("UNKNOWN_FAMILY") == {}
+
+    def test_features_from_family_lxp_without_dtc_returns_empty(self):
+        """LXP without device_type_code returns empty — conservative fallback."""
+        # Family string alone can't distinguish EU (three-phase) from
+        # LB (single/split-phase), so conservative fallback creates all sensors.
+        assert _features_from_family("LXP") == {}
+        assert _features_from_family("LXP", device_type_code=None) == {}
+
+    def test_features_from_family_lxp_eu_with_dtc(self):
+        """LXP-EU (device_type_code=12) maps to three-phase."""
+        features = _features_from_family("LXP", device_type_code=12)
+        assert features["inverter_family"] == "LXP"
+        assert features["supports_split_phase"] is False
+        assert features["supports_three_phase"] is True
+        assert features["supports_volt_watt_curve"] is True
+
+    def test_features_from_family_lxp_lb_with_dtc(self):
+        """LXP-LB (device_type_code=44) maps to split-phase (not three-phase)."""
+        features = _features_from_family("LXP", device_type_code=44)
+        assert features["inverter_family"] == "LXP"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+        assert features["supports_volt_watt_curve"] is True
+
+    def test_features_from_family_lxp_unknown_dtc_returns_empty(self):
+        """LXP with unrecognized device_type_code returns empty."""
+        assert _features_from_family("LXP", device_type_code=999) == {}
+
+    def test_features_from_family_legacy_names(self):
+        """Legacy family names are mapped correctly."""
+        features = _features_from_family("SNA")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+
+        features = _features_from_family("PV_SERIES")
+        assert features["inverter_family"] == "EG4_HYBRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+        # Legacy LXP names without device_type_code return empty
+        assert _features_from_family("LXP_EU") == {}
+        assert _features_from_family("LXP_LV") == {}
+
+
+class TestCoordinatorIntervalLogic:
+    """Tests for coordinator interval selection based on connection type."""
+
+    @pytest.fixture
+    def http_config_entry(self):
+        """Create a mock HTTP config entry."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - HTTP Test",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            },
+            options={},
+            entry_id="http_test",
+        )
+
+    @pytest.fixture
+    def local_config_entry(self):
+        """Create a mock local config entry."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Local Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [],
+                CONF_LIBRARY_DEBUG: False,
+            },
+            options={},
+            entry_id="local_test",
+        )
+
+    @pytest.fixture
+    def hybrid_config_entry(self):
+        """Create a mock hybrid config entry."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Hybrid Test",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            options={},
+            entry_id="hybrid_test",
+        )
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_http_mode_uses_http_interval(
+        self, mock_aiohttp, mock_client, hass, http_config_entry
+    ):
+        """Test HTTP mode coordinator uses HTTP polling interval."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        assert coordinator.update_interval == timedelta(
+            seconds=DEFAULT_HTTP_POLLING_INTERVAL
+        )
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_http_mode_custom_interval(
+        self, mock_aiohttp, mock_client, hass, http_config_entry
+    ):
+        """Test HTTP mode uses custom HTTP polling interval from options."""
+        http_config_entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(
+            http_config_entry,
+            options={CONF_HTTP_POLLING_INTERVAL: 120},
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        assert coordinator.update_interval == timedelta(seconds=120)
+
+    def test_local_mode_uses_sensor_interval(self, hass, local_config_entry):
+        """Test local mode coordinator uses sensor update interval."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        assert coordinator.update_interval == timedelta(
+            seconds=DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+        )
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_mode_uses_sensor_interval(
+        self, mock_aiohttp, mock_client, hass, hybrid_config_entry
+    ):
+        """Test hybrid mode coordinator uses sensor interval (not HTTP)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        assert coordinator.update_interval == timedelta(
+            seconds=DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+        )
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_http_polling_interval_stored(
+        self, mock_aiohttp, mock_client, hass, http_config_entry
+    ):
+        """Test HTTP polling interval is stored for cache alignment."""
+        http_config_entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(
+            http_config_entry,
+            options={CONF_HTTP_POLLING_INTERVAL: 150},
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        assert coordinator._http_polling_interval == 150
+
+
+class TestStaleDataTolerance:
+    """Tests for stale data tolerance in _async_update_data."""
+
+    @pytest.fixture
+    def coordinator_with_data(self, hass):
+        """Create a coordinator with mock cached data."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [],
+                CONF_LIBRARY_DEBUG: False,
+            },
+            options={},
+            entry_id="stale_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        # Simulate cached data from a previous successful update
+        coordinator.data = {"devices": {"INV001": {"type": "inverter"}}}
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_first_failure_returns_cached_data(self, coordinator_with_data):
+        """Test first update failure returns last-known-good data."""
+        coordinator = coordinator_with_data
+        with patch.object(
+            coordinator,
+            "_route_update_by_connection_type",
+            side_effect=UpdateFailed("timeout"),
+        ):
+            result = await coordinator._async_update_data()
+        assert result == coordinator.data
+        assert coordinator._consecutive_update_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_second_failure_returns_cached_data(self, coordinator_with_data):
+        """Test second consecutive failure still returns cached data."""
+        coordinator = coordinator_with_data
+        coordinator._consecutive_update_failures = 1
+        with patch.object(
+            coordinator,
+            "_route_update_by_connection_type",
+            side_effect=UpdateFailed("timeout"),
+        ):
+            result = await coordinator._async_update_data()
+        assert result == coordinator.data
+        assert coordinator._consecutive_update_failures == 2
+
+    @pytest.mark.asyncio
+    async def test_third_failure_propagates(self, coordinator_with_data):
+        """Test third consecutive failure raises UpdateFailed."""
+        coordinator = coordinator_with_data
+        coordinator._consecutive_update_failures = 2
+        with (
+            patch.object(
+                coordinator,
+                "_route_update_by_connection_type",
+                side_effect=UpdateFailed("timeout"),
+            ),
+            pytest.raises(UpdateFailed),
+        ):
+            await coordinator._async_update_data()
+        assert coordinator._consecutive_update_failures == 3
+
+    @pytest.mark.asyncio
+    async def test_success_resets_counter(self, coordinator_with_data):
+        """Test successful update resets failure counter."""
+        coordinator = coordinator_with_data
+        coordinator._consecutive_update_failures = 2
+        fresh_data = {"devices": {"INV001": {"type": "inverter", "status": "online"}}}
+        with patch.object(
+            coordinator,
+            "_route_update_by_connection_type",
+            return_value=fresh_data,
+        ):
+            result = await coordinator._async_update_data()
+        assert result == fresh_data
+        assert coordinator._consecutive_update_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_auth_failure_always_propagates(self, coordinator_with_data):
+        """Test auth failures always propagate immediately (no grace period)."""
+        coordinator = coordinator_with_data
+        with (
+            patch.object(
+                coordinator,
+                "_route_update_by_connection_type",
+                side_effect=ConfigEntryAuthFailed("bad creds"),
+            ),
+            pytest.raises(ConfigEntryAuthFailed),
+        ):
+            await coordinator._async_update_data()
+        # Counter should not increment for auth failures
+        assert coordinator._consecutive_update_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_no_cached_data_raises_immediately(self, hass):
+        """Test that first-ever failure raises immediately (no cached data)."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [],
+                CONF_LIBRARY_DEBUG: False,
+            },
+            options={},
+            entry_id="no_cache_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        # data is None — no previous successful update
+        with (
+            patch.object(
+                coordinator,
+                "_route_update_by_connection_type",
+                side_effect=UpdateFailed("timeout"),
+            ),
+            pytest.raises(UpdateFailed),
+        ):
+            await coordinator._async_update_data()
+
+
+class TestClientCacheAlignment:
+    """Tests for client cache TTL alignment with HTTP polling interval."""
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_cache_alignment_sets_battery_ttl(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """Test _align_client_cache_with_http_interval sets battery_info TTL."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Test",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            },
+            options={CONF_HTTP_POLLING_INTERVAL: 120},
+            entry_id="cache_align_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        # Ensure client has _cache_ttl_config with default pylxpweb values
+        coordinator.client._cache_ttl_config = {
+            "battery_info": timedelta(seconds=60),
+            "midbox_runtime": timedelta(seconds=20),
+            "quick_charge_status": timedelta(minutes=1),
+            "inverter_runtime": timedelta(seconds=20),
+            "inverter_energy": timedelta(seconds=20),
+            "parameter_read": timedelta(minutes=2),
+        }
+        coordinator._align_client_cache_with_http_interval()
+        expected = timedelta(seconds=120)
+        for key in (
+            "battery_info",
+            "midbox_runtime",
+            "quick_charge_status",
+            "inverter_runtime",
+            "inverter_energy",
+            "parameter_read",
+        ):
+            assert coordinator.client._cache_ttl_config[key] == expected, (
+                f"{key} TTL not aligned"
+            )
+
+    def test_cache_alignment_no_client(self, hass):
+        """Test _align_client_cache_with_http_interval is safe without client."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [],
+                CONF_LIBRARY_DEBUG: False,
+            },
+            options={},
+            entry_id="no_client_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        assert coordinator.client is None
+        # Should not raise
+        coordinator._align_client_cache_with_http_interval()
+
+
+class TestForceMigration:
+    """Tests for force-migration of polling intervals in __init__.py."""
+
+    def test_http_polling_interval_constant_defaults(self):
+        """Test that HTTP polling interval constants have expected values."""
+        assert DEFAULT_HTTP_POLLING_INTERVAL == 120
+        assert DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP == 90

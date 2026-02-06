@@ -437,6 +437,6 @@ class TestEnergyTypeMapping:
             "eBatDischargeDay",
         ]
         for energy_type in expected_types:
-            assert (
-                energy_type in ENERGY_TYPE_MAPPING
-            ), f"Missing energy type: {energy_type}"
+            assert energy_type in ENERGY_TYPE_MAPPING, (
+                f"Missing energy type: {energy_type}"
+            )

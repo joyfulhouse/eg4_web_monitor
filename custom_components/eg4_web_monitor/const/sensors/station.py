@@ -45,4 +45,15 @@ STATION_SENSOR_TYPES = {
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
+    # -------------------------------------------------------------------------
+    # API Request Rate — sliding 60-second window of real HTTP API calls.
+    # Only counts actual requests to the EG4 cloud, not client cache hits.
+    # -------------------------------------------------------------------------
+    "api_request_rate": {
+        "name": "API Request Rate",
+        "icon": "mdi:api",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "unit_of_measurement": "req/min",
+        "state_class": "measurement",
+    },
 }

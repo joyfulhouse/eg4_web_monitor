@@ -248,6 +248,8 @@ class TestAsyncSetupEntry:
         self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
     ):
         """Test successful setup of config entry."""
+        mock_config_entry.add_to_hass(hass)
+
         # Mock coordinator
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
@@ -270,6 +272,8 @@ class TestAsyncSetupEntry:
         self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
     ):
         """Test that coordinator is created with correct parameters."""
+        mock_config_entry.add_to_hass(hass)
+
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
@@ -287,6 +291,8 @@ class TestAsyncSetupEntry:
         self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
     ):
         """Test that entry setup is forwarded to all platforms."""
+        mock_config_entry.add_to_hass(hass)
+
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator

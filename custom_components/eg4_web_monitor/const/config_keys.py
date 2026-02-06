@@ -23,6 +23,7 @@ CONF_LIBRARY_DEBUG = "library_debug"
 
 # Options flow configuration keys (configurable via UI after setup)
 CONF_SENSOR_UPDATE_INTERVAL = "sensor_update_interval"
+CONF_HTTP_POLLING_INTERVAL = "http_polling_interval"
 CONF_PARAMETER_REFRESH_INTERVAL = "parameter_refresh_interval"
 CONF_INCLUDE_AC_COUPLE_PV = "include_ac_couple_pv"  # Add AC couple power to PV totals
 
@@ -78,7 +79,9 @@ HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 # =============================================================================
 
 # Options flow default values
-DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP = 30  # seconds for HTTP mode
+DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP = (
+    90  # seconds for HTTP mode (rate limit protection)
+)
 DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL = 5  # seconds for Modbus/Dongle modes
 DEFAULT_PARAMETER_REFRESH_INTERVAL = 60  # minutes (1 hour)
 DEFAULT_INCLUDE_AC_COUPLE_PV = (
@@ -90,6 +93,11 @@ MIN_SENSOR_UPDATE_INTERVAL = 5  # seconds
 MAX_SENSOR_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 MIN_PARAMETER_REFRESH_INTERVAL = 5  # minutes
 MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
+
+# HTTP/Cloud polling interval limits (rate limit protection)
+DEFAULT_HTTP_POLLING_INTERVAL = 120  # seconds
+MIN_HTTP_POLLING_INTERVAL = 60  # seconds — prevent cloud over-polling
+MAX_HTTP_POLLING_INTERVAL = 600  # seconds (10 minutes)
 
 # Modbus default values
 DEFAULT_MODBUS_PORT = 502

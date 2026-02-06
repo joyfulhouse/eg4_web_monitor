@@ -12,6 +12,7 @@ from ..const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HTTP_POLLING_INTERVAL,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
@@ -38,8 +39,10 @@ from ..const import (
     DEFAULT_VERIFY_SSL,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
+    MAX_HTTP_POLLING_INTERVAL,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
+    MIN_HTTP_POLLING_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
 )
@@ -304,12 +307,14 @@ def build_http_reconfigure_schema(
 def build_interval_options_schema(
     current_sensor: int,
     current_param: int,
+    current_http: int = 120,
 ) -> vol.Schema:
     """Build schema for polling interval options.
 
     Args:
         current_sensor: Current sensor update interval (seconds).
         current_param: Current parameter refresh interval (minutes).
+        current_http: Current HTTP/cloud polling interval (seconds).
 
     Returns:
         Voluptuous schema for options step.
@@ -324,6 +329,16 @@ def build_interval_options_schema(
                 vol.Range(
                     min=MIN_SENSOR_UPDATE_INTERVAL,
                     max=MAX_SENSOR_UPDATE_INTERVAL,
+                ),
+            ),
+            vol.Required(
+                CONF_HTTP_POLLING_INTERVAL,
+                default=current_http,
+            ): vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_HTTP_POLLING_INTERVAL,
+                    max=MAX_HTTP_POLLING_INTERVAL,
                 ),
             ),
             vol.Required(

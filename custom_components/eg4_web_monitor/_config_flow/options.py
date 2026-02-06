@@ -17,6 +17,7 @@ from ..const import (
     CONF_CONNECTION_TYPE,
     # TODO: Re-enable when AC-coupled PV feature is implemented
     # CONF_INCLUDE_AC_COUPLE_PV,
+    CONF_HTTP_POLLING_INTERVAL,
     CONF_LIBRARY_DEBUG,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
@@ -27,11 +28,14 @@ from ..const import (
     CONNECTION_TYPE_MODBUS,
     # TODO: Re-enable when AC-coupled PV feature is implemented
     # DEFAULT_INCLUDE_AC_COUPLE_PV,
+    DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
+    MAX_HTTP_POLLING_INTERVAL,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
+    MIN_HTTP_POLLING_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
 )
@@ -49,10 +53,11 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
 
     Options available:
     - Sensor update interval: How often to poll for sensor data (5-300 seconds)
+    - HTTP polling interval: How often to poll the cloud API (60-300 seconds)
     - Parameter refresh interval: How often to refresh configuration data (5-1440 minutes)
 
     Local connection types (Modbus, Dongle, Hybrid, Local) default to faster
-    polling (5 seconds) while HTTP-only defaults to 30 seconds.
+    polling (5 seconds) while HTTP-only defaults to 90 seconds.
     """
 
     async def async_step_init(
@@ -70,9 +75,10 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         """
         if user_input is not None:
             _LOGGER.debug(
-                "Options updated for %s: sensor=%ss, params=%sm",
+                "Options updated for %s: sensor=%ss, http=%ss, params=%sm",
                 self.config_entry.entry_id,
                 user_input.get(CONF_SENSOR_UPDATE_INTERVAL),
+                user_input.get(CONF_HTTP_POLLING_INTERVAL),
                 user_input.get(CONF_PARAMETER_REFRESH_INTERVAL),
             )
             return self.async_create_entry(title="", data=user_input)
@@ -101,6 +107,11 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
 
+        # Get current HTTP polling interval
+        current_http_interval = self.config_entry.options.get(
+            CONF_HTTP_POLLING_INTERVAL, DEFAULT_HTTP_POLLING_INTERVAL
+        )
+
         # Library debug: check options first, fall back to data for migration
         current_library_debug = self.config_entry.options.get(
             CONF_LIBRARY_DEBUG,
@@ -126,6 +137,16 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                     vol.Range(
                         min=MIN_SENSOR_UPDATE_INTERVAL,
                         max=MAX_SENSOR_UPDATE_INTERVAL,
+                    ),
+                ),
+                vol.Required(
+                    CONF_HTTP_POLLING_INTERVAL,
+                    default=current_http_interval,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_HTTP_POLLING_INTERVAL,
+                        max=MAX_HTTP_POLLING_INTERVAL,
                     ),
                 ),
                 vol.Required(
@@ -157,6 +178,8 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 "brand_name": BRAND_NAME,
                 "min_sensor_interval": str(MIN_SENSOR_UPDATE_INTERVAL),
                 "max_sensor_interval": str(MAX_SENSOR_UPDATE_INTERVAL),
+                "min_http_interval": str(MIN_HTTP_POLLING_INTERVAL),
+                "max_http_interval": str(MAX_HTTP_POLLING_INTERVAL),
                 "min_param_interval": str(MIN_PARAMETER_REFRESH_INTERVAL),
                 "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
             },

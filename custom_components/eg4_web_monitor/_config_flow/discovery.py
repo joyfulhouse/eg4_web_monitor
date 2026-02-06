@@ -140,6 +140,24 @@ async def _read_device_info_from_transport(
     model, family = _get_model_from_device_type(device_type_code)
     is_gridboss = device_type_code == DEVICE_TYPE_CODE_GRIDBOSS
 
+    # Read HOLD_MODEL (registers 0-1) for power-level-specific model name
+    # This replaces the generic default (e.g., "FlexBOSS21" → "FlexBOSS18")
+    if not is_gridboss and hasattr(transport, "read_model_info"):
+        try:
+            model_info = await transport.read_model_info()
+            specific_model = model_info.get_model_name(device_type_code)
+            if specific_model and not specific_model.startswith("Unknown"):
+                model = specific_model
+                _LOGGER.debug(
+                    "Model name from HOLD_MODEL for %s: %s (power_rating=%d, us=%s)",
+                    serial,
+                    model,
+                    model_info.power_rating,
+                    model_info.us_version,
+                )
+        except Exception as err:
+            _LOGGER.debug("Could not read HOLD_MODEL for model name: %s", err)
+
     # Read firmware version
     firmware_version = ""
     try:

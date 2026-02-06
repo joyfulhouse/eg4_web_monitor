@@ -216,3 +216,101 @@ class TestNetworkScanResults:
 
         assert result["step_id"] == "network_scan_results"
         assert result["type"] == data_entry_flow.FlowResultType.FORM
+
+
+# =============================================================================
+# Discovery Model Info Tests — _read_device_info_from_transport()
+# =============================================================================
+
+
+class TestDiscoveryModelInfo:
+    """Test that discovery reads HOLD_MODEL for accurate model names."""
+
+    @staticmethod
+    def _make_transport(
+        device_type_code: int = 10284,
+        power_rating: int | None = None,
+        us_version: bool = True,
+    ) -> MagicMock:
+        """Build a mock transport with optional read_model_info."""
+        transport = MagicMock()
+        transport.read_device_type = AsyncMock(return_value=device_type_code)
+        transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
+        transport.read_parallel_config = AsyncMock(return_value=0)
+
+        runtime = MagicMock()
+        runtime.pv_total_power = 100.0
+        runtime.battery_soc = 50
+        transport.read_runtime = AsyncMock(return_value=runtime)
+
+        if power_rating is not None:
+            from pylxpweb.devices.inverters._features import InverterModelInfo
+
+            model_info = InverterModelInfo.from_parameters(
+                {
+                    "HOLD_MODEL_powerRating": power_rating,
+                    "HOLD_MODEL_usVersion": us_version,
+                }
+            )
+            transport.read_model_info = AsyncMock(return_value=model_info)
+        else:
+            # Ensure hasattr(transport, "read_model_info") is False
+            del transport.read_model_info
+
+        return transport
+
+    async def test_flexboss21_model_from_hold_model(self):
+        """Discovery resolves FlexBOSS21 via HOLD_MODEL powerRating=8."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=10284, power_rating=8)
+        device = await _read_device_info_from_transport(transport, "4512345678")
+
+        assert device.model == "FlexBOSS21"
+
+    async def test_flexboss18_model_from_hold_model(self):
+        """Discovery resolves FlexBOSS18 via HOLD_MODEL powerRating=9."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=10284, power_rating=9)
+        device = await _read_device_info_from_transport(transport, "4512345678")
+
+        assert device.model == "FlexBOSS18"
+
+    async def test_18kpv_model_from_hold_model(self):
+        """Discovery resolves 18KPV via HOLD_MODEL powerRating=6."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=2092, power_rating=6)
+        device = await _read_device_info_from_transport(transport, "4512670118")
+
+        assert device.model == "18KPV"
+
+    async def test_fallback_when_no_read_model_info(self):
+        """Discovery falls back to default name when transport lacks read_model_info."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=10284)
+        device = await _read_device_info_from_transport(transport, "4512345678")
+
+        assert device.model == "FlexBOSS21"
+
+    async def test_gridboss_skips_model_info_read(self):
+        """Discovery skips HOLD_MODEL read for GridBOSS devices."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=50, power_rating=0)
+        device = await _read_device_info_from_transport(transport, "5012345678")
+
+        assert device.model == "GridBOSS"
+        assert device.is_gridboss is True

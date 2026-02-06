@@ -14,6 +14,7 @@ final coordinator class inheriting all mixins together.
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -1583,6 +1584,9 @@ class DSTSyncMixin:
 
 class BackgroundTaskMixin:
     """Mixin for background task management operations."""
+
+    _shutdown_listener_remove: Callable[[], None] | None
+    _shutdown_listener_fired: bool
 
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""

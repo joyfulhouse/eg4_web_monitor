@@ -13,7 +13,17 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 
-from .const import DOMAIN, MANUFACTURER
+from .const import (
+    CONF_CONNECTION_TYPE,
+    CONF_HTTP_POLLING_INTERVAL,
+    CONF_SENSOR_UPDATE_INTERVAL,
+    CONNECTION_TYPE_HTTP,
+    DEFAULT_HTTP_POLLING_INTERVAL,
+    DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
+    DOMAIN,
+    MANUFACTURER,
+    MIN_HTTP_POLLING_INTERVAL,
+)
 from .coordinator import EG4DataUpdateCoordinator
 from .services import async_reconcile_history
 from ._config_flow.helpers import migrate_legacy_entry
@@ -239,6 +249,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     else:
         # Set to WARNING to suppress INFO logs from library
         pylxpweb_logger.setLevel(logging.WARNING)
+
+    # Force-migrate: add HTTP polling interval for existing entries
+    # and bump HTTP-only users below 60s minimum to 90s default
+    connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
+    needs_migration = False
+    new_options = dict(entry.options)
+
+    if CONF_HTTP_POLLING_INTERVAL not in new_options:
+        new_options[CONF_HTTP_POLLING_INTERVAL] = DEFAULT_HTTP_POLLING_INTERVAL
+        needs_migration = True
+
+    if connection_type == CONNECTION_TYPE_HTTP:
+        current_sensor = new_options.get(CONF_SENSOR_UPDATE_INTERVAL, 0)
+        if 0 < current_sensor < MIN_HTTP_POLLING_INTERVAL:
+            _LOGGER.warning(
+                "Migrated HTTP polling interval from %ds to %ds (rate limit protection)",
+                current_sensor,
+                DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
+            )
+            new_options[CONF_SENSOR_UPDATE_INTERVAL] = (
+                DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
+            )
+            needs_migration = True
+
+    if needs_migration:
+        hass.config_entries.async_update_entry(entry, options=new_options)
 
     # Snapshot existing parallel group device identifiers BEFORE first refresh.
     # This lets us preserve the established serial even if the coordinator now

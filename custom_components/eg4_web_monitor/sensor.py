@@ -3,9 +3,9 @@
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -174,6 +174,45 @@ async def async_setup_entry(
 
     if not phase1_entities and not phase2_entities:
         _LOGGER.warning("No sensor entities created")
+
+    # Track known batteries for late registration when new batteries appear
+    # after the static-data first refresh (individual batteries are discovered
+    # only when real Modbus reads complete).
+    known_batteries: set[str] = set()
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        for battery_key in device_data.get("batteries", {}):
+            known_batteries.add(battery_key)
+
+    @callback
+    def _async_discover_new_batteries() -> None:
+        """Register battery entities that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            for battery_key, battery_sensors in device_data.get(
+                "batteries", {}
+            ).items():
+                if battery_key in known_batteries:
+                    continue
+                known_batteries.add(battery_key)
+                for sensor_key in battery_sensors:
+                    if sensor_key in SENSOR_TYPES:
+                        new_entities.append(
+                            EG4BatterySensor(
+                                coordinator, serial, battery_key, sensor_key
+                            )
+                        )
+        if new_entities:
+            _LOGGER.info(
+                "Late battery registration: adding %d entities for new batteries",
+                len(new_entities),
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_discover_new_batteries))
 
 
 def _create_inverter_sensors(
@@ -392,6 +431,13 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
         if device_class:
             self._attr_device_class = SensorDeviceClass(device_class)
 
+        state_class = sensor_config.get("state_class")
+        if state_class:
+            self._attr_state_class = SensorStateClass(state_class)
+
+        if uom := sensor_config.get("unit_of_measurement"):
+            self._attr_native_unit_of_measurement = uom
+
         # Build unique ID
         self._attr_unique_id = f"station_{coordinator.plant_id}_{sensor_key}"
 
@@ -416,5 +462,7 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
             return station_data.get("address")
         if self._sensor_key == "station_last_polled":
             return station_data.get("station_last_polled")
+        if self._sensor_key == "api_request_rate":
+            return station_data.get("api_request_rate")
 
         return None

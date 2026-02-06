@@ -43,6 +43,7 @@ from .const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HTTP_POLLING_INTERVAL,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INCLUDE_AC_COUPLE_PV,
     CONF_INVERTER_FAMILY,
@@ -63,6 +64,7 @@ from .const import (
     CONNECTION_TYPE_MODBUS,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
+    DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
@@ -91,6 +93,201 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Static sensor key sets — extracted from the mapping function dicts below.
+# Used by _build_static_local_data() for immediate entity creation during
+# the first coordinator refresh so that HA doesn't wait for Modbus reads.
+# ---------------------------------------------------------------------------
+INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
+    {
+        "pv1_voltage",
+        "pv1_power",
+        "pv2_voltage",
+        "pv2_power",
+        "pv3_voltage",
+        "pv3_power",
+        "pv_total_power",
+        "battery_voltage",
+        "battery_current",
+        "state_of_charge",
+        "battery_charge_power",
+        "battery_discharge_power",
+        "battery_temperature",
+        "grid_voltage_r",
+        "grid_voltage_s",
+        "grid_voltage_t",
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        "grid_frequency",
+        "grid_power",
+        "grid_export_power",
+        "ac_power",
+        "eps_voltage_r",
+        "eps_voltage_s",
+        "eps_voltage_t",
+        "eps_voltage_l1",
+        "eps_voltage_l2",
+        "eps_frequency",
+        "eps_power",
+        "output_power",
+        "generator_voltage",
+        "generator_frequency",
+        "generator_power",
+        "bus1_voltage",
+        "bus2_voltage",
+        "internal_temperature",
+        "radiator1_temperature",
+        "radiator2_temperature",
+        "bt_temperature",
+        "status_code",
+        "grid_current_l1",
+        "grid_current_l2",
+        "grid_current_l3",
+    }
+)
+
+INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
+    {
+        "yield",
+        "charging",
+        "discharging",
+        "grid_import",
+        "grid_export",
+        "load",
+        "yield_lifetime",
+        "charging_lifetime",
+        "discharging_lifetime",
+        "grid_import_lifetime",
+        "grid_export_lifetime",
+        "load_lifetime",
+    }
+)
+
+BATTERY_BANK_KEYS: frozenset[str] = frozenset(
+    {
+        "battery_bank_soc",
+        "battery_bank_voltage",
+        "battery_bank_charge_power",
+        "battery_bank_discharge_power",
+        "battery_bank_power",
+        "battery_bank_max_capacity",
+        "battery_bank_current_capacity",
+        "battery_bank_remain_capacity",
+        "battery_bank_full_capacity",
+        "battery_bank_capacity_percent",
+        "battery_bank_count",
+        "battery_bank_status",
+        "battery_status",
+        "battery_bank_last_polled",
+        "battery_bank_min_soh",
+        "battery_bank_max_cell_temp",
+        "battery_bank_temp_delta",
+        "battery_bank_cell_voltage_delta_max",
+        "battery_bank_soc_delta",
+        "battery_bank_soh_delta",
+        "battery_bank_voltage_delta",
+        "battery_bank_cycle_count_delta",
+    }
+)
+
+INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
+    {
+        "consumption_power",
+        "total_load_power",
+        "battery_power",
+        "rectifier_power",
+        "grid_import_power",
+    }
+)
+
+INVERTER_METADATA_KEYS: frozenset[str] = frozenset(
+    {
+        "firmware_version",
+        "connection_transport",
+        "transport_host",
+        "last_polled",
+    }
+)
+
+ALL_INVERTER_SENSOR_KEYS: frozenset[str] = (
+    INVERTER_RUNTIME_KEYS
+    | INVERTER_ENERGY_KEYS
+    | BATTERY_BANK_KEYS
+    | INVERTER_COMPUTED_KEYS
+    | INVERTER_METADATA_KEYS
+)
+
+GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        "grid_power",
+        "grid_voltage",
+        "frequency",
+        "grid_power_l1",
+        "grid_power_l2",
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        "grid_current_l1",
+        "grid_current_l2",
+        "ups_power",
+        "ups_voltage",
+        "ups_power_l1",
+        "ups_power_l2",
+        "load_voltage_l1",
+        "load_voltage_l2",
+        "ups_current_l1",
+        "ups_current_l2",
+        "load_power",
+        "load_power_l1",
+        "load_power_l2",
+        "load_current_l1",
+        "load_current_l2",
+        "consumption_power",
+        "generator_power",
+        "generator_voltage",
+        "generator_frequency",
+        "generator_power_l1",
+        "generator_power_l2",
+        "generator_current_l1",
+        "generator_current_l2",
+        "hybrid_power",
+        "phase_lock_frequency",
+        "off_grid",
+        "smart_port1_status",
+        "smart_port2_status",
+        "smart_port3_status",
+        "smart_port4_status",
+        "smart_load1_power_l1",
+        "smart_load1_power_l2",
+        "smart_load2_power_l1",
+        "smart_load2_power_l2",
+        "smart_load3_power_l1",
+        "smart_load3_power_l2",
+        "smart_load4_power_l1",
+        "smart_load4_power_l2",
+        "ac_couple1_power_l1",
+        "ac_couple1_power_l2",
+        "ac_couple2_power_l1",
+        "ac_couple2_power_l2",
+        "ac_couple3_power_l1",
+        "ac_couple3_power_l2",
+        "ac_couple4_power_l1",
+        "ac_couple4_power_l2",
+        "ups_today",
+        "ups_total",
+        "grid_export_today",
+        "grid_export_total",
+        "grid_import_today",
+        "grid_import_total",
+        "load_today",
+        "load_total",
+        "firmware_version",
+        "connection_transport",
+        "transport_host",
+        "midbox_last_polled",
+    }
+)
 
 
 def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
@@ -484,6 +681,88 @@ def _parse_inverter_family(family_str: str | None) -> Any:
         return None
 
 
+def _features_from_family(
+    family_str: str | None,
+    device_type_code: int | None = None,
+) -> dict[str, Any]:
+    """Derive feature flags from inverter family and device type code.
+
+    Used by the static-data first refresh to provide correct feature-based
+    sensor filtering without reading Modbus registers. The four feature
+    keys control which phase-specific and capability-specific sensors are
+    created by _should_create_sensor() in sensor.py.
+
+    Args:
+        family_str: Inverter family from config (e.g., "EG4_HYBRID", "EG4_OFFGRID", "LXP").
+        device_type_code: Raw device type code from register 19, stored in config
+            during discovery. Used to distinguish LXP-EU (12, three-phase) from
+            LXP-LB (44, single/split-phase).
+
+    Returns:
+        Feature dict suitable for _should_create_sensor() filtering.
+        Empty dict when family is unknown (conservative: creates all sensors).
+    """
+    if not family_str:
+        return {}
+
+    # Normalise legacy names (e.g., "SNA" → "EG4_OFFGRID")
+    mapped = LEGACY_FAMILY_MAP.get(family_str, family_str)
+
+    # Feature mapping mirrors pylxpweb FAMILY_DEFAULT_FEATURES.
+    # Only the four keys used by _should_create_sensor() are needed here.
+    #
+    # EG4_OFFGRID (12000XP, 6000XP): US split-phase, discharge recovery
+    if mapped == "EG4_OFFGRID":
+        return {
+            "inverter_family": mapped,
+            "supports_split_phase": True,
+            "supports_three_phase": False,
+            "supports_discharge_recovery_hysteresis": True,
+            "supports_volt_watt_curve": False,
+        }
+
+    # EG4_HYBRID (18kPV, 12kPV, FlexBOSS): US split-phase, volt-watt
+    # US market — L1/L2 registers valid, R/S/T registers contain garbage
+    if mapped == "EG4_HYBRID":
+        return {
+            "inverter_family": mapped,
+            "supports_split_phase": True,
+            "supports_three_phase": False,
+            "supports_discharge_recovery_hysteresis": False,
+            "supports_volt_watt_curve": True,
+        }
+
+    # LXP family: device_type_code distinguishes EU from LB variants.
+    # - LXP-EU (device_type_code 12): three-phase, no split-phase
+    # - LXP-LB (device_type_code 44): NOT three-phase, volt-watt capable
+    #   LXP-LB includes US (split-phase) and BR (single-phase) variants;
+    #   the us_version flag from HOLD_MODEL determines split vs single,
+    #   but we can safely rule out three-phase from device_type_code alone.
+    if mapped == "LXP" and device_type_code is not None:
+        # LXP-EU: European three-phase inverter
+        if device_type_code == 12:  # DEVICE_TYPE_CODE_LXP_EU
+            return {
+                "inverter_family": mapped,
+                "supports_split_phase": False,
+                "supports_three_phase": True,
+                "supports_discharge_recovery_hysteresis": False,
+                "supports_volt_watt_curve": True,
+            }
+        # LXP-LB: US/Brazil single or split-phase (never three-phase)
+        if device_type_code == 44:  # DEVICE_TYPE_CODE_LXP_BR/LXP_LB
+            return {
+                "inverter_family": mapped,
+                "supports_split_phase": True,
+                "supports_three_phase": False,
+                "supports_discharge_recovery_hysteresis": False,
+                "supports_volt_watt_curve": True,
+            }
+
+    # Unknown family or LXP without device_type_code → conservative fallback
+    # creates all sensors; real feature detection after Modbus reads refines.
+    return {}
+
+
 def _derive_model_from_family(
     config_model: str, family_str: str, fallback: str = "18kPV"
 ) -> str:
@@ -745,26 +1024,49 @@ class EG4DataUpdateCoordinator(
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 
+        # Track whether local parameters have been loaded (deferred from first refresh
+        # to avoid Modbus traffic overload during HA setup timeout window)
+        self._local_parameters_loaded: bool = False
+
+        # Static-data phase: first local refresh returns pre-populated sensor keys
+        # with None values for immediate entity creation (zero Modbus reads).
+        self._local_static_phase_done: bool = False
+
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 
-        # Determine update interval - read from options or use connection-type default
-        # Modbus, Dongle, Hybrid, and Local can poll faster since they use local network
+        # Consecutive update failure counter for stale data tolerance
+        self._consecutive_update_failures: int = 0
+
+        # Read both polling intervals from options
         is_local_connection = self.connection_type in (
             CONNECTION_TYPE_MODBUS,
             CONNECTION_TYPE_DONGLE,
             CONNECTION_TYPE_HYBRID,
             CONNECTION_TYPE_LOCAL,
         )
-        default_interval = (
+        default_sensor_interval = (
             DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
             if is_local_connection
             else DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
         )
         sensor_interval_seconds = entry.options.get(
-            CONF_SENSOR_UPDATE_INTERVAL, default_interval
+            CONF_SENSOR_UPDATE_INTERVAL, default_sensor_interval
         )
-        update_interval = timedelta(seconds=sensor_interval_seconds)
+        http_interval_seconds = entry.options.get(
+            CONF_HTTP_POLLING_INTERVAL, DEFAULT_HTTP_POLLING_INTERVAL
+        )
+
+        # Store HTTP polling interval for client cache alignment
+        self._http_polling_interval: int = http_interval_seconds
+
+        # Coordinator interval depends on connection type:
+        # HTTP-only: runs at HTTP polling interval (no local transport)
+        # Local/Hybrid: runs at sensor interval (local transport polls fast)
+        if self.connection_type == CONNECTION_TYPE_HTTP:
+            update_interval = timedelta(seconds=http_interval_seconds)
+        else:
+            update_interval = timedelta(seconds=sensor_interval_seconds)
 
         super().__init__(
             hass,
@@ -782,23 +1084,65 @@ class EG4DataUpdateCoordinator(
             )
         )
 
+    def _align_client_cache_with_http_interval(self) -> None:
+        """Set client cache TTLs to match HTTP polling interval.
+
+        This ensures ALL HTTP API calls respect the configured HTTP polling
+        rate. In hybrid mode, local transport bypasses these caches entirely.
+        In HTTP-only mode the coordinator interval already controls the rate,
+        but we still align caches as a safety net.
+        """
+        if self.client is None:
+            return
+        http_ttl = timedelta(seconds=self._http_polling_interval)
+        for key in (
+            "battery_info",
+            "midbox_runtime",
+            "quick_charge_status",
+            "inverter_runtime",
+            "inverter_energy",
+            "parameter_read",
+        ):
+            self.client._cache_ttl_config[key] = http_ttl
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from appropriate transport based on connection type.
 
         This is the main data update method called by Home Assistant's coordinator
-        at regular intervals.
+        at regular intervals. Implements stale data tolerance: on transport failure,
+        returns last-known-good data for up to 3 consecutive failures before marking
+        entities unavailable.
 
         Returns:
             Dictionary containing all device data, sensors, and station information.
 
         Raises:
-            ConfigEntryAuthFailed: If authentication fails.
-            UpdateFailed: If connection or API errors occur.
+            ConfigEntryAuthFailed: If authentication fails (always immediate).
+            UpdateFailed: If connection or API errors occur after 3 consecutive failures.
         """
         # Clear device_info caches at the start of each update cycle
         # so fresh data is used for any new entity registrations
         self.clear_device_info_caches()
 
+        try:
+            data = await self._route_update_by_connection_type()
+            self._consecutive_update_failures = 0
+            return data
+        except ConfigEntryAuthFailed:
+            raise
+        except UpdateFailed as err:
+            self._consecutive_update_failures += 1
+            if self._consecutive_update_failures < 3 and self.data is not None:
+                _LOGGER.warning(
+                    "Update failure %d/3, serving cached data: %s",
+                    self._consecutive_update_failures,
+                    err,
+                )
+                return self.data
+            raise
+
+    async def _route_update_by_connection_type(self) -> dict[str, Any]:
+        """Route to the appropriate update method based on connection type."""
         if self.connection_type == CONNECTION_TYPE_MODBUS:
             return await self._async_update_modbus_data()
         if self.connection_type == CONNECTION_TYPE_DONGLE:
@@ -1026,7 +1370,8 @@ class EG4DataUpdateCoordinator(
             else:
                 inverter = self._inverter_cache[serial]
 
-            await inverter.refresh(force=True, include_parameters=True)
+            include_params = self._local_parameters_loaded
+            await inverter.refresh(force=True, include_parameters=include_params)
 
             # Cache firmware version - only read once from transport, reuse on subsequent updates
             if serial not in self._firmware_cache:
@@ -1056,7 +1401,10 @@ class EG4DataUpdateCoordinator(
                 "connection_type": connection_type,
             }
 
-            param_data = await self._read_modbus_parameters(transport)
+            if include_params:
+                param_data = await self._read_modbus_parameters(transport)
+            else:
+                param_data = {}
             processed["parameters"] = {serial: param_data}
 
             if not self._last_available_state:
@@ -1074,6 +1422,20 @@ class EG4DataUpdateCoordinator(
                 runtime.battery_soc,
                 runtime.grid_power,
             )
+
+            # Schedule deferred parameter load on first successful refresh
+            if not self._local_parameters_loaded:
+                self._local_parameters_loaded = True
+                _LOGGER.info(
+                    "%s: First refresh complete. Scheduling background parameter load.",
+                    transport_name,
+                )
+                task = self.hass.async_create_task(
+                    self._deferred_local_parameter_load()
+                )
+                self._background_tasks.add(task)
+                task.add_done_callback(self._remove_task_from_set)
+                task.add_done_callback(self._log_task_exception)
 
             return processed
 
@@ -1364,10 +1726,14 @@ class EG4DataUpdateCoordinator(
                 if transport and not transport.is_connected:
                     await transport.connect()
 
-                await inverter.refresh(force=True, include_parameters=True)
+                # Skip parameters on first refresh to reduce Modbus traffic
+                # during HA's setup timeout window. Parameters + feature
+                # detection are deferred to a background task after setup.
+                include_params = self._local_parameters_loaded
+                await inverter.refresh(force=True, include_parameters=include_params)
 
                 features: dict[str, Any] = {}
-                if hasattr(inverter, "detect_features"):
+                if include_params and hasattr(inverter, "detect_features"):
                     try:
                         await inverter.detect_features()
                         features = self._extract_inverter_features(inverter)
@@ -1501,12 +1867,18 @@ class EG4DataUpdateCoordinator(
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
-                transport = inverter._transport
-                if transport:
-                    param_data = await self._read_modbus_parameters(transport)
+                if self._local_parameters_loaded:
+                    transport = inverter._transport
+                    if transport:
+                        param_data = await self._read_modbus_parameters(transport)
+                    else:
+                        param_data = {}
+                    processed["parameters"][serial] = param_data
                 else:
-                    param_data = {}
-                processed["parameters"][serial] = param_data
+                    # Defer parameter reads on first refresh to stay within
+                    # HA's setup timeout. Empty dict is safe — switch/number
+                    # entities will show unknown until background load completes.
+                    processed["parameters"][serial] = {}
 
                 _LOGGER.debug(
                     "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
@@ -1554,6 +1926,118 @@ class EG4DataUpdateCoordinator(
             )
             device_availability[serial] = False
 
+    async def _deferred_local_parameter_load(self) -> None:
+        """Background task: load parameters and detect features for local devices.
+
+        Runs after the first successful local refresh so that HA setup isn't
+        blocked by the heavy holding-register reads (~8 reads per inverter).
+        Triggers a coordinator refresh when done so entities pick up the new
+        parameter and feature data.
+
+        Uses force=False so that runtime/energy/battery caches (populated by
+        the normal poll cycle) are respected — only parameters (never loaded,
+        so cache-expired) will actually trigger Modbus reads.  This avoids
+        concurrent Modbus access with the regular poll cycle.
+        """
+        try:
+            loaded = 0
+            for serial, inverter in self._inverter_cache.items():
+                try:
+                    # force=False: reuse cached runtime/energy/battery from
+                    # the poll cycle, only fetch parameters (holding registers)
+                    await inverter.refresh(force=False, include_parameters=True)
+                    if hasattr(inverter, "detect_features"):
+                        await inverter.detect_features()
+                    loaded += 1
+                    _LOGGER.debug(
+                        "LOCAL: Background parameter load complete for %s",
+                        serial,
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "LOCAL: Background parameter load failed for %s: %s",
+                        serial,
+                        e,
+                    )
+
+            if loaded > 0:
+                _LOGGER.info(
+                    "LOCAL: Background parameter load finished (%d/%d devices). "
+                    "Requesting coordinator refresh.",
+                    loaded,
+                    len(self._inverter_cache),
+                )
+                await self.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("LOCAL: Background parameter load error: %s", e)
+
+    def _build_static_local_data(self) -> dict[str, Any]:
+        """Build device data from config entry metadata without register reads.
+
+        Used for immediate entity creation during the first coordinator refresh.
+        Sensor keys are pre-populated with None values — real values arrive from
+        the background refresh that follows.
+        """
+        processed: dict[str, Any] = {
+            "plant_id": None,
+            "devices": {},
+            "device_info": {},
+            "parameters": {},
+            "last_update": dt_util.utcnow(),
+            "connection_type": CONNECTION_TYPE_LOCAL,
+        }
+
+        for config in self._local_transport_configs:
+            serial = config.get("serial", "")
+            model = config.get("model", "")
+            is_gridboss = config.get("is_gridboss", False)
+            firmware = config.get("firmware_version", "Unknown")
+
+            if is_gridboss:
+                sensor_keys = GRIDBOSS_SENSOR_KEYS
+                device_type = "gridboss"
+            else:
+                sensor_keys = ALL_INVERTER_SENSOR_KEYS
+                device_type = "inverter"
+
+            # Pre-populate sensors: keys present (for entity creation), values None
+            sensors: dict[str, Any] = {k: None for k in sensor_keys}
+            # Fill in known metadata from config entry
+            sensors["firmware_version"] = firmware
+            transport_type = config.get("transport_type", "modbus_tcp")
+            sensors["connection_transport"] = self._get_transport_label(
+                "dongle" if transport_type == "wifi_dongle" else "modbus"
+            )
+            sensors["transport_host"] = config.get("host", "")
+
+            # Derive feature flags from inverter family and device_type_code so
+            # that _should_create_sensor() filters phase-specific sensors correctly
+            # even before Modbus-based feature detection runs.
+            family_str = config.get("inverter_family")
+            dtc = config.get("device_type_code")
+            features = _features_from_family(family_str, dtc) if not is_gridboss else {}
+
+            device_data: dict[str, Any] = {
+                "type": device_type,
+                "model": model or ("GridBOSS" if is_gridboss else "Unknown"),
+                "serial": serial,
+                "firmware_version": firmware,
+                "sensors": sensors,
+                "batteries": {},
+                "features": features,
+                "parallel_number": config.get("parallel_number", 0),
+                "parallel_master_slave": config.get("parallel_master_slave", 0),
+                "parallel_phase": config.get("parallel_phase", 0),
+            }
+
+            if is_gridboss:
+                device_data["binary_sensors"] = {}
+
+            processed["devices"][serial] = device_data
+            processed["parameters"][serial] = {}
+
+        return processed
+
     async def _async_update_local_data(self) -> dict[str, Any]:
         """Fetch data from multiple local transports (Modbus + Dongle mix).
 
@@ -1577,6 +2061,22 @@ class EG4DataUpdateCoordinator(
         if not self._local_transport_configs:
             raise UpdateFailed("No local transports configured")
 
+        # Phase 1: Return static data for immediate entity creation.
+        # Real data follows from the background refresh scheduled below.
+        if not self._local_static_phase_done:
+            self._local_static_phase_done = True
+            _LOGGER.info(
+                "LOCAL: Returning static device data for %d devices "
+                "(real data follows via background refresh)",
+                len(self._local_transport_configs),
+            )
+            # Schedule an immediate follow-up refresh to load real register data.
+            # This runs AFTER async_config_entry_first_refresh() completes and
+            # entity platforms finish setup.
+            self.hass.async_create_task(self.async_request_refresh())
+            return self._build_static_local_data()
+
+        # Phase 2+: Normal register read path
         # Build processed data structure
         processed: dict[str, Any] = {
             "plant_id": None,  # No plant for LOCAL mode
@@ -1673,6 +2173,23 @@ class EG4DataUpdateCoordinator(
 
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
+
+        # On first successful refresh, schedule background parameter +
+        # feature detection load so that switch/number entities and
+        # capability-based sensor filtering become available on the
+        # next coordinator cycle without blocking HA setup.
+        if not self._local_parameters_loaded and successful_devices > 0:
+            self._local_parameters_loaded = True
+            _LOGGER.info(
+                "LOCAL: First refresh complete (%d/%d devices). "
+                "Scheduling background parameter load.",
+                successful_devices,
+                total_devices,
+            )
+            task = self.hass.async_create_task(self._deferred_local_parameter_load())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
 
         return processed
 
@@ -2157,6 +2674,9 @@ class EG4DataUpdateCoordinator(
                 # Build inverter cache for O(1) lookups
                 self._rebuild_inverter_cache()
 
+                # Align client cache TTLs with HTTP polling interval
+                self._align_client_cache_with_http_interval()
+
                 # For hybrid mode: Attach local transports to devices (new API)
                 # This enables devices to use local transport with HTTP fallback
                 if (
@@ -2302,6 +2822,12 @@ class EG4DataUpdateCoordinator(
 
         if created_date := getattr(self.station, "created_date", None):
             processed["station"]["createDate"] = created_date.isoformat()
+
+        # API request rate from client (sliding 60s window, requests/min)
+        if self.client is not None:
+            processed["station"]["api_request_rate"] = (
+                self.client.api_requests_per_minute
+            )
 
         # Process all inverters concurrently with semaphore to prevent rate limiting
         async def process_inverter_with_semaphore(

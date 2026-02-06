@@ -23,6 +23,7 @@ from custom_components.eg4_web_monitor.const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_HTTP_POLLING_INTERVAL,
     CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
@@ -337,34 +338,83 @@ class TestBuildIntervalOptionsSchema:
 
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
-        schema = build_interval_options_schema(current_sensor=30, current_param=60)
+        schema = build_interval_options_schema(
+            current_sensor=30, current_param=60, current_http=120
+        )
         assert isinstance(schema, vol.Schema)
 
     def test_validates_sensor_interval_range(self):
         """Test that sensor interval is validated against range."""
-        schema = build_interval_options_schema(current_sensor=30, current_param=60)
+        schema = build_interval_options_schema(
+            current_sensor=30, current_param=60, current_http=120
+        )
 
         # Should reject values below minimum
         with pytest.raises(vol.MultipleInvalid):
             schema(
-                {CONF_SENSOR_UPDATE_INTERVAL: 1, CONF_PARAMETER_REFRESH_INTERVAL: 60}
+                {
+                    CONF_SENSOR_UPDATE_INTERVAL: 1,
+                    CONF_HTTP_POLLING_INTERVAL: 120,
+                    CONF_PARAMETER_REFRESH_INTERVAL: 60,
+                }
             )
 
     def test_validates_param_interval_range(self):
         """Test that parameter interval is validated against range."""
-        schema = build_interval_options_schema(current_sensor=30, current_param=60)
+        schema = build_interval_options_schema(
+            current_sensor=30, current_param=60, current_http=120
+        )
 
         # Should reject values below minimum
         with pytest.raises(vol.MultipleInvalid):
             schema(
-                {CONF_SENSOR_UPDATE_INTERVAL: 30, CONF_PARAMETER_REFRESH_INTERVAL: 1}
+                {
+                    CONF_SENSOR_UPDATE_INTERVAL: 30,
+                    CONF_HTTP_POLLING_INTERVAL: 120,
+                    CONF_PARAMETER_REFRESH_INTERVAL: 1,
+                }
+            )
+
+    def test_validates_http_interval_range(self):
+        """Test that HTTP polling interval is validated against range."""
+        schema = build_interval_options_schema(
+            current_sensor=30, current_param=60, current_http=120
+        )
+
+        # Should reject values below 60s minimum
+        with pytest.raises(vol.MultipleInvalid):
+            schema(
+                {
+                    CONF_SENSOR_UPDATE_INTERVAL: 30,
+                    CONF_HTTP_POLLING_INTERVAL: 30,
+                    CONF_PARAMETER_REFRESH_INTERVAL: 60,
+                }
             )
 
     def test_accepts_valid_values(self):
         """Test that valid values are accepted."""
-        schema = build_interval_options_schema(current_sensor=30, current_param=60)
+        schema = build_interval_options_schema(
+            current_sensor=30, current_param=60, current_http=120
+        )
         result = schema(
-            {CONF_SENSOR_UPDATE_INTERVAL: 60, CONF_PARAMETER_REFRESH_INTERVAL: 120}
+            {
+                CONF_SENSOR_UPDATE_INTERVAL: 60,
+                CONF_HTTP_POLLING_INTERVAL: 120,
+                CONF_PARAMETER_REFRESH_INTERVAL: 120,
+            }
         )
         assert result[CONF_SENSOR_UPDATE_INTERVAL] == 60
+        assert result[CONF_HTTP_POLLING_INTERVAL] == 120
         assert result[CONF_PARAMETER_REFRESH_INTERVAL] == 120
+
+    def test_http_interval_default_parameter(self):
+        """Test that current_http default parameter works."""
+        schema = build_interval_options_schema(current_sensor=30, current_param=60)
+        # Should use default of 120 for HTTP interval
+        result = schema(
+            {
+                CONF_SENSOR_UPDATE_INTERVAL: 30,
+                CONF_PARAMETER_REFRESH_INTERVAL: 60,
+            }
+        )
+        assert result[CONF_HTTP_POLLING_INTERVAL] == 120
