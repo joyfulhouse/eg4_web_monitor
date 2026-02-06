@@ -2823,11 +2823,18 @@ class EG4DataUpdateCoordinator(
         if created_date := getattr(self.station, "created_date", None):
             processed["station"]["createDate"] = created_date.isoformat()
 
-        # API request rate from client (sliding 60s window, requests/min)
+        # API metrics from client — only tracked when an HTTP client exists
         if self.client is not None:
             processed["station"]["api_request_rate"] = (
                 self.client.api_requests_per_minute
             )
+            processed["station"]["api_peak_request_rate"] = (
+                self.client.api_peak_rate_per_hour
+            )
+            processed["station"]["api_requests_per_hour"] = (
+                self.client.api_requests_per_hour
+            )
+            processed["station"]["api_requests_today"] = self.client.api_requests_today
 
         # Process all inverters concurrently with semaphore to prevent rate limiting
         async def process_inverter_with_semaphore(

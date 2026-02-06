@@ -46,8 +46,8 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
     # -------------------------------------------------------------------------
-    # API Request Rate — sliding 60-second window of real HTTP API calls.
-    # Only counts actual requests to the EG4 cloud, not client cache hits.
+    # API Monitoring Sensors — track cloud API usage for rate limit compliance.
+    # Only real HTTP calls are counted, not client cache hits.
     # -------------------------------------------------------------------------
     "api_request_rate": {
         "name": "API Request Rate",
@@ -55,5 +55,26 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
         "unit_of_measurement": "req/min",
         "state_class": "measurement",
+    },
+    "api_peak_request_rate": {
+        "name": "API Peak Request Rate",
+        "icon": "mdi:chart-bell-curve-cumulative",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "unit_of_measurement": "req/min",
+        "state_class": "measurement",
+    },
+    "api_requests_per_hour": {
+        "name": "API Requests per Hour",
+        "icon": "mdi:counter",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "unit_of_measurement": "requests",
+        "state_class": "measurement",
+    },
+    "api_requests_today": {
+        "name": "API Requests Today",
+        "icon": "mdi:counter",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "unit_of_measurement": "requests",
+        "state_class": "total",
     },
 }
