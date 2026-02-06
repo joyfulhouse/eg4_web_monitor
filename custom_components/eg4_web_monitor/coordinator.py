@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
@@ -1059,6 +1060,19 @@ class EG4DataUpdateCoordinator(
 
         # Store HTTP polling interval for client cache alignment
         self._http_polling_interval: int = http_interval_seconds
+
+        # Daily API counter persistence — survives config entry reloads via
+        # hass.data (client instance gets destroyed/recreated on reload).
+        # On reload: offset = stored total, client starts at 0, we return
+        # offset + client_today. On day change: both reset to 0.
+        daily_store_key = f"{DOMAIN}_daily_api_count_{self.plant_id}"
+        stored = hass.data.get(daily_store_key)
+        today_ymd = time.localtime()[:3]
+        if stored and stored.get("ymd") == today_ymd:
+            self._daily_api_offset: int = stored["count"]
+        else:
+            self._daily_api_offset = 0
+        self._daily_api_ymd: tuple[int, int, int] = today_ymd
 
         # Coordinator interval depends on connection type:
         # HTTP-only: runs at HTTP polling interval (no local transport)
@@ -2834,7 +2848,18 @@ class EG4DataUpdateCoordinator(
             processed["station"]["api_requests_per_hour"] = (
                 self.client.api_requests_per_hour
             )
-            processed["station"]["api_requests_today"] = self.client.api_requests_today
+            # Daily counter: offset (pre-reload total) + client's count since reload.
+            # Persisted in hass.data to survive config entry reloads.
+            today_ymd = time.localtime()[:3]
+            if today_ymd != self._daily_api_ymd:
+                self._daily_api_offset = 0
+                self._daily_api_ymd = today_ymd
+            total_today = self._daily_api_offset + self.client.api_requests_today
+            processed["station"]["api_requests_today"] = total_today
+            self.hass.data[f"{DOMAIN}_daily_api_count_{self.plant_id}"] = {
+                "count": total_today,
+                "ymd": today_ymd,
+            }
 
         # Process all inverters concurrently with semaphore to prevent rate limiting
         async def process_inverter_with_semaphore(
