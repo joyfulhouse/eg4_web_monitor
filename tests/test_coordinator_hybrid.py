@@ -25,7 +25,7 @@ from custom_components.eg4_web_monitor.const import (
     DEFAULT_MODBUS_UNIT_ID,
     HYBRID_LOCAL_MODBUS,
 )
-from custom_components.eg4_web_monitor.coordinator import (
+from custom_components.eg4_web_monitor.coordinator_mappings import (
     _build_transport_configs,
 )
 
@@ -336,7 +336,7 @@ class TestAttachLocalTransports:
         # Mock the helper function to return valid configs
         mock_config = MagicMock()
         with patch(
-            "custom_components.eg4_web_monitor.coordinator._build_transport_configs",
+            "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
             return_value=[mock_config],
         ):
             await EG4DataUpdateCoordinator._attach_local_transports_to_station(

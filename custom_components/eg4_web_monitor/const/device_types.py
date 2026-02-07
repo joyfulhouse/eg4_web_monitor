@@ -42,7 +42,6 @@ INVERTER_FAMILY_EG4_OFFGRID = (
 )
 INVERTER_FAMILY_EG4_HYBRID = "EG4_HYBRID"  # Grid-tied hybrid (18kPV, 12kPV, FlexBOSS)
 INVERTER_FAMILY_LXP = "LXP"  # Luxpower (LXP-EU, LXP-LB-BR, LXP-LV)
-INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
 
 # =============================================================================
 # Deprecated Legacy Aliases

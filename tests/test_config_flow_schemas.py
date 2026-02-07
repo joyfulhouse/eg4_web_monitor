@@ -4,64 +4,30 @@ import pytest
 import voluptuous as vol
 
 from custom_components.eg4_web_monitor._config_flow.schemas import (
-    build_connection_type_schema,
     build_dongle_schema,
     build_http_credentials_schema,
     build_http_reconfigure_schema,
-    build_hybrid_dongle_schema,
-    build_hybrid_local_type_schema,
-    build_hybrid_modbus_schema,
-    build_interval_options_schema,
     build_modbus_schema,
     build_plant_selection_schema,
     build_reauth_schema,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
-    CONF_CONNECTION_TYPE,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
-    CONF_HTTP_POLLING_INTERVAL,
-    CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
-    CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
-    CONF_SENSOR_UPDATE_INTERVAL,
     CONF_VERIFY_SSL,
-    CONNECTION_TYPE_HTTP,
     DEFAULT_DONGLE_PORT,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_UNIT_ID,
-    HYBRID_LOCAL_MODBUS,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-
-
-class TestBuildConnectionTypeSchema:
-    """Tests for build_connection_type_schema function."""
-
-    def test_returns_schema(self):
-        """Test that function returns a valid schema."""
-        schema = build_connection_type_schema()
-        assert isinstance(schema, vol.Schema)
-
-    def test_accepts_http(self):
-        """Test schema accepts HTTP connection type."""
-        schema = build_connection_type_schema()
-        result = schema({CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP})
-        assert result[CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
-
-    def test_default_is_http(self):
-        """Test default connection type is HTTP."""
-        schema = build_connection_type_schema()
-        # Default should be applied
-        result = schema({})
-        assert result[CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
 
 
 class TestBuildHttpCredentialsSchema:
@@ -188,59 +154,6 @@ class TestBuildDongleSchema:
         assert result[CONF_DONGLE_PORT] == DEFAULT_DONGLE_PORT
 
 
-class TestBuildHybridLocalTypeSchema:
-    """Tests for build_hybrid_local_type_schema function."""
-
-    def test_returns_schema(self):
-        """Test that function returns a valid schema."""
-        schema = build_hybrid_local_type_schema()
-        assert isinstance(schema, vol.Schema)
-
-    def test_default_is_modbus(self):
-        """Test default is Modbus."""
-        schema = build_hybrid_local_type_schema()
-        result = schema({})
-        assert result[CONF_HYBRID_LOCAL_TYPE] == HYBRID_LOCAL_MODBUS
-
-
-class TestBuildHybridModbusSchema:
-    """Tests for build_hybrid_modbus_schema function."""
-
-    def test_returns_schema(self):
-        """Test that function returns a valid schema."""
-        schema = build_hybrid_modbus_schema()
-        assert isinstance(schema, vol.Schema)
-
-    def test_requires_host_and_serial(self):
-        """Test that host and serial are required."""
-        schema = build_hybrid_modbus_schema()
-
-        with pytest.raises(vol.MultipleInvalid):
-            schema({})
-
-    def test_uses_serial_default(self):
-        """Test that serial default is used."""
-        schema = build_hybrid_modbus_schema(serial_default="1234567890")
-        result = schema({CONF_MODBUS_HOST: "192.168.1.100"})
-        assert result[CONF_INVERTER_SERIAL] == "1234567890"
-
-
-class TestBuildHybridDongleSchema:
-    """Tests for build_hybrid_dongle_schema function."""
-
-    def test_returns_schema(self):
-        """Test that function returns a valid schema."""
-        schema = build_hybrid_dongle_schema()
-        assert isinstance(schema, vol.Schema)
-
-    def test_requires_host_dongle_serial_inverter_serial(self):
-        """Test that host, dongle serial, and inverter serial are required."""
-        schema = build_hybrid_dongle_schema()
-
-        with pytest.raises(vol.MultipleInvalid):
-            schema({CONF_DONGLE_HOST: "192.168.1.100"})
-
-
 class TestBuildPlantSelectionSchema:
     """Tests for build_plant_selection_schema function."""
 
@@ -331,90 +244,3 @@ class TestBuildHttpReconfigureSchema:
         assert result[CONF_BASE_URL] == "https://old.example.com"
         assert result[CONF_VERIFY_SSL] is False
         assert result[CONF_DST_SYNC] is False
-
-
-class TestBuildIntervalOptionsSchema:
-    """Tests for build_interval_options_schema function."""
-
-    def test_returns_schema(self):
-        """Test that function returns a valid schema."""
-        schema = build_interval_options_schema(
-            current_sensor=30, current_param=60, current_http=120
-        )
-        assert isinstance(schema, vol.Schema)
-
-    def test_validates_sensor_interval_range(self):
-        """Test that sensor interval is validated against range."""
-        schema = build_interval_options_schema(
-            current_sensor=30, current_param=60, current_http=120
-        )
-
-        # Should reject values below minimum
-        with pytest.raises(vol.MultipleInvalid):
-            schema(
-                {
-                    CONF_SENSOR_UPDATE_INTERVAL: 1,
-                    CONF_HTTP_POLLING_INTERVAL: 120,
-                    CONF_PARAMETER_REFRESH_INTERVAL: 60,
-                }
-            )
-
-    def test_validates_param_interval_range(self):
-        """Test that parameter interval is validated against range."""
-        schema = build_interval_options_schema(
-            current_sensor=30, current_param=60, current_http=120
-        )
-
-        # Should reject values below minimum
-        with pytest.raises(vol.MultipleInvalid):
-            schema(
-                {
-                    CONF_SENSOR_UPDATE_INTERVAL: 30,
-                    CONF_HTTP_POLLING_INTERVAL: 120,
-                    CONF_PARAMETER_REFRESH_INTERVAL: 1,
-                }
-            )
-
-    def test_validates_http_interval_range(self):
-        """Test that HTTP polling interval is validated against range."""
-        schema = build_interval_options_schema(
-            current_sensor=30, current_param=60, current_http=120
-        )
-
-        # Should reject values below 60s minimum
-        with pytest.raises(vol.MultipleInvalid):
-            schema(
-                {
-                    CONF_SENSOR_UPDATE_INTERVAL: 30,
-                    CONF_HTTP_POLLING_INTERVAL: 30,
-                    CONF_PARAMETER_REFRESH_INTERVAL: 60,
-                }
-            )
-
-    def test_accepts_valid_values(self):
-        """Test that valid values are accepted."""
-        schema = build_interval_options_schema(
-            current_sensor=30, current_param=60, current_http=120
-        )
-        result = schema(
-            {
-                CONF_SENSOR_UPDATE_INTERVAL: 60,
-                CONF_HTTP_POLLING_INTERVAL: 120,
-                CONF_PARAMETER_REFRESH_INTERVAL: 120,
-            }
-        )
-        assert result[CONF_SENSOR_UPDATE_INTERVAL] == 60
-        assert result[CONF_HTTP_POLLING_INTERVAL] == 120
-        assert result[CONF_PARAMETER_REFRESH_INTERVAL] == 120
-
-    def test_http_interval_default_parameter(self):
-        """Test that current_http default parameter works."""
-        schema = build_interval_options_schema(current_sensor=30, current_param=60)
-        # Should use default of 120 for HTTP interval
-        result = schema(
-            {
-                CONF_SENSOR_UPDATE_INTERVAL: 30,
-                CONF_PARAMETER_REFRESH_INTERVAL: 60,
-            }
-        )
-        assert result[CONF_HTTP_POLLING_INTERVAL] == 120

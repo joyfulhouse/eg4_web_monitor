@@ -72,7 +72,6 @@ CONNECTION_TYPE_LOCAL = (
 # Hybrid mode local transport options (priority: modbus > dongle > cloud-only)
 HYBRID_LOCAL_MODBUS = "modbus"  # RS485 via Waveshare or similar adapter
 HYBRID_LOCAL_DONGLE = "dongle"  # WiFi dongle on port 8000
-HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 
 # =============================================================================
 # Default Values
@@ -116,7 +115,3 @@ DEFAULT_SERIAL_BAUDRATE = 19200
 DEFAULT_SERIAL_PARITY = "N"  # None
 DEFAULT_SERIAL_STOPBITS = 1
 DEFAULT_SERIAL_TIMEOUT = 10.0  # seconds
-
-# Update intervals for local connections (faster than HTTP due to local network)
-MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
-DONGLE_UPDATE_INTERVAL = 5  # seconds (same as Modbus - local network)

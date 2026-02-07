@@ -29,9 +29,11 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import (
+    EG4DataUpdateCoordinator,
+)
+from custom_components.eg4_web_monitor.coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     BATTERY_BANK_KEYS,
-    EG4DataUpdateCoordinator,
     GRIDBOSS_SENSOR_KEYS,
     INVERTER_ENERGY_KEYS,
     INVERTER_RUNTIME_KEYS,
@@ -130,7 +132,6 @@ class TestCoordinatorInitialization:
             assert coordinator.plant_id == "12345"
             assert coordinator.dst_sync_enabled is True
             assert coordinator.station is None
-            assert coordinator.devices == {}
 
 
 class TestCoordinatorDataFetching:
@@ -244,7 +245,7 @@ class TestDSTSynchronization:
         # Within 1 minute before hour boundary (timezone-aware)
         time_near_hour = dt_util.parse_datetime("2025-01-01T12:59:30+00:00")
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.utcnow",
             return_value=time_near_hour,
         ):
             assert coordinator._should_sync_dst() is True
@@ -252,7 +253,7 @@ class TestDSTSynchronization:
         # Far from hour boundary (timezone-aware)
         time_mid_hour = dt_util.parse_datetime("2025-01-01T12:30:00+00:00")
         with patch(
-            "custom_components.eg4_web_monitor.coordinator.dt_util.utcnow",
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.utcnow",
             return_value=time_mid_hour,
         ):
             assert coordinator._should_sync_dst() is False

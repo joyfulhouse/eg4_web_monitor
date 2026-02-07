@@ -7,28 +7,20 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from ..const import (
     CONF_BASE_URL,
-    CONF_CONNECTION_TYPE,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
-    CONF_HTTP_POLLING_INTERVAL,
-    CONF_HYBRID_LOCAL_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
-    CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
-    CONF_SENSOR_UPDATE_INTERVAL,
     CONF_SERIAL_BAUDRATE,
     CONF_SERIAL_PARITY,
     CONF_SERIAL_PORT,
     CONF_SERIAL_STOPBITS,
     CONF_VERIFY_SSL,
-    CONNECTION_TYPE_HTTP,
-    CONNECTION_TYPE_HYBRID,
-    CONNECTION_TYPE_LOCAL,
     DEFAULT_BASE_URL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_MODBUS_PORT,
@@ -37,37 +29,7 @@ from ..const import (
     DEFAULT_SERIAL_PARITY,
     DEFAULT_SERIAL_STOPBITS,
     DEFAULT_VERIFY_SSL,
-    HYBRID_LOCAL_DONGLE,
-    HYBRID_LOCAL_MODBUS,
-    MAX_HTTP_POLLING_INTERVAL,
-    MAX_PARAMETER_REFRESH_INTERVAL,
-    MAX_SENSOR_UPDATE_INTERVAL,
-    MIN_HTTP_POLLING_INTERVAL,
-    MIN_PARAMETER_REFRESH_INTERVAL,
-    MIN_SENSOR_UPDATE_INTERVAL,
 )
-
-# Connection type options
-# Note: Modbus and Dongle single-device modes are deprecated.
-# Users should use LOCAL mode which supports 1-N devices with auto-detection.
-CONNECTION_TYPE_OPTIONS: dict[str, str] = {
-    CONNECTION_TYPE_HTTP: "Cloud API (HTTP)",
-    CONNECTION_TYPE_LOCAL: "Local Only (no cloud required)",
-    CONNECTION_TYPE_HYBRID: "Hybrid (Local + Cloud)",
-}
-
-# Hybrid local transport type options
-HYBRID_LOCAL_TYPE_OPTIONS: dict[str, str] = {
-    HYBRID_LOCAL_MODBUS: "Modbus TCP (RS485 adapter - fastest)",
-    HYBRID_LOCAL_DONGLE: "WiFi Dongle (no extra hardware)",
-}
-
-# Local device type options
-LOCAL_DEVICE_TYPE_OPTIONS: dict[str, str] = {
-    "modbus": "Modbus TCP (RS485-to-Ethernet adapter)",
-    "serial": "Modbus Serial (USB-to-RS485 adapter)",
-    "dongle": "WiFi Dongle",
-}
 
 # Serial parity options
 SERIAL_PARITY_OPTIONS: dict[str, str] = {
@@ -84,21 +46,6 @@ SERIAL_STOPBITS_OPTIONS: dict[int, str] = {
 
 # Common baudrate options for EG4 inverters
 SERIAL_BAUDRATE_OPTIONS: list[int] = [9600, 19200, 38400, 57600, 115200]
-
-
-def build_connection_type_schema() -> vol.Schema:
-    """Build schema for connection type selection.
-
-    Returns:
-        Voluptuous schema for connection type step.
-    """
-    return vol.Schema(
-        {
-            vol.Required(CONF_CONNECTION_TYPE, default=CONNECTION_TYPE_HTTP): vol.In(
-                CONNECTION_TYPE_OPTIONS
-            ),
-        }
-    )
 
 
 def build_http_credentials_schema(dst_sync_default: bool = True) -> vol.Schema:
@@ -177,63 +124,6 @@ def build_dongle_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def build_hybrid_local_type_schema() -> vol.Schema:
-    """Build schema for hybrid local transport type selection.
-
-    Returns:
-        Voluptuous schema for hybrid local type step.
-    """
-    return vol.Schema(
-        {
-            vol.Required(CONF_HYBRID_LOCAL_TYPE, default=HYBRID_LOCAL_MODBUS): vol.In(
-                HYBRID_LOCAL_TYPE_OPTIONS
-            ),
-        }
-    )
-
-
-def build_hybrid_modbus_schema(
-    serial_default: str = "",
-) -> vol.Schema:
-    """Build schema for Modbus configuration in hybrid mode.
-
-    Args:
-        serial_default: Default inverter serial (from cloud discovery).
-
-    Returns:
-        Voluptuous schema for hybrid Modbus step.
-    """
-    return vol.Schema(
-        {
-            vol.Required(CONF_MODBUS_HOST): str,
-            vol.Optional(CONF_MODBUS_PORT, default=DEFAULT_MODBUS_PORT): int,
-            vol.Optional(CONF_MODBUS_UNIT_ID, default=DEFAULT_MODBUS_UNIT_ID): int,
-            vol.Required(CONF_INVERTER_SERIAL, default=serial_default): str,
-        }
-    )
-
-
-def build_hybrid_dongle_schema(
-    serial_default: str = "",
-) -> vol.Schema:
-    """Build schema for WiFi Dongle configuration in hybrid mode.
-
-    Args:
-        serial_default: Default inverter serial (from cloud discovery).
-
-    Returns:
-        Voluptuous schema for hybrid dongle step.
-    """
-    return vol.Schema(
-        {
-            vol.Required(CONF_DONGLE_HOST): str,
-            vol.Optional(CONF_DONGLE_PORT, default=DEFAULT_DONGLE_PORT): int,
-            vol.Required(CONF_DONGLE_SERIAL): str,
-            vol.Required(CONF_INVERTER_SERIAL, default=serial_default): str,
-        }
-    )
-
-
 def build_plant_selection_schema(
     plants: list[dict[str, Any]],
     current: str | None = None,
@@ -300,57 +190,6 @@ def build_http_reconfigure_schema(
             vol.Optional(CONF_BASE_URL, default=current_base_url): str,
             vol.Optional(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
             vol.Optional(CONF_DST_SYNC, default=current_dst_sync): bool,
-        }
-    )
-
-
-def build_interval_options_schema(
-    current_sensor: int,
-    current_param: int,
-    current_http: int = 120,
-) -> vol.Schema:
-    """Build schema for polling interval options.
-
-    Args:
-        current_sensor: Current sensor update interval (seconds).
-        current_param: Current parameter refresh interval (minutes).
-        current_http: Current HTTP/cloud polling interval (seconds).
-
-    Returns:
-        Voluptuous schema for options step.
-    """
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_SENSOR_UPDATE_INTERVAL,
-                default=current_sensor,
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_SENSOR_UPDATE_INTERVAL,
-                    max=MAX_SENSOR_UPDATE_INTERVAL,
-                ),
-            ),
-            vol.Required(
-                CONF_HTTP_POLLING_INTERVAL,
-                default=current_http,
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_HTTP_POLLING_INTERVAL,
-                    max=MAX_HTTP_POLLING_INTERVAL,
-                ),
-            ),
-            vol.Required(
-                CONF_PARAMETER_REFRESH_INTERVAL,
-                default=current_param,
-            ): vol.All(
-                vol.Coerce(int),
-                vol.Range(
-                    min=MIN_PARAMETER_REFRESH_INTERVAL,
-                    max=MAX_PARAMETER_REFRESH_INTERVAL,
-                ),
-            ),
         }
     )
 

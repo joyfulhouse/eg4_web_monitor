@@ -291,7 +291,7 @@ class DeviceProcessingMixin:
                 inverter.serial_number,
             )
             try:
-                from .coordinator import _build_battery_bank_sensor_mapping
+                from .coordinator_mappings import _build_battery_bank_sensor_mapping
 
                 battery_bank_sensors = _build_battery_bank_sensor_mapping(
                     transport_battery

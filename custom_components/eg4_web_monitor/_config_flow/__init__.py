@@ -1391,15 +1391,7 @@ class EG4ConfigFlow(
         )
 
 
-# =============================================================================
-# BACKWARD COMPATIBILITY EXPORTS
-# =============================================================================
-
-# The old class name was EG4WebMonitorConfigFlow - alias for any external references
-EG4WebMonitorConfigFlow = EG4ConfigFlow
-
 __all__ = [
     "EG4ConfigFlow",
-    "EG4WebMonitorConfigFlow",
     "EG4OptionsFlow",
 ]

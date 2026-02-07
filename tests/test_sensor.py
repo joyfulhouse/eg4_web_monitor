@@ -14,8 +14,10 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import (
-    ALL_INVERTER_SENSOR_KEYS,
     EG4DataUpdateCoordinator,
+)
+from custom_components.eg4_web_monitor.coordinator_mappings import (
+    ALL_INVERTER_SENSOR_KEYS,
 )
 from custom_components.eg4_web_monitor.sensor import async_setup_entry
 

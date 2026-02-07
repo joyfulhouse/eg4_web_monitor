@@ -239,6 +239,77 @@ def _get_display_precision(
     return None
 
 
+def _get_model_from_coordinator(
+    coordinator: EG4DataUpdateCoordinator, serial: str
+) -> str:
+    """Get device model from coordinator data.
+
+    Args:
+        coordinator: The data update coordinator.
+        serial: The device serial number.
+
+    Returns:
+        The device model name or 'Unknown' if not available.
+    """
+    if coordinator.data and "devices" in coordinator.data:
+        return str(
+            coordinator.data["devices"].get(serial, {}).get("model", "Unknown")
+        )
+    return "Unknown"
+
+
+def _apply_sensor_config(
+    entity: Any,
+    sensor_key: str,
+    diagnostic_keys: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """Apply SENSOR_TYPES configuration to a sensor entity.
+
+    Extracts sensor configuration from SENSOR_TYPES and sets standard entity
+    attributes: unit, device_class, state_class, icon, display precision,
+    and entity_category.
+
+    Args:
+        entity: The entity to configure (must support _attr_* properties).
+        sensor_key: The key for this sensor in SENSOR_TYPES.
+        diagnostic_keys: Optional frozenset of keys that should be marked diagnostic.
+
+    Returns:
+        The sensor configuration dictionary for further use.
+    """
+    sensor_config: dict[str, Any] = cast(
+        "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
+    )
+    entity._sensor_config = sensor_config
+
+    entity._attr_native_unit_of_measurement = sensor_config.get("unit")
+    entity._attr_device_class = sensor_config.get("device_class")
+    entity._attr_state_class = sensor_config.get("state_class")
+    entity._attr_icon = sensor_config.get("icon")
+
+    # Set display precision
+    precision = _get_display_precision(sensor_config, entity._attr_device_class)
+    if precision is not None:
+        entity._attr_suggested_display_precision = precision
+
+    # Set entity category for diagnostic sensors
+    entity_category = sensor_config.get("entity_category")
+    is_diagnostic = (
+        (diagnostic_keys is not None and sensor_key in diagnostic_keys)
+        or entity_category is not None
+    )
+    if is_diagnostic:
+        if isinstance(entity_category, str):
+            entity_category = EntityCategory(entity_category)
+        entity._attr_entity_category = (
+            entity_category
+            if entity_category is not None
+            else EntityCategory.DIAGNOSTIC
+        )
+
+    return sensor_config
+
+
 class EG4BaseSensor(EG4DeviceEntity):
     """Base class for EG4 sensor entities with shared configuration logic.
 
@@ -276,48 +347,21 @@ class EG4BaseSensor(EG4DeviceEntity):
         self._sensor_key = sensor_key
         self._device_type = device_type
 
-        # Get sensor configuration
-        self._sensor_config: dict[str, Any] = cast(
-            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
+        # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
+        sensor_config = _apply_sensor_config(
+            self, sensor_key, diagnostic_keys=DIAGNOSTIC_DEVICE_SENSOR_KEYS
         )
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
 
-        # Get device data for model information
-        device_data: dict[str, Any] = {}
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(serial, {})
-        model = device_data.get("model", "Unknown")
-
         # Modern entity naming
         self._attr_has_entity_name = True
-        self._attr_name = self._sensor_config.get("name", sensor_key)
+        self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id based on device type
+        model = _get_model_from_coordinator(coordinator, serial)
         self._setup_entity_id(model, device_type)
-
-        # Set sensor properties from configuration
-        self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
-        self._attr_device_class = self._sensor_config.get("device_class")
-        self._attr_state_class = self._sensor_config.get("state_class")
-        self._attr_icon = self._sensor_config.get("icon")
-
-        # Set display precision using helper function
-        precision = _get_display_precision(self._sensor_config, self._attr_device_class)
-        if precision is not None:
-            self._attr_suggested_display_precision = precision
-
-        # Set entity category for diagnostic sensors
-        entity_category = self._sensor_config.get("entity_category")
-        if sensor_key in DIAGNOSTIC_DEVICE_SENSOR_KEYS or entity_category is not None:
-            if isinstance(entity_category, str):
-                entity_category = EntityCategory(entity_category)
-            self._attr_entity_category = (
-                entity_category
-                if entity_category is not None
-                else EntityCategory.DIAGNOSTIC
-            )
 
     def _setup_entity_id(self, model: str, device_type: str) -> None:
         """Set up entity_id based on device type."""
@@ -406,52 +450,23 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         self._serial = serial
         self._sensor_key = sensor_key
 
-        # Get sensor configuration
-        self._sensor_config: dict[str, Any] = cast(
-            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
+        # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
+        sensor_config = _apply_sensor_config(
+            self, sensor_key, diagnostic_keys=DIAGNOSTIC_BATTERY_SENSOR_KEYS
         )
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
 
-        # Get device data for model information
-        device_data: dict[str, Any] = {}
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(serial, {})
-        model = device_data.get("model", "Unknown")
-
-        # Clean battery ID for entity_id
-        clean_battery_id = battery_key.replace("_", "").lower()
-
         # Modern entity naming
         self._attr_has_entity_name = True
-        self._attr_name = self._sensor_config.get("name", sensor_key)
+        self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
+        model = _get_model_from_coordinator(coordinator, serial)
+        clean_battery_id = battery_key.replace("_", "").lower()
         model_clean = clean_model_name(model, use_underscores=True)
         self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
-
-        # Set sensor properties from configuration
-        self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
-        self._attr_device_class = self._sensor_config.get("device_class")
-        self._attr_state_class = self._sensor_config.get("state_class")
-        self._attr_icon = self._sensor_config.get("icon")
-
-        # Set display precision using helper function
-        precision = _get_display_precision(self._sensor_config, self._attr_device_class)
-        if precision is not None:
-            self._attr_suggested_display_precision = precision
-
-        # Set entity category for diagnostic sensors
-        entity_category = self._sensor_config.get("entity_category")
-        if sensor_key in DIAGNOSTIC_BATTERY_SENSOR_KEYS or entity_category is not None:
-            if isinstance(entity_category, str):
-                entity_category = EntityCategory(entity_category)
-            self._attr_entity_category = (
-                entity_category
-                if entity_category is not None
-                else EntityCategory.DIAGNOSTIC
-            )
 
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from battery data."""
@@ -518,42 +533,22 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         super().__init__(coordinator, serial)
         self._sensor_key = sensor_key
 
-        # Get sensor configuration
-        self._sensor_config: dict[str, Any] = cast(
-            "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
-        )
+        # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
+        sensor_config = _apply_sensor_config(self, sensor_key)
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_battery_bank_{sensor_key}"
 
-        # Get device data for model information
-        device_data: dict[str, Any] = {}
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(serial, {})
-        model = device_data.get("model", "Unknown")
-
         # Modern entity naming
         self._attr_has_entity_name = True
-        self._attr_name = self._sensor_config.get("name", sensor_key)
+        self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
+        model = _get_model_from_coordinator(coordinator, serial)
         model_clean = clean_model_name(model, use_underscores=True)
         self._attr_entity_id = (
             f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_bank_{sensor_key}"
         )
-
-        # Set sensor properties
-        self._attr_native_unit_of_measurement = self._sensor_config.get("unit")
-        self._attr_device_class = self._sensor_config.get("device_class")
-        self._attr_state_class = self._sensor_config.get("state_class")
-        self._attr_icon = self._sensor_config.get("icon")
-
-        # Set entity category
-        entity_category = self._sensor_config.get("entity_category")
-        if entity_category is not None:
-            if isinstance(entity_category, str):
-                entity_category = EntityCategory(entity_category)
-            self._attr_entity_category = entity_category
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -665,10 +660,7 @@ class EG4BaseNumber(CoordinatorEntity):
         self._optimistic_value: float | None = None
 
         # Get device info for subclasses
-        device_data: dict[str, Any] = {}
-        if coordinator.data and "devices" in coordinator.data:
-            device_data = coordinator.data["devices"].get(serial, {})
-        self._model = device_data.get("model", "Unknown")
+        self._model = _get_model_from_coordinator(coordinator, serial)
         self._clean_model = clean_model_name(self._model, use_underscores=True)
 
         # Device info
@@ -709,35 +701,6 @@ class EG4BaseNumber(CoordinatorEntity):
 
 
 # ========== Switch Base Classes ==========
-
-
-@contextmanager
-def optimistic_state_context(
-    entity: "EG4BaseSwitch", target_state: bool
-) -> Generator[None, None, None]:
-    """Context manager for optimistic state handling in switch entities.
-
-    Sets the optimistic state before yielding and clears it afterward,
-    ensuring proper cleanup even if an exception occurs.
-
-    Args:
-        entity: The switch entity to manage optimistic state for.
-        target_state: The optimistic state to set (True for on, False for off).
-
-    Yields:
-        None - allows the caller to perform the actual switch operation.
-
-    Example:
-        with optimistic_state_context(self, True):
-            await inverter.enable_feature()
-    """
-    entity._optimistic_state = target_state
-    entity.async_write_ha_state()
-    try:
-        yield
-    finally:
-        entity._optimistic_state = None
-        entity.async_write_ha_state()
 
 
 class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
@@ -784,7 +747,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         self._optimistic_state: bool | None = None
 
         # Get device model from coordinator data
-        self._model = self._get_device_model()
+        self._model = _get_model_from_coordinator(coordinator, serial)
 
         # Set entity attributes
         self._attr_has_entity_name = True
@@ -806,21 +769,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             model=self._model,
             serial_number=serial,
         )
-
-    def _get_device_model(self) -> str:
-        """Get device model from coordinator data.
-
-        Returns:
-            The device model name or 'Unknown' if not available.
-        """
-        if self.coordinator.data:
-            model: str = (
-                self.coordinator.data.get("devices", {})
-                .get(self._serial, {})
-                .get("model", "Unknown")
-            )
-            return model
-        return "Unknown"
 
     @property
     def _device_data(self) -> dict[str, Any]:
