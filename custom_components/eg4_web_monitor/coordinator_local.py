@@ -5,8 +5,6 @@ Modbus Serial) including device discovery, data reading, parallel group
 aggregation, and static entity creation.
 """
 
-# mypy: disable-error-code="attr-defined,has-type,misc,unreachable,assignment"
-
 import asyncio
 import logging
 from typing import Any
@@ -31,6 +29,7 @@ from .const import (
     INVERTER_FAMILY_DEFAULT_MODELS,
     MANUFACTURER,
 )
+from .coordinator_mixins import _MixinBase
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     GRIDBOSS_SENSOR_KEYS,
@@ -48,7 +47,7 @@ from .coordinator_mappings import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class LocalTransportMixin:
+class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
 
     async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:

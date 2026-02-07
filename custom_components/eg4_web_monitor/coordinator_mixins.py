@@ -9,15 +9,14 @@ verify this at the mixin level. Runtime type safety is guaranteed by the
 final coordinator class inheriting all mixins together.
 """
 
-# mypy: disable-error-code="attr-defined,misc,unreachable,assignment"
-
 import asyncio
 import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
@@ -39,36 +38,113 @@ _LOGGER = logging.getLogger(__name__)
 _warned_smart_port_devices: set[str] = set()
 
 
-class CoordinatorProtocol(Protocol):
-    """Protocol defining the interface that mixins expect from the coordinator.
+if TYPE_CHECKING:
 
-    This protocol defines attributes and methods that mixins can safely access
-    on the main coordinator class. This enables proper type checking for mixins.
-    """
+    class _MixinBase:
+        """Type stubs for coordinator attributes and cross-mixin methods.
 
-    # Data attributes
-    data: dict[str, Any] | None
-    plant_id: str
-    station: "Station | None"
-    client: "LuxpowerClient"
-    hass: HomeAssistant
-    dst_sync_enabled: bool
+        Provides mypy with the interface that mixins can access on ``self``.
+        At runtime this is replaced by ``object`` so the MRO is unchanged.
+        """
 
-    # Private attributes for state tracking
-    _last_parameter_refresh: datetime | None  # noqa: F821
-    _parameter_refresh_interval: timedelta
-    _last_dst_sync: datetime | None  # noqa: F821
-    _dst_sync_interval: timedelta
-    _background_tasks: set[asyncio.Task[Any]]
-    _debounced_refresh: Any
-    _last_status_fetch: dict[str, float]
+        # ── Coordinator public attributes ──
+        # Declared as Any to avoid diamond-inheritance conflict with
+        # DataUpdateCoordinator[dict[str, Any]].data in the final class.
+        data: Any
+        hass: HomeAssistant
+        client: LuxpowerClient | None
+        station: Station | None
+        plant_id: str | None
+        connection_type: str
+        entry: ConfigEntry
+        dst_sync_enabled: bool
 
-    # Methods that mixins may call on each other
-    def get_inverter_object(self, serial: str) -> "BaseInverter | None": ...
-    def _extract_firmware_update_info(
-        self, device: "BaseInverter"
-    ) -> dict[str, Any] | None: ...
-    async def async_request_refresh(self) -> None: ...
+        # ── Coordinator private attributes ──
+        _inverter_cache: dict[str, BaseInverter]
+        _mid_device_cache: dict[str, Any]
+        _firmware_cache: dict[str, str]
+        _background_tasks: set[asyncio.Task[Any]]
+        _api_semaphore: asyncio.Semaphore
+        _http_polling_interval: int
+        _local_transport_configs: list[dict[str, Any]]
+        _local_transports_attached: bool
+        _local_parameters_loaded: bool
+        _local_static_phase_done: bool
+        _last_available_state: bool
+        _last_parameter_refresh: datetime | None
+        _parameter_refresh_interval: timedelta
+        _last_dst_sync: datetime | None
+        _dst_sync_interval: timedelta
+        _last_status_fetch: dict[str, float]
+        _daily_api_offset: int
+        _daily_api_ymd: tuple[int, int, int]
+        _modbus_transport: Any
+        _dongle_transport: Any
+        _modbus_serial: str
+        _modbus_model: str
+        _dongle_serial: str
+        _dongle_model: str
+        _shutdown_listener_remove: Callable[[], None] | None
+        _shutdown_listener_fired: bool
+        _debounced_refresh: Any
+        _device_info_cache: dict[str, DeviceInfo]
+        _battery_device_info_cache: dict[str, DeviceInfo]
+        _battery_bank_device_info_cache: dict[str, DeviceInfo]
+
+        # ── DataUpdateCoordinator / coordinator.py methods ──
+        def get_inverter_object(self, serial: str) -> BaseInverter | None: ...
+        async def async_request_refresh(self) -> None: ...
+        def _rebuild_inverter_cache(self) -> None: ...
+
+        # ── DeviceProcessingMixin methods ──
+        async def _process_inverter_object(
+            self, inverter: BaseInverter
+        ) -> dict[str, Any]: ...
+        async def _process_parallel_group_object(
+            self, group: Any
+        ) -> dict[str, Any]: ...
+        async def _process_mid_device_object(
+            self, mid_device: Any
+        ) -> dict[str, Any]: ...
+        @staticmethod
+        def _extract_inverter_features(
+            inverter: BaseInverter,
+        ) -> dict[str, Any]: ...
+        def _extract_battery_from_object(self, battery: Battery) -> dict[str, Any]: ...
+        @staticmethod
+        def _filter_unused_smart_port_sensors(
+            sensors: dict[str, Any], mid_device: Any
+        ) -> None: ...
+        @staticmethod
+        def _calculate_gridboss_aggregates(
+            sensors: dict[str, Any],
+        ) -> None: ...
+
+        # ── FirmwareUpdateMixin methods ──
+        def _extract_firmware_update_info(
+            self, device: BaseInverter
+        ) -> dict[str, Any] | None: ...
+
+        # ── ParameterManagementMixin methods ──
+        def _should_refresh_parameters(self) -> bool: ...
+        async def _hourly_parameter_refresh(self) -> None: ...
+        async def _refresh_missing_parameters(
+            self, inverter_serials: list[str], processed_data: dict[str, Any]
+        ) -> None: ...
+
+        # ── BackgroundTaskMixin methods ──
+        def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None: ...
+        def _log_task_exception(self, task: asyncio.Task[Any]) -> None: ...
+
+        # ── DSTSyncMixin methods ──
+        def _should_sync_dst(self) -> bool: ...
+        async def _perform_dst_sync(self) -> None: ...
+
+        # ── LocalTransportMixin methods ──
+        async def _attach_local_transports_to_station(self) -> None: ...
+
+else:
+    _MixinBase = object
 
 
 # ===== Utility Functions =====
@@ -129,7 +205,7 @@ def _safe_numeric(value: Any) -> float:
         return 0.0
 
 
-class DeviceProcessingMixin:
+class DeviceProcessingMixin(_MixinBase):
     """Mixin for device data processing logic.
 
     Handles processing of inverters, batteries, MID devices, and parallel groups.
@@ -1163,7 +1239,7 @@ class DeviceProcessingMixin:
                 sensors[output_key] = total
 
 
-class DeviceInfoMixin:
+class DeviceInfoMixin(_MixinBase):
     """Mixin for device info retrieval methods.
 
     Caches DeviceInfo objects per update cycle to avoid redundant construction
@@ -1376,12 +1452,8 @@ class DeviceInfoMixin:
         return device_info
 
 
-class ParameterManagementMixin:
+class ParameterManagementMixin(_MixinBase):
     """Mixin for device parameter refresh operations."""
-
-    # Type hints for attributes initialized in coordinator
-    _last_parameter_refresh: datetime | None
-    _parameter_refresh_interval: timedelta
 
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
@@ -1513,12 +1585,8 @@ class ParameterManagementMixin:
         return bool(time_since_refresh >= self._parameter_refresh_interval)
 
 
-class DSTSyncMixin:
+class DSTSyncMixin(_MixinBase):
     """Mixin for daylight saving time synchronization operations."""
-
-    # Type hints for attributes initialized in coordinator
-    _last_dst_sync: datetime | None
-    _dst_sync_interval: timedelta
 
     def _should_sync_dst(self) -> bool:
         """Check if DST sync is due.
@@ -1582,11 +1650,8 @@ class DSTSyncMixin:
             self._last_dst_sync = dt_util.utcnow()
 
 
-class BackgroundTaskMixin:
+class BackgroundTaskMixin(_MixinBase):
     """Mixin for background task management operations."""
-
-    _shutdown_listener_remove: Callable[[], None] | None
-    _shutdown_listener_fired: bool
 
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
@@ -1655,7 +1720,7 @@ class BackgroundTaskMixin:
                 )
 
 
-class FirmwareUpdateMixin:
+class FirmwareUpdateMixin(_MixinBase):
     """Mixin for firmware update information extraction."""
 
     def _extract_firmware_update_info(
@@ -1675,7 +1740,7 @@ class FirmwareUpdateMixin:
         if not device.firmware_update_available:
             return None
 
-        update_info = {
+        update_info: dict[str, Any] = {
             "latest_version": device.latest_firmware_version,
             "title": device.firmware_update_title,
             "release_summary": device.firmware_update_summary,

@@ -252,9 +252,7 @@ def _get_model_from_coordinator(
         The device model name or 'Unknown' if not available.
     """
     if coordinator.data and "devices" in coordinator.data:
-        return str(
-            coordinator.data["devices"].get(serial, {}).get("model", "Unknown")
-        )
+        return str(coordinator.data["devices"].get(serial, {}).get("model", "Unknown"))
     return "Unknown"
 
 
@@ -295,9 +293,8 @@ def _apply_sensor_config(
     # Set entity category for diagnostic sensors
     entity_category = sensor_config.get("entity_category")
     is_diagnostic = (
-        (diagnostic_keys is not None and sensor_key in diagnostic_keys)
-        or entity_category is not None
-    )
+        diagnostic_keys is not None and sensor_key in diagnostic_keys
+    ) or entity_category is not None
     if is_diagnostic:
         if isinstance(entity_category, str):
             entity_category = EntityCategory(entity_category)
@@ -500,10 +497,11 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
             and self._parent_serial in self.coordinator.data["devices"]
             and "error" not in self.coordinator.data["devices"][self._parent_serial]
         )
-        battery_exists = device_exists and self._battery_key in self.coordinator.data[
-            "devices"
-        ][self._parent_serial].get("batteries", {})
-        return battery_exists
+        if not device_exists or self.coordinator.data is None:
+            return False
+        return self._battery_key in self.coordinator.data["devices"][
+            self._parent_serial
+        ].get("batteries", {})
 
 
 class EG4BatteryBankEntity(EG4DeviceEntity):
@@ -577,13 +575,12 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
             and self._serial in self.coordinator.data["devices"]
         )
 
-        battery_bank_exists = (
-            device_exists
-            and self._sensor_key
+        if not device_exists or self.coordinator.data is None:
+            return False
+        return bool(
+            self._sensor_key
             in self.coordinator.data["devices"][self._serial].get("sensors", {})
         )
-
-        return bool(battery_bank_exists)
 
     @property
     def native_value(self) -> Any:

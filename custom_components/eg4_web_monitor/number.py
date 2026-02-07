@@ -161,30 +161,46 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
 
         try:
             if self.coordinator.is_local_only():
-                return _fmt(self._value_from_params(
-                    param_key, value_min, value_max, param_transform
-                ))
+                return _fmt(
+                    self._value_from_params(
+                        param_key, value_min, value_max, param_transform
+                    )
+                )
 
             if params_first:
-                result = _fmt(self._value_from_params(
-                    param_key, value_min, value_max, param_transform
-                ))
+                result = _fmt(
+                    self._value_from_params(
+                        param_key, value_min, value_max, param_transform
+                    )
+                )
                 if result is not None:
                     return result
-                return _fmt(self._value_from_inverter(
-                    inverter_attr, inverter_dict_attr, inverter_dict_key,
-                    value_min, value_max,
-                ))
+                return _fmt(
+                    self._value_from_inverter(
+                        inverter_attr,
+                        inverter_dict_attr,
+                        inverter_dict_key,
+                        value_min,
+                        value_max,
+                    )
+                )
 
-            result = _fmt(self._value_from_inverter(
-                inverter_attr, inverter_dict_attr, inverter_dict_key,
-                value_min, value_max,
-            ))
+            result = _fmt(
+                self._value_from_inverter(
+                    inverter_attr,
+                    inverter_dict_attr,
+                    inverter_dict_key,
+                    value_min,
+                    value_max,
+                )
+            )
             if result is not None:
                 return result
-            return _fmt(self._value_from_params(
-                param_key, value_min, value_max, param_transform
-            ))
+            return _fmt(
+                self._value_from_params(
+                    param_key, value_min, value_max, param_transform
+                )
+            )
         except (ValueError, TypeError, AttributeError):
             pass
         return None
@@ -256,7 +272,7 @@ async def async_setup_entry(
     coordinator = config_entry.runtime_data
     entities: list[NumberEntity] = []
 
-    for serial, device_data in coordinator.data.get("devices", {}).items():
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         device_type = device_data.get("type")
         if device_type == "inverter":
             model = device_data.get("model", "Unknown")
@@ -264,17 +280,19 @@ async def async_setup_entry(
 
             supported_models = ["flexboss", "18kpv", "18k", "12kpv", "12k", "xp"]
             if any(supported in model_lower for supported in supported_models):
-                entities.extend([
-                    SystemChargeSOCLimitNumber(coordinator, serial),
-                    ACChargePowerNumber(coordinator, serial),
-                    PVChargePowerNumber(coordinator, serial),
-                    ACChargeSOCLimitNumber(coordinator, serial),
-                    OnGridSOCCutoffNumber(coordinator, serial),
-                    OffGridSOCCutoffNumber(coordinator, serial),
-                    BatteryChargeCurrentNumber(coordinator, serial),
-                    BatteryDischargeCurrentNumber(coordinator, serial),
-                    GridPeakShavingPowerNumber(coordinator, serial),
-                ])
+                entities.extend(
+                    [
+                        SystemChargeSOCLimitNumber(coordinator, serial),
+                        ACChargePowerNumber(coordinator, serial),
+                        PVChargePowerNumber(coordinator, serial),
+                        ACChargeSOCLimitNumber(coordinator, serial),
+                        OnGridSOCCutoffNumber(coordinator, serial),
+                        OffGridSOCCutoffNumber(coordinator, serial),
+                        BatteryChargeCurrentNumber(coordinator, serial),
+                        BatteryDischargeCurrentNumber(coordinator, serial),
+                        GridPeakShavingPowerNumber(coordinator, serial),
+                    ]
+                )
 
     if entities:
         _LOGGER.info("Setup complete: %d number entities created", len(entities))
@@ -426,6 +444,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             return int(self._optimistic_value)
 
         try:
+
             def _pct_to_kw(pct_value: Any) -> int | None:
                 power_kw = int(float(pct_value) / 100.0 * 15)
                 return power_kw if 0 <= power_kw <= 15 else None

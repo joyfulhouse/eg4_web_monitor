@@ -122,7 +122,10 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
 
         # Get device info from coordinator data
         self._model = (
-            coordinator.data.get("devices", {}).get(serial, {}).get("model", "Unknown")
+            (coordinator.data or {})
+            .get("devices", {})
+            .get(serial, {})
+            .get("model", "Unknown")
         )
 
         # Create unique identifiers using consolidated utilities

@@ -1,4 +1,3 @@
-# mypy: disable-error-code="attr-defined,has-type,misc,unreachable,assignment"
 """HTTP/cloud update mixin for EG4 Web Monitor coordinator.
 
 This mixin handles all HTTP cloud API data fetching and processing,
@@ -40,51 +39,14 @@ from .coordinator_mappings import (
     _build_individual_battery_mapping,
     _get_transport_label,
 )
+from .coordinator_mixins import _MixinBase
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class HTTPUpdateMixin:
-    """Mixin providing HTTP/cloud data update methods for the coordinator.
-
-    Requires the host class to provide:
-    - self.client: LuxpowerClient | None
-    - self.station: Station | None
-    - self.plant_id: str | None
-    - self.connection_type: str
-    - self._http_polling_interval: int
-    - self._local_transport_configs: list[dict[str, Any]]
-    - self._local_transports_attached: bool
-    - self._last_available_state: bool
-    - self._api_semaphore: asyncio.Semaphore
-    - self._daily_api_offset: int
-    - self._daily_api_ymd: tuple[int, int, int]
-    - self._background_tasks: set[asyncio.Task[Any]]
-    - self._inverter_cache: dict[str, BaseInverter]
-    - self._mid_device_cache: dict[str, Any]
-    - self.data: dict[str, Any] | None
-    - self.hass: HomeAssistant
-    - self.dst_sync_enabled: bool
-    And mixin methods:
-    - self._should_refresh_parameters()
-    - self._hourly_parameter_refresh()
-    - self._remove_task_from_set()
-    - self._log_task_exception()
-    - self._rebuild_inverter_cache()
-    - self._align_client_cache_with_http_interval()
-    - self._attach_local_transports_to_station()
-    - self._should_sync_dst()
-    - self._perform_dst_sync()
-    - self._process_inverter_object()
-    - self._process_parallel_group_object()
-    - self._process_mid_device_object()
-    - self._extract_battery_from_object()
-    - self.get_inverter_object()
-    - self._refresh_missing_parameters()
-    """
-
-    station: Station | None
+class HTTPUpdateMixin(_MixinBase):
+    """Mixin providing HTTP/cloud data update methods for the coordinator."""
 
     def _align_client_cache_with_http_interval(self) -> None:
         """Set client cache TTLs to match HTTP polling interval.

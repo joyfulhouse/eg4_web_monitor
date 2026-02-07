@@ -349,7 +349,7 @@ class EG4DataUpdateCoordinator(
                     self._consecutive_update_failures,
                     err,
                 )
-                return self.data
+                return cast(dict[str, Any], self.data)
             raise
 
     async def _route_update_by_connection_type(self) -> dict[str, Any]:
