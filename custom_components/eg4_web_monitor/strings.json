@@ -358,6 +358,8 @@
         "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
         "data": {
           "sensor_update_interval": "Sensor Update Interval (seconds)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
           "http_polling_interval": "HTTP/Cloud Polling Interval (seconds)",
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
           "library_debug": "Library Debug Logging",
@@ -365,6 +367,8 @@
         },
         "data_description": {
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Controls local transport polling rate. In HTTP-only mode, the HTTP interval below takes precedence.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
           "http_polling_interval": "How often to poll the cloud API for data ({min_http_interval}-{max_http_interval} seconds). Higher values reduce API load. In hybrid mode, this controls cloud-only data; local transport data updates at the sensor interval.",
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)",

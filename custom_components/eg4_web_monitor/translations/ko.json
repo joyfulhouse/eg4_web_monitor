@@ -360,13 +360,17 @@
           "sensor_update_interval": "센서 업데이트 간격 (초)",
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
-          "include_ac_couple_pv": "총계에 AC 커플링 PV 포함"
+          "include_ac_couple_pv": "총계에 AC 커플링 PV 포함",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "센서 업데이트를 폴링하는 빈도 ({min_sensor_interval}-{max_sensor_interval}초). 값이 낮을수록 업데이트가 빠르지만 API 부하가 증가합니다.",
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
-          "include_ac_couple_pv": "병렬 그룹 PV 총계에 AC 커플링 태양광 인버터 전력 (GridBOSS 스마트 포트에서) 추가"
+          "include_ac_couple_pv": "병렬 그룹 PV 총계에 AC 커플링 태양광 인버터 전력 (GridBOSS 스마트 포트에서) 추가",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +394,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "AC 전력"},
-      "ac_voltage": {"name": "AC 전압"},
-      "ac_current": {"name": "AC 전류"},
-      "frequency": {"name": "주파수"},
-      "dc_power": {"name": "DC 전력"},
-      "dc_voltage": {"name": "DC 전압"},
-      "dc_current": {"name": "DC 전류"},
-      "battery_power": {"name": "배터리 전력"},
-      "battery_voltage": {"name": "배터리 전압"},
-      "battery_current": {"name": "배터리 전류"},
-      "state_of_charge": {"name": "충전 상태"},
-      "state_of_health": {"name": "건강 상태"},
-      "total_energy": {"name": "총 에너지"},
-      "daily_energy": {"name": "일일 에너지"},
-      "monthly_energy": {"name": "월간 에너지"},
-      "yearly_energy": {"name": "연간 에너지"},
-      "internal_temperature": {"name": "내부 온도"},
-      "radiator1_temperature": {"name": "방열판 1 온도"},
-      "radiator2_temperature": {"name": "방열판 2 온도"},
-      "status_code": {"name": "상태 코드"},
-      "status_text": {"name": "상태"},
-      "grid_power": {"name": "계통 전력"},
-      "load_power": {"name": "부하 전력"},
-      "pv_total_power": {"name": "PV 총 전력"},
-      "pv1_power": {"name": "PV1 전력"},
-      "pv2_power": {"name": "PV2 전력"},
-      "pv3_power": {"name": "PV3 전력"},
-      "cell_voltage_max": {"name": "최대 셀 전압"},
-      "cell_voltage_min": {"name": "최소 셀 전압"},
-      "cell_voltage_delta": {"name": "셀 전압 편차"},
-      "cycle_count": {"name": "사이클 수"},
-      "firmware_version": {"name": "펌웨어 버전"},
-      "grid_voltage_r": {"name": "계통 전압 R"},
-      "grid_voltage_s": {"name": "계통 전압 S"},
-      "grid_voltage_t": {"name": "계통 전압 T"},
-      "grid_frequency": {"name": "계통 주파수"},
-      "eps_voltage_r": {"name": "EPS 전압 R"},
-      "eps_voltage_s": {"name": "EPS 전압 S"},
-      "eps_voltage_t": {"name": "EPS 전압 T"},
-      "eps_frequency": {"name": "EPS 주파수"},
-      "eps_power": {"name": "EPS 전력"},
-      "eps_power_l1": {"name": "EPS 전력 L1"},
-      "eps_power_l2": {"name": "EPS 전력 L2"},
-      "power_output": {"name": "출력 전력"},
-      "rectifier_power": {"name": "정류기 전력"},
-      "ac_couple_power": {"name": "AC 커플링 전력"},
-      "bus1_voltage": {"name": "버스 1 전압"},
-      "bus2_voltage": {"name": "버스 2 전압"},
-      "total_load_power": {"name": "총 부하 전력"}
+      "ac_power": {
+        "name": "AC 전력"
+      },
+      "ac_voltage": {
+        "name": "AC 전압"
+      },
+      "ac_current": {
+        "name": "AC 전류"
+      },
+      "frequency": {
+        "name": "주파수"
+      },
+      "dc_power": {
+        "name": "DC 전력"
+      },
+      "dc_voltage": {
+        "name": "DC 전압"
+      },
+      "dc_current": {
+        "name": "DC 전류"
+      },
+      "battery_power": {
+        "name": "배터리 전력"
+      },
+      "battery_voltage": {
+        "name": "배터리 전압"
+      },
+      "battery_current": {
+        "name": "배터리 전류"
+      },
+      "state_of_charge": {
+        "name": "충전 상태"
+      },
+      "state_of_health": {
+        "name": "건강 상태"
+      },
+      "total_energy": {
+        "name": "총 에너지"
+      },
+      "daily_energy": {
+        "name": "일일 에너지"
+      },
+      "monthly_energy": {
+        "name": "월간 에너지"
+      },
+      "yearly_energy": {
+        "name": "연간 에너지"
+      },
+      "internal_temperature": {
+        "name": "내부 온도"
+      },
+      "radiator1_temperature": {
+        "name": "방열판 1 온도"
+      },
+      "radiator2_temperature": {
+        "name": "방열판 2 온도"
+      },
+      "status_code": {
+        "name": "상태 코드"
+      },
+      "status_text": {
+        "name": "상태"
+      },
+      "grid_power": {
+        "name": "계통 전력"
+      },
+      "load_power": {
+        "name": "부하 전력"
+      },
+      "pv_total_power": {
+        "name": "PV 총 전력"
+      },
+      "pv1_power": {
+        "name": "PV1 전력"
+      },
+      "pv2_power": {
+        "name": "PV2 전력"
+      },
+      "pv3_power": {
+        "name": "PV3 전력"
+      },
+      "cell_voltage_max": {
+        "name": "최대 셀 전압"
+      },
+      "cell_voltage_min": {
+        "name": "최소 셀 전압"
+      },
+      "cell_voltage_delta": {
+        "name": "셀 전압 편차"
+      },
+      "cycle_count": {
+        "name": "사이클 수"
+      },
+      "firmware_version": {
+        "name": "펌웨어 버전"
+      },
+      "grid_voltage_r": {
+        "name": "계통 전압 R"
+      },
+      "grid_voltage_s": {
+        "name": "계통 전압 S"
+      },
+      "grid_voltage_t": {
+        "name": "계통 전압 T"
+      },
+      "grid_frequency": {
+        "name": "계통 주파수"
+      },
+      "eps_voltage_r": {
+        "name": "EPS 전압 R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS 전압 S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS 전압 T"
+      },
+      "eps_frequency": {
+        "name": "EPS 주파수"
+      },
+      "eps_power": {
+        "name": "EPS 전력"
+      },
+      "eps_power_l1": {
+        "name": "EPS 전력 L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS 전력 L2"
+      },
+      "power_output": {
+        "name": "출력 전력"
+      },
+      "rectifier_power": {
+        "name": "정류기 전력"
+      },
+      "ac_couple_power": {
+        "name": "AC 커플링 전력"
+      },
+      "bus1_voltage": {
+        "name": "버스 1 전압"
+      },
+      "bus2_voltage": {
+        "name": "버스 2 전압"
+      },
+      "total_load_power": {
+        "name": "총 부하 전력"
+      }
     },
     "switch": {
       "quick_charge": {

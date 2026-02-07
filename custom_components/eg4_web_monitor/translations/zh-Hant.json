@@ -360,13 +360,17 @@
           "sensor_update_interval": "感測器更新間隔（秒）",
           "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
           "library_debug": "程式庫偵錯日誌",
-          "include_ac_couple_pv": "在總計中包含 AC 耦合 PV"
+          "include_ac_couple_pv": "在總計中包含 AC 耦合 PV",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "輪詢感測器更新的頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較低的值提供更快的更新，但會增加 API 負載。",
           "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
           "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
-          "include_ac_couple_pv": "將 AC 耦合太陽能逆變器功率（來自 GridBOSS 智慧連接埠）新增到並聯組 PV 總計"
+          "include_ac_couple_pv": "將 AC 耦合太陽能逆變器功率（來自 GridBOSS 智慧連接埠）新增到並聯組 PV 總計",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +394,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "交流功率"},
-      "ac_voltage": {"name": "交流電壓"},
-      "ac_current": {"name": "交流電流"},
-      "frequency": {"name": "頻率"},
-      "dc_power": {"name": "直流功率"},
-      "dc_voltage": {"name": "直流電壓"},
-      "dc_current": {"name": "直流電流"},
-      "battery_power": {"name": "電池功率"},
-      "battery_voltage": {"name": "電池電壓"},
-      "battery_current": {"name": "電池電流"},
-      "state_of_charge": {"name": "電量狀態"},
-      "state_of_health": {"name": "健康狀態"},
-      "total_energy": {"name": "總電量"},
-      "daily_energy": {"name": "日電量"},
-      "monthly_energy": {"name": "月電量"},
-      "yearly_energy": {"name": "年電量"},
-      "internal_temperature": {"name": "內部溫度"},
-      "radiator1_temperature": {"name": "散熱器 1 溫度"},
-      "radiator2_temperature": {"name": "散熱器 2 溫度"},
-      "status_code": {"name": "狀態代碼"},
-      "status_text": {"name": "狀態"},
-      "grid_power": {"name": "電網功率"},
-      "load_power": {"name": "負載功率"},
-      "pv_total_power": {"name": "PV 總功率"},
-      "pv1_power": {"name": "PV1 功率"},
-      "pv2_power": {"name": "PV2 功率"},
-      "pv3_power": {"name": "PV3 功率"},
-      "cell_voltage_max": {"name": "最大電芯電壓"},
-      "cell_voltage_min": {"name": "最小電芯電壓"},
-      "cell_voltage_delta": {"name": "電芯電壓差"},
-      "cycle_count": {"name": "循環次數"},
-      "firmware_version": {"name": "韌體版本"},
-      "grid_voltage_r": {"name": "電網電壓 R"},
-      "grid_voltage_s": {"name": "電網電壓 S"},
-      "grid_voltage_t": {"name": "電網電壓 T"},
-      "grid_frequency": {"name": "電網頻率"},
-      "eps_voltage_r": {"name": "EPS 電壓 R"},
-      "eps_voltage_s": {"name": "EPS 電壓 S"},
-      "eps_voltage_t": {"name": "EPS 電壓 T"},
-      "eps_frequency": {"name": "EPS 頻率"},
-      "eps_power": {"name": "EPS 功率"},
-      "eps_power_l1": {"name": "EPS 功率 L1"},
-      "eps_power_l2": {"name": "EPS 功率 L2"},
-      "power_output": {"name": "輸出功率"},
-      "rectifier_power": {"name": "整流器功率"},
-      "ac_couple_power": {"name": "AC 耦合功率"},
-      "bus1_voltage": {"name": "母線 1 電壓"},
-      "bus2_voltage": {"name": "母線 2 電壓"},
-      "total_load_power": {"name": "總負載功率"}
+      "ac_power": {
+        "name": "交流功率"
+      },
+      "ac_voltage": {
+        "name": "交流電壓"
+      },
+      "ac_current": {
+        "name": "交流電流"
+      },
+      "frequency": {
+        "name": "頻率"
+      },
+      "dc_power": {
+        "name": "直流功率"
+      },
+      "dc_voltage": {
+        "name": "直流電壓"
+      },
+      "dc_current": {
+        "name": "直流電流"
+      },
+      "battery_power": {
+        "name": "電池功率"
+      },
+      "battery_voltage": {
+        "name": "電池電壓"
+      },
+      "battery_current": {
+        "name": "電池電流"
+      },
+      "state_of_charge": {
+        "name": "電量狀態"
+      },
+      "state_of_health": {
+        "name": "健康狀態"
+      },
+      "total_energy": {
+        "name": "總電量"
+      },
+      "daily_energy": {
+        "name": "日電量"
+      },
+      "monthly_energy": {
+        "name": "月電量"
+      },
+      "yearly_energy": {
+        "name": "年電量"
+      },
+      "internal_temperature": {
+        "name": "內部溫度"
+      },
+      "radiator1_temperature": {
+        "name": "散熱器 1 溫度"
+      },
+      "radiator2_temperature": {
+        "name": "散熱器 2 溫度"
+      },
+      "status_code": {
+        "name": "狀態代碼"
+      },
+      "status_text": {
+        "name": "狀態"
+      },
+      "grid_power": {
+        "name": "電網功率"
+      },
+      "load_power": {
+        "name": "負載功率"
+      },
+      "pv_total_power": {
+        "name": "PV 總功率"
+      },
+      "pv1_power": {
+        "name": "PV1 功率"
+      },
+      "pv2_power": {
+        "name": "PV2 功率"
+      },
+      "pv3_power": {
+        "name": "PV3 功率"
+      },
+      "cell_voltage_max": {
+        "name": "最大電芯電壓"
+      },
+      "cell_voltage_min": {
+        "name": "最小電芯電壓"
+      },
+      "cell_voltage_delta": {
+        "name": "電芯電壓差"
+      },
+      "cycle_count": {
+        "name": "循環次數"
+      },
+      "firmware_version": {
+        "name": "韌體版本"
+      },
+      "grid_voltage_r": {
+        "name": "電網電壓 R"
+      },
+      "grid_voltage_s": {
+        "name": "電網電壓 S"
+      },
+      "grid_voltage_t": {
+        "name": "電網電壓 T"
+      },
+      "grid_frequency": {
+        "name": "電網頻率"
+      },
+      "eps_voltage_r": {
+        "name": "EPS 電壓 R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS 電壓 S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS 電壓 T"
+      },
+      "eps_frequency": {
+        "name": "EPS 頻率"
+      },
+      "eps_power": {
+        "name": "EPS 功率"
+      },
+      "eps_power_l1": {
+        "name": "EPS 功率 L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS 功率 L2"
+      },
+      "power_output": {
+        "name": "輸出功率"
+      },
+      "rectifier_power": {
+        "name": "整流器功率"
+      },
+      "ac_couple_power": {
+        "name": "AC 耦合功率"
+      },
+      "bus1_voltage": {
+        "name": "母線 1 電壓"
+      },
+      "bus2_voltage": {
+        "name": "母線 2 電壓"
+      },
+      "total_load_power": {
+        "name": "總負載功率"
+      }
     },
     "switch": {
       "quick_charge": {

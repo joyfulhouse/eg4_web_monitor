@@ -27,6 +27,10 @@ CONF_HTTP_POLLING_INTERVAL = "http_polling_interval"
 CONF_PARAMETER_REFRESH_INTERVAL = "parameter_refresh_interval"
 CONF_INCLUDE_AC_COUPLE_PV = "include_ac_couple_pv"  # Add AC couple power to PV totals
 
+# Per-transport polling intervals (LOCAL mode with mixed transports)
+CONF_MODBUS_UPDATE_INTERVAL = "modbus_update_interval"
+CONF_DONGLE_UPDATE_INTERVAL = "dongle_update_interval"
+
 # Connection type configuration
 CONF_CONNECTION_TYPE = "connection_type"
 
@@ -92,6 +96,16 @@ MIN_SENSOR_UPDATE_INTERVAL = 5  # seconds
 MAX_SENSOR_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 MIN_PARAMETER_REFRESH_INTERVAL = 5  # minutes
 MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
+
+# Per-transport polling defaults (LOCAL mode with mixed transports)
+DEFAULT_MODBUS_UPDATE_INTERVAL = 5  # seconds (wired, low overhead)
+DEFAULT_DONGLE_UPDATE_INTERVAL = 10  # seconds (WiFi, more conservative)
+
+# Per-transport polling limits
+MIN_MODBUS_UPDATE_INTERVAL = 3  # seconds
+MAX_MODBUS_UPDATE_INTERVAL = 300  # seconds (5 minutes)
+MIN_DONGLE_UPDATE_INTERVAL = 5  # seconds
+MAX_DONGLE_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 
 # HTTP/Cloud polling interval limits (rate limit protection)
 DEFAULT_HTTP_POLLING_INTERVAL = 120  # seconds

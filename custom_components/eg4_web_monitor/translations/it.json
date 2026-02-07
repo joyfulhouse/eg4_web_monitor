@@ -360,13 +360,17 @@
           "sensor_update_interval": "Intervallo Aggiornamento Sensori (secondi)",
           "parameter_refresh_interval": "Intervallo Aggiornamento Parametri (minuti)",
           "library_debug": "Log di Debug Libreria",
-          "include_ac_couple_pv": "Includi PV AC-Coupled nei Totali"
+          "include_ac_couple_pv": "Includi PV AC-Coupled nei Totali",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "Quanto spesso eseguire il polling per gli aggiornamenti dei sensori ({min_sensor_interval}-{max_sensor_interval} secondi). Valori piu bassi forniscono aggiornamenti piu veloci ma aumentano il carico dell'API.",
           "parameter_refresh_interval": "Quanto spesso aggiornare i parametri dell'inverter come limiti SOC e impostazioni di carica ({min_param_interval}-{max_param_interval} minuti).",
           "library_debug": "Abilita il logging DEBUG per la libreria pylxpweb (mostra richieste API, risposte e operazioni interne della libreria)",
-          "include_ac_couple_pv": "Aggiungi la potenza dell'inverter solare AC-coupled (dalle porte smart GridBOSS) ai totali PV del gruppo parallelo"
+          "include_ac_couple_pv": "Aggiungi la potenza dell'inverter solare AC-coupled (dalle porte smart GridBOSS) ai totali PV del gruppo parallelo",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +394,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "Potenza AC"},
-      "ac_voltage": {"name": "Tensione AC"},
-      "ac_current": {"name": "Corrente AC"},
-      "frequency": {"name": "Frequenza"},
-      "dc_power": {"name": "Potenza DC"},
-      "dc_voltage": {"name": "Tensione DC"},
-      "dc_current": {"name": "Corrente DC"},
-      "battery_power": {"name": "Potenza Batteria"},
-      "battery_voltage": {"name": "Tensione Batteria"},
-      "battery_current": {"name": "Corrente Batteria"},
-      "state_of_charge": {"name": "Stato di Carica"},
-      "state_of_health": {"name": "Stato di Salute"},
-      "total_energy": {"name": "Energia Totale"},
-      "daily_energy": {"name": "Energia Giornaliera"},
-      "monthly_energy": {"name": "Energia Mensile"},
-      "yearly_energy": {"name": "Energia Annuale"},
-      "internal_temperature": {"name": "Temperatura Interna"},
-      "radiator1_temperature": {"name": "Temperatura Radiatore 1"},
-      "radiator2_temperature": {"name": "Temperatura Radiatore 2"},
-      "status_code": {"name": "Codice Stato"},
-      "status_text": {"name": "Stato"},
-      "grid_power": {"name": "Potenza Rete"},
-      "load_power": {"name": "Potenza Carico"},
-      "pv_total_power": {"name": "Potenza PV Totale"},
-      "pv1_power": {"name": "Potenza PV1"},
-      "pv2_power": {"name": "Potenza PV2"},
-      "pv3_power": {"name": "Potenza PV3"},
-      "cell_voltage_max": {"name": "Tensione Cella Massima"},
-      "cell_voltage_min": {"name": "Tensione Cella Minima"},
-      "cell_voltage_delta": {"name": "Delta Tensione Celle"},
-      "cycle_count": {"name": "Conteggio Cicli"},
-      "firmware_version": {"name": "Versione Firmware"},
-      "grid_voltage_r": {"name": "Tensione Rete R"},
-      "grid_voltage_s": {"name": "Tensione Rete S"},
-      "grid_voltage_t": {"name": "Tensione Rete T"},
-      "grid_frequency": {"name": "Frequenza Rete"},
-      "eps_voltage_r": {"name": "Tensione EPS R"},
-      "eps_voltage_s": {"name": "Tensione EPS S"},
-      "eps_voltage_t": {"name": "Tensione EPS T"},
-      "eps_frequency": {"name": "Frequenza EPS"},
-      "eps_power": {"name": "Potenza EPS"},
-      "eps_power_l1": {"name": "Potenza EPS L1"},
-      "eps_power_l2": {"name": "Potenza EPS L2"},
-      "power_output": {"name": "Potenza in Uscita"},
-      "rectifier_power": {"name": "Potenza Raddrizzatore"},
-      "ac_couple_power": {"name": "Potenza AC Couple"},
-      "bus1_voltage": {"name": "Tensione Bus 1"},
-      "bus2_voltage": {"name": "Tensione Bus 2"},
-      "total_load_power": {"name": "Potenza Carico Totale"}
+      "ac_power": {
+        "name": "Potenza AC"
+      },
+      "ac_voltage": {
+        "name": "Tensione AC"
+      },
+      "ac_current": {
+        "name": "Corrente AC"
+      },
+      "frequency": {
+        "name": "Frequenza"
+      },
+      "dc_power": {
+        "name": "Potenza DC"
+      },
+      "dc_voltage": {
+        "name": "Tensione DC"
+      },
+      "dc_current": {
+        "name": "Corrente DC"
+      },
+      "battery_power": {
+        "name": "Potenza Batteria"
+      },
+      "battery_voltage": {
+        "name": "Tensione Batteria"
+      },
+      "battery_current": {
+        "name": "Corrente Batteria"
+      },
+      "state_of_charge": {
+        "name": "Stato di Carica"
+      },
+      "state_of_health": {
+        "name": "Stato di Salute"
+      },
+      "total_energy": {
+        "name": "Energia Totale"
+      },
+      "daily_energy": {
+        "name": "Energia Giornaliera"
+      },
+      "monthly_energy": {
+        "name": "Energia Mensile"
+      },
+      "yearly_energy": {
+        "name": "Energia Annuale"
+      },
+      "internal_temperature": {
+        "name": "Temperatura Interna"
+      },
+      "radiator1_temperature": {
+        "name": "Temperatura Radiatore 1"
+      },
+      "radiator2_temperature": {
+        "name": "Temperatura Radiatore 2"
+      },
+      "status_code": {
+        "name": "Codice Stato"
+      },
+      "status_text": {
+        "name": "Stato"
+      },
+      "grid_power": {
+        "name": "Potenza Rete"
+      },
+      "load_power": {
+        "name": "Potenza Carico"
+      },
+      "pv_total_power": {
+        "name": "Potenza PV Totale"
+      },
+      "pv1_power": {
+        "name": "Potenza PV1"
+      },
+      "pv2_power": {
+        "name": "Potenza PV2"
+      },
+      "pv3_power": {
+        "name": "Potenza PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Tensione Cella Massima"
+      },
+      "cell_voltage_min": {
+        "name": "Tensione Cella Minima"
+      },
+      "cell_voltage_delta": {
+        "name": "Delta Tensione Celle"
+      },
+      "cycle_count": {
+        "name": "Conteggio Cicli"
+      },
+      "firmware_version": {
+        "name": "Versione Firmware"
+      },
+      "grid_voltage_r": {
+        "name": "Tensione Rete R"
+      },
+      "grid_voltage_s": {
+        "name": "Tensione Rete S"
+      },
+      "grid_voltage_t": {
+        "name": "Tensione Rete T"
+      },
+      "grid_frequency": {
+        "name": "Frequenza Rete"
+      },
+      "eps_voltage_r": {
+        "name": "Tensione EPS R"
+      },
+      "eps_voltage_s": {
+        "name": "Tensione EPS S"
+      },
+      "eps_voltage_t": {
+        "name": "Tensione EPS T"
+      },
+      "eps_frequency": {
+        "name": "Frequenza EPS"
+      },
+      "eps_power": {
+        "name": "Potenza EPS"
+      },
+      "eps_power_l1": {
+        "name": "Potenza EPS L1"
+      },
+      "eps_power_l2": {
+        "name": "Potenza EPS L2"
+      },
+      "power_output": {
+        "name": "Potenza in Uscita"
+      },
+      "rectifier_power": {
+        "name": "Potenza Raddrizzatore"
+      },
+      "ac_couple_power": {
+        "name": "Potenza AC Couple"
+      },
+      "bus1_voltage": {
+        "name": "Tensione Bus 1"
+      },
+      "bus2_voltage": {
+        "name": "Tensione Bus 2"
+      },
+      "total_load_power": {
+        "name": "Potenza Carico Totale"
+      }
     },
     "switch": {
       "quick_charge": {

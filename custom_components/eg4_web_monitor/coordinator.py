@@ -35,6 +35,7 @@ from .const import (
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
+    CONF_DONGLE_UPDATE_INTERVAL,
     CONF_DST_SYNC,
     CONF_HTTP_POLLING_INTERVAL,
     CONF_HYBRID_LOCAL_TYPE,
@@ -45,6 +46,7 @@ from .const import (
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
+    CONF_MODBUS_UPDATE_INTERVAL,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
@@ -56,11 +58,13 @@ from .const import (
     CONNECTION_TYPE_MODBUS,
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
+    DEFAULT_DONGLE_UPDATE_INTERVAL,
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
+    DEFAULT_MODBUS_UPDATE_INTERVAL,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
@@ -277,6 +281,25 @@ class EG4DataUpdateCoordinator(
             CONF_HTTP_POLLING_INTERVAL, DEFAULT_HTTP_POLLING_INTERVAL
         )
 
+        # Per-transport intervals for LOCAL mode with mixed transports.
+        # Fallback chain: new key → legacy sensor_update_interval → default.
+        self._modbus_interval: int = entry.options.get(
+            CONF_MODBUS_UPDATE_INTERVAL,
+            entry.options.get(
+                CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_MODBUS_UPDATE_INTERVAL
+            ),
+        )
+        self._dongle_interval: int = entry.options.get(
+            CONF_DONGLE_UPDATE_INTERVAL,
+            entry.options.get(
+                CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_DONGLE_UPDATE_INTERVAL
+            ),
+        )
+
+        # Per-transport last-poll timestamps (monotonic)
+        self._last_modbus_poll: float = 0.0
+        self._last_dongle_poll: float = 0.0
+
         # Store HTTP polling interval for client cache alignment
         self._http_polling_interval: int = http_interval_seconds
 
@@ -294,10 +317,21 @@ class EG4DataUpdateCoordinator(
 
         # Coordinator interval depends on connection type:
         # HTTP-only: runs at HTTP polling interval (no local transport)
-        # Local/Hybrid: runs at sensor interval (local transport polls fast)
+        # LOCAL with mixed transports: tick at fastest transport rate
+        # Other local modes: use sensor interval directly
         if self.connection_type == CONNECTION_TYPE_HTTP:
             update_interval = timedelta(seconds=http_interval_seconds)
+        elif self.connection_type == CONNECTION_TYPE_LOCAL:
+            intervals: list[int] = []
+            if self._has_modbus_transport():
+                intervals.append(self._modbus_interval)
+            if self._has_dongle_transport():
+                intervals.append(self._dongle_interval)
+            update_interval = timedelta(
+                seconds=min(intervals) if intervals else sensor_interval_seconds
+            )
         else:
+            # MODBUS, DONGLE, HYBRID: single transport, use its interval directly
             update_interval = timedelta(seconds=sensor_interval_seconds)
 
         super().__init__(
@@ -405,6 +439,43 @@ class EG4DataUpdateCoordinator(
             True if HTTP client is configured (HTTP or Hybrid mode).
         """
         return self.client is not None
+
+    def _has_modbus_transport(self) -> bool:
+        """Check if any Modbus TCP/Serial transport is configured."""
+        if self._modbus_transport is not None:
+            return True
+        return any(
+            c.get("transport_type") in ("modbus_tcp", "modbus_serial")
+            for c in self._local_transport_configs
+        )
+
+    def _has_dongle_transport(self) -> bool:
+        """Check if any WiFi Dongle transport is configured."""
+        if self._dongle_transport is not None:
+            return True
+        return any(
+            c.get("transport_type") == "wifi_dongle"
+            for c in self._local_transport_configs
+        )
+
+    def _should_poll_transport(self, transport_type: str) -> bool:
+        """Check whether enough time has elapsed to poll this transport type.
+
+        Uses monotonic timestamps. Returns True on first call (timestamp==0.0).
+        Updates the timestamp when returning True.
+        """
+        now = time.monotonic()
+        if transport_type in ("modbus_tcp", "modbus_serial"):
+            if now - self._last_modbus_poll >= self._modbus_interval:
+                self._last_modbus_poll = now
+                return True
+            return False
+        if transport_type == "wifi_dongle":
+            if now - self._last_dongle_poll >= self._dongle_interval:
+                self._last_dongle_poll = now
+                return True
+            return False
+        return True  # Unknown type: always poll
 
     async def write_named_parameter(
         self,

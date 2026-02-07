@@ -84,6 +84,10 @@ if TYPE_CHECKING:
         _modbus_model: str
         _dongle_serial: str
         _dongle_model: str
+        _modbus_interval: int
+        _dongle_interval: int
+        _last_modbus_poll: float
+        _last_dongle_poll: float
         _shutdown_listener_remove: Callable[[], None] | None
         _shutdown_listener_fired: bool
         _debounced_refresh: Any
@@ -139,6 +143,11 @@ if TYPE_CHECKING:
         # ── DSTSyncMixin methods ──
         def _should_sync_dst(self) -> bool: ...
         async def _perform_dst_sync(self) -> None: ...
+
+        # ── Per-transport interval methods (coordinator.py) ──
+        def _should_poll_transport(self, transport_type: str) -> bool: ...
+        def _has_modbus_transport(self) -> bool: ...
+        def _has_dongle_transport(self) -> bool: ...
 
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...

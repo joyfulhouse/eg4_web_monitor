@@ -962,14 +962,40 @@ class LocalTransportMixin(_MixinBase):
             "connection_type": CONNECTION_TYPE_LOCAL,
         }
 
+        # Pre-populate with cached data from previous update so that
+        # skipped transports (interval not elapsed) retain prior values.
+        if self.data:
+            processed["devices"].update(self.data.get("devices", {}))
+            processed["parameters"].update(self.data.get("parameters", {}))
+
         # Track per-device availability for partial failure handling
         device_availability: dict[str, bool] = {}
+
+        # Partition configs: only poll transports whose interval has elapsed
+        configs_to_poll: list[dict[str, Any]] = []
+        for config in self._local_transport_configs:
+            transport_type = config.get("transport_type", "modbus_tcp")
+            if self._should_poll_transport(transport_type):
+                configs_to_poll.append(config)
+            else:
+                serial = config.get("serial", "")
+                if serial:
+                    device_availability[serial] = True  # cached data still valid
+                _LOGGER.debug(
+                    "LOCAL: Skipping %s device %s (interval not elapsed)",
+                    transport_type,
+                    serial,
+                )
+
+        if not configs_to_poll and processed["devices"]:
+            # All transports skipped but we have cached data — return it
+            return processed
 
         # Group transports by connection endpoint so that devices sharing
         # the same physical connection are polled sequentially, while
         # independent endpoints are polled concurrently.
         endpoint_groups: dict[str, list[dict[str, Any]]] = {}
-        for config in self._local_transport_configs:
+        for config in configs_to_poll:
             transport_type = config.get("transport_type", "modbus_tcp")
             if transport_type == "modbus_serial":
                 key = config.get("serial_port", "")
