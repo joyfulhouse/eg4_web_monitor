@@ -18,6 +18,7 @@ else:
     )
 
 from . import EG4ConfigEntry
+from .const import SUPPORTED_INVERTER_MODELS
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,
@@ -69,11 +70,7 @@ async def async_setup_entry(
                 model,
             )
 
-            # Check if device model is known to support select functions
-            # Based on the feature request, this appears to be for standard inverters
-            supported_models = ["flexboss", "18kpv", "18k", "12kpv", "12k", "xp"]
-
-            if any(supported in model_lower for supported in supported_models):
+            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
                 # Add operating mode select
                 entities.append(
                     EG4OperatingModeSelect(coordinator, serial, device_data)

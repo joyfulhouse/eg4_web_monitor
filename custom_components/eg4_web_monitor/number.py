@@ -42,6 +42,7 @@ from .const import (
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
+    SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
     SYSTEM_CHARGE_SOC_LIMIT_STEP,
@@ -278,8 +279,7 @@ async def async_setup_entry(
             model = device_data.get("model", "Unknown")
             model_lower = model.lower()
 
-            supported_models = ["flexboss", "18kpv", "18k", "12kpv", "12k", "xp"]
-            if any(supported in model_lower for supported in supported_models):
+            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
                 entities.extend(
                     [
                         SystemChargeSOCLimitNumber(coordinator, serial),

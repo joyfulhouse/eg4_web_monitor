@@ -86,124 +86,87 @@ class EG4FirmwareUpdateEntity(
         """Return device information for entity grouping."""
         return cast(DeviceInfo | None, self.coordinator.get_device_info(self._serial))
 
+    def _device_data(self) -> dict[str, Any] | None:
+        """Return device data dict for this serial, or None."""
+        if not self.coordinator.data or "devices" not in self.coordinator.data:
+            return None
+        result: dict[str, Any] | None = self.coordinator.data["devices"].get(
+            self._serial
+        )
+        return result
+
+    def _update_info_field(self, key: str) -> str | None:
+        """Return a string field from firmware_update_info, or None."""
+        device_data = self._device_data()
+        if not device_data:
+            return None
+        update_info = device_data.get("firmware_update_info")
+        if update_info:
+            val = update_info.get(key)
+            return str(val) if val is not None else None
+        return None
+
     @property
     def installed_version(self) -> str | None:
         """Return the currently installed firmware version."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
+        device_data = self._device_data()
         if not device_data:
             return None
-
         version = device_data.get("firmware_version")
         return str(version) if version is not None else None
 
     @property
     def latest_version(self) -> str | None:
         """Return the latest available firmware version."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
-        if not device_data:
-            return None
-
-        # Get latest version from firmware update info
-        update_info = device_data.get("firmware_update_info")
-        if update_info:
-            latest = update_info.get("latest_version")
-            return str(latest) if latest is not None else None
-
+        latest = self._update_info_field("latest_version")
+        if latest is not None:
+            return latest
         # If no update info, current version is latest
-        version = device_data.get("firmware_version")
-        return str(version) if version is not None else None
+        return self.installed_version
 
     @property
     def release_summary(self) -> str | None:
         """Return release summary."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
-        if not device_data:
-            return None
-
-        update_info = device_data.get("firmware_update_info")
-        if update_info:
-            summary = update_info.get("release_summary")
-            return str(summary) if summary is not None else None
-
-        return None
+        return self._update_info_field("release_summary")
 
     @property
     def release_url(self) -> str | None:
         """Return release URL."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
-        if not device_data:
-            return None
-
-        update_info = device_data.get("firmware_update_info")
-        if update_info:
-            url = update_info.get("release_url")
-            return str(url) if url is not None else None
-
-        return None
+        return self._update_info_field("release_url")
 
     @property
     def title(self) -> str | None:
         """Return update title."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
+        title = self._update_info_field("title")
+        if title is not None:
+            return title
+        device_data = self._device_data()
         if not device_data:
             return None
-
-        update_info = device_data.get("firmware_update_info")
-        if update_info:
-            update_title = update_info.get("title")
-            if update_title is not None:
-                return str(update_title)
-
         model = device_data.get("model", "Device")
         return f"{model} Firmware"
 
     @property
     def in_progress(self) -> bool:
         """Return if firmware update is in progress."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return False
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
+        device_data = self._device_data()
         if not device_data:
             return False
-
         update_info = device_data.get("firmware_update_info")
         if update_info:
-            in_progress_val = update_info.get("in_progress", False)
-            return bool(in_progress_val)
-
+            return bool(update_info.get("in_progress", False))
         return False
 
     @property
     def update_percentage(self) -> int | None:
         """Return firmware update progress percentage (0-100)."""
-        if not self.coordinator.data or "devices" not in self.coordinator.data:
-            return None
-
-        device_data = self.coordinator.data["devices"].get(self._serial)
+        device_data = self._device_data()
         if not device_data:
             return None
-
         update_info = device_data.get("firmware_update_info")
         if update_info:
             percentage = update_info.get("update_percentage")
             return int(percentage) if percentage is not None else None
-
         return None
 
     @property

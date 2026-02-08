@@ -143,13 +143,11 @@ async def async_setup_entry(
             )
             phase1_entities.extend(inverter_entities)
             phase2_entities.extend(battery_entities)
-        elif device_type == "gridboss":
+        elif device_type in ("gridboss", "parallel_group"):
             phase1_entities.extend(
-                _create_gridboss_sensors(coordinator, serial, device_data)
-            )
-        elif device_type == "parallel_group":
-            phase1_entities.extend(
-                _create_parallel_group_sensors(coordinator, serial, device_data)
+                _create_simple_device_sensors(
+                    coordinator, serial, device_data, device_type
+                )
             )
         else:
             _LOGGER.warning(
@@ -310,44 +308,23 @@ def _create_inverter_sensors(
     return inverter_entities, battery_entities
 
 
-def _create_gridboss_sensors(
-    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+def _create_simple_device_sensors(
+    coordinator: EG4DataUpdateCoordinator,
+    serial: str,
+    device_data: dict[str, Any],
+    device_type: str,
 ) -> list[SensorEntity]:
-    """Create sensor entities for a GridBOSS device."""
-    entities: list[SensorEntity] = []
-
-    for sensor_key in device_data.get("sensors", {}):
-        if sensor_key in SENSOR_TYPES:
-            entities.append(
-                EG4InverterSensor(
-                    coordinator=coordinator,
-                    serial=serial,
-                    sensor_key=sensor_key,
-                    device_type="gridboss",
-                )
-            )
-
-    return entities
-
-
-def _create_parallel_group_sensors(
-    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
-) -> list[SensorEntity]:
-    """Create sensor entities for a Parallel Group device."""
-    entities: list[SensorEntity] = []
-
-    for sensor_key in device_data.get("sensors", {}):
-        if sensor_key in SENSOR_TYPES:
-            entities.append(
-                EG4InverterSensor(
-                    coordinator=coordinator,
-                    serial=serial,
-                    sensor_key=sensor_key,
-                    device_type="parallel_group",
-                )
-            )
-
-    return entities
+    """Create sensor entities for a GridBOSS or Parallel Group device."""
+    return [
+        EG4InverterSensor(
+            coordinator=coordinator,
+            serial=serial,
+            sensor_key=sensor_key,
+            device_type=device_type,
+        )
+        for sensor_key in device_data.get("sensors", {})
+        if sensor_key in SENSOR_TYPES
+    ]
 
 
 class EG4InverterSensor(EG4BaseSensor, SensorEntity):
