@@ -1,15 +1,11 @@
 """Tests for utility functions in EG4 Web Monitor integration."""
 
-import pytest
-import asyncio
-
 from custom_components.eg4_web_monitor.utils import (
     clean_battery_display_name,
     clean_model_name,
     create_device_info,
     generate_entity_id,
     generate_unique_id,
-    CircuitBreaker,
 )
 
 
@@ -134,92 +130,3 @@ class TestGenerateUniqueId:
         """Test unique ID with suffix."""
         unique_id = generate_unique_id("1234567890", "battery", "01")
         assert unique_id == "1234567890_battery_01"
-
-
-class TestCircuitBreaker:
-    """Test CircuitBreaker class."""
-
-    async def test_successful_call(self):
-        """Test successful function call."""
-        breaker = CircuitBreaker(failure_threshold=3, timeout=60)
-
-        async def success_func():
-            return "success"
-
-        result = await breaker.call(success_func)
-        assert result == "success"
-        assert breaker.state == "closed"
-        assert breaker.failure_count == 0
-
-    async def test_failure_tracking(self):
-        """Test failure count tracking."""
-        breaker = CircuitBreaker(failure_threshold=3, timeout=60)
-
-        async def fail_func():
-            raise ValueError("Test error")
-
-        # First failure
-        with pytest.raises(ValueError):
-            await breaker.call(fail_func)
-        assert breaker.failure_count == 1
-        assert breaker.state == "closed"
-
-        # Second failure
-        with pytest.raises(ValueError):
-            await breaker.call(fail_func)
-        assert breaker.failure_count == 2
-        assert breaker.state == "closed"
-
-    async def test_circuit_opens_after_threshold(self):
-        """Test circuit opens after threshold failures."""
-        breaker = CircuitBreaker(failure_threshold=3, timeout=60)
-
-        async def fail_func():
-            raise ValueError("Test error")
-
-        # Reach threshold
-        for _ in range(3):
-            with pytest.raises(ValueError):
-                await breaker.call(fail_func)
-
-        assert breaker.state == "open"
-        assert breaker.failure_count == 3
-
-    async def test_open_circuit_blocks_calls(self):
-        """Test open circuit blocks calls."""
-        breaker = CircuitBreaker(failure_threshold=1, timeout=60)
-
-        async def fail_func():
-            raise ValueError("Test error")
-
-        # Open the circuit
-        with pytest.raises(ValueError):
-            await breaker.call(fail_func)
-
-        # Should now raise RuntimeError
-        with pytest.raises(RuntimeError, match="Circuit breaker is open"):
-            await breaker.call(fail_func)
-
-    async def test_half_open_recovery(self):
-        """Test half-open state allows retry after timeout."""
-        breaker = CircuitBreaker(failure_threshold=1, timeout=0)  # 0 second timeout
-
-        async def fail_func():
-            raise ValueError("Test error")
-
-        # Open the circuit
-        with pytest.raises(ValueError):
-            await breaker.call(fail_func)
-        assert breaker.state == "open"
-
-        # Wait for timeout
-        await asyncio.sleep(0.1)
-
-        # Success should close circuit
-        async def success_func():
-            return "success"
-
-        result = await breaker.call(success_func)
-        assert result == "success"
-        assert breaker.state == "closed"
-        assert breaker.failure_count == 0

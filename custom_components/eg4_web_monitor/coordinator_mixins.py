@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from pylxpweb.devices import Battery, Station
     from pylxpweb.devices.inverters.base import BaseInverter
 
-from pylxpweb.devices.inverters._features import InverterFamily
+from pylxpweb.devices.inverters import InverterFamily
 
 from .const import DOMAIN, MANUFACTURER
 from .utils import clean_battery_display_name

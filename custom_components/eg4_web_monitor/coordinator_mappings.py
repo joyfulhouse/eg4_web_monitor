@@ -597,7 +597,7 @@ def _parse_inverter_family(family_str: str | None) -> Any:
         )
 
     try:
-        from pylxpweb.devices.inverters._features import InverterFamily
+        from pylxpweb.devices.inverters import InverterFamily
 
         return InverterFamily(mapped_family)
     except ValueError:
