@@ -973,11 +973,24 @@ class LocalTransportMixin(_MixinBase):
 
         # Partition configs: only poll transports whose interval has elapsed.
         # Skipped devices retain cached data from the pre-population above.
+        # Pre-compute which transport types should poll this tick so that the
+        # interval gate fires once per type, not once per device.  Without this,
+        # the first device of a type stamps the timestamp and all subsequent
+        # devices of the same type get skipped.
+        transport_types_seen: set[str] = set()
+        pollable_types: set[str] = set()
+        for config in self._local_transport_configs:
+            tt = config.get("transport_type", "modbus_tcp")
+            if tt not in transport_types_seen:
+                transport_types_seen.add(tt)
+                if self._should_poll_transport(tt):
+                    pollable_types.add(tt)
+
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
             transport_type = config.get("transport_type", "modbus_tcp")
             serial = config.get("serial", "")
-            if self._should_poll_transport(transport_type):
+            if transport_type in pollable_types:
                 configs_to_poll.append(config)
             else:
                 if serial:

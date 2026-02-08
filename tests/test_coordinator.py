@@ -1578,6 +1578,73 @@ class TestPerTransportIntervals:
         assert coordinator._should_poll_transport("modbus_tcp") is True
 
     @pytest.mark.asyncio
+    async def test_multi_device_same_transport_all_polled(self, hass):
+        """Multiple devices on the same transport type must all be polled.
+
+        Regression test: _should_poll_transport used a shared timestamp per
+        transport TYPE.  When the partition loop called it per-device, the first
+        device's check stamped the timestamp and all subsequent devices of the
+        same type were permanently skipped.  The fix pre-computes pollable types
+        once before iterating devices.
+        """
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Two Modbus",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "AAAA111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": "BBBB222222",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "18kPV",
+                    },
+                ],
+            },
+            options={},
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        # Simulate stale timestamps so modbus_tcp should be polled
+        coordinator._last_modbus_poll = 0.0
+
+        # Track which configs enter the transport group processor.
+        # Mock at the group level to capture all configs that were
+        # queued for polling (the individual device processor would
+        # fail on real transport connections).
+        polled_configs: list[list[str]] = []
+
+        async def tracking_group(configs, processed, avail):
+            polled_configs.append([c.get("serial", "") for c in configs])
+            for c in configs:
+                avail[c.get("serial", "")] = True
+
+        with patch.object(
+            coordinator, "_process_local_transport_group", side_effect=tracking_group
+        ):
+            await coordinator._async_update_local_data()
+
+        # Both modbus_tcp devices must be in the same group
+        all_serials = [s for group in polled_configs for s in group]
+        assert "AAAA111111" in all_serials, (
+            "First modbus_tcp device was not polled"
+        )
+        assert "BBBB222222" in all_serials, (
+            "Second modbus_tcp device was skipped (transport interval bug)"
+        )
+
+    @pytest.mark.asyncio
     async def test_local_data_skipped_devices_use_cache(
         self, hass, mixed_local_config_entry
     ):
