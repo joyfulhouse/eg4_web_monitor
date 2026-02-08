@@ -282,18 +282,19 @@ class EG4DataUpdateCoordinator(
         )
 
         # Per-transport intervals for LOCAL mode with mixed transports.
-        # Fallback chain: new key → legacy sensor_update_interval → default.
+        # Fallback chain: per-transport key → legacy sensor_update_interval → default.
+        legacy_sensor_interval = entry.options.get(CONF_SENSOR_UPDATE_INTERVAL)
         self._modbus_interval: int = entry.options.get(
             CONF_MODBUS_UPDATE_INTERVAL,
-            entry.options.get(
-                CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_MODBUS_UPDATE_INTERVAL
-            ),
+            legacy_sensor_interval
+            if legacy_sensor_interval is not None
+            else DEFAULT_MODBUS_UPDATE_INTERVAL,
         )
         self._dongle_interval: int = entry.options.get(
             CONF_DONGLE_UPDATE_INTERVAL,
-            entry.options.get(
-                CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_DONGLE_UPDATE_INTERVAL
-            ),
+            legacy_sensor_interval
+            if legacy_sensor_interval is not None
+            else DEFAULT_DONGLE_UPDATE_INTERVAL,
         )
 
         # Per-transport last-poll timestamps (monotonic)
@@ -322,14 +323,13 @@ class EG4DataUpdateCoordinator(
         if self.connection_type == CONNECTION_TYPE_HTTP:
             update_interval = timedelta(seconds=http_interval_seconds)
         elif self.connection_type == CONNECTION_TYPE_LOCAL:
-            intervals: list[int] = []
-            if self._has_modbus_transport():
-                intervals.append(self._modbus_interval)
-            if self._has_dongle_transport():
-                intervals.append(self._dongle_interval)
-            update_interval = timedelta(
-                seconds=min(intervals) if intervals else sensor_interval_seconds
+            transport_intervals = self._get_active_transport_intervals()
+            fastest = (
+                min(transport_intervals)
+                if transport_intervals
+                else sensor_interval_seconds
             )
+            update_interval = timedelta(seconds=fastest)
         else:
             # MODBUS, DONGLE, HYBRID: single transport, use its interval directly
             update_interval = timedelta(seconds=sensor_interval_seconds)
@@ -458,24 +458,40 @@ class EG4DataUpdateCoordinator(
             for c in self._local_transport_configs
         )
 
+    def _get_active_transport_intervals(self) -> list[int]:
+        """Return per-transport intervals for all configured transport types."""
+        intervals: list[int] = []
+        if self._has_modbus_transport():
+            intervals.append(self._modbus_interval)
+        if self._has_dongle_transport():
+            intervals.append(self._dongle_interval)
+        return intervals
+
     def _should_poll_transport(self, transport_type: str) -> bool:
         """Check whether enough time has elapsed to poll this transport type.
 
         Uses monotonic timestamps. Returns True on first call (timestamp==0.0).
         Updates the timestamp when returning True.
         """
+        interval_map: dict[str, tuple[str, str]] = {
+            "modbus_tcp": ("_last_modbus_poll", "_modbus_interval"),
+            "modbus_serial": ("_last_modbus_poll", "_modbus_interval"),
+            "wifi_dongle": ("_last_dongle_poll", "_dongle_interval"),
+        }
+        attrs = interval_map.get(transport_type)
+        if attrs is None:
+            return True  # Unknown type: always poll
+
+        ts_attr, interval_attr = attrs
         now = time.monotonic()
-        if transport_type in ("modbus_tcp", "modbus_serial"):
-            if now - self._last_modbus_poll >= self._modbus_interval:
-                self._last_modbus_poll = now
-                return True
+        last_poll: float = getattr(self, ts_attr)
+        interval: int = getattr(self, interval_attr)
+
+        if now - last_poll < interval:
             return False
-        if transport_type == "wifi_dongle":
-            if now - self._last_dongle_poll >= self._dongle_interval:
-                self._last_dongle_poll = now
-                return True
-            return False
-        return True  # Unknown type: always poll
+
+        setattr(self, ts_attr, now)
+        return True
 
     async def write_named_parameter(
         self,

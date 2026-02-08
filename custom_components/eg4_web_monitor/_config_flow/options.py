@@ -76,6 +76,23 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         )
         return any(c.get("transport_type") == transport_type for c in transports)
 
+    def _current_option(
+        self, key: str, default: Any, fallback_key: str | None = None
+    ) -> Any:
+        """Read current option value with optional fallback to a legacy key.
+
+        Checks options[key] first, then options[fallback_key] (if given),
+        then returns default.
+        """
+        value = self.config_entry.options.get(key)
+        if value is not None:
+            return value
+        if fallback_key is not None:
+            fallback = self.config_entry.options.get(fallback_key)
+            if fallback is not None:
+                return fallback
+        return default
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult":
@@ -115,71 +132,69 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         schema_fields: dict[Any, Any] = {}
         placeholders: dict[str, str] = {"brand_name": BRAND_NAME}
 
-        # Determine which polling interval fields to show
+        # Determine which polling interval fields to show based on connection type
+        # and configured transports. LOCAL/HYBRID modes check local_transports list.
+        has_local_transports = connection_type in (
+            CONNECTION_TYPE_LOCAL,
+            CONNECTION_TYPE_HYBRID,
+        )
         show_http = connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID)
         show_modbus = connection_type == CONNECTION_TYPE_MODBUS or (
-            connection_type in (CONNECTION_TYPE_LOCAL, CONNECTION_TYPE_HYBRID)
+            has_local_transports
             and (
                 self._has_transport_type("modbus_tcp")
                 or self._has_transport_type("modbus_serial")
             )
         )
         show_dongle = connection_type == CONNECTION_TYPE_DONGLE or (
-            connection_type in (CONNECTION_TYPE_LOCAL, CONNECTION_TYPE_HYBRID)
-            and self._has_transport_type("wifi_dongle")
+            has_local_transports and self._has_transport_type("wifi_dongle")
         )
         show_legacy_sensor = not show_modbus and not show_dongle and not show_http
 
         if show_modbus:
-            current_modbus = self.config_entry.options.get(
+            current_modbus = self._current_option(
                 CONF_MODBUS_UPDATE_INTERVAL,
-                self.config_entry.options.get(
-                    CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_MODBUS_UPDATE_INTERVAL
-                ),
+                DEFAULT_MODBUS_UPDATE_INTERVAL,
+                fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
             )
             schema_fields[
                 vol.Required(CONF_MODBUS_UPDATE_INTERVAL, default=current_modbus)
             ] = vol.All(
                 vol.Coerce(int),
                 vol.Range(
-                    min=MIN_MODBUS_UPDATE_INTERVAL,
-                    max=MAX_MODBUS_UPDATE_INTERVAL,
+                    min=MIN_MODBUS_UPDATE_INTERVAL, max=MAX_MODBUS_UPDATE_INTERVAL
                 ),
             )
             placeholders["min_modbus_interval"] = str(MIN_MODBUS_UPDATE_INTERVAL)
             placeholders["max_modbus_interval"] = str(MAX_MODBUS_UPDATE_INTERVAL)
 
         if show_dongle:
-            current_dongle = self.config_entry.options.get(
+            current_dongle = self._current_option(
                 CONF_DONGLE_UPDATE_INTERVAL,
-                self.config_entry.options.get(
-                    CONF_SENSOR_UPDATE_INTERVAL, DEFAULT_DONGLE_UPDATE_INTERVAL
-                ),
+                DEFAULT_DONGLE_UPDATE_INTERVAL,
+                fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
             )
             schema_fields[
                 vol.Required(CONF_DONGLE_UPDATE_INTERVAL, default=current_dongle)
             ] = vol.All(
                 vol.Coerce(int),
                 vol.Range(
-                    min=MIN_DONGLE_UPDATE_INTERVAL,
-                    max=MAX_DONGLE_UPDATE_INTERVAL,
+                    min=MIN_DONGLE_UPDATE_INTERVAL, max=MAX_DONGLE_UPDATE_INTERVAL
                 ),
             )
             placeholders["min_dongle_interval"] = str(MIN_DONGLE_UPDATE_INTERVAL)
             placeholders["max_dongle_interval"] = str(MAX_DONGLE_UPDATE_INTERVAL)
 
         if show_http:
-            current_http = self.config_entry.options.get(
-                CONF_HTTP_POLLING_INTERVAL, DEFAULT_HTTP_POLLING_INTERVAL
+            current_http = self._current_option(
+                CONF_HTTP_POLLING_INTERVAL,
+                DEFAULT_HTTP_POLLING_INTERVAL,
             )
             schema_fields[
                 vol.Required(CONF_HTTP_POLLING_INTERVAL, default=current_http)
             ] = vol.All(
                 vol.Coerce(int),
-                vol.Range(
-                    min=MIN_HTTP_POLLING_INTERVAL,
-                    max=MAX_HTTP_POLLING_INTERVAL,
-                ),
+                vol.Range(min=MIN_HTTP_POLLING_INTERVAL, max=MAX_HTTP_POLLING_INTERVAL),
             )
             placeholders["min_http_interval"] = str(MIN_HTTP_POLLING_INTERVAL)
             placeholders["max_http_interval"] = str(MAX_HTTP_POLLING_INTERVAL)

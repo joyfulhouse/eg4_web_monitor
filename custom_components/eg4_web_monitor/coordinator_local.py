@@ -971,16 +971,17 @@ class LocalTransportMixin(_MixinBase):
         # Track per-device availability for partial failure handling
         device_availability: dict[str, bool] = {}
 
-        # Partition configs: only poll transports whose interval has elapsed
+        # Partition configs: only poll transports whose interval has elapsed.
+        # Skipped devices retain cached data from the pre-population above.
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
             transport_type = config.get("transport_type", "modbus_tcp")
+            serial = config.get("serial", "")
             if self._should_poll_transport(transport_type):
                 configs_to_poll.append(config)
             else:
-                serial = config.get("serial", "")
                 if serial:
-                    device_availability[serial] = True  # cached data still valid
+                    device_availability[serial] = True
                 _LOGGER.debug(
                     "LOCAL: Skipping %s device %s (interval not elapsed)",
                     transport_type,

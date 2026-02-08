@@ -1,5 +1,7 @@
 """Tests for EG4 Data Update Coordinator with pylxpweb 0.3.5 device objects API."""
 
+import time
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import timedelta
@@ -1593,8 +1595,6 @@ class TestPerTransportIntervals:
             "parameters": {"1111111111": {}, "2222222222": {}},
         }
         # Set timestamps so both transports were recently polled
-        import time
-
         coordinator._last_modbus_poll = time.monotonic()
         coordinator._last_dongle_poll = time.monotonic()
 
@@ -1619,8 +1619,6 @@ class TestPerTransportIntervals:
             "parameters": {"2222222222": {}},
         }
         # Dongle was just polled, Modbus was not
-        import time
-
         coordinator._last_dongle_poll = time.monotonic()
         coordinator._last_modbus_poll = 0.0  # Never polled → will poll
 
