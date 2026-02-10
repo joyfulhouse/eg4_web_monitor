@@ -736,11 +736,19 @@ For each port (1-4), based on `smart_port{N}_status`:
 
 ### Power Keys Affected
 
-The 16 keys in `GRIDBOSS_SMART_PORT_POWER_KEYS`:
+The 26 keys in `GRIDBOSS_SMART_PORT_POWER_KEYS`:
 ```
-smart_load{1-4}_power_l{1-2}
-ac_couple{1-4}_power_l{1-2}
+smart_load{1-4}_power_l{1-2}   (L1/L2 per-port)
+ac_couple{1-4}_power_l{1-2}    (L1/L2 per-port)
+smart_load{1-4}_power           (per-port aggregate, computed by _calculate_gridboss_aggregates)
+ac_couple{1-4}_power            (per-port aggregate, computed by _calculate_gridboss_aggregates)
+smart_load_power                (total across all smart load ports)
+ac_couple_power                 (total across all AC couple ports)
 ```
+
+**Aggregation behavior**: `_calculate_gridboss_aggregates()` runs AFTER the filter.
+When both L1 and L2 are `None` (wrong-type port), the per-port aggregate is also
+set to `None` instead of computing `0.0`. Total aggregates only sum correct-type ports.
 
 ### Late Registration
 
@@ -833,7 +841,7 @@ entities (12 smart port power/status sensors).
 | `INVERTER_METADATA_KEYS` | 4 | Firmware, transport, host, last_polled |
 | `ALL_INVERTER_SENSOR_KEYS` | 82 | Union of all above |
 | `GRIDBOSS_SENSOR_KEYS` | 50+ | All GridBOSS sensor keys |
-| `GRIDBOSS_SMART_PORT_POWER_KEYS` | 16 | Smart load + AC couple power (L1/L2 x 4 ports) |
+| `GRIDBOSS_SMART_PORT_POWER_KEYS` | 26 | Smart load + AC couple power (L1/L2 + aggregates + totals) |
 | `PARALLEL_GROUP_SENSOR_KEYS` | 28 | PG power, energy, battery aggregates |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 

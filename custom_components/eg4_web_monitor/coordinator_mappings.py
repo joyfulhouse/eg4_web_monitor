@@ -221,11 +221,21 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
 # Smart port power keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on
 # actual port status, so only active ports get entities.
+# Includes per-port L1/L2 keys AND per-port aggregate keys (computed by
+# _calculate_gridboss_aggregates from L1+L2), plus total aggregates.
 GRIDBOSS_SMART_PORT_POWER_KEYS: frozenset[str] = frozenset(
-    f"{prefix}{port}_power_l{phase}"
-    for prefix in ("smart_load", "ac_couple")
-    for port in range(1, 5)
-    for phase in (1, 2)
+    [
+        f"{prefix}{port}_power_l{phase}"
+        for prefix in ("smart_load", "ac_couple")
+        for port in range(1, 5)
+        for phase in (1, 2)
+    ]
+    + [
+        f"{prefix}{port}_power"
+        for prefix in ("smart_load", "ac_couple")
+        for port in range(1, 5)
+    ]
+    + ["smart_load_power", "ac_couple_power"]
 )
 
 PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(

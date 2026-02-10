@@ -3136,3 +3136,55 @@ class TestSmartPortFiltering:
         assert sensors["ac_couple1_power_l1"] == 999.0
         assert sensors["ac_couple1_power_l2"] == 888.0
         assert sensors["ac_couple1_power"] == 1887.0
+
+    def test_aggregation_skips_none_l1_l2(self):
+        """Aggregate power should be None when both L1/L2 are None (wrong-type port)."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        # Port 1 = AC Couple, Port 3 = Smart Load
+        mid = self._make_mid_device({1: 2, 2: 0, 3: 1, 4: 0})
+        sensors: dict = {
+            "ac_couple1_power_l1": 100.0,
+            "ac_couple1_power_l2": 120.0,
+            "smart_load3_power_l1": 50.0,
+            "smart_load3_power_l2": 55.0,
+        }
+
+        # Run filter then aggregation (same order as production code)
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+        DeviceProcessingMixin._calculate_gridboss_aggregates(sensors)
+
+        # Correct-type aggregates computed from real values
+        assert sensors["ac_couple1_power"] == 220.0
+        assert sensors["smart_load3_power"] == 105.0
+
+        # Wrong-type aggregates are None (not 0.0)
+        assert sensors["smart_load1_power"] is None
+        assert sensors["ac_couple3_power"] is None
+
+        # Total aggregates only include correct-type ports
+        assert sensors["ac_couple_power"] == 220.0
+        assert sensors["smart_load_power"] == 105.0
+
+    def test_aggregation_no_total_without_active_ports(self):
+        """Total aggregates should not exist when no ports of that type are active."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        # Only port 1 = AC Couple, no Smart Load ports
+        mid = self._make_mid_device({1: 2, 2: 0, 3: 0, 4: 0})
+        sensors: dict = {
+            "ac_couple1_power_l1": 100.0,
+            "ac_couple1_power_l2": 120.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+        DeviceProcessingMixin._calculate_gridboss_aggregates(sensors)
+
+        # AC Couple total exists (port 1 contributes)
+        assert sensors["ac_couple_power"] == 220.0
+        # Smart Load total does NOT exist (no active Smart Load ports)
+        assert "smart_load_power" not in sensors

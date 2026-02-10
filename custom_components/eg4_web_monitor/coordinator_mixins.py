@@ -1317,20 +1317,30 @@ class DeviceProcessingMixin(_MixinBase):
         """
 
         def sum_l1_l2(l1_key: str, l2_key: str) -> float | None:
-            """Sum L1 and L2 values if both exist, return None otherwise."""
+            """Sum L1 and L2 values if both exist, return None otherwise.
+
+            When both values are None (wrong-type port set by smart port filter),
+            returns None to prevent creating a misleading 0.0 aggregate.
+            """
             if l1_key in sensors and l2_key in sensors:
-                return _safe_numeric(sensors[l1_key]) + _safe_numeric(sensors[l2_key])
+                l1_val = sensors[l1_key]
+                l2_val = sensors[l2_key]
+                if l1_val is None and l2_val is None:
+                    return None
+                return _safe_numeric(l1_val) + _safe_numeric(l2_val)
             return None
 
         # Calculate Smart Load aggregate power from individual ports
         smart_load_powers: list[float] = []
         for port in range(1, 5):
-            port_power = sum_l1_l2(
-                f"smart_load{port}_power_l1", f"smart_load{port}_power_l2"
-            )
+            l1_key = f"smart_load{port}_power_l1"
+            port_power = sum_l1_l2(l1_key, f"smart_load{port}_power_l2")
             if port_power is not None:
                 sensors[f"smart_load{port}_power"] = port_power
                 smart_load_powers.append(port_power)
+            elif l1_key in sensors:
+                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
+                sensors[f"smart_load{port}_power"] = None
 
         if smart_load_powers:
             sensors["smart_load_power"] = sum(smart_load_powers)
@@ -1338,12 +1348,14 @@ class DeviceProcessingMixin(_MixinBase):
         # Calculate AC Couple aggregate power from individual ports
         ac_couple_powers: list[float] = []
         for port in range(1, 5):
-            port_power = sum_l1_l2(
-                f"ac_couple{port}_power_l1", f"ac_couple{port}_power_l2"
-            )
+            l1_key = f"ac_couple{port}_power_l1"
+            port_power = sum_l1_l2(l1_key, f"ac_couple{port}_power_l2")
             if port_power is not None:
                 sensors[f"ac_couple{port}_power"] = port_power
                 ac_couple_powers.append(port_power)
+            elif l1_key in sensors:
+                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
+                sensors[f"ac_couple{port}_power"] = None
 
         if ac_couple_powers:
             sensors["ac_couple_power"] = sum(ac_couple_powers)
