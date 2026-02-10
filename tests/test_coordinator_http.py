@@ -20,6 +20,7 @@ from custom_components.eg4_web_monitor.const import (
     CONF_VERIFY_SSL,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
+    DEFAULT_DONGLE_UPDATE_INTERVAL,
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import (
@@ -539,6 +540,199 @@ class TestHybridMode:
 
         device_sensors = result["devices"]["INV001"]["sensors"]
         assert device_sensors["connection_transport"] == "Cloud"
+
+
+# ── HYBRID per-transport interval gating ─────────────────────────────
+
+
+@pytest.fixture
+def hybrid_dongle_config_entry():
+    """Create a hybrid config entry with WiFi dongle transport."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="EG4 - Hybrid Dongle Test",
+        data={
+            CONF_USERNAME: "test",
+            CONF_PASSWORD: "test",
+            CONF_BASE_URL: "https://monitor.eg4electronics.com",
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test Plant",
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "serial": "MID001",
+                    "host": "192.168.1.200",
+                    "port": 8000,
+                    "transport_type": "wifi_dongle",
+                    "inverter_family": "EG4_GRIDBOSS",
+                    "model": "GridBOSS",
+                },
+            ],
+        },
+        options={},
+        entry_id="hybrid_dongle_test_entry",
+    )
+
+
+class TestHybridTransportGating:
+    """Test HYBRID per-transport interval gating (issue #148)."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_should_poll_hybrid_local_first_call(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """First call returns True (monotonic timestamp starts at 0)."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        # First call should always return True (timestamp=0.0)
+        assert coordinator._should_poll_hybrid_local() is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_should_poll_hybrid_local_within_interval(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """Returns False when dongle interval has not elapsed."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        # First call stamps the timestamp
+        assert coordinator._should_poll_hybrid_local() is True
+        # Immediate second call should return False (interval not elapsed)
+        assert coordinator._should_poll_hybrid_local() is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_should_poll_hybrid_local_no_transports(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Returns True when no local transports configured (HTTP-only fallback)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator._local_transport_configs = []
+
+        assert coordinator._should_poll_hybrid_local() is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_selective_refresh_skips_mid(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """When dongle interval not elapsed, only inverters refresh (not MID)."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        inv = _mock_inverter(serial="INV001")
+        inv.refresh = AsyncMock()
+        station = _mock_station([inv])
+        coordinator.station = station
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": {},
+                }
+            ),
+        ):
+            # First call: interval elapsed → full refresh_all_data
+            await coordinator._async_update_hybrid_data()
+            station.refresh_all_data.assert_called_once()
+
+            station.refresh_all_data.reset_mock()
+            inv.refresh.reset_mock()
+
+            # Second call: interval NOT elapsed → only inv.refresh(), not refresh_all_data
+            await coordinator._async_update_hybrid_data()
+            station.refresh_all_data.assert_not_called()
+            inv.refresh.assert_called_once()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_full_refresh_on_interval(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """When dongle interval elapsed, full refresh_all_data runs."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        inv = _mock_inverter(serial="INV001")
+        inv.refresh = AsyncMock()
+        station = _mock_station([inv])
+        coordinator.station = station
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": {},
+                }
+            ),
+        ):
+            # First call: refresh_all_data
+            await coordinator._async_update_hybrid_data()
+            station.refresh_all_data.assert_called_once()
+
+            # Force timestamp to be old enough for next poll
+            coordinator._last_dongle_poll = 0.0
+            station.refresh_all_data.reset_mock()
+
+            # Second call with reset timestamp: full refresh again
+            await coordinator._async_update_hybrid_data()
+            station.refresh_all_data.assert_called_once()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_coordinator_uses_transport_intervals(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """HYBRID coordinator interval uses min(transport intervals)."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        # Dongle-only: interval should be DEFAULT_DONGLE_UPDATE_INTERVAL (10s)
+        assert coordinator.update_interval is not None
+        assert (
+            coordinator.update_interval.total_seconds()
+            == DEFAULT_DONGLE_UPDATE_INTERVAL
+        )
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_mid_device_not_refreshed_in_process(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """_process_mid_device_object reads existing data without calling refresh()."""
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        mid_device = MagicMock()
+        mid_device.serial_number = "MID001"
+        mid_device.model = "GridBOSS"
+        mid_device.firmware_version = "1.0.0"
+        mid_device.refresh = AsyncMock()
+        # Give it basic properties so processing doesn't error
+        mid_device.grid_voltage = 240.0
+        mid_device.grid_frequency = 60.0
+
+        await coordinator._process_mid_device_object(mid_device)
+
+        # refresh() should NOT have been called — data is already refreshed
+        # by station.refresh_all_data() before this method is called
+        mid_device.refresh.assert_not_called()
 
 
 # ── Battery extraction paths ─────────────────────────────────────────

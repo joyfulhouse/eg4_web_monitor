@@ -208,12 +208,21 @@ class SilverTierValidator:
         self.checks_total += 1
         print("7️⃣  Checking unavailability/reconnection logging...")
 
-        coordinator = self.base_path / "coordinator.py"
-        if not coordinator.exists():
-            self.errors.append("coordinator.py not found")
-            return
+        # Read all coordinator modules (base + split-out HTTP/local)
+        coordinator_files = [
+            "coordinator.py",
+            "coordinator_http.py",
+            "coordinator_local.py",
+        ]
+        content = ""
+        for filename in coordinator_files:
+            filepath = self.base_path / filename
+            if filepath.exists():
+                content += filepath.read_text()
 
-        content = coordinator.read_text()
+        if not content:
+            self.errors.append("No coordinator files found")
+            return
 
         # Check for unavailability logging
         if "_last_available_state" not in content:

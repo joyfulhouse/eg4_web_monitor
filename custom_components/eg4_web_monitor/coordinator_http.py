@@ -69,6 +69,23 @@ class HTTPUpdateMixin(_MixinBase):
         ):
             self.client._cache_ttl_config[key] = http_ttl
 
+    def _should_poll_hybrid_local(self) -> bool:
+        """Check if any local transport interval has elapsed for HYBRID mode.
+
+        Uses the pre-compute pattern from LOCAL mode (cc8d4e2 fix) to avoid
+        the per-device timestamp bug -- evaluates each transport type exactly
+        once via _should_poll_transport().
+        """
+        if not self._local_transport_configs:
+            return True  # No local transports -> always refresh (HTTP-only fallback)
+        unique_types = {
+            c.get("transport_type", "modbus_tcp") for c in self._local_transport_configs
+        }
+        # Evaluate ALL types (list, not generator) so every transport's
+        # monotonic timestamp is stamped even when an earlier one is True.
+        results = [self._should_poll_transport(tt) for tt in unique_types]
+        return any(results)
+
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
         """Fetch data using library transport routing (local + cloud).
 
@@ -81,7 +98,10 @@ class HTTPUpdateMixin(_MixinBase):
         Returns:
             Dictionary containing device data with transport-aware labels.
         """
-        data = await self._async_update_http_data()
+        should_refresh_local = self._should_poll_hybrid_local()
+        data = await self._async_update_http_data(
+            include_mid_refresh=should_refresh_local,
+        )
         data["connection_type"] = CONNECTION_TYPE_HYBRID
 
         # Set transport labels per device based on attached transports
@@ -122,11 +142,21 @@ class HTTPUpdateMixin(_MixinBase):
 
         return data
 
-    async def _async_update_http_data(self) -> dict[str, Any]:
+    async def _async_update_http_data(
+        self,
+        include_mid_refresh: bool = True,
+    ) -> dict[str, Any]:
         """Fetch data from HTTP cloud API using device objects.
 
         This is the original HTTP-based update method using LuxpowerClient
         and Station/Inverter device objects.
+
+        Args:
+            include_mid_refresh: When True (default), refresh all devices
+                including MID/GridBOSS via station.refresh_all_data().
+                When False (HYBRID mode, dongle interval not elapsed),
+                only refresh inverters — MID device retains data from
+                the previous cycle.
 
         Returns:
             Dictionary containing all device data, sensors, and station information.
@@ -175,8 +205,20 @@ class HTTPUpdateMixin(_MixinBase):
                 ):
                     await self._attach_local_transports_to_station()
             else:
-                _LOGGER.debug("Refreshing station data for plant %s", self.plant_id)
-                await self.station.refresh_all_data()
+                if include_mid_refresh:
+                    _LOGGER.debug(
+                        "Refreshing all station data for plant %s", self.plant_id
+                    )
+                    await self.station.refresh_all_data()
+                else:
+                    _LOGGER.debug(
+                        "Refreshing inverters only for plant %s "
+                        "(MID dongle interval not elapsed)",
+                        self.plant_id,
+                    )
+                    inv_tasks = [inv.refresh() for inv in self.station.all_inverters]
+                    if inv_tasks:
+                        await asyncio.gather(*inv_tasks, return_exceptions=True)
 
             # Log inverter data status after refresh
             for inverter in self.station.all_inverters:

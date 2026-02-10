@@ -5,6 +5,26 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.27] - 2026-02-10
+
+### Fixed
+
+- **Double MID device refresh** ([#148](https://github.com/joyfulhouse/eg4_web_monitor/issues/148)): Removed redundant `mid_device.refresh()` from `_process_mid_device_object()` — MID device was already refreshed by `station.refresh_all_data()`, causing 14 dongle reads/cycle instead of 7
+- **HYBRID per-transport interval gating** ([#148](https://github.com/joyfulhouse/eg4_web_monitor/issues/148)): HYBRID mode now uses per-transport interval gating (same as LOCAL mode), preventing dongle saturation from polling every coordinator tick. MID device refreshes only when the dongle interval elapses.
+- **LOCAL mode cache TTL adherence**: Removed `force=True` from LOCAL mode `inverter.refresh()` calls that bypassed pylxpweb cache TTLs. Added `_align_inverter_cache_ttls()` to override pylxpweb's hardcoded defaults with user-configured intervals from the options flow.
+- **Smart port wrong-type sensors**: Wrong-type power/energy sensors (e.g., `smart_load1_power` on an AC Couple port) are now completely removed instead of set to `None`, preventing "Unknown" entities in the HA UI
+- **Smart port status display**: Status sensors now use `device_class: enum` with translated state values ("Unused", "Smart Load", "AC Couple") instead of raw integers (0, 1, 2)
+- **Status label on all-zeros early return**: Status sensors are now converted to string labels even when the all-zeros safety guard skips power sensor filtering
+- **Translation completeness**: Synced all 13 translation files with `strings.json` — added missing keys for BT temperature sensor, reconcile_history service, HTTP polling interval option, and invalid date format exception
+- **Proper localization**: All 12 non-English translation files now have properly translated strings instead of English placeholders
+- **Silver tier validation**: Fixed `check_unavailability_logging` to scan split coordinator modules (`coordinator_http.py`, `coordinator_local.py`) instead of only `coordinator.py`
+
+### Changed
+
+- **HYBRID coordinator interval**: HYBRID mode now uses `_get_active_transport_intervals()` (same as LOCAL) to set the coordinator tick rate to the fastest configured transport interval
+- **Smart port aggregate cleanup**: Removed dead `None`-aggregate branches in `_calculate_gridboss_aggregates()` — wrong-type L1/L2 keys no longer exist in the dict, making these branches unreachable
+- **651 tests** (up from 638): Added 7 HYBRID transport gating tests, 4 cache TTL adherence tests, status label mapping and all-zeros early return tests
+
 ## [3.2.0-beta.26] - 2026-02-10
 
 ### Changed

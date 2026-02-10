@@ -344,14 +344,14 @@
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
       "duplicate_serial": "A device with this serial number has already been added to this installation.",
-      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
-      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
-      "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle).",
       "duplicate_transport": "A device at this address and port has already been added. Each local connection must use a unique host:port combination.",
+      "serial_mismatch": "The device at this address has a different serial number than expected. This may indicate a device swap or misconfiguration.",
       "serial_timeout": "Serial port connection timed out. Please verify the port path and ensure the USB adapter is connected.",
       "serial_permission_denied": "Permission denied accessing the serial port. On Linux, ensure your user is in the 'dialout' group. On macOS, grant Home Assistant access to the USB device.",
       "serial_port_error": "Failed to open serial port. Please check: (1) port path is correct, (2) USB adapter is connected, (3) device is not in use by another application.",
-      "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again."
+      "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again.",
+      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
+      "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle)."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
@@ -368,19 +368,21 @@
         "description": "Configure polling intervals for your {brand_name} Web Monitor integration. Sensor updates control how often device data is fetched. Parameter refresh controls how often configuration settings are synced.",
         "data": {
           "sensor_update_interval": "Sensor Update Interval (seconds)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
           "http_polling_interval": "HTTP/Cloud Polling Interval (seconds)",
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
           "library_debug": "Library Debug Logging",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "Include AC-Coupled PV in Totals"
         },
         "data_description": {
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Controls local transport polling rate. In HTTP-only mode, the HTTP interval below takes precedence.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
           "http_polling_interval": "How often to poll the cloud API for data ({min_http_interval}-{max_http_interval} seconds). Higher values reduce API load. In hybrid mode, this controls cloud-only data; local transport data updates at the sensor interval.",
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Radiator 2 Temperature"
+      },
+      "bt_temperature": {
+        "name": "BT Temperature"
       },
       "status_code": {
         "name": "Status Code"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Total Load Power"
+      },
+      "smart_port1_status": {
+        "name": "Smart Port 1 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Smart Port 2 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Smart Port 3 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Smart Port 4 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "The configuration entry ID to refresh. If not provided, all {brand_name} Web Monitor integrations will be refreshed."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Reconcile Energy History",
+      "description": "Backfill missing energy statistics from the {brand_name} cloud API. This service fetches historical energy data and imports it into Home Assistant's statistics database for any gaps in your energy sensor history. Requires cloud credentials (HTTP or Hybrid connection mode).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Lookback Hours",
+          "description": "Number of hours to look back for gaps in energy statistics. Default is 48 hours."
+        },
+        "start_date": {
+          "name": "Start Date",
+          "description": "Explicit start date for reconciliation (YYYY-MM-DD format). If provided, end_date is also required."
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "Explicit end date for reconciliation (YYYY-MM-DD format). If provided, start_date is also required."
+        },
+        "entry_id": {
+          "name": "Configuration Entry ID",
+          "description": "The configuration entry ID to reconcile. If not provided, all {brand_name} Web Monitor integrations with cloud credentials will be reconciled."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "No {brand_name} coordinators found to refresh. Please ensure at least one {brand_name} Web Monitor integration is configured and loaded."
+    },
+    "invalid_date_format": {
+      "message": "Invalid date format. Please use YYYY-MM-DD format."
     }
   }
 }

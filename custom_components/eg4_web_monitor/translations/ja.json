@@ -368,19 +368,21 @@
         "description": "{brand_name} Web Monitorインテグレーションのポーリング間隔を設定します。センサー更新はデバイスデータの取得頻度を制御します。パラメーター更新は設定の同期頻度を制御します。",
         "data": {
           "sensor_update_interval": "センサー更新間隔（秒）",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/クラウドポーリング間隔（秒）",
           "parameter_refresh_interval": "パラメーター更新間隔（分）",
           "library_debug": "ライブラリデバッグログ",
-          "include_ac_couple_pv": "合計にAC連系PVを含める",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "AC結合PVを合計に含める"
         },
         "data_description": {
           "sensor_update_interval": "センサー更新のポーリング頻度（{min_sensor_interval}～{max_sensor_interval}秒）。低い値はより高速な更新を提供しますが、API負荷が増加します。",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "クラウドAPIのデータ取得頻度（{min_http_interval}〜{max_http_interval}秒）。値が高いほどAPI負荷が軽減されます。ハイブリッドモードでは、クラウドデータのみを制御します。ローカルトランスポートデータはセンサー間隔で更新されます。",
           "parameter_refresh_interval": "SOC制限や充電設定などのインバーターパラメーターの更新頻度（{min_param_interval}～{max_param_interval}分）。",
           "library_debug": "pylxpwebライブラリのDEBUGログを有効にする（APIリクエスト、レスポンス、内部ライブラリ操作を表示）",
-          "include_ac_couple_pv": "GridBOSSスマートポートからのAC連系ソーラーインバーター電力をパラレルグループのPV合計に追加",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "GridBOSSスマートポートからのAC結合ソーラーインバーター電力をパラレルグループのPV合計に追加"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "ラジエーター2温度"
+      },
+      "bt_temperature": {
+        "name": "BT温度"
       },
       "status_code": {
         "name": "ステータスコード"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "総負荷電力"
+      },
+      "smart_port1_status": {
+        "name": "スマートポート1ステータス",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "スマートロード",
+          "ac_couple": "ACカップル"
+        }
+      },
+      "smart_port2_status": {
+        "name": "スマートポート2ステータス",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "スマートロード",
+          "ac_couple": "ACカップル"
+        }
+      },
+      "smart_port3_status": {
+        "name": "スマートポート3ステータス",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "スマートロード",
+          "ac_couple": "ACカップル"
+        }
+      },
+      "smart_port4_status": {
+        "name": "スマートポート4ステータス",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "スマートロード",
+          "ac_couple": "ACカップル"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "更新する設定エントリID。指定しない場合、すべての{brand_name} Web Monitorインテグレーションが更新されます。"
         }
       }
+    },
+    "reconcile_history": {
+      "name": "エネルギー履歴の照合",
+      "description": "{brand_name}クラウドAPIから欠落しているエネルギー統計を補完します。このサービスは過去のエネルギーデータを取得し、エネルギーセンサー履歴のギャップに対してHome Assistantの統計データベースにインポートします。クラウド認証情報が必要です（HTTPまたはハイブリッド接続モード）。",
+      "fields": {
+        "lookback_hours": {
+          "name": "遡及時間数",
+          "description": "エネルギー統計のギャップを検索する時間数。デフォルトは48時間です。"
+        },
+        "start_date": {
+          "name": "開始日",
+          "description": "照合の明示的な開始日（YYYY-MM-DD形式）。指定した場合、end_dateも必要です。"
+        },
+        "end_date": {
+          "name": "終了日",
+          "description": "照合の明示的な終了日（YYYY-MM-DD形式）。指定した場合、start_dateも必要です。"
+        },
+        "entry_id": {
+          "name": "設定エントリID",
+          "description": "照合する設定エントリID。指定しない場合、クラウド認証情報を持つすべての{brand_name} Web Monitorインテグレーションが照合されます。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "更新する{brand_name}コーディネーターが見つかりません。少なくとも1つの{brand_name} Web Monitorインテグレーションが設定されてロードされていることを確認してください。"
+    },
+    "invalid_date_format": {
+      "message": "日付形式が無効です。YYYY-MM-DD形式を使用してください。"
     }
   }
 }

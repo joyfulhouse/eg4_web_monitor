@@ -284,6 +284,9 @@ def _apply_sensor_config(
     entity._attr_device_class = sensor_config.get("device_class")
     entity._attr_state_class = sensor_config.get("state_class")
     entity._attr_icon = sensor_config.get("icon")
+    options = sensor_config.get("options")
+    if options is not None:
+        entity._attr_options = options
 
     # Set display precision
     precision = _get_display_precision(sensor_config, entity._attr_device_class)

@@ -368,19 +368,21 @@
         "description": "Настройте интервалы опроса для вашей интеграции {brand_name} Web Monitor. Обновление датчиков определяет, как часто запрашиваются данные устройств. Обновление параметров определяет, как часто синхронизируются настройки конфигурации.",
         "data": {
           "sensor_update_interval": "Интервал обновления датчиков (секунды)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "Интервал опроса HTTP/облака (секунды)",
           "parameter_refresh_interval": "Интервал обновления параметров (минуты)",
           "library_debug": "Отладочное логирование библиотеки",
-          "include_ac_couple_pv": "Включить AC-связанную PV в итоги",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "Включить PV с AC-связью в итоги"
         },
         "data_description": {
           "sensor_update_interval": "Как часто опрашивать обновления датчиков ({min_sensor_interval}-{max_sensor_interval} секунд). Меньшие значения обеспечивают более быстрые обновления, но увеличивают нагрузку на API.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "Как часто опрашивать облачный API для получения данных ({min_http_interval}-{max_http_interval} секунд). Более высокие значения снижают нагрузку на API. В гибридном режиме это управляет только облачными данными; данные локального транспорта обновляются с интервалом датчика.",
           "parameter_refresh_interval": "Как часто обновлять параметры инвертора, такие как лимиты SOC и настройки зарядки ({min_param_interval}-{max_param_interval} минут).",
           "library_debug": "Включить DEBUG-логирование для библиотеки pylxpweb (показывает запросы API, ответы и внутренние операции библиотеки)",
-          "include_ac_couple_pv": "Добавить мощность солнечного инвертора с AC-связью (от умных портов GridBOSS) к итогам PV параллельной группы",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "Добавить мощность солнечного инвертора с AC-связью (от Smart Ports GridBOSS) к итогам PV параллельной группы"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Температура радиатора 2"
+      },
+      "bt_temperature": {
+        "name": "Температура BT"
       },
       "status_code": {
         "name": "Код статуса"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Общая мощность нагрузки"
+      },
+      "smart_port1_status": {
+        "name": "Статус Smart Port 1",
+        "state": {
+          "unused": "Не используется",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Статус Smart Port 2",
+        "state": {
+          "unused": "Не используется",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Статус Smart Port 3",
+        "state": {
+          "unused": "Не используется",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Статус Smart Port 4",
+        "state": {
+          "unused": "Не используется",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "ID записи конфигурации для обновления. Если не указан, будут обновлены все интеграции {brand_name} Web Monitor."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Сверка истории энергии",
+      "description": "Заполнение пропущенных статистик энергии из облачного API {brand_name}. Этот сервис получает исторические данные об энергии и импортирует их в базу данных статистики Home Assistant для любых пробелов в истории ваших датчиков энергии. Требуются облачные учётные данные (режим подключения HTTP или гибридный).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Часы ретроспективы",
+          "description": "Количество часов для поиска пробелов в статистике энергии. По умолчанию 48 часов."
+        },
+        "start_date": {
+          "name": "Дата начала",
+          "description": "Явная дата начала для сверки (формат ГГГГ-ММ-ДД). Если указана, также требуется end_date."
+        },
+        "end_date": {
+          "name": "Дата окончания",
+          "description": "Явная дата окончания для сверки (формат ГГГГ-ММ-ДД). Если указана, также требуется start_date."
+        },
+        "entry_id": {
+          "name": "ID записи конфигурации",
+          "description": "ID записи конфигурации для сверки. Если не указан, будут сверены все интеграции {brand_name} Web Monitor с облачными учётными данными."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "Не найдены координаторы {brand_name} для обновления. Убедитесь, что настроена и загружена хотя бы одна интеграция {brand_name} Web Monitor."
+    },
+    "invalid_date_format": {
+      "message": "Неверный формат даты. Используйте формат ГГГГ-ММ-ДД."
     }
   }
 }

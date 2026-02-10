@@ -19,7 +19,11 @@ if TYPE_CHECKING:
         UpdateFailed,
     )
 
-    from pylxpweb.transports import ModbusSerialTransport, ModbusTransport
+    from pylxpweb.transports import (
+        DongleTransport,
+        ModbusSerialTransport,
+        ModbusTransport,
+    )
 else:
     from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
         DataUpdateCoordinator,
@@ -146,7 +150,7 @@ class EG4DataUpdateCoordinator(
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
         self._modbus_transport: ModbusTransport | ModbusSerialTransport | None = None
-        self._dongle_transport: Any = None
+        self._dongle_transport: DongleTransport | None = None
         self._hybrid_local_type: str | None = None
         local_transports: list[dict[str, Any]] = entry.data.get(
             CONF_LOCAL_TRANSPORTS, []
@@ -322,7 +326,10 @@ class EG4DataUpdateCoordinator(
         # Other local modes: use sensor interval directly
         if self.connection_type == CONNECTION_TYPE_HTTP:
             update_interval = timedelta(seconds=http_interval_seconds)
-        elif self.connection_type == CONNECTION_TYPE_LOCAL:
+        elif self.connection_type in (CONNECTION_TYPE_LOCAL, CONNECTION_TYPE_HYBRID):
+            # Both LOCAL and HYBRID use per-transport intervals.
+            # HYBRID: coordinator ticks at fastest transport rate;
+            # _should_poll_hybrid_local() gates MID refresh per dongle interval.
             transport_intervals = self._get_active_transport_intervals()
             fastest = (
                 min(transport_intervals)
@@ -331,7 +338,7 @@ class EG4DataUpdateCoordinator(
             )
             update_interval = timedelta(seconds=fastest)
         else:
-            # MODBUS, DONGLE, HYBRID: single transport, use its interval directly
+            # MODBUS, DONGLE: single transport, use its interval directly
             update_interval = timedelta(seconds=sensor_interval_seconds)
 
         super().__init__(
@@ -466,6 +473,31 @@ class EG4DataUpdateCoordinator(
         if self._has_dongle_transport():
             intervals.append(self._dongle_interval)
         return intervals
+
+    def _align_inverter_cache_ttls(self, inverter: Any, transport_type: str) -> None:
+        """Set inverter cache TTLs to match coordinator's configured intervals.
+
+        pylxpweb's ``set_transport_cache_ttls()`` uses hardcoded values, but the
+        coordinator's intervals are user-configurable via the options flow.  This
+        method overrides the pylxpweb defaults so the cache TTLs honour the
+        user's settings.
+
+        Args:
+            inverter: BaseInverter instance whose cache TTLs should be set.
+            transport_type: Transport type string (``modbus_tcp``, ``wifi_dongle``, etc.).
+        """
+        interval_map: dict[str, int] = {
+            "modbus_tcp": self._modbus_interval,
+            "modbus_serial": self._modbus_interval,
+            "wifi_dongle": self._dongle_interval,
+        }
+        interval = interval_map.get(transport_type)
+        if interval is None:
+            return
+        ttl = timedelta(seconds=interval)
+        inverter._runtime_cache_ttl = ttl
+        inverter._energy_cache_ttl = ttl
+        inverter._battery_cache_ttl = ttl
 
     def _should_poll_transport(self, transport_type: str) -> bool:
         """Check whether enough time has elapsed to poll this transport type.

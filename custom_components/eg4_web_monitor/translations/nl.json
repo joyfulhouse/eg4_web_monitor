@@ -368,19 +368,21 @@
         "description": "Configureer polling-intervallen voor uw {brand_name} Web Monitor-integratie. Sensorupdates bepalen hoe vaak apparaatgegevens worden opgehaald. Parameterverversing bepaalt hoe vaak configuratie-instellingen worden gesynchroniseerd.",
         "data": {
           "sensor_update_interval": "Sensorupdate-interval (seconden)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/cloud-polling interval (seconden)",
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
-          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen"
         },
         "data_description": {
           "sensor_update_interval": "Hoe vaak te pollen voor sensorupdates ({min_sensor_interval}-{max_sensor_interval} seconden). Lagere waarden bieden snellere updates maar verhogen de API-belasting.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "Hoe vaak de cloud-API wordt bevraagd voor gegevens ({min_http_interval}-{max_http_interval} seconden). Hogere waarden verminderen de API-belasting. In hybride modus beheert dit alleen cloudgegevens; lokale transportgegevens worden bijgewerkt op het sensorinterval.",
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
-          "include_ac_couple_pv": "AC-gekoppeld zonne-omvormervermogen (van GridBOSS smart ports) toevoegen aan parallelle groep PV-totalen",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Radiator 2 temperatuur"
+      },
+      "bt_temperature": {
+        "name": "BT-temperatuur"
       },
       "status_code": {
         "name": "Statuscode"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Totaal belastingsvermogen"
+      },
+      "smart_port1_status": {
+        "name": "Smart Port 1 Status",
+        "state": {
+          "unused": "Ongebruikt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Smart Port 2 Status",
+        "state": {
+          "unused": "Ongebruikt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Smart Port 3 Status",
+        "state": {
+          "unused": "Ongebruikt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Smart Port 4 Status",
+        "state": {
+          "unused": "Ongebruikt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "De configuratie-invoer-ID om te vernieuwen. Indien niet opgegeven, worden alle {brand_name} Web Monitor-integraties vernieuwd."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Energiegeschiedenis afstemmen",
+      "description": "Ontbrekende energiestatistieken aanvullen vanuit de {brand_name} cloud-API. Deze service haalt historische energiegegevens op en importeert ze in de statistiekendatabase van Home Assistant voor eventuele hiaten in uw energiesensorgeschiedenis. Vereist cloud-inloggegevens (HTTP- of hybride verbindingsmodus).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Terugkijkuren",
+          "description": "Aantal uren om terug te kijken naar hiaten in energiestatistieken. Standaard is 48 uur."
+        },
+        "start_date": {
+          "name": "Startdatum",
+          "description": "Expliciete startdatum voor afstemming (JJJJ-MM-DD formaat). Indien opgegeven is ook end_date vereist."
+        },
+        "end_date": {
+          "name": "Einddatum",
+          "description": "Expliciete einddatum voor afstemming (JJJJ-MM-DD formaat). Indien opgegeven is ook start_date vereist."
+        },
+        "entry_id": {
+          "name": "Configuratie-invoer-ID",
+          "description": "De configuratie-invoer-ID om af te stemmen. Indien niet opgegeven worden alle {brand_name} Web Monitor-integraties met cloud-inloggegevens afgestemd."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "Geen {brand_name}-coördinatoren gevonden om te vernieuwen. Zorg ervoor dat ten minste één {brand_name} Web Monitor-integratie is geconfigureerd en geladen."
+    },
+    "invalid_date_format": {
+      "message": "Ongeldig datumformaat. Gebruik het formaat JJJJ-MM-DD."
     }
   }
 }

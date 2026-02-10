@@ -368,19 +368,21 @@
         "description": "{brand_name} 웹 모니터 통합의 폴링 간격을 구성하세요. 센서 업데이트는 장치 데이터를 가져오는 빈도를 제어합니다. 매개변수 새로 고침은 구성 설정이 동기화되는 빈도를 제어합니다.",
         "data": {
           "sensor_update_interval": "센서 업데이트 간격 (초)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/클라우드 폴링 간격 (초)",
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
-          "include_ac_couple_pv": "총계에 AC 커플링 PV 포함",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "AC 결합 PV를 합계에 포함"
         },
         "data_description": {
           "sensor_update_interval": "센서 업데이트를 폴링하는 빈도 ({min_sensor_interval}-{max_sensor_interval}초). 값이 낮을수록 업데이트가 빠르지만 API 부하가 증가합니다.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "클라우드 API 데이터 폴링 빈도 ({min_http_interval}-{max_http_interval}초). 높은 값은 API 부하를 줄입니다. 하이브리드 모드에서는 클라우드 전용 데이터만 제어합니다. 로컬 전송 데이터는 센서 간격으로 업데이트됩니다.",
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
-          "include_ac_couple_pv": "병렬 그룹 PV 총계에 AC 커플링 태양광 인버터 전력 (GridBOSS 스마트 포트에서) 추가",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "방열판 2 온도"
+      },
+      "bt_temperature": {
+        "name": "BT 온도"
       },
       "status_code": {
         "name": "상태 코드"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "총 부하 전력"
+      },
+      "smart_port1_status": {
+        "name": "스마트 포트 1 상태",
+        "state": {
+          "unused": "미사용",
+          "smart_load": "스마트 로드",
+          "ac_couple": "AC 커플"
+        }
+      },
+      "smart_port2_status": {
+        "name": "스마트 포트 2 상태",
+        "state": {
+          "unused": "미사용",
+          "smart_load": "스마트 로드",
+          "ac_couple": "AC 커플"
+        }
+      },
+      "smart_port3_status": {
+        "name": "스마트 포트 3 상태",
+        "state": {
+          "unused": "미사용",
+          "smart_load": "스마트 로드",
+          "ac_couple": "AC 커플"
+        }
+      },
+      "smart_port4_status": {
+        "name": "스마트 포트 4 상태",
+        "state": {
+          "unused": "미사용",
+          "smart_load": "스마트 로드",
+          "ac_couple": "AC 커플"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "새로 고칠 구성 항목 ID입니다. 제공되지 않으면 모든 {brand_name} 웹 모니터 통합이 새로 고쳐집니다."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "에너지 이력 조정",
+      "description": "{brand_name} 클라우드 API에서 누락된 에너지 통계를 보충합니다. 이 서비스는 과거 에너지 데이터를 가져와 에너지 센서 이력의 공백에 대해 Home Assistant의 통계 데이터베이스로 가져옵니다. 클라우드 자격 증명이 필요합니다 (HTTP 또는 하이브리드 연결 모드).",
+      "fields": {
+        "lookback_hours": {
+          "name": "조회 시간",
+          "description": "에너지 통계의 공백을 검색할 시간 수. 기본값은 48시간입니다."
+        },
+        "start_date": {
+          "name": "시작 날짜",
+          "description": "조정의 명시적 시작 날짜 (YYYY-MM-DD 형식). 제공된 경우 end_date도 필요합니다."
+        },
+        "end_date": {
+          "name": "종료 날짜",
+          "description": "조정의 명시적 종료 날짜 (YYYY-MM-DD 형식). 제공된 경우 start_date도 필요합니다."
+        },
+        "entry_id": {
+          "name": "구성 항목 ID",
+          "description": "조정할 구성 항목 ID. 제공하지 않으면 클라우드 자격 증명이 있는 모든 {brand_name} Web Monitor 통합이 조정됩니다."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "새로 고칠 {brand_name} 코디네이터를 찾을 수 없습니다. 최소 하나의 {brand_name} 웹 모니터 통합이 구성되고 로드되어 있는지 확인하세요."
+    },
+    "invalid_date_format": {
+      "message": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용하세요."
     }
   }
 }

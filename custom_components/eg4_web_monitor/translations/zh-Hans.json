@@ -368,19 +368,21 @@
         "description": "配置您的 {brand_name} Web Monitor 集成的轮询间隔。传感器更新控制获取设备数据的频率。参数刷新控制配置设置同步的频率。",
         "data": {
           "sensor_update_interval": "传感器更新间隔（秒）",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/云端轮询间隔（秒）",
           "parameter_refresh_interval": "参数刷新间隔（分钟）",
           "library_debug": "库调试日志",
-          "include_ac_couple_pv": "在总计中包含 AC 耦合 PV",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "将交流耦合光伏纳入总量"
         },
         "data_description": {
           "sensor_update_interval": "轮询传感器更新的频率（{min_sensor_interval}-{max_sensor_interval} 秒）。较低的值提供更快的更新，但会增加 API 负载。",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "从云端API获取数据的频率（{min_http_interval}-{max_http_interval}秒）。较高的值可减少API负载。在混合模式下，此设置仅控制云端数据；本地传输数据按传感器间隔更新。",
           "parameter_refresh_interval": "刷新逆变器参数（如 SOC 限制和充电设置）的频率（{min_param_interval}-{max_param_interval} 分钟）。",
           "library_debug": "启用 pylxpweb 库的 DEBUG 日志（显示 API 请求、响应和内部库操作）",
-          "include_ac_couple_pv": "将 AC 耦合太阳能逆变器功率（来自 GridBOSS 智能端口）添加到并联组 PV 总计",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "将GridBOSS智能端口的交流耦合太阳能逆变器功率添加到并联组光伏总量中"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "散热器 2 温度"
+      },
+      "bt_temperature": {
+        "name": "BT温度"
       },
       "status_code": {
         "name": "状态代码"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "总负载功率"
+      },
+      "smart_port1_status": {
+        "name": "智能端口1状态",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智能负载",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port2_status": {
+        "name": "智能端口2状态",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智能负载",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port3_status": {
+        "name": "智能端口3状态",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智能负载",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port4_status": {
+        "name": "智能端口4状态",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智能负载",
+          "ac_couple": "交流耦合"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "要刷新的配置条目 ID。如果未提供，将刷新所有 {brand_name} Web Monitor 集成。"
         }
       }
+    },
+    "reconcile_history": {
+      "name": "核对能源历史",
+      "description": "从{brand_name}云端API补充缺失的能源统计数据。此服务获取历史能源数据并将其导入Home Assistant的统计数据库，以填补能源传感器历史中的空白。需要云端凭据（HTTP或混合连接模式）。",
+      "fields": {
+        "lookback_hours": {
+          "name": "回溯小时数",
+          "description": "搜索能源统计空白的小时数。默认为48小时。"
+        },
+        "start_date": {
+          "name": "开始日期",
+          "description": "核对的明确开始日期（YYYY-MM-DD格式）。如果提供，还需要end_date。"
+        },
+        "end_date": {
+          "name": "结束日期",
+          "description": "核对的明确结束日期（YYYY-MM-DD格式）。如果提供，还需要start_date。"
+        },
+        "entry_id": {
+          "name": "配置条目ID",
+          "description": "要核对的配置条目ID。如果未提供，将核对所有具有云端凭据的{brand_name} Web Monitor集成。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "未找到可刷新的 {brand_name} 协调器。请确保至少配置并加载了一个 {brand_name} Web Monitor 集成。"
+    },
+    "invalid_date_format": {
+      "message": "日期格式无效。请使用YYYY-MM-DD格式。"
     }
   }
 }

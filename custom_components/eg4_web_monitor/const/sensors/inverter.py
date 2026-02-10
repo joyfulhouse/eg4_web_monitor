@@ -1262,21 +1262,29 @@ SENSOR_TYPES = {
         "name": "Smart Port 1 Status",
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
+        "device_class": "enum",
+        "options": ["unused", "smart_load", "ac_couple"],
     },
     "smart_port2_status": {
         "name": "Smart Port 2 Status",
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
+        "device_class": "enum",
+        "options": ["unused", "smart_load", "ac_couple"],
     },
     "smart_port3_status": {
         "name": "Smart Port 3 Status",
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
+        "device_class": "enum",
+        "options": ["unused", "smart_load", "ac_couple"],
     },
     "smart_port4_status": {
         "name": "Smart Port 4 Status",
         "icon": "mdi:electric-switch",
         "entity_category": "diagnostic",
+        "device_class": "enum",
+        "options": ["unused", "smart_load", "ac_couple"],
     },
     # GridBOSS Aggregate Energy sensors (L1 + L2 combined)
     "ups_today": {

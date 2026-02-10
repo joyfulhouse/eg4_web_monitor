@@ -368,19 +368,21 @@
         "description": "設定您的 {brand_name} Web Monitor 整合的輪詢間隔。感測器更新控制取得裝置資料的頻率。參數重新整理控制設定同步的頻率。",
         "data": {
           "sensor_update_interval": "感測器更新間隔（秒）",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/雲端輪詢間隔（秒）",
           "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
           "library_debug": "程式庫偵錯日誌",
-          "include_ac_couple_pv": "在總計中包含 AC 耦合 PV",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "將交流耦合光伏納入總量"
         },
         "data_description": {
           "sensor_update_interval": "輪詢感測器更新的頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較低的值提供更快的更新，但會增加 API 負載。",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "從雲端API擷取資料的頻率（{min_http_interval}-{max_http_interval}秒）。較高的值可減少API負載。在混合模式下，此設定僅控制雲端資料；本地傳輸資料按感測器間隔更新。",
           "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
           "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
-          "include_ac_couple_pv": "將 AC 耦合太陽能逆變器功率（來自 GridBOSS 智慧連接埠）新增到並聯組 PV 總計",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "散熱器 2 溫度"
+      },
+      "bt_temperature": {
+        "name": "BT溫度"
       },
       "status_code": {
         "name": "狀態代碼"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "總負載功率"
+      },
+      "smart_port1_status": {
+        "name": "智慧端口1狀態",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智慧負載",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port2_status": {
+        "name": "智慧端口2狀態",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智慧負載",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port3_status": {
+        "name": "智慧端口3狀態",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智慧負載",
+          "ac_couple": "交流耦合"
+        }
+      },
+      "smart_port4_status": {
+        "name": "智慧端口4狀態",
+        "state": {
+          "unused": "未使用",
+          "smart_load": "智慧負載",
+          "ac_couple": "交流耦合"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "要重新整理的設定項目 ID。如果未提供，將重新整理所有 {brand_name} Web Monitor 整合。"
         }
       }
+    },
+    "reconcile_history": {
+      "name": "核對能源歷史",
+      "description": "從{brand_name}雲端API補充缺失的能源統計資料。此服務擷取歷史能源資料並將其匯入Home Assistant的統計資料庫，以填補能源感測器歷史中的空白。需要雲端憑據（HTTP或混合連線模式）。",
+      "fields": {
+        "lookback_hours": {
+          "name": "回溯小時數",
+          "description": "搜尋能源統計空白的小時數。預設為48小時。"
+        },
+        "start_date": {
+          "name": "開始日期",
+          "description": "核對的明確開始日期（YYYY-MM-DD格式）。如果提供，還需要end_date。"
+        },
+        "end_date": {
+          "name": "結束日期",
+          "description": "核對的明確結束日期（YYYY-MM-DD格式）。如果提供，還需要start_date。"
+        },
+        "entry_id": {
+          "name": "設定項目ID",
+          "description": "要核對的設定項目ID。如果未提供，將核對所有具有雲端憑據的{brand_name} Web Monitor整合。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "未找到可重新整理的 {brand_name} 協調器。請確保至少設定並載入了一個 {brand_name} Web Monitor 整合。"
+    },
+    "invalid_date_format": {
+      "message": "日期格式無效。請使用YYYY-MM-DD格式。"
     }
   }
 }

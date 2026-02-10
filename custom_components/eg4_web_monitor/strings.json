@@ -455,7 +455,39 @@
       "ac_couple_power": {"name": "AC Couple Power"},
       "bus1_voltage": {"name": "Bus 1 Voltage"},
       "bus2_voltage": {"name": "Bus 2 Voltage"},
-      "total_load_power": {"name": "Total Load Power"}
+      "total_load_power": {"name": "Total Load Power"},
+      "smart_port1_status": {
+        "name": "Smart Port 1 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Smart Port 2 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Smart Port 3 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Smart Port 4 Status",
+        "state": {
+          "unused": "Unused",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      }
     },
     "switch": {
       "quick_charge": {

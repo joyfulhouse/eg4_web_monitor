@@ -368,19 +368,21 @@
         "description": "Configure os intervalos de atualização para sua integração {brand_name} Web Monitor. Atualizações de sensores controlam com que frequência os dados do dispositivo são buscados. Atualização de parâmetros controla com que frequência as configurações são sincronizadas.",
         "data": {
           "sensor_update_interval": "Intervalo de Atualização de Sensores (segundos)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "Intervalo de consulta HTTP/nuvem (segundos)",
           "parameter_refresh_interval": "Intervalo de Atualização de Parâmetros (minutos)",
           "library_debug": "Log de Depuração da Biblioteca",
-          "include_ac_couple_pv": "Incluir PV AC-Coupled nos Totais",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "Incluir PV acoplado em CA nos totais"
         },
         "data_description": {
           "sensor_update_interval": "Com que frequência buscar atualizações de sensores ({min_sensor_interval}-{max_sensor_interval} segundos). Valores menores fornecem atualizações mais rápidas, mas aumentam a carga da API.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "Com que frequência consultar a API na nuvem para dados ({min_http_interval}-{max_http_interval} segundos). Valores mais altos reduzem a carga da API. No modo híbrido, isto controla apenas dados da nuvem; dados de transporte local são atualizados no intervalo do sensor.",
           "parameter_refresh_interval": "Com que frequência atualizar parâmetros do inversor como limites de SOC e configurações de carga ({min_param_interval}-{max_param_interval} minutos).",
           "library_debug": "Habilitar log de depuração (DEBUG) para a biblioteca pylxpweb (mostra requisições da API, respostas e operações internas da biblioteca)",
-          "include_ac_couple_pv": "Adicionar potência do inversor solar AC-coupled (das portas inteligentes do GridBOSS) aos totais de PV do grupo paralelo",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "Adicionar potência do inversor solar acoplado em CA (das Smart Ports do GridBOSS) aos totais de PV do grupo paralelo"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Temperatura do Radiador 2"
+      },
+      "bt_temperature": {
+        "name": "Temperatura BT"
       },
       "status_code": {
         "name": "Código de Status"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Potência Total da Carga"
+      },
+      "smart_port1_status": {
+        "name": "Estado Smart Port 1",
+        "state": {
+          "unused": "Não utilizado",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Estado Smart Port 2",
+        "state": {
+          "unused": "Não utilizado",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Estado Smart Port 3",
+        "state": {
+          "unused": "Não utilizado",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Estado Smart Port 4",
+        "state": {
+          "unused": "Não utilizado",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "O ID da entrada de configuração para atualizar. Se não fornecido, todas as integrações {brand_name} Web Monitor serão atualizadas."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Reconciliar histórico de energia",
+      "description": "Preencher estatísticas de energia em falta a partir da API na nuvem {brand_name}. Este serviço obtém dados históricos de energia e importa-os para a base de dados de estatísticas do Home Assistant para quaisquer lacunas no histórico dos seus sensores de energia. Requer credenciais da nuvem (modo de conexão HTTP ou híbrido).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Horas de retrospetiva",
+          "description": "Número de horas a pesquisar por lacunas nas estatísticas de energia. O padrão é 48 horas."
+        },
+        "start_date": {
+          "name": "Data de início",
+          "description": "Data de início explícita para a reconciliação (formato AAAA-MM-DD). Se fornecida, end_date também é obrigatório."
+        },
+        "end_date": {
+          "name": "Data de fim",
+          "description": "Data de fim explícita para a reconciliação (formato AAAA-MM-DD). Se fornecida, start_date também é obrigatório."
+        },
+        "entry_id": {
+          "name": "ID de entrada de configuração",
+          "description": "O ID de entrada de configuração a reconciliar. Se não fornecido, todas as integrações {brand_name} Web Monitor com credenciais da nuvem serão reconciliadas."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "Nenhum coordenador {brand_name} encontrado para atualizar. Por favor, certifique-se de que pelo menos uma integração {brand_name} Web Monitor está configurada e carregada."
+    },
+    "invalid_date_format": {
+      "message": "Formato de data inválido. Use o formato AAAA-MM-DD."
     }
   }
 }

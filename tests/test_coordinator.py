@@ -1070,10 +1070,9 @@ class TestDeferredLocalParameters:
             config, processed, device_availability
         )
 
-        # First refresh should use include_parameters=False
-        mock_inverter.refresh.assert_called_once_with(
-            force=True, include_parameters=False
-        )
+        # First refresh should use include_parameters=False (force=False,
+        # cache TTLs govern what data is read)
+        mock_inverter.refresh.assert_called_once_with(include_parameters=False)
         # Parameters should be empty dict (deferred)
         assert processed["parameters"]["1234567890"] == {}
 
@@ -1119,10 +1118,9 @@ class TestDeferredLocalParameters:
                 config, processed, device_availability
             )
 
-        # Second refresh should use include_parameters=True
-        mock_inverter.refresh.assert_called_once_with(
-            force=True, include_parameters=True
-        )
+        # Second refresh should use include_parameters=True (force=False,
+        # cache TTLs govern what data is read)
+        mock_inverter.refresh.assert_called_once_with(include_parameters=True)
         # Feature detection should be called
         mock_inverter.detect_features.assert_called_once()
         # Parameters should be populated
@@ -1149,6 +1147,165 @@ class TestDeferredLocalParameters:
         )
         mock_inverter.detect_features.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
+
+
+class TestCacheTTLAdherence:
+    """Tests for per-transport cache TTL alignment (issue #148).
+
+    Validates that inverter cache TTLs match the coordinator's user-configured
+    transport intervals, NOT pylxpweb's hardcoded defaults.
+    """
+
+    @pytest.fixture
+    def modbus_config_entry(self):
+        """Config entry for LOCAL connection type with Modbus transport."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - FlexBOSS21",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="modbus_ttl_test",
+        )
+
+    @pytest.fixture
+    def dongle_config_entry(self):
+        """Config entry for LOCAL connection type with WiFi dongle."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - FlexBOSS21",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.200",
+                        "port": 8000,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="dongle_ttl_test",
+        )
+
+    async def test_align_cache_ttls_modbus(self, hass, modbus_config_entry):
+        """Modbus inverter cache TTLs match coordinator's _modbus_interval."""
+        modbus_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, modbus_config_entry)
+
+        mock_inverter = MagicMock()
+        coordinator._align_inverter_cache_ttls(mock_inverter, "modbus_tcp")
+
+        expected = timedelta(seconds=coordinator._modbus_interval)
+        assert mock_inverter._runtime_cache_ttl == expected
+        assert mock_inverter._energy_cache_ttl == expected
+        assert mock_inverter._battery_cache_ttl == expected
+
+    async def test_align_cache_ttls_dongle(self, hass, dongle_config_entry):
+        """Dongle inverter cache TTLs match coordinator's _dongle_interval."""
+        dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, dongle_config_entry)
+
+        mock_inverter = MagicMock()
+        coordinator._align_inverter_cache_ttls(mock_inverter, "wifi_dongle")
+
+        expected = timedelta(seconds=coordinator._dongle_interval)
+        assert mock_inverter._runtime_cache_ttl == expected
+        assert mock_inverter._energy_cache_ttl == expected
+        assert mock_inverter._battery_cache_ttl == expected
+
+    async def test_align_cache_ttls_custom_intervals(self, hass):
+        """User-configured intervals override defaults."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Custom Intervals",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            options={
+                "modbus_update_interval": 3,
+                "dongle_update_interval": 15,
+            },
+            entry_id="custom_interval_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        mock_modbus = MagicMock()
+        coordinator._align_inverter_cache_ttls(mock_modbus, "modbus_tcp")
+        assert mock_modbus._runtime_cache_ttl == timedelta(seconds=3)
+        assert mock_modbus._battery_cache_ttl == timedelta(seconds=3)
+
+        mock_dongle = MagicMock()
+        coordinator._align_inverter_cache_ttls(mock_dongle, "wifi_dongle")
+        assert mock_dongle._runtime_cache_ttl == timedelta(seconds=15)
+        assert mock_dongle._battery_cache_ttl == timedelta(seconds=15)
+
+    async def test_local_refresh_no_force(self, hass, modbus_config_entry):
+        """LOCAL mode refresh uses force=False, respecting cache TTLs."""
+        modbus_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, modbus_config_entry)
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter._transport = MagicMock()
+        mock_inverter._transport.is_connected = True
+        mock_inverter._transport_runtime = MagicMock()
+        mock_inverter._transport_runtime.pv_total_power = 0
+        mock_inverter._transport_runtime.battery_soc = 50
+        mock_inverter._transport_runtime.grid_power = 0
+        mock_inverter._transport_runtime.parallel_number = 0
+        mock_inverter._transport_runtime.parallel_master_slave = 0
+        mock_inverter._transport_runtime.parallel_phase = 0
+        mock_inverter._transport_energy = None
+        mock_inverter._transport_battery = None
+        mock_inverter.consumption_power = None
+        mock_inverter.total_load_power = None
+        mock_inverter.battery_power = None
+        mock_inverter.rectifier_power = None
+        mock_inverter.power_to_user = None
+
+        coordinator._inverter_cache["INV001"] = mock_inverter
+        coordinator._firmware_cache["INV001"] = "TEST-FW"
+
+        processed = {"devices": {}, "parameters": {}}
+        device_availability: dict[str, bool] = {}
+
+        config = modbus_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
+        await coordinator._process_single_local_device(
+            config, processed, device_availability
+        )
+
+        # refresh() must NOT use force=True — cache TTLs govern read frequency
+        mock_inverter.refresh.assert_called_once_with(include_parameters=False)
 
 
 class TestStaticLocalData:
@@ -3381,8 +3538,8 @@ class TestSmartPortFiltering:
                 delattr(type(device), attr) if hasattr(type(device), attr) else None
         return device
 
-    def test_ac_couple_port_creates_both_sensor_types(self):
-        """Port status=2 (AC Couple): ac_couple power keys have values, smart_load power keys are None."""
+    def test_ac_couple_port_only_creates_correct_type(self):
+        """Port status=2 (AC Couple): ac_couple keys present, smart_load keys absent."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
         )
@@ -3405,17 +3562,16 @@ class TestSmartPortFiltering:
         # AC Couple energy keys preserved
         assert sensors["ac_couple1_today"] == 5.0
         assert sensors["ac_couple1_total"] == 100.0
-        # Smart Load power keys created as None (unavailable)
-        assert "smart_load1_power_l1" in sensors
-        assert sensors["smart_load1_power_l1"] is None
-        assert sensors["smart_load1_power_l2"] is None
-        assert sensors["smart_load1_power"] is None
-        # Smart Load energy keys removed (not created)
+        # Smart Load power keys completely removed (not created)
+        assert "smart_load1_power_l1" not in sensors
+        assert "smart_load1_power_l2" not in sensors
+        assert "smart_load1_power" not in sensors
+        # Smart Load energy keys removed
         assert "smart_load1_today" not in sensors
         assert "smart_load1_total" not in sensors
 
-    def test_smart_load_port_creates_both_sensor_types(self):
-        """Port status=1 (Smart Load): smart_load power keys have values, ac_couple power keys are None."""
+    def test_smart_load_port_only_creates_correct_type(self):
+        """Port status=1 (Smart Load): smart_load keys present, ac_couple keys absent."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
         )
@@ -3438,12 +3594,11 @@ class TestSmartPortFiltering:
         # Smart Load energy keys preserved
         assert sensors["smart_load3_today"] == 2.0
         assert sensors["smart_load3_total"] == 50.0
-        # AC Couple power keys created as None (unavailable)
-        assert "ac_couple3_power_l1" in sensors
-        assert sensors["ac_couple3_power_l1"] is None
-        assert sensors["ac_couple3_power_l2"] is None
-        assert sensors["ac_couple3_power"] is None
-        # AC Couple energy keys removed (not created)
+        # AC Couple power keys completely removed (not created)
+        assert "ac_couple3_power_l1" not in sensors
+        assert "ac_couple3_power_l2" not in sensors
+        assert "ac_couple3_power" not in sensors
+        # AC Couple energy keys removed
         assert "ac_couple3_today" not in sensors
         assert "ac_couple3_total" not in sensors
 
@@ -3494,11 +3649,11 @@ class TestSmartPortFiltering:
 
         DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
 
-        # Port 1 (AC Couple): correct-type power keys preserved, wrong-type = None
+        # Port 1 (AC Couple): correct-type preserved, wrong-type removed
         assert sensors["ac_couple1_power_l1"] == 100.0
-        assert sensors["smart_load1_power_l1"] is None
-        assert sensors["smart_load1_power_l2"] is None
-        assert sensors["smart_load1_power"] is None
+        assert "smart_load1_power_l1" not in sensors
+        assert "smart_load1_power_l2" not in sensors
+        assert "smart_load1_power" not in sensors
         assert sensors["ac_couple1_today"] == 3.0
         assert "smart_load1_today" not in sensors
 
@@ -3506,11 +3661,11 @@ class TestSmartPortFiltering:
         assert "smart_load2_power_l1" not in sensors
         assert "ac_couple2_power_l1" not in sensors
 
-        # Port 3 (Smart Load): correct-type power keys preserved, wrong-type = None
+        # Port 3 (Smart Load): correct-type preserved, wrong-type removed
         assert sensors["smart_load3_power_l1"] == 50.0
-        assert sensors["ac_couple3_power_l1"] is None
-        assert sensors["ac_couple3_power_l2"] is None
-        assert sensors["ac_couple3_power"] is None
+        assert "ac_couple3_power_l1" not in sensors
+        assert "ac_couple3_power_l2" not in sensors
+        assert "ac_couple3_power" not in sensors
         assert sensors["smart_load3_today"] == 1.5
         assert "ac_couple3_today" not in sensors
 
@@ -3538,8 +3693,8 @@ class TestSmartPortFiltering:
         assert sensors["ac_couple1_power_l2"] == 888.0
         assert sensors["ac_couple1_power"] == 1887.0
 
-    def test_aggregation_skips_none_l1_l2(self):
-        """Aggregate power should be None when both L1/L2 are None (wrong-type port)."""
+    def test_aggregation_excludes_wrong_type_ports(self):
+        """Wrong-type port keys are removed, so aggregates only include correct-type."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
         )
@@ -3561,9 +3716,9 @@ class TestSmartPortFiltering:
         assert sensors["ac_couple1_power"] == 220.0
         assert sensors["smart_load3_power"] == 105.0
 
-        # Wrong-type aggregates are None (not 0.0)
-        assert sensors["smart_load1_power"] is None
-        assert sensors["ac_couple3_power"] is None
+        # Wrong-type per-port aggregates don't exist (keys were removed by filter)
+        assert "smart_load1_power" not in sensors
+        assert "ac_couple3_power" not in sensors
 
         # Total aggregates only include correct-type ports
         assert sensors["ac_couple_power"] == 220.0
@@ -3589,3 +3744,52 @@ class TestSmartPortFiltering:
         assert sensors["ac_couple_power"] == 220.0
         # Smart Load total does NOT exist (no active Smart Load ports)
         assert "smart_load_power" not in sensors
+
+    def test_status_sensor_maps_to_string_labels(self):
+        """Smart port status values are converted from int to string labels."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        mid = self._make_mid_device({1: 2, 2: 0, 3: 1, 4: 0})
+        sensors: dict = {
+            "smart_port1_status": 2,
+            "smart_port2_status": 0,
+            "smart_port3_status": 1,
+            "smart_port4_status": 0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert sensors["smart_port1_status"] == "ac_couple"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "smart_load"
+        assert sensors["smart_port4_status"] == "unused"
+
+    def test_all_zeros_early_return_still_converts_labels(self):
+        """When all statuses are 0 (unreliable dongle data), labels are still converted."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0})
+        sensors: dict = {
+            "smart_port1_status": 0,
+            "smart_port2_status": 0,
+            "smart_port3_status": 0,
+            "smart_port4_status": 0,
+            # Power keys that should NOT be removed (all-zeros skips filtering)
+            "smart_load1_power_l1": 50.0,
+            "ac_couple1_power_l1": 100.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # Status labels converted despite early return
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # Power keys preserved (filtering was skipped)
+        assert sensors["smart_load1_power_l1"] == 50.0
+        assert sensors["ac_couple1_power_l1"] == 100.0

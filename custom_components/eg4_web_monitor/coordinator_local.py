@@ -245,16 +245,18 @@ class LocalTransportMixin(_MixinBase):
                     inverter = await BaseInverter.from_dongle_transport(
                         transport, model=model
                     )
+                    self._align_inverter_cache_ttls(inverter, "wifi_dongle")
                 else:
                     inverter = await BaseInverter.from_modbus_transport(
                         transport, model=model
                     )
+                    self._align_inverter_cache_ttls(inverter, "modbus_tcp")
                 self._inverter_cache[serial] = inverter
             else:
                 inverter = self._inverter_cache[serial]
 
             include_params = self._local_parameters_loaded
-            await inverter.refresh(force=True, include_parameters=include_params)
+            await inverter.refresh(include_parameters=include_params)
 
             # Cache firmware version - only read once from transport, reuse on subsequent updates
             if serial not in self._firmware_cache:
@@ -536,6 +538,7 @@ class LocalTransportMixin(_MixinBase):
                             inverter = await BaseInverter.from_modbus_transport(
                                 transport, model=model
                             )
+                        self._align_inverter_cache_ttls(inverter, transport_type)
                         self._inverter_cache[serial] = inverter
                     except LuxpowerDeviceError as e:
                         if "GridBOSS" in str(e) or "MIDbox" in str(e):
@@ -613,7 +616,7 @@ class LocalTransportMixin(_MixinBase):
                 # during HA's setup timeout window. Parameters + feature
                 # detection are deferred to a background task after setup.
                 include_params = self._local_parameters_loaded
-                await inverter.refresh(force=True, include_parameters=include_params)
+                await inverter.refresh(include_parameters=include_params)
 
                 features: dict[str, Any] = {}
                 if include_params and hasattr(inverter, "detect_features"):
@@ -1563,6 +1566,15 @@ class LocalTransportMixin(_MixinBase):
                 )
 
             self._local_transports_attached = True
+
+            # Override pylxpweb's hardcoded cache TTLs with the user-
+            # configured coordinator intervals so battery/runtime refresh
+            # rates honour the options flow settings.
+            for inverter in self.station.all_inverters:
+                transport = getattr(inverter, "_transport", None)
+                if transport is not None:
+                    tt = getattr(transport, "transport_type", "modbus_tcp")
+                    self._align_inverter_cache_ttls(inverter, tt)
 
             # Log hybrid mode status
             if self.station.is_hybrid_mode:

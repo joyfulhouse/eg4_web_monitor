@@ -368,19 +368,21 @@
         "description": "Skonfiguruj interwaly odpytywania dla integracji {brand_name} Web Monitor. Aktualizacje czujnikow kontroluja czestotliwosc pobierania danych urzadzenia. Odswiezanie parametrow kontroluje czestotliwosc synchronizacji ustawien konfiguracji.",
         "data": {
           "sensor_update_interval": "Interwal aktualizacji czujnikow (sekundy)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "Interwał odpytywania HTTP/chmury (sekundy)",
           "parameter_refresh_interval": "Interwal odswiezania parametrow (minuty)",
           "library_debug": "Logowanie debugowania biblioteki",
-          "include_ac_couple_pv": "Uwzglednij AC-Coupled PV w sumach",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "Uwzględnij PV sprzężone AC w sumach"
         },
         "data_description": {
           "sensor_update_interval": "Jak czesto odpytywac o aktualizacje czujnikow ({min_sensor_interval}-{max_sensor_interval} sekund). Nizsze wartosci zapewniaja szybsze aktualizacje, ale zwiększaja obciazenie API.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "Jak często odpytywać API chmury o dane ({min_http_interval}-{max_http_interval} sekund). Wyższe wartości zmniejszają obciążenie API. W trybie hybrydowym kontroluje to tylko dane z chmury; dane z transportu lokalnego są aktualizowane w interwale czujnika.",
           "parameter_refresh_interval": "Jak czesto odswiezac parametry falownika, takie jak limity SOC i ustawienia ladowania ({min_param_interval}-{max_param_interval} minut).",
           "library_debug": "Wlacz logowanie DEBUG dla biblioteki pylxpweb (pokazuje zadania API, odpowiedzi i wewnetrzne operacje biblioteki)",
-          "include_ac_couple_pv": "Dodaj moc falownika solarnego AC-coupled (z portow smart GridBOSS) do sum PV grupy rownoleglej",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Temperatura radiatora 2"
+      },
+      "bt_temperature": {
+        "name": "Temperatura BT"
       },
       "status_code": {
         "name": "Kod statusu"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Calkowita moc obciazenia"
+      },
+      "smart_port1_status": {
+        "name": "Status Smart Port 1",
+        "state": {
+          "unused": "Nieużywany",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Status Smart Port 2",
+        "state": {
+          "unused": "Nieużywany",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Status Smart Port 3",
+        "state": {
+          "unused": "Nieużywany",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Status Smart Port 4",
+        "state": {
+          "unused": "Nieużywany",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "ID wpisu konfiguracji do odswiezenia. Jesli nie podano, wszystkie integracje {brand_name} Web Monitor zostana odswiezone."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Uzgodnij historię energii",
+      "description": "Uzupełnij brakujące statystyki energii z API chmury {brand_name}. Ta usługa pobiera historyczne dane energetyczne i importuje je do bazy danych statystyk Home Assistant dla wszelkich luk w historii czujników energii. Wymaga poświadczeń chmury (tryb połączenia HTTP lub hybrydowy).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Godziny wstecz",
+          "description": "Liczba godzin do przeszukania w poszukiwaniu luk w statystykach energii. Domyślnie 48 godzin."
+        },
+        "start_date": {
+          "name": "Data początkowa",
+          "description": "Jawna data początkowa uzgadniania (format RRRR-MM-DD). Jeśli podana, wymagana jest również end_date."
+        },
+        "end_date": {
+          "name": "Data końcowa",
+          "description": "Jawna data końcowa uzgadniania (format RRRR-MM-DD). Jeśli podana, wymagana jest również start_date."
+        },
+        "entry_id": {
+          "name": "ID wpisu konfiguracji",
+          "description": "ID wpisu konfiguracji do uzgodnienia. Jeśli nie podano, zostaną uzgodnione wszystkie integracje {brand_name} Web Monitor z poświadczeniami chmury."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "Nie znaleziono koordynatorow {brand_name} do odswiezenia. Upewnij sie, ze co najmniej jedna integracja {brand_name} Web Monitor jest skonfigurowana i zaladowana."
+    },
+    "invalid_date_format": {
+      "message": "Nieprawidłowy format daty. Użyj formatu RRRR-MM-DD."
     }
   }
 }

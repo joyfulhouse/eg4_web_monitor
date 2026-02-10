@@ -25,6 +25,11 @@ if TYPE_CHECKING:
     from pylxpweb import LuxpowerClient
     from pylxpweb.devices import Battery, Station
     from pylxpweb.devices.inverters.base import BaseInverter
+    from pylxpweb.transports import (
+        DongleTransport,
+        ModbusSerialTransport,
+        ModbusTransport,
+    )
 
 from pylxpweb.devices.inverters import InverterFamily
 
@@ -41,6 +46,13 @@ _LOGGER = logging.getLogger(__name__)
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
+
+# Map raw smart port status integers to human-readable enum labels
+_SMART_PORT_STATUS_LABELS: dict[int, str] = {
+    0: "unused",
+    1: "smart_load",
+    2: "ac_couple",
+}
 
 # GridBOSS sensor → parallel group sensor overlay mapping.
 # GridBOSS CTs are the authoritative measurement point for grid power
@@ -137,8 +149,8 @@ if TYPE_CHECKING:
         _last_status_fetch: dict[str, float]
         _daily_api_offset: int
         _daily_api_ymd: tuple[int, int, int]
-        _modbus_transport: Any
-        _dongle_transport: Any
+        _modbus_transport: ModbusTransport | ModbusSerialTransport | None
+        _dongle_transport: DongleTransport | None
         _modbus_serial: str
         _modbus_model: str
         _dongle_serial: str
@@ -208,6 +220,9 @@ if TYPE_CHECKING:
         def _has_modbus_transport(self) -> bool: ...
         def _has_dongle_transport(self) -> bool: ...
         def _get_active_transport_intervals(self) -> list[int]: ...
+        def _align_inverter_cache_ttls(
+            self, inverter: Any, transport_type: str
+        ) -> None: ...
 
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
@@ -1022,8 +1037,6 @@ class DeviceProcessingMixin(_MixinBase):
         Returns:
             Processed device data dictionary with sensors and binary_sensors
         """
-        await mid_device.refresh()
-
         model = getattr(mid_device, "model", "GridBOSS")
         firmware_version = getattr(mid_device, "firmware_version", "1.0.0")
 
@@ -1169,19 +1182,17 @@ class DeviceProcessingMixin(_MixinBase):
     def _filter_unused_smart_port_sensors(
         sensors: dict[str, Any], mid_device: Any
     ) -> None:
-        """Filter and ensure sensors based on Smart Port status from MID device.
+        """Filter smart port sensors based on port status from the MID device.
 
-        For active ports (status 1 or 2), both smart_load and ac_couple power
-        sensor keys are ensured to exist so entities are created in all modes
-        (cloud, local, hybrid). Correct-type power sensors get values via
-        setdefault; wrong-type power sensors are set to None (unavailable).
-        Energy sensors are only kept for the correct type.
+        For active ports (status 1 or 2), correct-type power sensor keys are
+        ensured via setdefault and wrong-type power and energy keys are removed.
+        Raw integer status values are also converted to string enum labels.
 
         - Status 0: Unused - remove all sensors for this port
-        - Status 1: Smart Load - ensure power keys for both types, remove
-          wrong-type energy
-        - Status 2: AC Couple - ensure power keys for both types, remove
-          wrong-type energy
+        - Status 1: Smart Load - ensure smart_load power keys, remove all
+          ac_couple keys
+        - Status 2: AC Couple - ensure ac_couple power keys, remove all
+          smart_load keys
 
         Invalid status values (None, or outside 0-2 range) are logged as warnings
         and treated as unused. This can occur with certain WiFi dongle firmware
@@ -1237,6 +1248,12 @@ class DeviceProcessingMixin(_MixinBase):
                     invalid_ports,
                 )
 
+        # Convert raw status integers to enum string labels (always, even
+        # when we skip power sensor filtering on all-zeros below)
+        for port, status in smart_port_statuses.items():
+            if status is not None and status in _SMART_PORT_STATUS_LABELS:
+                sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS[status]
+
         # If all statuses are 0 or None, the dongle likely returned unreliable data.
         # Skip filtering entirely to avoid removing sensors for ports that are
         # actually in use. On subsequent polls with correct data, the filter will
@@ -1278,19 +1295,17 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 1:
                 # Smart Load mode: ensure smart_load power keys exist,
-                # mark ac_couple power as unavailable, remove wrong-type energy
+                # remove ac_couple power + energy (wrong type for this port)
                 for key in smart_load_power_keys:
                     sensors.setdefault(key, 0.0)
-                for key in ac_couple_power_keys:
-                    sensors[key] = None
+                sensors_to_remove.extend(ac_couple_power_keys)
                 sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 2:
                 # AC Couple mode: ensure ac_couple power keys exist,
-                # mark smart_load power as unavailable, remove wrong-type energy
+                # remove smart_load power + energy (wrong type for this port)
                 for key in ac_couple_power_keys:
                     sensors.setdefault(key, 0.0)
-                for key in smart_load_power_keys:
-                    sensors[key] = None
+                sensors_to_remove.extend(smart_load_power_keys)
                 sensors_to_remove.extend(smart_load_energy_keys)
 
         if sensors_to_remove:
@@ -1317,11 +1332,7 @@ class DeviceProcessingMixin(_MixinBase):
         """
 
         def sum_l1_l2(l1_key: str, l2_key: str) -> float | None:
-            """Sum L1 and L2 values if both exist, return None otherwise.
-
-            When both values are None (wrong-type port set by smart port filter),
-            returns None to prevent creating a misleading 0.0 aggregate.
-            """
+            """Sum L1 and L2 values if both exist, return None otherwise."""
             if l1_key in sensors and l2_key in sensors:
                 l1_val = sensors[l1_key]
                 l2_val = sensors[l2_key]
@@ -1330,35 +1341,18 @@ class DeviceProcessingMixin(_MixinBase):
                 return _safe_numeric(l1_val) + _safe_numeric(l2_val)
             return None
 
-        # Calculate Smart Load aggregate power from individual ports
-        smart_load_powers: list[float] = []
-        for port in range(1, 5):
-            l1_key = f"smart_load{port}_power_l1"
-            port_power = sum_l1_l2(l1_key, f"smart_load{port}_power_l2")
-            if port_power is not None:
-                sensors[f"smart_load{port}_power"] = port_power
-                smart_load_powers.append(port_power)
-            elif l1_key in sensors:
-                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
-                sensors[f"smart_load{port}_power"] = None
-
-        if smart_load_powers:
-            sensors["smart_load_power"] = sum(smart_load_powers)
-
-        # Calculate AC Couple aggregate power from individual ports
-        ac_couple_powers: list[float] = []
-        for port in range(1, 5):
-            l1_key = f"ac_couple{port}_power_l1"
-            port_power = sum_l1_l2(l1_key, f"ac_couple{port}_power_l2")
-            if port_power is not None:
-                sensors[f"ac_couple{port}_power"] = port_power
-                ac_couple_powers.append(port_power)
-            elif l1_key in sensors:
-                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
-                sensors[f"ac_couple{port}_power"] = None
-
-        if ac_couple_powers:
-            sensors["ac_couple_power"] = sum(ac_couple_powers)
+        # Calculate per-port and total aggregate power for smart port types
+        for prefix in ("smart_load", "ac_couple"):
+            port_powers: list[float] = []
+            for port in range(1, 5):
+                port_power = sum_l1_l2(
+                    f"{prefix}{port}_power_l1", f"{prefix}{port}_power_l2"
+                )
+                if port_power is not None:
+                    sensors[f"{prefix}{port}_power"] = port_power
+                    port_powers.append(port_power)
+            if port_powers:
+                sensors[f"{prefix}_power"] = sum(port_powers)
 
         # Calculate aggregate power for simple L1/L2 sensor pairs
         l1_l2_aggregates = [

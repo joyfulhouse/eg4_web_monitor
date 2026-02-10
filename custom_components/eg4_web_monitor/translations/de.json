@@ -368,19 +368,21 @@
         "description": "Konfigurieren Sie die Abfrageintervalle für Ihre {brand_name} Web Monitor Integration. Sensor-Updates steuern, wie oft Gerätedaten abgerufen werden. Parameter-Aktualisierung steuert, wie oft Konfigurationseinstellungen synchronisiert werden.",
         "data": {
           "sensor_update_interval": "Sensor-Update-Intervall (Sekunden)",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "http_polling_interval": "HTTP/Cloud-Abfrageintervall (Sekunden)",
           "parameter_refresh_interval": "Parameter-Aktualisierungsintervall (Minuten)",
           "library_debug": "Bibliothek-Debug-Protokollierung",
-          "include_ac_couple_pv": "AC-gekoppelte PV in Gesamtwerte einbeziehen",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
+          "include_ac_couple_pv": "AC-gekoppelte PV in Gesamtwerte einbeziehen"
         },
         "data_description": {
           "sensor_update_interval": "Wie oft nach Sensor-Updates abgefragt wird ({min_sensor_interval}-{max_sensor_interval} Sekunden). Niedrigere Werte liefern schnellere Updates, erhöhen aber die API-Last.",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "http_polling_interval": "Wie oft die Cloud-API abgefragt werden soll ({min_http_interval}-{max_http_interval} Sekunden). Höhere Werte reduzieren die API-Last. Im Hybrid-Modus steuert dies nur Cloud-Daten; lokale Transportdaten werden im Sensorintervall aktualisiert.",
           "parameter_refresh_interval": "Wie oft Wechselrichterparameter wie SOC-Grenzwerte und Ladeeinstellungen aktualisiert werden ({min_param_interval}-{max_param_interval} Minuten).",
           "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)",
-          "include_ac_couple_pv": "AC-gekoppelte Solarwechselrichter-Leistung (von GridBOSS Smart-Ports) zu den PV-Gesamtwerten der Parallelgruppe hinzufügen",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
+          "include_ac_couple_pv": "AC-gekoppelte Solar-Wechselrichterleistung (von GridBOSS Smart Ports) zu den PV-Gesamtwerten der Parallelgruppe hinzufügen"
         }
       }
     }
@@ -460,6 +462,9 @@
       },
       "radiator2_temperature": {
         "name": "Kühler 2 Temperatur"
+      },
+      "bt_temperature": {
+        "name": "BT-Temperatur"
       },
       "status_code": {
         "name": "Statuscode"
@@ -550,6 +555,38 @@
       },
       "total_load_power": {
         "name": "Gesamtverbrauchsleistung"
+      },
+      "smart_port1_status": {
+        "name": "Smart Port 1 Status",
+        "state": {
+          "unused": "Unbenutzt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port2_status": {
+        "name": "Smart Port 2 Status",
+        "state": {
+          "unused": "Unbenutzt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port3_status": {
+        "name": "Smart Port 3 Status",
+        "state": {
+          "unused": "Unbenutzt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
+      },
+      "smart_port4_status": {
+        "name": "Smart Port 4 Status",
+        "state": {
+          "unused": "Unbenutzt",
+          "smart_load": "Smart Load",
+          "ac_couple": "AC Couple"
+        }
       }
     },
     "switch": {
@@ -605,6 +642,28 @@
           "description": "Die Konfigurationseintrags-ID zum Aktualisieren. Wenn nicht angegeben, werden alle {brand_name} Web Monitor Integrationen aktualisiert."
         }
       }
+    },
+    "reconcile_history": {
+      "name": "Energieverlauf abgleichen",
+      "description": "Fehlende Energiestatistiken aus der {brand_name} Cloud-API nachfüllen. Dieser Dienst ruft historische Energiedaten ab und importiert sie in die Statistikdatenbank von Home Assistant für Lücken in Ihrem Energiesensor-Verlauf. Erfordert Cloud-Anmeldedaten (HTTP- oder Hybrid-Verbindungsmodus).",
+      "fields": {
+        "lookback_hours": {
+          "name": "Rückblick (Stunden)",
+          "description": "Anzahl der Stunden, die nach Lücken in den Energiestatistiken gesucht wird. Standard sind 48 Stunden."
+        },
+        "start_date": {
+          "name": "Startdatum",
+          "description": "Explizites Startdatum für den Abgleich (JJJJ-MM-TT Format). Bei Angabe ist auch end_date erforderlich."
+        },
+        "end_date": {
+          "name": "Enddatum",
+          "description": "Explizites Enddatum für den Abgleich (JJJJ-MM-TT Format). Bei Angabe ist auch start_date erforderlich."
+        },
+        "entry_id": {
+          "name": "Konfigurationseintrags-ID",
+          "description": "Die Konfigurationseintrags-ID zum Abgleichen. Wenn nicht angegeben, werden alle {brand_name} Web Monitor Integrationen mit Cloud-Anmeldedaten abgeglichen."
+        }
+      }
     }
   },
   "exceptions": {
@@ -616,6 +675,9 @@
     },
     "no_coordinators": {
       "message": "Keine {brand_name}-Koordinatoren zum Aktualisieren gefunden. Bitte stellen Sie sicher, dass mindestens eine {brand_name} Web Monitor Integration konfiguriert und geladen ist."
+    },
+    "invalid_date_format": {
+      "message": "Ungültiges Datumsformat. Bitte verwenden Sie das Format JJJJ-MM-TT."
     }
   }
 }
