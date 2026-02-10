@@ -904,7 +904,9 @@ class TestStaticLocalData:
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
         for key in GRIDBOSS_SMART_PORT_POWER_KEYS:
-            assert key not in sensors, f"Smart port power key should not be in static data: {key}"
+            assert key not in sensors, (
+                f"Smart port power key should not be in static data: {key}"
+            )
 
         # GridBOSS device should have binary_sensors dict
         assert "binary_sensors" in result["devices"]["GB001"]
