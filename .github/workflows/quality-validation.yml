@@ -389,8 +389,23 @@ jobs:
       - name: Validate unavailability logging
         run: |
           python3 -c "
-          with open('custom_components/eg4_web_monitor/coordinator.py', 'r') as f:
-              content = f.read()
+          import os
+
+          # Read all coordinator modules (base + split-out HTTP/local)
+          coordinator_files = [
+              'custom_components/eg4_web_monitor/coordinator.py',
+              'custom_components/eg4_web_monitor/coordinator_http.py',
+              'custom_components/eg4_web_monitor/coordinator_local.py',
+          ]
+          content = ''
+          for f in coordinator_files:
+              if os.path.exists(f):
+                  with open(f, 'r') as fh:
+                      content += fh.read()
+
+          if not content:
+              print('❌ No coordinator files found')
+              exit(1)
 
           if '_last_available_state' not in content:
               print('❌ Availability state tracking not found')
