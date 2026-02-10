@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Per-transport interval gate bug**: Fixed `_should_poll_transport()` stamping shared timestamp per-device instead of per-type, causing only the first device to be polled when multiple devices share the same transport type ([cc8d4e2](https://github.com/joyfulhouse/eg4_web_monitor/commit/cc8d4e2))
+- **Smart port status register**: Smart port status now read from correct register (holding register 20, bit-packed) instead of input registers 105-108. Fixes smart ports incorrectly showing status=0 and missing smart load/AC couple sensors. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139))
+- **Per-transport interval gate bug**: Fixed `_should_poll_transport()` stamping shared timestamp per-device instead of per-type, causing only the first device to be polled when multiple devices share the same transport type. Fixes missing parallel group data and unavailable battery entities in multi-device LOCAL setups. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [cc8d4e2](https://github.com/joyfulhouse/eg4_web_monitor/commit/cc8d4e2))
 - **Smart port aggregate power**: `_calculate_gridboss_aggregates()` now returns `None` for wrong-type port aggregates instead of including zeroed values that skew totals
 - **Private pylxpweb imports**: Replaced internal module imports (`pylxpweb.transports.data`) with public API equivalents
 
