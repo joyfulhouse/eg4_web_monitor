@@ -1,5 +1,6 @@
 """Tests for network scan config flow steps."""
 
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant import config_entries, data_entry_flow
@@ -223,6 +224,22 @@ class TestNetworkScanResults:
 # =============================================================================
 
 
+def _has_from_registers() -> bool:
+    """Check if pylxpweb has InverterModelInfo.from_registers (added post-0.9.0)."""
+    try:
+        from pylxpweb.devices.inverters import InverterModelInfo
+
+        return hasattr(InverterModelInfo, "from_registers")
+    except ImportError:
+        return False
+
+
+_needs_from_registers = pytest.mark.skipif(
+    not _has_from_registers(),
+    reason="Requires pylxpweb with InverterModelInfo.from_registers() (>0.9.0)",
+)
+
+
 class TestDiscoveryModelInfo:
     """Test that discovery reads HOLD_MODEL for accurate model names."""
 
@@ -273,6 +290,7 @@ class TestDiscoveryModelInfo:
 
         assert device.model == "FlexBOSS21"
 
+    @_needs_from_registers
     async def test_flexboss18_model_from_hold_model(self):
         """Discovery resolves FlexBOSS18 via HOLD_MODEL powerRating=9."""
         from custom_components.eg4_web_monitor._config_flow.discovery import (
@@ -284,6 +302,7 @@ class TestDiscoveryModelInfo:
 
         assert device.model == "FlexBOSS18"
 
+    @_needs_from_registers
     async def test_18kpv_model_from_hold_model(self):
         """Discovery resolves 18KPV via HOLD_MODEL powerRating=6."""
         from custom_components.eg4_web_monitor._config_flow.discovery import (
