@@ -9,15 +9,14 @@ verify this at the mixin level. Runtime type safety is guaranteed by the
 final coordinator class inheriting all mixins together.
 """
 
-# mypy: disable-error-code="attr-defined,misc,unreachable,assignment"
-
 import asyncio
 import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
@@ -27,9 +26,14 @@ if TYPE_CHECKING:
     from pylxpweb.devices import Battery, Station
     from pylxpweb.devices.inverters.base import BaseInverter
 
-from pylxpweb.devices.inverters._features import InverterFamily
+from pylxpweb.devices.inverters import InverterFamily
 
-from .const import DOMAIN, MANUFACTURER
+from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
+from .coordinator_mappings import (
+    _apply_grid_type_override,
+    _build_battery_bank_sensor_mapping,
+    _energy_balance,
+)
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,37 +42,178 @@ _LOGGER = logging.getLogger(__name__)
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
 
+# GridBOSS sensor → parallel group sensor overlay mapping.
+# GridBOSS CTs are the authoritative measurement point for grid power
+# and energy — inverter registers are internal estimates that diverge
+# from actual panel readings.  Used by both HTTP and LOCAL paths to
+# ensure consistent parallel group values regardless of connection mode.
+_GRIDBOSS_PG_OVERLAY: dict[str, str] = {
+    # Power sensors (real-time CT measurements)
+    "grid_power": "grid_power",
+    "grid_power_l1": "grid_power_l1",
+    "grid_power_l2": "grid_power_l2",
+    "load_power": "load_power",
+    "load_power_l1": "load_power_l1",
+    "load_power_l2": "load_power_l2",
+    # Energy sensors (accumulated CT totals)
+    "grid_export_today": "grid_export",
+    "grid_export_total": "grid_export_lifetime",
+    "grid_import_today": "grid_import",
+    "grid_import_total": "grid_import_lifetime",
+    "load_today": "consumption",
+    "load_total": "consumption_lifetime",
+}
 
-class CoordinatorProtocol(Protocol):
-    """Protocol defining the interface that mixins expect from the coordinator.
 
-    This protocol defines attributes and methods that mixins can safely access
-    on the main coordinator class. This enables proper type checking for mixins.
+def apply_gridboss_overlay(
+    pg_sensors: dict[str, Any],
+    gb_sensors: dict[str, Any],
+    group_name: str,
+) -> None:
+    """Overlay GridBOSS CT measurements onto parallel group sensors.
+
+    GridBOSS CTs directly measure grid and load current at the main panel,
+    providing authoritative values for grid power/energy and consumption.
+    Inverter-derived values are estimates and can diverge significantly.
+
+    Called from both the HTTP path (hybrid mode) and the LOCAL path to
+    ensure consistent parallel group data regardless of connection mode.
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        gb_sensors: GridBOSS/MID device sensor dict.
+        group_name: Parallel group name for debug logging.
     """
+    for gb_key, pg_key in _GRIDBOSS_PG_OVERLAY.items():
+        gb_val = gb_sensors.get(gb_key)
+        if gb_val is not None:
+            pg_sensors[pg_key] = float(gb_val)
+            _LOGGER.debug(
+                "Parallel group %s: GridBOSS %s=%s -> %s",
+                group_name,
+                gb_key,
+                gb_val,
+                pg_key,
+            )
 
-    # Data attributes
-    data: dict[str, Any] | None
-    plant_id: str
-    station: "Station | None"
-    client: "LuxpowerClient"
-    hass: HomeAssistant
-    dst_sync_enabled: bool
 
-    # Private attributes for state tracking
-    _last_parameter_refresh: datetime | None  # noqa: F821
-    _parameter_refresh_interval: timedelta
-    _last_dst_sync: datetime | None  # noqa: F821
-    _dst_sync_interval: timedelta
-    _background_tasks: set[asyncio.Task[Any]]
-    _debounced_refresh: Any
-    _last_status_fetch: dict[str, float]
+if TYPE_CHECKING:
 
-    # Methods that mixins may call on each other
-    def get_inverter_object(self, serial: str) -> "BaseInverter | None": ...
-    def _extract_firmware_update_info(
-        self, device: "BaseInverter"
-    ) -> dict[str, Any] | None: ...
-    async def async_request_refresh(self) -> None: ...
+    class _MixinBase:
+        """Type stubs for coordinator attributes and cross-mixin methods.
+
+        Provides mypy with the interface that mixins can access on ``self``.
+        At runtime this is replaced by ``object`` so the MRO is unchanged.
+        """
+
+        # ── Coordinator public attributes ──
+        # Declared as Any to avoid diamond-inheritance conflict with
+        # DataUpdateCoordinator[dict[str, Any]].data in the final class.
+        data: Any
+        hass: HomeAssistant
+        client: LuxpowerClient | None
+        station: Station | None
+        plant_id: str | None
+        connection_type: str
+        entry: ConfigEntry
+        dst_sync_enabled: bool
+
+        # ── Coordinator private attributes ──
+        _inverter_cache: dict[str, BaseInverter]
+        _mid_device_cache: dict[str, Any]
+        _firmware_cache: dict[str, str]
+        _background_tasks: set[asyncio.Task[Any]]
+        _api_semaphore: asyncio.Semaphore
+        _http_polling_interval: int
+        _local_transport_configs: list[dict[str, Any]]
+        _local_transports_attached: bool
+        _local_parameters_loaded: bool
+        _local_static_phase_done: bool
+        _last_available_state: bool
+        _last_parameter_refresh: datetime | None
+        _parameter_refresh_interval: timedelta
+        _last_dst_sync: datetime | None
+        _dst_sync_interval: timedelta
+        _last_status_fetch: dict[str, float]
+        _daily_api_offset: int
+        _daily_api_ymd: tuple[int, int, int]
+        _modbus_transport: Any
+        _dongle_transport: Any
+        _modbus_serial: str
+        _modbus_model: str
+        _dongle_serial: str
+        _dongle_model: str
+        _modbus_interval: int
+        _dongle_interval: int
+        _last_modbus_poll: float
+        _last_dongle_poll: float
+        _shutdown_listener_remove: Callable[[], None] | None
+        _shutdown_listener_fired: bool
+        _debounced_refresh: Any
+        _device_info_cache: dict[str, DeviceInfo]
+        _battery_device_info_cache: dict[str, DeviceInfo]
+        _battery_bank_device_info_cache: dict[str, DeviceInfo]
+
+        # ── DataUpdateCoordinator / coordinator.py methods ──
+        def get_inverter_object(self, serial: str) -> BaseInverter | None: ...
+        async def async_request_refresh(self) -> None: ...
+        def _rebuild_inverter_cache(self) -> None: ...
+
+        # ── DeviceProcessingMixin methods ──
+        async def _process_inverter_object(
+            self, inverter: BaseInverter
+        ) -> dict[str, Any]: ...
+        async def _process_parallel_group_object(
+            self, group: Any
+        ) -> dict[str, Any]: ...
+        async def _process_mid_device_object(
+            self, mid_device: Any
+        ) -> dict[str, Any]: ...
+        @staticmethod
+        def _extract_inverter_features(
+            inverter: BaseInverter,
+        ) -> dict[str, Any]: ...
+        def _extract_battery_from_object(self, battery: Battery) -> dict[str, Any]: ...
+        @staticmethod
+        def _filter_unused_smart_port_sensors(
+            sensors: dict[str, Any], mid_device: Any
+        ) -> None: ...
+        @staticmethod
+        def _calculate_gridboss_aggregates(
+            sensors: dict[str, Any],
+        ) -> None: ...
+
+        # ── FirmwareUpdateMixin methods ──
+        def _extract_firmware_update_info(
+            self, device: BaseInverter
+        ) -> dict[str, Any] | None: ...
+
+        # ── ParameterManagementMixin methods ──
+        def _should_refresh_parameters(self) -> bool: ...
+        async def _hourly_parameter_refresh(self) -> None: ...
+        async def _refresh_missing_parameters(
+            self, inverter_serials: list[str], processed_data: dict[str, Any]
+        ) -> None: ...
+
+        # ── BackgroundTaskMixin methods ──
+        def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None: ...
+        def _log_task_exception(self, task: asyncio.Task[Any]) -> None: ...
+
+        # ── DSTSyncMixin methods ──
+        def _should_sync_dst(self) -> bool: ...
+        async def _perform_dst_sync(self) -> None: ...
+
+        # ── Per-transport interval methods (coordinator.py) ──
+        def _should_poll_transport(self, transport_type: str) -> bool: ...
+        def _has_modbus_transport(self) -> bool: ...
+        def _has_dongle_transport(self) -> bool: ...
+        def _get_active_transport_intervals(self) -> list[int]: ...
+
+        # ── LocalTransportMixin methods ──
+        async def _attach_local_transports_to_station(self) -> None: ...
+
+else:
+    _MixinBase = object
 
 
 # ===== Utility Functions =====
@@ -129,12 +274,32 @@ def _safe_numeric(value: Any) -> float:
         return 0.0
 
 
-class DeviceProcessingMixin:
+class DeviceProcessingMixin(_MixinBase):
     """Mixin for device data processing logic.
 
     Handles processing of inverters, batteries, MID devices, and parallel groups.
     Provides static methods for property mapping.
     """
+
+    def _get_device_grid_type(self, serial: str) -> str | None:
+        """Look up user-selected grid type for a device from config entry.
+
+        Searches the local_transports list in config_entry.data for a
+        device with the matching serial number and returns its grid_type.
+
+        Args:
+            serial: Device serial number.
+
+        Returns:
+            Grid type string or None if not found (cloud-only or legacy config).
+        """
+        local_transports: list[dict[str, Any]] = self.entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
+        )
+        for transport in local_transports:
+            if transport.get("serial") == serial:
+                return transport.get("grid_type")
+        return None
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
@@ -177,6 +342,11 @@ class DeviceProcessingMixin:
                 inverter.serial_number,
                 e,
             )
+
+        # Override phase features if user specified grid type in config
+        grid_type = self._get_device_grid_type(inverter.serial_number)
+        if grid_type and features:
+            _apply_grid_type_override(features, grid_type)
 
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
@@ -244,6 +414,33 @@ class DeviceProcessingMixin:
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
 
+        # Override consumption with energy balance when transport data is present.
+        # pylxpweb's energy_today_usage/energy_lifetime_usage properties read from
+        # load_energy registers (Erec = AC charge from grid) when transport data
+        # is attached.  The cloud API's totalUsage is server-computed and correct,
+        # but there is no equivalent Modbus register.  Energy balance mirrors how
+        # consumption_power is already computed in pylxpweb for instantaneous power.
+        #
+        # Note: GridBOSS uses a different aggregation strategy — CT summation
+        # (L1 + L2) via _safe_sum() in MIDRuntimePropertiesMixin, not energy
+        # balance.  See pylxpweb _mid_runtime_properties.py for details.
+        if getattr(inverter, "_transport", None) is not None:
+            sensors = processed["sensors"]
+            sensors["consumption"] = _energy_balance(
+                sensors.get("yield"),
+                sensors.get("discharging"),
+                sensors.get("grid_import"),
+                sensors.get("charging"),
+                sensors.get("grid_export"),
+            )
+            sensors["consumption_lifetime"] = _energy_balance(
+                sensors.get("yield_lifetime"),
+                sensors.get("discharging_lifetime"),
+                sensors.get("grid_import_lifetime"),
+                sensors.get("charging_lifetime"),
+                sensors.get("grid_export_lifetime"),
+            )
+
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version
 
@@ -291,8 +488,6 @@ class DeviceProcessingMixin:
                 inverter.serial_number,
             )
             try:
-                from .coordinator import _build_battery_bank_sensor_mapping
-
                 battery_bank_sensors = _build_battery_bank_sensor_mapping(
                     transport_battery
                 )
@@ -974,17 +1169,23 @@ class DeviceProcessingMixin:
     def _filter_unused_smart_port_sensors(
         sensors: dict[str, Any], mid_device: Any
     ) -> None:
-        """Filter out sensors based on Smart Port status from MID device.
+        """Filter and ensure sensors based on Smart Port status from MID device.
 
-        Smart Port Status determines what type of device is connected:
+        For active ports (status 1 or 2), both smart_load and ac_couple power
+        sensor keys are ensured to exist so entities are created in all modes
+        (cloud, local, hybrid). Correct-type power sensors get values via
+        setdefault; wrong-type power sensors are set to None (unavailable).
+        Energy sensors are only kept for the correct type.
+
         - Status 0: Unused - remove all sensors for this port
-        - Status 1: Smart Load - keep Smart Load sensors, remove AC Couple sensors
-        - Status 2: AC Couple - keep AC Couple sensors, remove Smart Load sensors
+        - Status 1: Smart Load - ensure power keys for both types, remove
+          wrong-type energy
+        - Status 2: AC Couple - ensure power keys for both types, remove
+          wrong-type energy
 
         Invalid status values (None, or outside 0-2 range) are logged as warnings
-        and those ports are skipped (no filtering applied). This can occur with
-        certain WiFi dongle firmware versions that don't properly expose these
-        registers.
+        and treated as unused. This can occur with certain WiFi dongle firmware
+        versions that don't properly expose these registers.
 
         Modifies the sensors dictionary in place.
 
@@ -1048,52 +1249,49 @@ class DeviceProcessingMixin:
             )
             return
 
-        sensors_to_remove = []
+        sensors_to_remove: list[str] = []
         for port, status in smart_port_statuses.items():
-            # Invalid status values treated same as "unused" - remove all sensors
-            # This ensures we don't create sensors when register reads fail
+            smart_load_power_keys = [
+                f"smart_load{port}_power_l1",
+                f"smart_load{port}_power_l2",
+                f"smart_load{port}_power",
+            ]
+            smart_load_energy_keys = [
+                f"smart_load{port}_today",
+                f"smart_load{port}_total",
+            ]
+            ac_couple_power_keys = [
+                f"ac_couple{port}_power_l1",
+                f"ac_couple{port}_power_l2",
+                f"ac_couple{port}_power",
+            ]
+            ac_couple_energy_keys = [
+                f"ac_couple{port}_today",
+                f"ac_couple{port}_total",
+            ]
+
             if status is None or status not in VALID_STATUS_VALUES or status == 0:
                 # Unused or invalid port - remove all sensors
-                sensors_to_remove.extend(
-                    [
-                        # Smart Load power sensors
-                        f"smart_load{port}_power_l1",
-                        f"smart_load{port}_power_l2",
-                        f"smart_load{port}_power",
-                        # Smart Load energy sensors
-                        f"smart_load{port}_today",
-                        f"smart_load{port}_total",
-                        # AC Couple power sensors
-                        f"ac_couple{port}_power_l1",
-                        f"ac_couple{port}_power_l2",
-                        f"ac_couple{port}_power",
-                        # AC Couple energy sensors
-                        f"ac_couple{port}_today",
-                        f"ac_couple{port}_total",
-                    ]
-                )
+                sensors_to_remove.extend(smart_load_power_keys)
+                sensors_to_remove.extend(smart_load_energy_keys)
+                sensors_to_remove.extend(ac_couple_power_keys)
+                sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 1:
-                # Smart Load mode - remove AC Couple sensors (power and energy)
-                sensors_to_remove.extend(
-                    [
-                        f"ac_couple{port}_power_l1",
-                        f"ac_couple{port}_power_l2",
-                        f"ac_couple{port}_power",
-                        f"ac_couple{port}_today",
-                        f"ac_couple{port}_total",
-                    ]
-                )
+                # Smart Load mode: ensure smart_load power keys exist,
+                # mark ac_couple power as unavailable, remove wrong-type energy
+                for key in smart_load_power_keys:
+                    sensors.setdefault(key, 0.0)
+                for key in ac_couple_power_keys:
+                    sensors[key] = None
+                sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 2:
-                # AC Couple mode - remove Smart Load sensors (power and energy)
-                sensors_to_remove.extend(
-                    [
-                        f"smart_load{port}_power_l1",
-                        f"smart_load{port}_power_l2",
-                        f"smart_load{port}_power",
-                        f"smart_load{port}_today",
-                        f"smart_load{port}_total",
-                    ]
-                )
+                # AC Couple mode: ensure ac_couple power keys exist,
+                # mark smart_load power as unavailable, remove wrong-type energy
+                for key in ac_couple_power_keys:
+                    sensors.setdefault(key, 0.0)
+                for key in smart_load_power_keys:
+                    sensors[key] = None
+                sensors_to_remove.extend(smart_load_energy_keys)
 
         if sensors_to_remove:
             _LOGGER.debug(
@@ -1119,20 +1317,30 @@ class DeviceProcessingMixin:
         """
 
         def sum_l1_l2(l1_key: str, l2_key: str) -> float | None:
-            """Sum L1 and L2 values if both exist, return None otherwise."""
+            """Sum L1 and L2 values if both exist, return None otherwise.
+
+            When both values are None (wrong-type port set by smart port filter),
+            returns None to prevent creating a misleading 0.0 aggregate.
+            """
             if l1_key in sensors and l2_key in sensors:
-                return _safe_numeric(sensors[l1_key]) + _safe_numeric(sensors[l2_key])
+                l1_val = sensors[l1_key]
+                l2_val = sensors[l2_key]
+                if l1_val is None and l2_val is None:
+                    return None
+                return _safe_numeric(l1_val) + _safe_numeric(l2_val)
             return None
 
         # Calculate Smart Load aggregate power from individual ports
         smart_load_powers: list[float] = []
         for port in range(1, 5):
-            port_power = sum_l1_l2(
-                f"smart_load{port}_power_l1", f"smart_load{port}_power_l2"
-            )
+            l1_key = f"smart_load{port}_power_l1"
+            port_power = sum_l1_l2(l1_key, f"smart_load{port}_power_l2")
             if port_power is not None:
                 sensors[f"smart_load{port}_power"] = port_power
                 smart_load_powers.append(port_power)
+            elif l1_key in sensors:
+                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
+                sensors[f"smart_load{port}_power"] = None
 
         if smart_load_powers:
             sensors["smart_load_power"] = sum(smart_load_powers)
@@ -1140,12 +1348,14 @@ class DeviceProcessingMixin:
         # Calculate AC Couple aggregate power from individual ports
         ac_couple_powers: list[float] = []
         for port in range(1, 5):
-            port_power = sum_l1_l2(
-                f"ac_couple{port}_power_l1", f"ac_couple{port}_power_l2"
-            )
+            l1_key = f"ac_couple{port}_power_l1"
+            port_power = sum_l1_l2(l1_key, f"ac_couple{port}_power_l2")
             if port_power is not None:
                 sensors[f"ac_couple{port}_power"] = port_power
                 ac_couple_powers.append(port_power)
+            elif l1_key in sensors:
+                # L1/L2 exist but are both None (wrong-type port) — aggregate = None
+                sensors[f"ac_couple{port}_power"] = None
 
         if ac_couple_powers:
             sensors["ac_couple_power"] = sum(ac_couple_powers)
@@ -1163,7 +1373,7 @@ class DeviceProcessingMixin:
                 sensors[output_key] = total
 
 
-class DeviceInfoMixin:
+class DeviceInfoMixin(_MixinBase):
     """Mixin for device info retrieval methods.
 
     Caches DeviceInfo objects per update cycle to avoid redundant construction
@@ -1245,7 +1455,7 @@ class DeviceInfoMixin:
                 if hasattr(group, "inverters"):
                     for inverter in group.inverters:
                         if inverter.serial_number == device_serial:
-                            return f"parallel_group_{group.first_device_serial}"
+                            return f"parallel_group_{group.name.lower()}"
 
         # LOCAL mode: Check parallel group device data for member_serials
         for serial, device_data in self.data["devices"].items():
@@ -1376,12 +1586,8 @@ class DeviceInfoMixin:
         return device_info
 
 
-class ParameterManagementMixin:
+class ParameterManagementMixin(_MixinBase):
     """Mixin for device parameter refresh operations."""
-
-    # Type hints for attributes initialized in coordinator
-    _last_parameter_refresh: datetime | None
-    _parameter_refresh_interval: timedelta
 
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
@@ -1513,12 +1719,8 @@ class ParameterManagementMixin:
         return bool(time_since_refresh >= self._parameter_refresh_interval)
 
 
-class DSTSyncMixin:
+class DSTSyncMixin(_MixinBase):
     """Mixin for daylight saving time synchronization operations."""
-
-    # Type hints for attributes initialized in coordinator
-    _last_dst_sync: datetime | None
-    _dst_sync_interval: timedelta
 
     def _should_sync_dst(self) -> bool:
         """Check if DST sync is due.
@@ -1582,11 +1784,8 @@ class DSTSyncMixin:
             self._last_dst_sync = dt_util.utcnow()
 
 
-class BackgroundTaskMixin:
+class BackgroundTaskMixin(_MixinBase):
     """Mixin for background task management operations."""
-
-    _shutdown_listener_remove: Callable[[], None] | None
-    _shutdown_listener_fired: bool
 
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
@@ -1655,7 +1854,7 @@ class BackgroundTaskMixin:
                 )
 
 
-class FirmwareUpdateMixin:
+class FirmwareUpdateMixin(_MixinBase):
     """Mixin for firmware update information extraction."""
 
     def _extract_firmware_update_info(
@@ -1675,7 +1874,7 @@ class FirmwareUpdateMixin:
         if not device.firmware_update_available:
             return None
 
-        update_info = {
+        update_info: dict[str, Any] = {
             "latest_version": device.latest_firmware_version,
             "title": device.firmware_update_title,
             "release_summary": device.firmware_update_summary,

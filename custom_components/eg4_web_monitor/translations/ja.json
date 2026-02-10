@@ -147,12 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "デバイスが見つかりました",
-        "description": "**{device_type}**: {device_model}\n**シリアル**: {device_serial}\n**ファミリー**: {device_family}\n**ファームウェア**: {device_firmware}\n**PV電力**: {device_pv_power}W | **バッテリーSOC**: {device_battery_soc}%\n\nデバイス #{device_count} が追加されました。次はどうしますか？",
+        "title": "Confirm Device",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "data": {
+          "grid_type": "Grid Type"
+        },
+        "data_description": {
+          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added",
+        "description": "Device #{device_count} added successfully. What next?",
         "menu_options": {
-          "local_device_type": "別のデバイスを追加",
-          "local_add_cloud": "クラウド認証情報を追加",
-          "local_finish": "セットアップを完了"
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
         }
       },
       "local_finish": {
@@ -360,13 +370,17 @@
           "sensor_update_interval": "センサー更新間隔（秒）",
           "parameter_refresh_interval": "パラメーター更新間隔（分）",
           "library_debug": "ライブラリデバッグログ",
-          "include_ac_couple_pv": "合計にAC連系PVを含める"
+          "include_ac_couple_pv": "合計にAC連系PVを含める",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "センサー更新のポーリング頻度（{min_sensor_interval}～{max_sensor_interval}秒）。低い値はより高速な更新を提供しますが、API負荷が増加します。",
           "parameter_refresh_interval": "SOC制限や充電設定などのインバーターパラメーターの更新頻度（{min_param_interval}～{max_param_interval}分）。",
           "library_debug": "pylxpwebライブラリのDEBUGログを有効にする（APIリクエスト、レスポンス、内部ライブラリ操作を表示）",
-          "include_ac_couple_pv": "GridBOSSスマートポートからのAC連系ソーラーインバーター電力をパラレルグループのPV合計に追加"
+          "include_ac_couple_pv": "GridBOSSスマートポートからのAC連系ソーラーインバーター電力をパラレルグループのPV合計に追加",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +404,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "AC電力"},
-      "ac_voltage": {"name": "AC電圧"},
-      "ac_current": {"name": "AC電流"},
-      "frequency": {"name": "周波数"},
-      "dc_power": {"name": "DC電力"},
-      "dc_voltage": {"name": "DC電圧"},
-      "dc_current": {"name": "DC電流"},
-      "battery_power": {"name": "バッテリー電力"},
-      "battery_voltage": {"name": "バッテリー電圧"},
-      "battery_current": {"name": "バッテリー電流"},
-      "state_of_charge": {"name": "充電状態"},
-      "state_of_health": {"name": "健全性状態"},
-      "total_energy": {"name": "総エネルギー"},
-      "daily_energy": {"name": "日次エネルギー"},
-      "monthly_energy": {"name": "月次エネルギー"},
-      "yearly_energy": {"name": "年次エネルギー"},
-      "internal_temperature": {"name": "内部温度"},
-      "radiator1_temperature": {"name": "ラジエーター1温度"},
-      "radiator2_temperature": {"name": "ラジエーター2温度"},
-      "status_code": {"name": "ステータスコード"},
-      "status_text": {"name": "ステータス"},
-      "grid_power": {"name": "系統電力"},
-      "load_power": {"name": "負荷電力"},
-      "pv_total_power": {"name": "PV総電力"},
-      "pv1_power": {"name": "PV1電力"},
-      "pv2_power": {"name": "PV2電力"},
-      "pv3_power": {"name": "PV3電力"},
-      "cell_voltage_max": {"name": "最大セル電圧"},
-      "cell_voltage_min": {"name": "最小セル電圧"},
-      "cell_voltage_delta": {"name": "セル電圧差"},
-      "cycle_count": {"name": "サイクル数"},
-      "firmware_version": {"name": "ファームウェアバージョン"},
-      "grid_voltage_r": {"name": "系統電圧 R相"},
-      "grid_voltage_s": {"name": "系統電圧 S相"},
-      "grid_voltage_t": {"name": "系統電圧 T相"},
-      "grid_frequency": {"name": "系統周波数"},
-      "eps_voltage_r": {"name": "EPS電圧 R相"},
-      "eps_voltage_s": {"name": "EPS電圧 S相"},
-      "eps_voltage_t": {"name": "EPS電圧 T相"},
-      "eps_frequency": {"name": "EPS周波数"},
-      "eps_power": {"name": "EPS電力"},
-      "eps_power_l1": {"name": "EPS電力 L1"},
-      "eps_power_l2": {"name": "EPS電力 L2"},
-      "power_output": {"name": "出力電力"},
-      "rectifier_power": {"name": "整流器電力"},
-      "ac_couple_power": {"name": "AC連系電力"},
-      "bus1_voltage": {"name": "バス1電圧"},
-      "bus2_voltage": {"name": "バス2電圧"},
-      "total_load_power": {"name": "総負荷電力"}
+      "ac_power": {
+        "name": "AC電力"
+      },
+      "ac_voltage": {
+        "name": "AC電圧"
+      },
+      "ac_current": {
+        "name": "AC電流"
+      },
+      "frequency": {
+        "name": "周波数"
+      },
+      "dc_power": {
+        "name": "DC電力"
+      },
+      "dc_voltage": {
+        "name": "DC電圧"
+      },
+      "dc_current": {
+        "name": "DC電流"
+      },
+      "battery_power": {
+        "name": "バッテリー電力"
+      },
+      "battery_voltage": {
+        "name": "バッテリー電圧"
+      },
+      "battery_current": {
+        "name": "バッテリー電流"
+      },
+      "state_of_charge": {
+        "name": "充電状態"
+      },
+      "state_of_health": {
+        "name": "健全性状態"
+      },
+      "total_energy": {
+        "name": "総エネルギー"
+      },
+      "daily_energy": {
+        "name": "日次エネルギー"
+      },
+      "monthly_energy": {
+        "name": "月次エネルギー"
+      },
+      "yearly_energy": {
+        "name": "年次エネルギー"
+      },
+      "internal_temperature": {
+        "name": "内部温度"
+      },
+      "radiator1_temperature": {
+        "name": "ラジエーター1温度"
+      },
+      "radiator2_temperature": {
+        "name": "ラジエーター2温度"
+      },
+      "status_code": {
+        "name": "ステータスコード"
+      },
+      "status_text": {
+        "name": "ステータス"
+      },
+      "grid_power": {
+        "name": "系統電力"
+      },
+      "load_power": {
+        "name": "負荷電力"
+      },
+      "pv_total_power": {
+        "name": "PV総電力"
+      },
+      "pv1_power": {
+        "name": "PV1電力"
+      },
+      "pv2_power": {
+        "name": "PV2電力"
+      },
+      "pv3_power": {
+        "name": "PV3電力"
+      },
+      "cell_voltage_max": {
+        "name": "最大セル電圧"
+      },
+      "cell_voltage_min": {
+        "name": "最小セル電圧"
+      },
+      "cell_voltage_delta": {
+        "name": "セル電圧差"
+      },
+      "cycle_count": {
+        "name": "サイクル数"
+      },
+      "firmware_version": {
+        "name": "ファームウェアバージョン"
+      },
+      "grid_voltage_r": {
+        "name": "系統電圧 R相"
+      },
+      "grid_voltage_s": {
+        "name": "系統電圧 S相"
+      },
+      "grid_voltage_t": {
+        "name": "系統電圧 T相"
+      },
+      "grid_frequency": {
+        "name": "系統周波数"
+      },
+      "eps_voltage_r": {
+        "name": "EPS電圧 R相"
+      },
+      "eps_voltage_s": {
+        "name": "EPS電圧 S相"
+      },
+      "eps_voltage_t": {
+        "name": "EPS電圧 T相"
+      },
+      "eps_frequency": {
+        "name": "EPS周波数"
+      },
+      "eps_power": {
+        "name": "EPS電力"
+      },
+      "eps_power_l1": {
+        "name": "EPS電力 L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS電力 L2"
+      },
+      "power_output": {
+        "name": "出力電力"
+      },
+      "rectifier_power": {
+        "name": "整流器電力"
+      },
+      "ac_couple_power": {
+        "name": "AC連系電力"
+      },
+      "bus1_voltage": {
+        "name": "バス1電圧"
+      },
+      "bus2_voltage": {
+        "name": "バス2電圧"
+      },
+      "total_load_power": {
+        "name": "総負荷電力"
+      }
     },
     "switch": {
       "quick_charge": {

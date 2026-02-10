@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import inspect
+from unittest.mock import MagicMock, PropertyMock
+
+import pytest
 
 from custom_components.eg4_web_monitor._config_flow.options import EG4OptionsFlow
 from custom_components.eg4_web_monitor.const import (
+    CONF_CONNECTION_TYPE,
+    CONF_DONGLE_UPDATE_INTERVAL,
     CONF_HTTP_POLLING_INTERVAL,
+    CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_UPDATE_INTERVAL,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_DONGLE,
@@ -132,3 +139,76 @@ class TestConnectionTypeLocalCheck:
             CONNECTION_TYPE_LOCAL,
         )
         assert CONNECTION_TYPE_HTTP not in local_types
+
+
+class TestOptionsFlowPerTransport:
+    """Tests for connection-type-aware options flow schema."""
+
+    def _make_flow(
+        self,
+        connection_type: str,
+        local_transports: list[dict[str, str]] | None = None,
+    ) -> EG4OptionsFlow:
+        """Create an EG4OptionsFlow with a mock config entry."""
+        flow = EG4OptionsFlow.__new__(EG4OptionsFlow)
+        mock_entry = MagicMock()
+        mock_entry.data = {
+            CONF_CONNECTION_TYPE: connection_type,
+        }
+        if local_transports is not None:
+            mock_entry.data[CONF_LOCAL_TRANSPORTS] = local_transports
+        mock_entry.options = {}
+        mock_entry.entry_id = "test_entry"
+        type(flow).config_entry = PropertyMock(return_value=mock_entry)
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_options_http_only_shows_http_interval(self):
+        """HTTP-only shows http_polling_interval, not modbus or dongle."""
+        flow = self._make_flow(CONNECTION_TYPE_HTTP)
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_HTTP_POLLING_INTERVAL in schema_keys
+        assert CONF_MODBUS_UPDATE_INTERVAL not in schema_keys
+        assert CONF_DONGLE_UPDATE_INTERVAL not in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_options_modbus_only_shows_modbus_interval(self):
+        """MODBUS-only shows modbus_update_interval, not http or dongle."""
+        flow = self._make_flow(CONNECTION_TYPE_MODBUS)
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_MODBUS_UPDATE_INTERVAL in schema_keys
+        assert CONF_HTTP_POLLING_INTERVAL not in schema_keys
+        assert CONF_DONGLE_UPDATE_INTERVAL not in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_options_local_mixed_shows_both(self):
+        """LOCAL with both transports shows modbus + dongle intervals."""
+        flow = self._make_flow(
+            CONNECTION_TYPE_LOCAL,
+            local_transports=[
+                {"transport_type": "modbus_tcp", "serial": "111"},
+                {"transport_type": "wifi_dongle", "serial": "222"},
+            ],
+        )
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_MODBUS_UPDATE_INTERVAL in schema_keys
+        assert CONF_DONGLE_UPDATE_INTERVAL in schema_keys
+        assert CONF_HTTP_POLLING_INTERVAL not in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_options_hybrid_shows_local_and_http(self):
+        """HYBRID with modbus transport shows modbus + http intervals."""
+        flow = self._make_flow(
+            CONNECTION_TYPE_HYBRID,
+            local_transports=[
+                {"transport_type": "modbus_tcp", "serial": "111"},
+            ],
+        )
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_MODBUS_UPDATE_INTERVAL in schema_keys
+        assert CONF_HTTP_POLLING_INTERVAL in schema_keys
+        assert CONF_DONGLE_UPDATE_INTERVAL not in schema_keys

@@ -45,26 +45,6 @@ BRAND_EG4 = BrandConfig(
     manufacturer="EG4 Electronics",
 )
 
-BRAND_LUXPOWER = BrandConfig(
-    domain="lxp_web_monitor",
-    brand_name="LuxpowerTek",
-    short_name="LXP",
-    entity_prefix="lxp",
-    default_base_url="https://eu.luxpowertek.com",
-    default_verify_ssl=True,
-    manufacturer="LuxpowerTek",
-)
-
-BRAND_FORTRESS = BrandConfig(
-    domain="fortress_web_monitor",
-    brand_name="Fortress Power",
-    short_name="FPR",
-    entity_prefix="fpr",
-    default_base_url="https://envy.fortresspower.io",
-    default_verify_ssl=False,
-    manufacturer="Fortress Power",
-)
-
 # Current brand configuration - change this to switch brands
 CURRENT_BRAND = BRAND_EG4
 
@@ -75,6 +55,3 @@ DEFAULT_VERIFY_SSL = CURRENT_BRAND.default_verify_ssl
 BRAND_NAME = CURRENT_BRAND.brand_name
 ENTITY_PREFIX = CURRENT_BRAND.entity_prefix
 MANUFACTURER = CURRENT_BRAND.manufacturer
-
-# Default update interval (seconds)
-DEFAULT_UPDATE_INTERVAL = 30

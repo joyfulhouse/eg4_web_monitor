@@ -197,7 +197,9 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
             )
 
             # Get device object and refresh using high-level method
-            device_data = self.coordinator.data.get("devices", {}).get(self._serial, {})
+            device_data = (
+                (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+            )
             device_type = device_data.get("type", "unknown")
 
             if device_type == "inverter":

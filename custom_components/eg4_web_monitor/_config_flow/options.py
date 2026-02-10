@@ -15,10 +15,13 @@ from homeassistant import config_entries
 from ..const import (
     BRAND_NAME,
     CONF_CONNECTION_TYPE,
+    CONF_DONGLE_UPDATE_INTERVAL,
     # TODO: Re-enable when AC-coupled PV feature is implemented
     # CONF_INCLUDE_AC_COUPLE_PV,
     CONF_HTTP_POLLING_INTERVAL,
     CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_UPDATE_INTERVAL,
     CONF_PARAMETER_REFRESH_INTERVAL,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_DONGLE,
@@ -28,14 +31,20 @@ from ..const import (
     CONNECTION_TYPE_MODBUS,
     # TODO: Re-enable when AC-coupled PV feature is implemented
     # DEFAULT_INCLUDE_AC_COUPLE_PV,
+    DEFAULT_DONGLE_UPDATE_INTERVAL,
     DEFAULT_HTTP_POLLING_INTERVAL,
+    DEFAULT_MODBUS_UPDATE_INTERVAL,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
+    MAX_DONGLE_UPDATE_INTERVAL,
     MAX_HTTP_POLLING_INTERVAL,
+    MAX_MODBUS_UPDATE_INTERVAL,
     MAX_PARAMETER_REFRESH_INTERVAL,
     MAX_SENSOR_UPDATE_INTERVAL,
+    MIN_DONGLE_UPDATE_INTERVAL,
     MIN_HTTP_POLLING_INTERVAL,
+    MIN_MODBUS_UPDATE_INTERVAL,
     MIN_PARAMETER_REFRESH_INTERVAL,
     MIN_SENSOR_UPDATE_INTERVAL,
 )
@@ -51,21 +60,45 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
 
     Gold tier requirement: Configurable options through UI.
 
-    Options available:
-    - Sensor update interval: How often to poll for sensor data (5-300 seconds)
-    - HTTP polling interval: How often to poll the cloud API (60-300 seconds)
-    - Parameter refresh interval: How often to refresh configuration data (5-1440 minutes)
-
-    Local connection types (Modbus, Dongle, Hybrid, Local) default to faster
-    polling (5 seconds) while HTTP-only defaults to 90 seconds.
+    Shows connection-type-aware polling interval fields:
+    - HTTP-only: HTTP polling interval
+    - MODBUS-only: Modbus update interval
+    - DONGLE-only: Dongle update interval
+    - LOCAL (mixed): Modbus and/or Dongle intervals based on configured transports
+    - HYBRID: Relevant local interval(s) + HTTP polling interval
+    - Always: Parameter refresh interval, Library debug
     """
+
+    def _has_transport_type(self, transport_type: str) -> bool:
+        """Check if a specific transport type exists in local_transports config."""
+        transports: list[dict[str, Any]] = self.config_entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
+        )
+        return any(c.get("transport_type") == transport_type for c in transports)
+
+    def _current_option(
+        self, key: str, default: Any, fallback_key: str | None = None
+    ) -> Any:
+        """Read current option value with optional fallback to a legacy key.
+
+        Checks options[key] first, then options[fallback_key] (if given),
+        then returns default.
+        """
+        value = self.config_entry.options.get(key)
+        if value is not None:
+            return value
+        if fallback_key is not None:
+            fallback = self.config_entry.options.get(fallback_key)
+            if fallback is not None:
+                return fallback
+        return default
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> "ConfigFlowResult":
         """Handle the initial options step.
 
-        Shows a form for configuring polling and refresh intervals.
+        Shows a connection-type-aware form for configuring polling intervals.
 
         Args:
             user_input: Form data from user, or None for initial display.
@@ -75,41 +108,14 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         """
         if user_input is not None:
             _LOGGER.debug(
-                "Options updated for %s: sensor=%ss, http=%ss, params=%sm",
+                "Options updated for %s: %s",
                 self.config_entry.entry_id,
-                user_input.get(CONF_SENSOR_UPDATE_INTERVAL),
-                user_input.get(CONF_HTTP_POLLING_INTERVAL),
-                user_input.get(CONF_PARAMETER_REFRESH_INTERVAL),
+                user_input,
             )
             return self.async_create_entry(title="", data=user_input)
 
-        # Determine default sensor update interval based on connection type
         connection_type = self.config_entry.data.get(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
-        )
-        is_local_connection = connection_type in (
-            CONNECTION_TYPE_MODBUS,
-            CONNECTION_TYPE_DONGLE,
-            CONNECTION_TYPE_HYBRID,
-            CONNECTION_TYPE_LOCAL,
-        )
-        default_sensor_interval = (
-            DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
-            if is_local_connection
-            else DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
-        )
-
-        # Get current values from options, falling back to defaults
-        current_sensor_interval = self.config_entry.options.get(
-            CONF_SENSOR_UPDATE_INTERVAL, default_sensor_interval
-        )
-        current_param_interval = self.config_entry.options.get(
-            CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
-        )
-
-        # Get current HTTP polling interval
-        current_http_interval = self.config_entry.options.get(
-            CONF_HTTP_POLLING_INTERVAL, DEFAULT_HTTP_POLLING_INTERVAL
         )
 
         # Library debug: check options first, fall back to data for migration
@@ -118,69 +124,139 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_LIBRARY_DEBUG, False),
         )
 
-        # TODO: Re-enable when AC-coupled PV feature is implemented
-        # AC couple PV inclusion option
-        # current_include_ac_couple = self.config_entry.options.get(
-        #     CONF_INCLUDE_AC_COUPLE_PV,
-        #     self.config_entry.data.get(
-        #         CONF_INCLUDE_AC_COUPLE_PV, DEFAULT_INCLUDE_AC_COUPLE_PV
-        #     ),
-        # )
-
-        options_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_SENSOR_UPDATE_INTERVAL,
-                    default=current_sensor_interval,
-                ): vol.All(
-                    vol.Coerce(int),
-                    vol.Range(
-                        min=MIN_SENSOR_UPDATE_INTERVAL,
-                        max=MAX_SENSOR_UPDATE_INTERVAL,
-                    ),
-                ),
-                vol.Required(
-                    CONF_HTTP_POLLING_INTERVAL,
-                    default=current_http_interval,
-                ): vol.All(
-                    vol.Coerce(int),
-                    vol.Range(
-                        min=MIN_HTTP_POLLING_INTERVAL,
-                        max=MAX_HTTP_POLLING_INTERVAL,
-                    ),
-                ),
-                vol.Required(
-                    CONF_PARAMETER_REFRESH_INTERVAL,
-                    default=current_param_interval,
-                ): vol.All(
-                    vol.Coerce(int),
-                    vol.Range(
-                        min=MIN_PARAMETER_REFRESH_INTERVAL,
-                        max=MAX_PARAMETER_REFRESH_INTERVAL,
-                    ),
-                ),
-                vol.Optional(
-                    CONF_LIBRARY_DEBUG,
-                    default=current_library_debug,
-                ): bool,
-                # TODO: Re-enable when AC-coupled PV feature is implemented
-                # vol.Optional(
-                #     CONF_INCLUDE_AC_COUPLE_PV,
-                #     default=current_include_ac_couple,
-                # ): bool,
-            }
+        current_param_interval = self.config_entry.options.get(
+            CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
+
+        # Build schema fields based on connection type
+        schema_fields: dict[Any, Any] = {}
+        placeholders: dict[str, str] = {"brand_name": BRAND_NAME}
+
+        # Determine which polling interval fields to show based on connection type
+        # and configured transports. LOCAL/HYBRID modes check local_transports list.
+        has_local_transports = connection_type in (
+            CONNECTION_TYPE_LOCAL,
+            CONNECTION_TYPE_HYBRID,
+        )
+        show_http = connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID)
+        show_modbus = connection_type == CONNECTION_TYPE_MODBUS or (
+            has_local_transports
+            and (
+                self._has_transport_type("modbus_tcp")
+                or self._has_transport_type("modbus_serial")
+            )
+        )
+        show_dongle = connection_type == CONNECTION_TYPE_DONGLE or (
+            has_local_transports and self._has_transport_type("wifi_dongle")
+        )
+        show_legacy_sensor = not show_modbus and not show_dongle and not show_http
+
+        if show_modbus:
+            current_modbus = self._current_option(
+                CONF_MODBUS_UPDATE_INTERVAL,
+                DEFAULT_MODBUS_UPDATE_INTERVAL,
+                fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
+            )
+            schema_fields[
+                vol.Required(CONF_MODBUS_UPDATE_INTERVAL, default=current_modbus)
+            ] = vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_MODBUS_UPDATE_INTERVAL, max=MAX_MODBUS_UPDATE_INTERVAL
+                ),
+            )
+            placeholders["min_modbus_interval"] = str(MIN_MODBUS_UPDATE_INTERVAL)
+            placeholders["max_modbus_interval"] = str(MAX_MODBUS_UPDATE_INTERVAL)
+
+        if show_dongle:
+            current_dongle = self._current_option(
+                CONF_DONGLE_UPDATE_INTERVAL,
+                DEFAULT_DONGLE_UPDATE_INTERVAL,
+                fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
+            )
+            schema_fields[
+                vol.Required(CONF_DONGLE_UPDATE_INTERVAL, default=current_dongle)
+            ] = vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_DONGLE_UPDATE_INTERVAL, max=MAX_DONGLE_UPDATE_INTERVAL
+                ),
+            )
+            placeholders["min_dongle_interval"] = str(MIN_DONGLE_UPDATE_INTERVAL)
+            placeholders["max_dongle_interval"] = str(MAX_DONGLE_UPDATE_INTERVAL)
+
+        if show_http:
+            current_http = self._current_option(
+                CONF_HTTP_POLLING_INTERVAL,
+                DEFAULT_HTTP_POLLING_INTERVAL,
+            )
+            schema_fields[
+                vol.Required(CONF_HTTP_POLLING_INTERVAL, default=current_http)
+            ] = vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_HTTP_POLLING_INTERVAL, max=MAX_HTTP_POLLING_INTERVAL),
+            )
+            placeholders["min_http_interval"] = str(MIN_HTTP_POLLING_INTERVAL)
+            placeholders["max_http_interval"] = str(MAX_HTTP_POLLING_INTERVAL)
+
+        if show_legacy_sensor:
+            # Fallback: show generic sensor_update_interval for edge cases
+            is_local = connection_type in (
+                CONNECTION_TYPE_MODBUS,
+                CONNECTION_TYPE_DONGLE,
+                CONNECTION_TYPE_HYBRID,
+                CONNECTION_TYPE_LOCAL,
+            )
+            default_sensor = (
+                DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL
+                if is_local
+                else DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP
+            )
+            current_sensor = self.config_entry.options.get(
+                CONF_SENSOR_UPDATE_INTERVAL, default_sensor
+            )
+            schema_fields[
+                vol.Required(CONF_SENSOR_UPDATE_INTERVAL, default=current_sensor)
+            ] = vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_SENSOR_UPDATE_INTERVAL,
+                    max=MAX_SENSOR_UPDATE_INTERVAL,
+                ),
+            )
+            placeholders["min_sensor_interval"] = str(MIN_SENSOR_UPDATE_INTERVAL)
+            placeholders["max_sensor_interval"] = str(MAX_SENSOR_UPDATE_INTERVAL)
+
+        # Always show parameter refresh and library debug
+        schema_fields[
+            vol.Required(
+                CONF_PARAMETER_REFRESH_INTERVAL,
+                default=current_param_interval,
+            )
+        ] = vol.All(
+            vol.Coerce(int),
+            vol.Range(
+                min=MIN_PARAMETER_REFRESH_INTERVAL,
+                max=MAX_PARAMETER_REFRESH_INTERVAL,
+            ),
+        )
+        placeholders["min_param_interval"] = str(MIN_PARAMETER_REFRESH_INTERVAL)
+        placeholders["max_param_interval"] = str(MAX_PARAMETER_REFRESH_INTERVAL)
+
+        schema_fields[
+            vol.Optional(CONF_LIBRARY_DEBUG, default=current_library_debug)
+        ] = bool
+
+        # TODO: Re-enable when AC-coupled PV feature is implemented
+        # schema_fields[
+        #     vol.Optional(
+        #         CONF_INCLUDE_AC_COUPLE_PV,
+        #         default=current_include_ac_couple,
+        #     )
+        # ] = bool
 
         return self.async_show_form(
             step_id="init",
-            data_schema=options_schema,
-            description_placeholders={
-                "brand_name": BRAND_NAME,
-                "min_sensor_interval": str(MIN_SENSOR_UPDATE_INTERVAL),
-                "max_sensor_interval": str(MAX_SENSOR_UPDATE_INTERVAL),
-                "min_http_interval": str(MIN_HTTP_POLLING_INTERVAL),
-                "max_http_interval": str(MAX_HTTP_POLLING_INTERVAL),
-                "min_param_interval": str(MIN_PARAMETER_REFRESH_INTERVAL),
-                "max_param_interval": str(MAX_PARAMETER_REFRESH_INTERVAL),
-            },
+            data_schema=vol.Schema(schema_fields),
+            description_placeholders=placeholders,
         )

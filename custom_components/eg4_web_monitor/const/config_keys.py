@@ -27,6 +27,10 @@ CONF_HTTP_POLLING_INTERVAL = "http_polling_interval"
 CONF_PARAMETER_REFRESH_INTERVAL = "parameter_refresh_interval"
 CONF_INCLUDE_AC_COUPLE_PV = "include_ac_couple_pv"  # Add AC couple power to PV totals
 
+# Per-transport polling intervals (LOCAL mode with mixed transports)
+CONF_MODBUS_UPDATE_INTERVAL = "modbus_update_interval"
+CONF_DONGLE_UPDATE_INTERVAL = "dongle_update_interval"
+
 # Connection type configuration
 CONF_CONNECTION_TYPE = "connection_type"
 
@@ -57,6 +61,14 @@ CONF_SERIAL_BAUDRATE = "serial_baudrate"
 CONF_SERIAL_PARITY = "serial_parity"
 CONF_SERIAL_STOPBITS = "serial_stopbits"
 
+# Grid type configuration (per-device, stored in local_transports dict)
+CONF_GRID_TYPE = "grid_type"
+
+# Grid type values
+GRID_TYPE_SPLIT_PHASE = "split_phase"
+GRID_TYPE_SINGLE_PHASE = "single_phase"
+GRID_TYPE_THREE_PHASE = "three_phase"
+
 # =============================================================================
 # Connection Types
 # =============================================================================
@@ -72,7 +84,6 @@ CONNECTION_TYPE_LOCAL = (
 # Hybrid mode local transport options (priority: modbus > dongle > cloud-only)
 HYBRID_LOCAL_MODBUS = "modbus"  # RS485 via Waveshare or similar adapter
 HYBRID_LOCAL_DONGLE = "dongle"  # WiFi dongle on port 8000
-HYBRID_LOCAL_NONE = "none"  # Cloud-only fallback (no local transport)
 
 # =============================================================================
 # Default Values
@@ -93,6 +104,16 @@ MIN_SENSOR_UPDATE_INTERVAL = 5  # seconds
 MAX_SENSOR_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 MIN_PARAMETER_REFRESH_INTERVAL = 5  # minutes
 MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
+
+# Per-transport polling defaults (LOCAL mode with mixed transports)
+DEFAULT_MODBUS_UPDATE_INTERVAL = 5  # seconds (wired, low overhead)
+DEFAULT_DONGLE_UPDATE_INTERVAL = 10  # seconds (WiFi, more conservative)
+
+# Per-transport polling limits
+MIN_MODBUS_UPDATE_INTERVAL = 3  # seconds
+MAX_MODBUS_UPDATE_INTERVAL = 300  # seconds (5 minutes)
+MIN_DONGLE_UPDATE_INTERVAL = 5  # seconds
+MAX_DONGLE_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 
 # HTTP/Cloud polling interval limits (rate limit protection)
 DEFAULT_HTTP_POLLING_INTERVAL = 120  # seconds
@@ -116,7 +137,3 @@ DEFAULT_SERIAL_BAUDRATE = 19200
 DEFAULT_SERIAL_PARITY = "N"  # None
 DEFAULT_SERIAL_STOPBITS = 1
 DEFAULT_SERIAL_TIMEOUT = 10.0  # seconds
-
-# Update intervals for local connections (faster than HTTP due to local network)
-MODBUS_UPDATE_INTERVAL = 5  # seconds (vs 30 for HTTP)
-DONGLE_UPDATE_INTERVAL = 5  # seconds (same as Modbus - local network)

@@ -147,12 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Устройство найдено",
-        "description": "**{device_type}**: {device_model}\n**Серийный номер**: {device_serial}\n**Семейство**: {device_family}\n**Прошивка**: {device_firmware}\n**Мощность PV**: {device_pv_power}Вт | **SOC батареи**: {device_battery_soc}%\n\nДобавлено устройств: #{device_count}. Что дальше?",
+        "title": "Confirm Device",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "data": {
+          "grid_type": "Grid Type"
+        },
+        "data_description": {
+          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added",
+        "description": "Device #{device_count} added successfully. What next?",
         "menu_options": {
-          "local_device_type": "Добавить ещё устройство",
-          "local_add_cloud": "Добавить облачные учётные данные",
-          "local_finish": "Завершить настройку"
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
         }
       },
       "local_finish": {
@@ -360,13 +370,17 @@
           "sensor_update_interval": "Интервал обновления датчиков (секунды)",
           "parameter_refresh_interval": "Интервал обновления параметров (минуты)",
           "library_debug": "Отладочное логирование библиотеки",
-          "include_ac_couple_pv": "Включить AC-связанную PV в итоги"
+          "include_ac_couple_pv": "Включить AC-связанную PV в итоги",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "Как часто опрашивать обновления датчиков ({min_sensor_interval}-{max_sensor_interval} секунд). Меньшие значения обеспечивают более быстрые обновления, но увеличивают нагрузку на API.",
           "parameter_refresh_interval": "Как часто обновлять параметры инвертора, такие как лимиты SOC и настройки зарядки ({min_param_interval}-{max_param_interval} минут).",
           "library_debug": "Включить DEBUG-логирование для библиотеки pylxpweb (показывает запросы API, ответы и внутренние операции библиотеки)",
-          "include_ac_couple_pv": "Добавить мощность солнечного инвертора с AC-связью (от умных портов GridBOSS) к итогам PV параллельной группы"
+          "include_ac_couple_pv": "Добавить мощность солнечного инвертора с AC-связью (от умных портов GridBOSS) к итогам PV параллельной группы",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +404,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "Мощность AC"},
-      "ac_voltage": {"name": "Напряжение AC"},
-      "ac_current": {"name": "Ток AC"},
-      "frequency": {"name": "Частота"},
-      "dc_power": {"name": "Мощность DC"},
-      "dc_voltage": {"name": "Напряжение DC"},
-      "dc_current": {"name": "Ток DC"},
-      "battery_power": {"name": "Мощность батареи"},
-      "battery_voltage": {"name": "Напряжение батареи"},
-      "battery_current": {"name": "Ток батареи"},
-      "state_of_charge": {"name": "Уровень заряда"},
-      "state_of_health": {"name": "Состояние здоровья"},
-      "total_energy": {"name": "Общая энергия"},
-      "daily_energy": {"name": "Энергия за день"},
-      "monthly_energy": {"name": "Энергия за месяц"},
-      "yearly_energy": {"name": "Энергия за год"},
-      "internal_temperature": {"name": "Внутренняя температура"},
-      "radiator1_temperature": {"name": "Температура радиатора 1"},
-      "radiator2_temperature": {"name": "Температура радиатора 2"},
-      "status_code": {"name": "Код статуса"},
-      "status_text": {"name": "Статус"},
-      "grid_power": {"name": "Мощность сети"},
-      "load_power": {"name": "Мощность нагрузки"},
-      "pv_total_power": {"name": "Общая мощность PV"},
-      "pv1_power": {"name": "Мощность PV1"},
-      "pv2_power": {"name": "Мощность PV2"},
-      "pv3_power": {"name": "Мощность PV3"},
-      "cell_voltage_max": {"name": "Максимальное напряжение ячейки"},
-      "cell_voltage_min": {"name": "Минимальное напряжение ячейки"},
-      "cell_voltage_delta": {"name": "Разница напряжений ячеек"},
-      "cycle_count": {"name": "Количество циклов"},
-      "firmware_version": {"name": "Версия прошивки"},
-      "grid_voltage_r": {"name": "Напряжение сети R"},
-      "grid_voltage_s": {"name": "Напряжение сети S"},
-      "grid_voltage_t": {"name": "Напряжение сети T"},
-      "grid_frequency": {"name": "Частота сети"},
-      "eps_voltage_r": {"name": "Напряжение EPS R"},
-      "eps_voltage_s": {"name": "Напряжение EPS S"},
-      "eps_voltage_t": {"name": "Напряжение EPS T"},
-      "eps_frequency": {"name": "Частота EPS"},
-      "eps_power": {"name": "Мощность EPS"},
-      "eps_power_l1": {"name": "Мощность EPS L1"},
-      "eps_power_l2": {"name": "Мощность EPS L2"},
-      "power_output": {"name": "Выходная мощность"},
-      "rectifier_power": {"name": "Мощность выпрямителя"},
-      "ac_couple_power": {"name": "Мощность AC-связи"},
-      "bus1_voltage": {"name": "Напряжение шины 1"},
-      "bus2_voltage": {"name": "Напряжение шины 2"},
-      "total_load_power": {"name": "Общая мощность нагрузки"}
+      "ac_power": {
+        "name": "Мощность AC"
+      },
+      "ac_voltage": {
+        "name": "Напряжение AC"
+      },
+      "ac_current": {
+        "name": "Ток AC"
+      },
+      "frequency": {
+        "name": "Частота"
+      },
+      "dc_power": {
+        "name": "Мощность DC"
+      },
+      "dc_voltage": {
+        "name": "Напряжение DC"
+      },
+      "dc_current": {
+        "name": "Ток DC"
+      },
+      "battery_power": {
+        "name": "Мощность батареи"
+      },
+      "battery_voltage": {
+        "name": "Напряжение батареи"
+      },
+      "battery_current": {
+        "name": "Ток батареи"
+      },
+      "state_of_charge": {
+        "name": "Уровень заряда"
+      },
+      "state_of_health": {
+        "name": "Состояние здоровья"
+      },
+      "total_energy": {
+        "name": "Общая энергия"
+      },
+      "daily_energy": {
+        "name": "Энергия за день"
+      },
+      "monthly_energy": {
+        "name": "Энергия за месяц"
+      },
+      "yearly_energy": {
+        "name": "Энергия за год"
+      },
+      "internal_temperature": {
+        "name": "Внутренняя температура"
+      },
+      "radiator1_temperature": {
+        "name": "Температура радиатора 1"
+      },
+      "radiator2_temperature": {
+        "name": "Температура радиатора 2"
+      },
+      "status_code": {
+        "name": "Код статуса"
+      },
+      "status_text": {
+        "name": "Статус"
+      },
+      "grid_power": {
+        "name": "Мощность сети"
+      },
+      "load_power": {
+        "name": "Мощность нагрузки"
+      },
+      "pv_total_power": {
+        "name": "Общая мощность PV"
+      },
+      "pv1_power": {
+        "name": "Мощность PV1"
+      },
+      "pv2_power": {
+        "name": "Мощность PV2"
+      },
+      "pv3_power": {
+        "name": "Мощность PV3"
+      },
+      "cell_voltage_max": {
+        "name": "Максимальное напряжение ячейки"
+      },
+      "cell_voltage_min": {
+        "name": "Минимальное напряжение ячейки"
+      },
+      "cell_voltage_delta": {
+        "name": "Разница напряжений ячеек"
+      },
+      "cycle_count": {
+        "name": "Количество циклов"
+      },
+      "firmware_version": {
+        "name": "Версия прошивки"
+      },
+      "grid_voltage_r": {
+        "name": "Напряжение сети R"
+      },
+      "grid_voltage_s": {
+        "name": "Напряжение сети S"
+      },
+      "grid_voltage_t": {
+        "name": "Напряжение сети T"
+      },
+      "grid_frequency": {
+        "name": "Частота сети"
+      },
+      "eps_voltage_r": {
+        "name": "Напряжение EPS R"
+      },
+      "eps_voltage_s": {
+        "name": "Напряжение EPS S"
+      },
+      "eps_voltage_t": {
+        "name": "Напряжение EPS T"
+      },
+      "eps_frequency": {
+        "name": "Частота EPS"
+      },
+      "eps_power": {
+        "name": "Мощность EPS"
+      },
+      "eps_power_l1": {
+        "name": "Мощность EPS L1"
+      },
+      "eps_power_l2": {
+        "name": "Мощность EPS L2"
+      },
+      "power_output": {
+        "name": "Выходная мощность"
+      },
+      "rectifier_power": {
+        "name": "Мощность выпрямителя"
+      },
+      "ac_couple_power": {
+        "name": "Мощность AC-связи"
+      },
+      "bus1_voltage": {
+        "name": "Напряжение шины 1"
+      },
+      "bus2_voltage": {
+        "name": "Напряжение шины 2"
+      },
+      "total_load_power": {
+        "name": "Общая мощность нагрузки"
+      }
     },
     "switch": {
       "quick_charge": {

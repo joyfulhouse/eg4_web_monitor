@@ -147,12 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "已找到设备",
-        "description": "**{device_type}**: {device_model}\n**序列号**: {device_serial}\n**系列**: {device_family}\n**固件**: {device_firmware}\n**PV 功率**: {device_pv_power}W | **电池 SOC**: {device_battery_soc}%\n\n已添加第 {device_count} 个设备。下一步？",
+        "title": "Confirm Device",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "data": {
+          "grid_type": "Grid Type"
+        },
+        "data_description": {
+          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added",
+        "description": "Device #{device_count} added successfully. What next?",
         "menu_options": {
-          "local_device_type": "添加另一个设备",
-          "local_add_cloud": "添加云凭据",
-          "local_finish": "完成设置"
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
         }
       },
       "local_finish": {
@@ -360,13 +370,17 @@
           "sensor_update_interval": "传感器更新间隔（秒）",
           "parameter_refresh_interval": "参数刷新间隔（分钟）",
           "library_debug": "库调试日志",
-          "include_ac_couple_pv": "在总计中包含 AC 耦合 PV"
+          "include_ac_couple_pv": "在总计中包含 AC 耦合 PV",
+          "modbus_update_interval": "Modbus Update Interval (seconds)",
+          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)"
         },
         "data_description": {
           "sensor_update_interval": "轮询传感器更新的频率（{min_sensor_interval}-{max_sensor_interval} 秒）。较低的值提供更快的更新，但会增加 API 负载。",
           "parameter_refresh_interval": "刷新逆变器参数（如 SOC 限制和充电设置）的频率（{min_param_interval}-{max_param_interval} 分钟）。",
           "library_debug": "启用 pylxpweb 库的 DEBUG 日志（显示 API 请求、响应和内部库操作）",
-          "include_ac_couple_pv": "将 AC 耦合太阳能逆变器功率（来自 GridBOSS 智能端口）添加到并联组 PV 总计"
+          "include_ac_couple_pv": "将 AC 耦合太阳能逆变器功率（来自 GridBOSS 智能端口）添加到并联组 PV 总计",
+          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
+          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability."
         }
       }
     }
@@ -390,55 +404,153 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "交流功率"},
-      "ac_voltage": {"name": "交流电压"},
-      "ac_current": {"name": "交流电流"},
-      "frequency": {"name": "频率"},
-      "dc_power": {"name": "直流功率"},
-      "dc_voltage": {"name": "直流电压"},
-      "dc_current": {"name": "直流电流"},
-      "battery_power": {"name": "电池功率"},
-      "battery_voltage": {"name": "电池电压"},
-      "battery_current": {"name": "电池电流"},
-      "state_of_charge": {"name": "电量状态"},
-      "state_of_health": {"name": "健康状态"},
-      "total_energy": {"name": "总电量"},
-      "daily_energy": {"name": "日电量"},
-      "monthly_energy": {"name": "月电量"},
-      "yearly_energy": {"name": "年电量"},
-      "internal_temperature": {"name": "内部温度"},
-      "radiator1_temperature": {"name": "散热器 1 温度"},
-      "radiator2_temperature": {"name": "散热器 2 温度"},
-      "status_code": {"name": "状态代码"},
-      "status_text": {"name": "状态"},
-      "grid_power": {"name": "电网功率"},
-      "load_power": {"name": "负载功率"},
-      "pv_total_power": {"name": "PV 总功率"},
-      "pv1_power": {"name": "PV1 功率"},
-      "pv2_power": {"name": "PV2 功率"},
-      "pv3_power": {"name": "PV3 功率"},
-      "cell_voltage_max": {"name": "最大电芯电压"},
-      "cell_voltage_min": {"name": "最小电芯电压"},
-      "cell_voltage_delta": {"name": "电芯电压差"},
-      "cycle_count": {"name": "循环次数"},
-      "firmware_version": {"name": "固件版本"},
-      "grid_voltage_r": {"name": "电网电压 R"},
-      "grid_voltage_s": {"name": "电网电压 S"},
-      "grid_voltage_t": {"name": "电网电压 T"},
-      "grid_frequency": {"name": "电网频率"},
-      "eps_voltage_r": {"name": "EPS 电压 R"},
-      "eps_voltage_s": {"name": "EPS 电压 S"},
-      "eps_voltage_t": {"name": "EPS 电压 T"},
-      "eps_frequency": {"name": "EPS 频率"},
-      "eps_power": {"name": "EPS 功率"},
-      "eps_power_l1": {"name": "EPS 功率 L1"},
-      "eps_power_l2": {"name": "EPS 功率 L2"},
-      "power_output": {"name": "输出功率"},
-      "rectifier_power": {"name": "整流器功率"},
-      "ac_couple_power": {"name": "AC 耦合功率"},
-      "bus1_voltage": {"name": "母线 1 电压"},
-      "bus2_voltage": {"name": "母线 2 电压"},
-      "total_load_power": {"name": "总负载功率"}
+      "ac_power": {
+        "name": "交流功率"
+      },
+      "ac_voltage": {
+        "name": "交流电压"
+      },
+      "ac_current": {
+        "name": "交流电流"
+      },
+      "frequency": {
+        "name": "频率"
+      },
+      "dc_power": {
+        "name": "直流功率"
+      },
+      "dc_voltage": {
+        "name": "直流电压"
+      },
+      "dc_current": {
+        "name": "直流电流"
+      },
+      "battery_power": {
+        "name": "电池功率"
+      },
+      "battery_voltage": {
+        "name": "电池电压"
+      },
+      "battery_current": {
+        "name": "电池电流"
+      },
+      "state_of_charge": {
+        "name": "电量状态"
+      },
+      "state_of_health": {
+        "name": "健康状态"
+      },
+      "total_energy": {
+        "name": "总电量"
+      },
+      "daily_energy": {
+        "name": "日电量"
+      },
+      "monthly_energy": {
+        "name": "月电量"
+      },
+      "yearly_energy": {
+        "name": "年电量"
+      },
+      "internal_temperature": {
+        "name": "内部温度"
+      },
+      "radiator1_temperature": {
+        "name": "散热器 1 温度"
+      },
+      "radiator2_temperature": {
+        "name": "散热器 2 温度"
+      },
+      "status_code": {
+        "name": "状态代码"
+      },
+      "status_text": {
+        "name": "状态"
+      },
+      "grid_power": {
+        "name": "电网功率"
+      },
+      "load_power": {
+        "name": "负载功率"
+      },
+      "pv_total_power": {
+        "name": "PV 总功率"
+      },
+      "pv1_power": {
+        "name": "PV1 功率"
+      },
+      "pv2_power": {
+        "name": "PV2 功率"
+      },
+      "pv3_power": {
+        "name": "PV3 功率"
+      },
+      "cell_voltage_max": {
+        "name": "最大电芯电压"
+      },
+      "cell_voltage_min": {
+        "name": "最小电芯电压"
+      },
+      "cell_voltage_delta": {
+        "name": "电芯电压差"
+      },
+      "cycle_count": {
+        "name": "循环次数"
+      },
+      "firmware_version": {
+        "name": "固件版本"
+      },
+      "grid_voltage_r": {
+        "name": "电网电压 R"
+      },
+      "grid_voltage_s": {
+        "name": "电网电压 S"
+      },
+      "grid_voltage_t": {
+        "name": "电网电压 T"
+      },
+      "grid_frequency": {
+        "name": "电网频率"
+      },
+      "eps_voltage_r": {
+        "name": "EPS 电压 R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS 电压 S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS 电压 T"
+      },
+      "eps_frequency": {
+        "name": "EPS 频率"
+      },
+      "eps_power": {
+        "name": "EPS 功率"
+      },
+      "eps_power_l1": {
+        "name": "EPS 功率 L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS 功率 L2"
+      },
+      "power_output": {
+        "name": "输出功率"
+      },
+      "rectifier_power": {
+        "name": "整流器功率"
+      },
+      "ac_couple_power": {
+        "name": "AC 耦合功率"
+      },
+      "bus1_voltage": {
+        "name": "母线 1 电压"
+      },
+      "bus2_voltage": {
+        "name": "母线 2 电压"
+      },
+      "total_load_power": {
+        "name": "总负载功率"
+      }
     },
     "switch": {
       "quick_charge": {

@@ -76,16 +76,6 @@ SUPPORTED_INVERTER_MODELS = frozenset(
 )
 
 # =============================================================================
-# Battery Data Scaling Factors
-# =============================================================================
-# Raw API values are scaled by these factors and need division for proper units
-
-BATTERY_VOLTAGE_SCALE_MILLIVOLTS = 1000  # Battery cell voltage in mV (÷1000 for V)
-BATTERY_VOLTAGE_SCALE_CENTIVOLTS = 100  # Total battery voltage in cV (÷100 for V)
-BATTERY_CURRENT_SCALE_DECIAMPS = 10  # Battery current in dA (÷10 for A)
-BATTERY_TEMPERATURE_SCALE_DECIDEGREES = 10  # Battery temperature in dC (÷10 for °C)
-
-# =============================================================================
 # Task Management Constants
 # =============================================================================
 

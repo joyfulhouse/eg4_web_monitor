@@ -14,8 +14,10 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.coordinator import (
-    ALL_INVERTER_SENSOR_KEYS,
     EG4DataUpdateCoordinator,
+)
+from custom_components.eg4_web_monitor.coordinator_mappings import (
+    ALL_INVERTER_SENSOR_KEYS,
 )
 from custom_components.eg4_web_monitor.sensor import async_setup_entry
 
@@ -110,8 +112,8 @@ class TestLateBatteryRegistration:
         # Set up entities — should create inverter sensors but no batteries
         await async_setup_entry(hass, local_config_entry, mock_add_entities)
 
-        # Verify a listener was registered for late battery discovery
-        mock_coordinator_static.async_add_listener.assert_called_once()
+        # Verify listeners registered (batteries + smart port sensors)
+        assert mock_coordinator_static.async_add_listener.call_count == 2
 
         # Simulate second refresh: batteries appear
         battery_sensors = {

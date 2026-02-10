@@ -1,11 +1,6 @@
 """Utility functions for EG4 Inverter integration."""
 
 import logging
-import time
-from typing import (
-    Any,
-    Callable,
-)
 
 from homeassistant.helpers.device_registry import DeviceInfo
 
@@ -151,54 +146,3 @@ def generate_unique_id(serial: str, entity_type: str, suffix: str | None = None)
         base_id = f"{base_id}_{suffix}"
 
     return base_id
-
-
-class CircuitBreaker:
-    """Simple circuit breaker pattern for API calls."""
-
-    def __init__(self, failure_threshold: int = 5, timeout: int = 60) -> None:
-        """Initialize circuit breaker.
-
-        Args:
-            failure_threshold: Number of failures before opening circuit
-            timeout: Timeout in seconds before trying again
-        """
-        self.failure_threshold = failure_threshold
-        self.timeout = timeout
-        self.failure_count = 0
-        self.last_failure_time: float | None = None
-        self.state = "closed"  # closed, open, half-open
-
-    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Execute function with circuit breaker protection.
-
-        Args:
-            func: Async function to execute
-            *args: Function arguments
-            **kwargs: Function keyword arguments
-
-        Returns:
-            Function result or raises exception
-        """
-        if self.state == "open":
-            if self.last_failure_time and (
-                time.monotonic() - self.last_failure_time > self.timeout
-            ):
-                self.state = "half-open"
-            else:
-                raise RuntimeError("Circuit breaker is open")
-
-        try:
-            result = await func(*args, **kwargs)
-            if self.state == "half-open":
-                self.state = "closed"
-                self.failure_count = 0
-            return result
-        except Exception as e:
-            self.failure_count += 1
-            self.last_failure_time = time.monotonic()
-
-            if self.failure_count >= self.failure_threshold:
-                self.state = "open"
-
-            raise e

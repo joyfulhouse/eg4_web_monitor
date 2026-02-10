@@ -5,6 +5,40 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.26] - 2026-02-10
+
+### Changed
+
+- **Major coordinator restructuring**: Split monolithic `coordinator.py` (~3000 lines) into focused modules: `coordinator_http.py` (HTTP/cloud), `coordinator_local.py` (Modbus/dongle), `coordinator_mappings.py` (sensor mappings), `coordinator_mixins.py` (shared logic). Coordinator base class is now a thin orchestrator.
+- **Number entity deduplication**: Consolidated 9 repetitive number entity classes into shared `_read_param`/`_write_param` helpers, reducing `number.py` by ~500 lines while preserving all functionality.
+- **Per-transport refresh intervals**: LOCAL mode now supports independent poll intervals for each transport type (Modbus TCP, WiFi dongle, serial), configurable via options flow with sensible defaults.
+- **Static entity creation**: First refresh in LOCAL mode produces zero Modbus reads by returning pre-populated sensor keys from config metadata, ensuring fast HA setup. Real data fills in on second refresh.
+- **Smart port sensor filtering**: Active smart ports (status 1=smart_load, 2=ac_couple) now create both sensor types in all modes. Correct-type sensors show values; wrong-type sensors show as unavailable.
+
+### Fixed
+
+- **Smart port status register**: Smart port status now read from correct register (holding register 20, bit-packed) instead of input registers 105-108. Fixes smart ports incorrectly showing status=0 and missing smart load/AC couple sensors. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139))
+- **Per-transport interval gate bug**: Fixed `_should_poll_transport()` stamping shared timestamp per-device instead of per-type, causing only the first device to be polled when multiple devices share the same transport type. Fixes missing parallel group data and unavailable battery entities in multi-device LOCAL setups. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [cc8d4e2](https://github.com/joyfulhouse/eg4_web_monitor/commit/cc8d4e2))
+- **Smart port aggregate power**: `_calculate_gridboss_aggregates()` now returns `None` for wrong-type port aggregates instead of including zeroed values that skew totals
+- **Private pylxpweb imports**: Replaced internal module imports (`pylxpweb.transports.data`) with public API equivalents
+
+### Removed
+
+- **Legacy config flow**: Deleted `_config_flow_legacy.py` (~1969 lines) — unified config flow fully replaces the 12-mixin architecture
+- **Dead code**: `CircuitBreaker` class, `utils.py` helpers, `const/brand.py`, `const/modbus.py`, `const/working_modes.py`, `const/diagnostics.py`, `test_config_flow_schemas.py`, `test_utils.py`
+- **Duplicated constants**: Consolidated scattered constant definitions into canonical locations
+
+### Added
+
+- **623 tests** (up from ~350): Comprehensive test suites for sensor entities, coordinator HTTP/local paths, config flow, reconfigure flow, update entities, number/switch/select entities
+- **DATA_MAPPING.md**: Canonical reference documenting all register-to-sensor and Cloud API-to-sensor mappings, smart port decode logic, GridBOSS CT overlay, entity counts, and all calculations
+- **Network scan**: Auto-discover Modbus/dongle devices on local network during config flow
+- **Serial transport**: Modbus RTU via USB-to-RS485 adapter support in config flow
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.0` (canonical register migration, dual-source MIDDevice, smart port status fix)
+
 ## [3.2.0-beta.22] - 2026-02-05
 
 ### Fixed
