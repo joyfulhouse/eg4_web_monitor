@@ -232,7 +232,13 @@ class TestDiscoveryModelInfo:
         power_rating: int | None = None,
         us_version: bool = True,
     ) -> MagicMock:
-        """Build a mock transport with optional read_model_info."""
+        """Build a mock transport with optional HOLD_MODEL register data.
+
+        When power_rating is provided, read_parameters(0, 2) returns
+        register values with power_rating encoded in bits 8-11 of reg0.
+        When power_rating is None, read_parameters(0, 2) raises to
+        simulate a transport that cannot read HOLD_MODEL.
+        """
         transport = MagicMock()
         transport.read_device_type = AsyncMock(return_value=device_type_code)
         transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
@@ -244,18 +250,15 @@ class TestDiscoveryModelInfo:
         transport.read_runtime = AsyncMock(return_value=runtime)
 
         if power_rating is not None:
-            from pylxpweb.devices.inverters._features import InverterModelInfo
-
-            model_info = InverterModelInfo.from_parameters(
-                {
-                    "HOLD_MODEL_powerRating": power_rating,
-                    "HOLD_MODEL_usVersion": us_version,
-                }
-            )
-            transport.read_model_info = AsyncMock(return_value=model_info)
+            # Encode power_rating in bits 8-11 of reg0
+            reg0 = (power_rating << 8) | 0xC0  # Lower bits don't matter
+            reg1 = 0x0009
+            transport.read_parameters = AsyncMock(return_value={0: reg0, 1: reg1})
         else:
-            # Ensure hasattr(transport, "read_model_info") is False
-            del transport.read_model_info
+            # Simulate transport that can't read registers 0-1
+            transport.read_parameters = AsyncMock(
+                side_effect=Exception("Cannot read registers")
+            )
 
         return transport
 
@@ -292,8 +295,8 @@ class TestDiscoveryModelInfo:
 
         assert device.model == "18KPV"
 
-    async def test_fallback_when_no_read_model_info(self):
-        """Discovery falls back to default name when transport lacks read_model_info."""
+    async def test_fallback_when_hold_model_unreadable(self):
+        """Discovery falls back to default name when HOLD_MODEL registers unreadable."""
         from custom_components.eg4_web_monitor._config_flow.discovery import (
             _read_device_info_from_transport,
         )

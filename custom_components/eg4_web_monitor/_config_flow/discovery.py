@@ -142,21 +142,27 @@ async def _read_device_info_from_transport(
     model, family = _get_model_from_device_type(device_type_code)
     is_gridboss = device_type_code == DEVICE_TYPE_CODE_GRIDBOSS
 
-    # Read HOLD_MODEL (registers 0-1) for power-level-specific model name
+    # Read HOLD_MODEL (registers 0-1) for power-level-specific model name.
     # This replaces the generic default (e.g., "FlexBOSS21" → "FlexBOSS18")
-    if not is_gridboss and hasattr(transport, "read_model_info"):
+    # by decoding power_rating from the register bitfield.
+    if not is_gridboss:
         try:
-            model_info = await transport.read_model_info()
-            specific_model = model_info.get_model_name(device_type_code)
-            if specific_model and not specific_model.startswith("Unknown"):
-                model = specific_model
-                _LOGGER.debug(
-                    "Model name from HOLD_MODEL for %s: %s (power_rating=%d, us=%s)",
-                    serial,
-                    model,
-                    model_info.power_rating,
-                    model_info.us_version,
+            from pylxpweb.devices.inverters import InverterModelInfo
+
+            model_params = await transport.read_parameters(0, 2)
+            if 0 in model_params and 1 in model_params:
+                model_info = InverterModelInfo.from_registers(
+                    model_params[0], model_params[1]
                 )
+                specific_model = model_info.get_model_name(device_type_code)
+                if specific_model and not specific_model.startswith("Unknown"):
+                    model = specific_model
+                    _LOGGER.debug(
+                        "Model from HOLD_MODEL for %s: %s (power_rating=%d)",
+                        serial,
+                        model,
+                        model_info.power_rating,
+                    )
         except Exception as err:
             _LOGGER.debug("Could not read HOLD_MODEL for model name: %s", err)
 
