@@ -29,10 +29,13 @@ from .const import (
     INVERTER_FAMILY_DEFAULT_MODELS,
     MANUFACTURER,
 )
-from .coordinator_mixins import _MixinBase
+from .coordinator_mixins import _MixinBase, apply_gridboss_overlay
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     GRIDBOSS_SENSOR_KEYS,
+    GRIDBOSS_SMART_PORT_POWER_KEYS,
+    PARALLEL_GROUP_GRIDBOSS_KEYS,
+    PARALLEL_GROUP_SENSOR_KEYS,
     _build_battery_bank_sensor_mapping,
     _build_energy_sensor_mapping,
     _build_gridboss_sensor_mapping,
@@ -170,6 +173,9 @@ class LocalTransportMixin(_MixinBase):
             device_data["sensors"]["rectifier_power"] = val
         if (val := inverter.power_to_user) is not None:
             device_data["sensors"]["grid_import_power"] = val
+        # EPS per-leg power (computed from total EPS + voltage ratio)
+        device_data["sensors"]["eps_power_l1"] = inverter.eps_power_l1
+        device_data["sensors"]["eps_power_l2"] = inverter.eps_power_l2
 
         transport = getattr(inverter, "_transport", None)
         if transport and hasattr(transport, "host"):
@@ -723,6 +729,9 @@ class LocalTransportMixin(_MixinBase):
                     sensors["rectifier_power"] = val
                 if (val := inverter.power_to_user) is not None:
                     sensors["grid_import_power"] = val
+                # EPS per-leg power (computed from total EPS + voltage ratio)
+                sensors["eps_power_l1"] = inverter.eps_power_l1
+                sensors["eps_power_l2"] = inverter.eps_power_l2
 
                 # Add last_polled timestamp so users can see when data was last fetched
                 # (not just when it last changed)
@@ -869,7 +878,10 @@ class LocalTransportMixin(_MixinBase):
             firmware = config.get("firmware_version", "Unknown")
 
             if is_gridboss:
-                sensor_keys = GRIDBOSS_SENSOR_KEYS
+                # Exclude smart port power keys from static creation — they are
+                # added dynamically by _filter_unused_smart_port_sensors() based
+                # on actual port status so only active ports get entities.
+                sensor_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_POWER_KEYS
                 device_type = "gridboss"
             else:
                 sensor_keys = ALL_INVERTER_SENSOR_KEYS
@@ -890,7 +902,12 @@ class LocalTransportMixin(_MixinBase):
             # even before Modbus-based feature detection runs.
             family_str = config.get("inverter_family")
             dtc = config.get("device_type_code")
-            features = _features_from_family(family_str, dtc) if not is_gridboss else {}
+            grid_type = config.get("grid_type")
+            features = (
+                _features_from_family(family_str, dtc, grid_type=grid_type)
+                if not is_gridboss
+                else {}
+            )
 
             device_data: dict[str, Any] = {
                 "type": device_type,
@@ -911,7 +928,81 @@ class LocalTransportMixin(_MixinBase):
             processed["devices"][serial] = device_data
             processed["parameters"][serial] = {}
 
+        self._add_static_parallel_groups(processed)
+
         return processed
+
+    def _add_static_parallel_groups(self, processed: dict[str, Any]) -> None:
+        """Add parallel group device entries to static data when inferable.
+
+        Groups non-gridboss configs by parallel_number (mirroring the real
+        _process_local_parallel_groups logic) so device IDs stay consistent
+        across static and real refresh phases.
+
+        Falls back to a device-count heuristic (2+ non-gridboss devices) when
+        no parallel_number info is stored in config (e.g., legacy entries).
+        """
+        # Group non-gridboss configs by parallel_number
+        parallel_groups: dict[int, list[dict[str, Any]]] = {}
+        non_gridboss_configs: list[dict[str, Any]] = []
+        has_gridboss = False
+
+        for config in self._local_transport_configs:
+            if config.get("is_gridboss", False):
+                has_gridboss = True
+                continue
+            non_gridboss_configs.append(config)
+            pn = config.get("parallel_number", 0)
+            if pn > 0:
+                parallel_groups.setdefault(pn, []).append(config)
+
+        # Fallback: no parallel_number info but 2+ inverters/devices
+        if not parallel_groups and len(non_gridboss_configs) >= 2:
+            parallel_groups[1] = non_gridboss_configs
+
+        if not parallel_groups:
+            return
+
+        for group_index, (_, group_configs) in enumerate(
+            sorted(parallel_groups.items())
+        ):
+            group_name = chr(ord("A") + group_index)
+
+            # Find master (parallel_master_slave == 1) or use first serial
+            first_serial = group_configs[0].get("serial", "")
+            for cfg in group_configs:
+                if cfg.get("parallel_master_slave", 0) == 1:
+                    first_serial = cfg.get("serial", "")
+                    break
+
+            # Use group name as device ID for consistency with cloud API.
+            # Cloud API identifies groups by parallelGroup name ("A", "B").
+            # Using the name instead of a device serial ensures entity IDs
+            # remain stable across LOCAL/HYBRID/cloud mode transitions.
+            group_device_id = f"parallel_group_{group_name.lower()}"
+
+            sensor_keys = PARALLEL_GROUP_SENSOR_KEYS
+            if has_gridboss:
+                sensor_keys = sensor_keys | PARALLEL_GROUP_GRIDBOSS_KEYS
+
+            processed["devices"][group_device_id] = {
+                "type": "parallel_group",
+                "name": f"Parallel Group {group_name}",
+                "group_name": group_name,
+                "first_device_serial": first_serial,
+                "member_count": len(group_configs),
+                "member_serials": [c.get("serial", "") for c in group_configs],
+                "sensors": {k: None for k in sensor_keys},
+            }
+
+            _LOGGER.debug(
+                "LOCAL: Static parallel group %s created with %d members "
+                "(device_id=%s, %d sensor keys)",
+                group_name,
+                len(group_configs),
+                group_device_id,
+                len(sensor_keys),
+            )
 
     async def _async_update_local_data(self) -> dict[str, Any]:
         """Fetch data from multiple local transports (Modbus + Dongle mix).
@@ -1293,37 +1384,11 @@ class LocalTransportMixin(_MixinBase):
             # Override grid/load power and energy with GridBOSS data if available.
             # The GridBOSS has the grid CTs and is the authoritative source for
             # grid interaction — inverters don't see the actual grid import/export.
-            gridboss_sensor_mapping = {
-                # Power sensors (real-time CT measurements)
-                "grid_power": "grid_power",
-                "grid_power_l1": "grid_power_l1",
-                "grid_power_l2": "grid_power_l2",
-                "load_power": "load_power",
-                "load_power_l1": "load_power_l1",
-                "load_power_l2": "load_power_l2",
-                # Energy sensors (accumulated totals)
-                "grid_export_today": "grid_export",
-                "grid_export_total": "grid_export_lifetime",
-                "grid_import_today": "grid_import",
-                "grid_import_total": "grid_import_lifetime",
-                "load_today": "consumption",
-                "load_total": "consumption_lifetime",
-            }
             for serial, device_data in processed.get("devices", {}).items():
                 if device_data.get("type") != "gridboss":
                     continue
                 gb_sensors = device_data.get("sensors", {})
-                for gb_key, pg_key in gridboss_sensor_mapping.items():
-                    gb_val = gb_sensors.get(gb_key)
-                    if gb_val is not None:
-                        group_sensors[pg_key] = float(gb_val)
-                        _LOGGER.debug(
-                            "LOCAL: Parallel group %s: using GridBOSS %s=%s for %s",
-                            group_name,
-                            gb_key,
-                            gb_val,
-                            pg_key,
-                        )
+                apply_gridboss_overlay(group_sensors, gb_sensors, group_name)
                 # Add GridBOSS load_power to consumption_power total.
                 # Total consumption = inverter eps_power (already aggregated) + GridBOSS load_power
                 # The GridBOSS CT measures main panel loads; inverter EPS loads are on separate
@@ -1396,6 +1461,18 @@ class LocalTransportMixin(_MixinBase):
 
                 break  # Only one GridBOSS per system
 
+            # Copy grid voltage from the master/primary inverter.
+            # All inverters share the same grid, so the master's reading is
+            # representative — no averaging needed.
+            for serial, dd in group_devices:
+                if serial == first_serial:
+                    master_sensors = dd.get("sensors", {})
+                    for vkey in ("grid_voltage_l1", "grid_voltage_l2"):
+                        val = master_sensors.get(vkey)
+                        if val is not None:
+                            group_sensors[vkey] = val
+                    break
+
             # Add last polled timestamp for parallel group
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
@@ -1403,7 +1480,11 @@ class LocalTransportMixin(_MixinBase):
             # Note: We create groups even with 1 inverter if parallel_number > 0,
             # since this indicates the inverter is configured for parallel operation
             # (e.g., single inverter + GridBOSS setup)
-            group_device_id = f"parallel_group_{first_serial}"
+            # Use group name as device ID for consistency with cloud API.
+            # Cloud API identifies groups by parallelGroup name ("A", "B").
+            # Using the name instead of a device serial ensures entity IDs
+            # remain stable across LOCAL/HYBRID/cloud mode transitions.
+            group_device_id = f"parallel_group_{group_name.lower()}"
             processed["devices"][group_device_id] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",

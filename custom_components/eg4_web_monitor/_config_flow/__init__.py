@@ -36,6 +36,7 @@ from pylxpweb.exceptions import (
 from .discovery import (
     DiscoveredDevice,
     build_device_config,
+    detect_grid_type,
     discover_dongle_device,
     discover_modbus_device,
     discover_serial_device,
@@ -52,6 +53,7 @@ from .helpers import (
 from .options import EG4OptionsFlow
 from .schemas import (
     build_dongle_schema,
+    build_grid_type_schema,
     build_http_credentials_schema,
     build_http_reconfigure_schema,
     build_modbus_schema,
@@ -70,6 +72,7 @@ from ..const import (
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_GRID_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_LOCAL_TRANSPORTS,
     CONF_MODBUS_HOST,
@@ -163,6 +166,10 @@ class EG4ConfigFlow(
         self._scan_timeout: float = 0.5
         self._scan_results: list[ScanResult] = []
         self._scan_context: str = "onboard"  # "onboard" or "reconfigure"
+
+        # Reconfigure context flag: when True, device confirmation returns
+        # to reconfigure_devices instead of the onboarding menu
+        self._reconfigure_after_device: bool = False
 
     @staticmethod
     def async_get_options_flow(
@@ -651,12 +658,53 @@ class EG4ConfigFlow(
     async def async_step_local_device_confirmed(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Show discovered device info and add to transport list."""
+        """Show discovered device info and collect grid type selection.
+
+        For GridBOSS devices, skip the grid type form and go straight to
+        the device-added menu (GridBOSS doesn't have phase-specific sensors).
+        For inverters, show a form with auto-detected grid type pre-selected.
+        """
         assert self._pending_device is not None
         device = self._pending_device
 
+        # GridBOSS devices skip grid type selection
+        if device.is_gridboss:
+            return await self._build_and_store_device_config(grid_type=None)
+
+        if user_input is not None:
+            grid_type = user_input.get(CONF_GRID_TYPE)
+            return await self._build_and_store_device_config(grid_type=grid_type)
+
+        # Auto-detect best default grid type
+        default_grid_type = detect_grid_type(device)
+
+        return self.async_show_form(
+            step_id="local_device_confirmed",
+            data_schema=build_grid_type_schema(default_grid_type=default_grid_type),
+            description_placeholders={
+                "device_type": "Inverter",
+                "device_model": device.model,
+                "device_serial": device.serial,
+                "device_family": device.family,
+                "device_firmware": device.firmware_version,
+                "device_pv_power": str(int(device.pv_power)),
+                "device_battery_soc": str(device.battery_soc),
+            },
+        )
+
+    async def _build_and_store_device_config(
+        self, grid_type: str | None
+    ) -> ConfigFlowResult:
+        """Build device config from pending state, store it, and show next step.
+
+        After storing the config, routes to either the onboarding menu
+        (local_device_added) or back to the reconfigure device list,
+        depending on the _reconfigure_after_device flag.
+        """
+        assert self._pending_device is not None
+
         config = build_device_config(
-            discovered=device,
+            discovered=self._pending_device,
             transport_type=self._pending_transport_type or "modbus_tcp",
             host=self._pending_host,
             port=self._pending_port,
@@ -666,29 +714,41 @@ class EG4ConfigFlow(
             serial_baudrate=self._pending_serial_baudrate,
             serial_parity=self._pending_serial_parity,
             serial_stopbits=self._pending_serial_stopbits,
+            grid_type=grid_type,
         )
         self._local_transports.append(config)
+
+        is_reconfigure = self._reconfigure_after_device
         self._clear_pending_state()
 
-        device_type = "MID" if device.is_gridboss else "Inverter"
+        if is_reconfigure:
+            return await self.async_step_reconfigure_devices()
+
+        return self._show_device_added_menu()
+
+    def _show_device_added_menu(self) -> ConfigFlowResult:
+        """Show the post-device-added menu with next step options."""
         menu_options = ["local_device_type", "local_finish"]
         if not self._has_cloud:
             menu_options = ["local_device_type", "local_add_cloud", "local_finish"]
 
         return self.async_show_menu(
-            step_id="local_device_confirmed",
+            step_id="local_device_added",
             menu_options=menu_options,
             description_placeholders={
-                "device_type": device_type,
-                "device_model": device.model,
-                "device_serial": device.serial,
-                "device_family": device.family,
-                "device_firmware": device.firmware_version,
-                "device_pv_power": str(int(device.pv_power)),
-                "device_battery_soc": str(device.battery_soc),
                 "device_count": str(len(self._local_transports)),
             },
         )
+
+    async def async_step_local_device_added(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle menu selection after device was added.
+
+        This step is needed because HA menu steps require an async_step_* handler.
+        The menu itself is shown by _show_device_added_menu().
+        """
+        return self._show_device_added_menu()
 
     async def async_step_local_add_cloud(
         self, user_input: dict[str, Any] | None = None
@@ -1058,15 +1118,13 @@ class EG4ConfigFlow(
                     errors["base"] = "duplicate_serial"
 
             if not errors:
-                config = build_device_config(
-                    discovered=device,
-                    transport_type="modbus_tcp",
-                    host=host,
-                    port=port,
-                    unit_id=unit_id,
-                )
-                self._local_transports.append(config)
-                return await self.async_step_reconfigure_devices()
+                self._pending_device = device
+                self._pending_transport_type = "modbus_tcp"
+                self._pending_host = host
+                self._pending_port = port
+                self._pending_unit_id = unit_id
+                self._reconfigure_after_device = True
+                return await self.async_step_local_device_confirmed()
 
         return self.async_show_form(
             step_id="reconfigure_add_modbus",
@@ -1119,15 +1177,13 @@ class EG4ConfigFlow(
                     errors["base"] = "duplicate_serial"
 
             if not errors:
-                config = build_device_config(
-                    discovered=device,
-                    transport_type="wifi_dongle",
-                    host=host,
-                    port=port,
-                    dongle_serial=dongle_serial,
-                )
-                self._local_transports.append(config)
-                return await self.async_step_reconfigure_devices()
+                self._pending_device = device
+                self._pending_transport_type = "wifi_dongle"
+                self._pending_host = host
+                self._pending_port = port
+                self._pending_dongle_serial = dongle_serial
+                self._reconfigure_after_device = True
+                return await self.async_step_local_device_confirmed()
 
         return self.async_show_form(
             step_id="reconfigure_add_dongle",
@@ -1164,17 +1220,15 @@ class EG4ConfigFlow(
             )
 
             if device is not None:
-                config = build_device_config(
-                    discovered=device,
-                    transport_type="modbus_serial",
-                    serial_port=serial_port,
-                    serial_baudrate=baudrate,
-                    serial_parity=parity,
-                    serial_stopbits=stopbits,
-                    unit_id=unit_id,
-                )
-                self._local_transports.append(config)
-                return await self.async_step_reconfigure_devices()
+                self._pending_device = device
+                self._pending_transport_type = "modbus_serial"
+                self._pending_serial_port = serial_port
+                self._pending_serial_baudrate = baudrate
+                self._pending_serial_parity = parity
+                self._pending_serial_stopbits = stopbits
+                self._pending_unit_id = unit_id
+                self._reconfigure_after_device = True
+                return await self.async_step_local_device_confirmed()
 
         ports = list_serial_ports()
         port_options = build_port_selector_options(ports) if ports else None
@@ -1276,6 +1330,8 @@ class EG4ConfigFlow(
         self._pending_serial_baudrate = None
         self._pending_serial_parity = None
         self._pending_serial_stopbits = None
+        # Reconfigure context
+        self._reconfigure_after_device = False
 
     def _store_cloud_input(self, user_input: dict[str, Any]) -> None:
         """Store cloud credential fields from user input."""

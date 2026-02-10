@@ -12,6 +12,9 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_MODBUS_UNIT_ID,
+    GRID_TYPE_SINGLE_PHASE,
+    GRID_TYPE_SPLIT_PHASE,
+    GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
     LEGACY_FAMILY_MAP,
 )
@@ -79,13 +82,13 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "discharging",
         "grid_import",
         "grid_export",
-        "load",
+        "consumption",
         "yield_lifetime",
         "charging_lifetime",
         "discharging_lifetime",
         "grid_import_lifetime",
         "grid_export_lifetime",
-        "load_lifetime",
+        "consumption_lifetime",
     }
 )
 
@@ -123,6 +126,8 @@ INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
         "battery_power",
         "rectifier_power",
         "grid_import_power",
+        "eps_power_l1",
+        "eps_power_l2",
     }
 )
 
@@ -213,6 +218,69 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Smart port power keys that should NOT be included in static entity creation.
+# These are dynamically added by _filter_unused_smart_port_sensors() based on
+# actual port status, so only active ports get entities.
+GRIDBOSS_SMART_PORT_POWER_KEYS: frozenset[str] = frozenset(
+    f"{prefix}{port}_power_l{phase}"
+    for prefix in ("smart_load", "ac_couple")
+    for port in range(1, 5)
+    for phase in (1, 2)
+)
+
+PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        # Power sensors (from inverter summing)
+        "pv_total_power",
+        "grid_power",
+        "consumption_power",
+        "eps_power",
+        "ac_power",
+        "output_power",
+        # Energy sensors (today)
+        "yield",
+        "charging",
+        "discharging",
+        "grid_import",
+        "grid_export",
+        "consumption",
+        # Energy sensors (lifetime)
+        "yield_lifetime",
+        "charging_lifetime",
+        "discharging_lifetime",
+        "grid_import_lifetime",
+        "grid_export_lifetime",
+        "consumption_lifetime",
+        # Battery aggregate sensors (remapped to parallel_battery_* prefix)
+        "parallel_battery_charge_power",
+        "parallel_battery_discharge_power",
+        "parallel_battery_power",
+        "parallel_battery_soc",
+        "parallel_battery_max_capacity",
+        "parallel_battery_current_capacity",
+        "parallel_battery_voltage",
+        "parallel_battery_count",
+        # Grid voltage (from primary/master inverter — same grid, no averaging)
+        "grid_voltage_l1",
+        "grid_voltage_l2",
+        # Timestamp
+        "parallel_group_last_polled",
+    }
+)
+
+# Additional keys populated when a GridBOSS overlays data onto a parallel group.
+# These come from the GridBOSS CT measurements (grid/load per-phase) and are
+# only added to parallel groups when a GridBOSS device is present.
+PARALLEL_GROUP_GRIDBOSS_KEYS: frozenset[str] = frozenset(
+    {
+        "grid_power_l1",
+        "grid_power_l2",
+        "load_power",
+        "load_power_l1",
+        "load_power_l2",
+    }
+)
+
 
 def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
     """Build sensor mapping from runtime data object.
@@ -299,11 +367,48 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
     }
 
 
+def _energy_balance(
+    pv: float | None,
+    discharge: float | None,
+    grid_import: float | None,
+    charge: float | None,
+    grid_export: float | None,
+) -> float | None:
+    """Compute consumption from energy balance.
+
+    consumption = yield + discharge + grid_import - charge - grid_export
+
+    This mirrors the consumption_power computation in pylxpweb but for
+    accumulated energy (kWh) instead of instantaneous power (W).
+
+    The cloud API's ``totalUsage`` is server-computed and does not correspond
+    to any single Modbus register.  The ``load_energy_total`` register
+    (Erec_all, regs 48-49) is AC charge from grid — NOT consumption.
+    Energy balance is the best local approximation.
+
+    Returns:
+        Consumption in kWh (clamped >= 0), or None if all inputs are None.
+    """
+    if all(v is None for v in (pv, discharge, grid_import, charge, grid_export)):
+        return None
+    result = (
+        float(pv or 0)
+        + float(discharge or 0)
+        + float(grid_import or 0)
+        - float(charge or 0)
+        - float(grid_export or 0)
+    )
+    return max(0.0, result)
+
+
 def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
     """Build sensor mapping from energy data object.
 
     This helper extracts energy data from a transport's EnergyData object
     and maps it to sensor keys matching SENSOR_TYPES definitions in const.py.
+
+    Consumption is computed from energy balance rather than reading the
+    ``load_energy_*`` registers, which are actually Erec (AC charge from grid).
 
     Args:
         energy_data: EnergyData object from pylxpweb transport.
@@ -318,14 +423,26 @@ def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
         "discharging": energy_data.discharge_energy_today,
         "grid_import": energy_data.grid_import_today,
         "grid_export": energy_data.grid_export_today,
-        "load": energy_data.load_energy_today,
+        "consumption": _energy_balance(
+            energy_data.pv_energy_today,
+            energy_data.discharge_energy_today,
+            energy_data.grid_import_today,
+            energy_data.charge_energy_today,
+            energy_data.grid_export_today,
+        ),
         # Lifetime energy (kWh)
         "yield_lifetime": energy_data.pv_energy_total,
         "charging_lifetime": energy_data.charge_energy_total,
         "discharging_lifetime": energy_data.discharge_energy_total,
         "grid_import_lifetime": energy_data.grid_import_total,
         "grid_export_lifetime": energy_data.grid_export_total,
-        "load_lifetime": energy_data.load_energy_total,
+        "consumption_lifetime": _energy_balance(
+            energy_data.pv_energy_total,
+            energy_data.discharge_energy_total,
+            energy_data.grid_import_total,
+            energy_data.charge_energy_total,
+            energy_data.grid_export_total,
+        ),
     }
 
 
@@ -489,8 +606,18 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
 def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
     """Build sensor mapping from MIDDevice object for GridBOSS.
 
-    This helper extracts data from a MIDDevice's runtime properties
-    and maps it to sensor keys matching SENSOR_TYPES definitions.
+    Extracts data from a MIDDevice's runtime properties (provided by
+    MIDRuntimePropertiesMixin) and maps it to sensor keys matching
+    SENSOR_TYPES definitions.  Uses direct attribute access since all
+    properties are defined by the mixin and return None when no data.
+
+    This follows the same pattern as ``_build_runtime_sensor_mapping()``
+    for inverters — both read from device property accessors that handle
+    the transport/HTTP dual-source dispatch internally.
+
+    Note: Metadata fields (firmware_version, connection_transport,
+    off_grid, transport_host) are set at the call site, not here,
+    matching the inverter pattern in ``_build_local_device_data()``.
 
     Args:
         mid_device: MIDDevice object from pylxpweb with runtime data.
@@ -500,76 +627,76 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
     """
     return {
         # Grid sensors
-        "grid_power": getattr(mid_device, "grid_power", None),
-        "grid_voltage": getattr(mid_device, "grid_voltage", None),
-        "frequency": getattr(mid_device, "grid_frequency", None),
-        "grid_power_l1": getattr(mid_device, "grid_l1_power", None),
-        "grid_power_l2": getattr(mid_device, "grid_l2_power", None),
-        "grid_voltage_l1": getattr(mid_device, "grid_l1_voltage", None),
-        "grid_voltage_l2": getattr(mid_device, "grid_l2_voltage", None),
-        "grid_current_l1": getattr(mid_device, "grid_l1_current", None),
-        "grid_current_l2": getattr(mid_device, "grid_l2_current", None),
+        "grid_power": mid_device.grid_power,
+        "grid_voltage": mid_device.grid_voltage,
+        "frequency": mid_device.grid_frequency,
+        "grid_power_l1": mid_device.grid_l1_power,
+        "grid_power_l2": mid_device.grid_l2_power,
+        "grid_voltage_l1": mid_device.grid_l1_voltage,
+        "grid_voltage_l2": mid_device.grid_l2_voltage,
+        "grid_current_l1": mid_device.grid_l1_current,
+        "grid_current_l2": mid_device.grid_l2_current,
         # UPS sensors
-        "ups_power": getattr(mid_device, "ups_power", None),
-        "ups_voltage": getattr(mid_device, "ups_voltage", None),
-        "ups_power_l1": getattr(mid_device, "ups_l1_power", None),
-        "ups_power_l2": getattr(mid_device, "ups_l2_power", None),
-        "load_voltage_l1": getattr(mid_device, "ups_l1_voltage", None),
-        "load_voltage_l2": getattr(mid_device, "ups_l2_voltage", None),
-        "ups_current_l1": getattr(mid_device, "ups_l1_current", None),
-        "ups_current_l2": getattr(mid_device, "ups_l2_current", None),
+        "ups_power": mid_device.ups_power,
+        "ups_voltage": mid_device.ups_voltage,
+        "ups_power_l1": mid_device.ups_l1_power,
+        "ups_power_l2": mid_device.ups_l2_power,
+        "load_voltage_l1": mid_device.ups_l1_voltage,
+        "load_voltage_l2": mid_device.ups_l2_voltage,
+        "ups_current_l1": mid_device.ups_l1_current,
+        "ups_current_l2": mid_device.ups_l2_current,
         # Load sensors
-        "load_power": getattr(mid_device, "load_power", None),
-        "load_power_l1": getattr(mid_device, "load_l1_power", None),
-        "load_power_l2": getattr(mid_device, "load_l2_power", None),
-        "load_current_l1": getattr(mid_device, "load_l1_current", None),
-        "load_current_l2": getattr(mid_device, "load_l2_current", None),
+        "load_power": mid_device.load_power,
+        "load_power_l1": mid_device.load_l1_power,
+        "load_power_l2": mid_device.load_l2_power,
+        "load_current_l1": mid_device.load_l1_current,
+        "load_current_l2": mid_device.load_l2_current,
         # Consumption power for GridBOSS = load_power (CT measurement)
-        "consumption_power": getattr(mid_device, "load_power", None),
+        "consumption_power": mid_device.load_power,
         # Generator sensors
-        "generator_power": getattr(mid_device, "generator_power", None),
-        "generator_voltage": getattr(mid_device, "generator_voltage", None),
-        "generator_frequency": getattr(mid_device, "generator_frequency", None),
-        "generator_power_l1": getattr(mid_device, "generator_l1_power", None),
-        "generator_power_l2": getattr(mid_device, "generator_l2_power", None),
-        "generator_current_l1": getattr(mid_device, "generator_l1_current", None),
-        "generator_current_l2": getattr(mid_device, "generator_l2_current", None),
+        "generator_power": mid_device.generator_power,
+        "generator_voltage": mid_device.generator_voltage,
+        "generator_frequency": mid_device.generator_frequency,
+        "generator_power_l1": mid_device.generator_l1_power,
+        "generator_power_l2": mid_device.generator_l2_power,
+        "generator_current_l1": mid_device.generator_l1_current,
+        "generator_current_l2": mid_device.generator_l2_current,
         # Other sensors
-        "hybrid_power": getattr(mid_device, "hybrid_power", None),
-        "phase_lock_frequency": getattr(mid_device, "phase_lock_frequency", None),
-        "off_grid": getattr(mid_device, "is_off_grid", None),
+        "hybrid_power": mid_device.hybrid_power,
+        "phase_lock_frequency": mid_device.phase_lock_frequency,
+        "off_grid": mid_device.is_off_grid,
         # Smart port status
-        "smart_port1_status": getattr(mid_device, "smart_port1_status", None),
-        "smart_port2_status": getattr(mid_device, "smart_port2_status", None),
-        "smart_port3_status": getattr(mid_device, "smart_port3_status", None),
-        "smart_port4_status": getattr(mid_device, "smart_port4_status", None),
+        "smart_port1_status": mid_device.smart_port1_status,
+        "smart_port2_status": mid_device.smart_port2_status,
+        "smart_port3_status": mid_device.smart_port3_status,
+        "smart_port4_status": mid_device.smart_port4_status,
         # Smart load power (L1/L2)
-        "smart_load1_power_l1": getattr(mid_device, "smart_load1_l1_power", None),
-        "smart_load1_power_l2": getattr(mid_device, "smart_load1_l2_power", None),
-        "smart_load2_power_l1": getattr(mid_device, "smart_load2_l1_power", None),
-        "smart_load2_power_l2": getattr(mid_device, "smart_load2_l2_power", None),
-        "smart_load3_power_l1": getattr(mid_device, "smart_load3_l1_power", None),
-        "smart_load3_power_l2": getattr(mid_device, "smart_load3_l2_power", None),
-        "smart_load4_power_l1": getattr(mid_device, "smart_load4_l1_power", None),
-        "smart_load4_power_l2": getattr(mid_device, "smart_load4_l2_power", None),
+        "smart_load1_power_l1": mid_device.smart_load1_l1_power,
+        "smart_load1_power_l2": mid_device.smart_load1_l2_power,
+        "smart_load2_power_l1": mid_device.smart_load2_l1_power,
+        "smart_load2_power_l2": mid_device.smart_load2_l2_power,
+        "smart_load3_power_l1": mid_device.smart_load3_l1_power,
+        "smart_load3_power_l2": mid_device.smart_load3_l2_power,
+        "smart_load4_power_l1": mid_device.smart_load4_l1_power,
+        "smart_load4_power_l2": mid_device.smart_load4_l2_power,
         # AC couple power (L1/L2)
-        "ac_couple1_power_l1": getattr(mid_device, "ac_couple1_l1_power", None),
-        "ac_couple1_power_l2": getattr(mid_device, "ac_couple1_l2_power", None),
-        "ac_couple2_power_l1": getattr(mid_device, "ac_couple2_l1_power", None),
-        "ac_couple2_power_l2": getattr(mid_device, "ac_couple2_l2_power", None),
-        "ac_couple3_power_l1": getattr(mid_device, "ac_couple3_l1_power", None),
-        "ac_couple3_power_l2": getattr(mid_device, "ac_couple3_l2_power", None),
-        "ac_couple4_power_l1": getattr(mid_device, "ac_couple4_l1_power", None),
-        "ac_couple4_power_l2": getattr(mid_device, "ac_couple4_l2_power", None),
+        "ac_couple1_power_l1": mid_device.ac_couple1_l1_power,
+        "ac_couple1_power_l2": mid_device.ac_couple1_l2_power,
+        "ac_couple2_power_l1": mid_device.ac_couple2_l1_power,
+        "ac_couple2_power_l2": mid_device.ac_couple2_l2_power,
+        "ac_couple3_power_l1": mid_device.ac_couple3_l1_power,
+        "ac_couple3_power_l2": mid_device.ac_couple3_l2_power,
+        "ac_couple4_power_l1": mid_device.ac_couple4_l1_power,
+        "ac_couple4_power_l2": mid_device.ac_couple4_l2_power,
         # Energy sensors - aggregate only (L2 energy registers always read 0)
-        "ups_today": getattr(mid_device, "e_ups_today", None),
-        "ups_total": getattr(mid_device, "e_ups_total", None),
-        "grid_export_today": getattr(mid_device, "e_to_grid_today", None),
-        "grid_export_total": getattr(mid_device, "e_to_grid_total", None),
-        "grid_import_today": getattr(mid_device, "e_to_user_today", None),
-        "grid_import_total": getattr(mid_device, "e_to_user_total", None),
-        "load_today": getattr(mid_device, "e_load_today", None),
-        "load_total": getattr(mid_device, "e_load_total", None),
+        "ups_today": mid_device.e_ups_today,
+        "ups_total": mid_device.e_ups_total,
+        "grid_export_today": mid_device.e_to_grid_today,
+        "grid_export_total": mid_device.e_to_grid_total,
+        "grid_import_today": mid_device.e_to_user_today,
+        "grid_import_total": mid_device.e_to_user_total,
+        "load_today": mid_device.e_load_today,
+        "load_total": mid_device.e_load_total,
         # Last polled timestamp for midbox/GridBOSS device
         "midbox_last_polled": dt_util.utcnow(),
     }
@@ -605,9 +732,31 @@ def _parse_inverter_family(family_str: str | None) -> Any:
         return None
 
 
+def _apply_grid_type_override(features: dict[str, Any], grid_type: str) -> None:
+    """Override phase-specific feature flags based on user-selected grid type.
+
+    Mutates the features dict in-place.
+
+    Args:
+        features: Feature dict to modify.
+        grid_type: One of GRID_TYPE_SPLIT_PHASE, GRID_TYPE_SINGLE_PHASE,
+            or GRID_TYPE_THREE_PHASE.
+    """
+    if grid_type == GRID_TYPE_SPLIT_PHASE:
+        features["supports_split_phase"] = True
+        features["supports_three_phase"] = False
+    elif grid_type == GRID_TYPE_SINGLE_PHASE:
+        features["supports_split_phase"] = False
+        features["supports_three_phase"] = False
+    elif grid_type == GRID_TYPE_THREE_PHASE:
+        features["supports_split_phase"] = False
+        features["supports_three_phase"] = True
+
+
 def _features_from_family(
     family_str: str | None,
     device_type_code: int | None = None,
+    grid_type: str | None = None,
 ) -> dict[str, Any]:
     """Derive feature flags from inverter family and device type code.
 
@@ -621,6 +770,9 @@ def _features_from_family(
         device_type_code: Raw device type code from register 19, stored in config
             during discovery. Used to distinguish LXP-EU (12, three-phase) from
             LXP-LB (44, single/split-phase).
+        grid_type: User-selected grid type override. When provided, overrides
+            the hardcoded split/three-phase flags. None means no override
+            (backward compatible with existing configs).
 
     Returns:
         Feature dict suitable for _should_create_sensor() filtering.
@@ -634,10 +786,11 @@ def _features_from_family(
 
     # Feature mapping mirrors pylxpweb FAMILY_DEFAULT_FEATURES.
     # Only the four keys used by _should_create_sensor() are needed here.
-    #
+    features: dict[str, Any] = {}
+
     # EG4_OFFGRID (12000XP, 6000XP): US split-phase, discharge recovery
     if mapped == "EG4_OFFGRID":
-        return {
+        features = {
             "inverter_family": mapped,
             "supports_split_phase": True,
             "supports_three_phase": False,
@@ -647,8 +800,8 @@ def _features_from_family(
 
     # EG4_HYBRID (18kPV, 12kPV, FlexBOSS): US split-phase, volt-watt
     # US market — L1/L2 registers valid, R/S/T registers contain garbage
-    if mapped == "EG4_HYBRID":
-        return {
+    elif mapped == "EG4_HYBRID":
+        features = {
             "inverter_family": mapped,
             "supports_split_phase": True,
             "supports_three_phase": False,
@@ -662,29 +815,31 @@ def _features_from_family(
     #   LXP-LB includes US (split-phase) and BR (single-phase) variants;
     #   the us_version flag from HOLD_MODEL determines split vs single,
     #   but we can safely rule out three-phase from device_type_code alone.
-    if mapped == "LXP" and device_type_code is not None:
-        # LXP-EU: European three-phase inverter
-        if device_type_code == 12:  # DEVICE_TYPE_CODE_LXP_EU
-            return {
-                "inverter_family": mapped,
-                "supports_split_phase": False,
-                "supports_three_phase": True,
-                "supports_discharge_recovery_hysteresis": False,
-                "supports_volt_watt_curve": True,
-            }
-        # LXP-LB: US/Brazil single or split-phase (never three-phase)
-        if device_type_code == 44:  # DEVICE_TYPE_CODE_LXP_BR/LXP_LB
-            return {
-                "inverter_family": mapped,
-                "supports_split_phase": True,
-                "supports_three_phase": False,
-                "supports_discharge_recovery_hysteresis": False,
-                "supports_volt_watt_curve": True,
-            }
+    elif mapped == "LXP" and device_type_code == 12:  # DEVICE_TYPE_CODE_LXP_EU
+        features = {
+            "inverter_family": mapped,
+            "supports_split_phase": False,
+            "supports_three_phase": True,
+            "supports_discharge_recovery_hysteresis": False,
+            "supports_volt_watt_curve": True,
+        }
+    elif mapped == "LXP" and device_type_code == 44:  # DEVICE_TYPE_CODE_LXP_BR/LXP_LB
+        features = {
+            "inverter_family": mapped,
+            "supports_split_phase": True,
+            "supports_three_phase": False,
+            "supports_discharge_recovery_hysteresis": False,
+            "supports_volt_watt_curve": True,
+        }
 
     # Unknown family or LXP without device_type_code → conservative fallback
     # creates all sensors; real feature detection after Modbus reads refines.
-    return {}
+
+    # Apply user-selected grid type override once, regardless of family branch
+    if features and grid_type:
+        _apply_grid_type_override(features, grid_type)
+
+    return features
 
 
 def _derive_model_from_family(

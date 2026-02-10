@@ -28,7 +28,12 @@ if TYPE_CHECKING:
 
 from pylxpweb.devices.inverters import InverterFamily
 
-from .const import DOMAIN, MANUFACTURER
+from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
+from .coordinator_mappings import (
+    _apply_grid_type_override,
+    _build_battery_bank_sensor_mapping,
+    _energy_balance,
+)
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,6 +41,60 @@ _LOGGER = logging.getLogger(__name__)
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
+
+# GridBOSS sensor → parallel group sensor overlay mapping.
+# GridBOSS CTs are the authoritative measurement point for grid power
+# and energy — inverter registers are internal estimates that diverge
+# from actual panel readings.  Used by both HTTP and LOCAL paths to
+# ensure consistent parallel group values regardless of connection mode.
+_GRIDBOSS_PG_OVERLAY: dict[str, str] = {
+    # Power sensors (real-time CT measurements)
+    "grid_power": "grid_power",
+    "grid_power_l1": "grid_power_l1",
+    "grid_power_l2": "grid_power_l2",
+    "load_power": "load_power",
+    "load_power_l1": "load_power_l1",
+    "load_power_l2": "load_power_l2",
+    # Energy sensors (accumulated CT totals)
+    "grid_export_today": "grid_export",
+    "grid_export_total": "grid_export_lifetime",
+    "grid_import_today": "grid_import",
+    "grid_import_total": "grid_import_lifetime",
+    "load_today": "consumption",
+    "load_total": "consumption_lifetime",
+}
+
+
+def apply_gridboss_overlay(
+    pg_sensors: dict[str, Any],
+    gb_sensors: dict[str, Any],
+    group_name: str,
+) -> None:
+    """Overlay GridBOSS CT measurements onto parallel group sensors.
+
+    GridBOSS CTs directly measure grid and load current at the main panel,
+    providing authoritative values for grid power/energy and consumption.
+    Inverter-derived values are estimates and can diverge significantly.
+
+    Called from both the HTTP path (hybrid mode) and the LOCAL path to
+    ensure consistent parallel group data regardless of connection mode.
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        gb_sensors: GridBOSS/MID device sensor dict.
+        group_name: Parallel group name for debug logging.
+    """
+    for gb_key, pg_key in _GRIDBOSS_PG_OVERLAY.items():
+        gb_val = gb_sensors.get(gb_key)
+        if gb_val is not None:
+            pg_sensors[pg_key] = float(gb_val)
+            _LOGGER.debug(
+                "Parallel group %s: GridBOSS %s=%s -> %s",
+                group_name,
+                gb_key,
+                gb_val,
+                pg_key,
+            )
 
 
 if TYPE_CHECKING:
@@ -222,6 +281,26 @@ class DeviceProcessingMixin(_MixinBase):
     Provides static methods for property mapping.
     """
 
+    def _get_device_grid_type(self, serial: str) -> str | None:
+        """Look up user-selected grid type for a device from config entry.
+
+        Searches the local_transports list in config_entry.data for a
+        device with the matching serial number and returns its grid_type.
+
+        Args:
+            serial: Device serial number.
+
+        Returns:
+            Grid type string or None if not found (cloud-only or legacy config).
+        """
+        local_transports: list[dict[str, Any]] = self.entry.data.get(
+            CONF_LOCAL_TRANSPORTS, []
+        )
+        for transport in local_transports:
+            if transport.get("serial") == serial:
+                return transport.get("grid_type")
+        return None
+
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
     ) -> dict[str, Any]:
@@ -263,6 +342,11 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter.serial_number,
                 e,
             )
+
+        # Override phase features if user specified grid type in config
+        grid_type = self._get_device_grid_type(inverter.serial_number)
+        if grid_type and features:
+            _apply_grid_type_override(features, grid_type)
 
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
@@ -330,6 +414,33 @@ class DeviceProcessingMixin(_MixinBase):
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
 
+        # Override consumption with energy balance when transport data is present.
+        # pylxpweb's energy_today_usage/energy_lifetime_usage properties read from
+        # load_energy registers (Erec = AC charge from grid) when transport data
+        # is attached.  The cloud API's totalUsage is server-computed and correct,
+        # but there is no equivalent Modbus register.  Energy balance mirrors how
+        # consumption_power is already computed in pylxpweb for instantaneous power.
+        #
+        # Note: GridBOSS uses a different aggregation strategy — CT summation
+        # (L1 + L2) via _safe_sum() in MIDRuntimePropertiesMixin, not energy
+        # balance.  See pylxpweb _mid_runtime_properties.py for details.
+        if getattr(inverter, "_transport", None) is not None:
+            sensors = processed["sensors"]
+            sensors["consumption"] = _energy_balance(
+                sensors.get("yield"),
+                sensors.get("discharging"),
+                sensors.get("grid_import"),
+                sensors.get("charging"),
+                sensors.get("grid_export"),
+            )
+            sensors["consumption_lifetime"] = _energy_balance(
+                sensors.get("yield_lifetime"),
+                sensors.get("discharging_lifetime"),
+                sensors.get("grid_import_lifetime"),
+                sensors.get("charging_lifetime"),
+                sensors.get("grid_export_lifetime"),
+            )
+
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version
 
@@ -377,8 +488,6 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter.serial_number,
             )
             try:
-                from .coordinator_mappings import _build_battery_bank_sensor_mapping
-
                 battery_bank_sensors = _build_battery_bank_sensor_mapping(
                     transport_battery
                 )
@@ -1060,17 +1169,23 @@ class DeviceProcessingMixin(_MixinBase):
     def _filter_unused_smart_port_sensors(
         sensors: dict[str, Any], mid_device: Any
     ) -> None:
-        """Filter out sensors based on Smart Port status from MID device.
+        """Filter and ensure sensors based on Smart Port status from MID device.
 
-        Smart Port Status determines what type of device is connected:
+        For active ports (status 1 or 2), both smart_load and ac_couple power
+        sensor keys are ensured to exist so entities are created in all modes
+        (cloud, local, hybrid). Correct-type power sensors get values via
+        setdefault; wrong-type power sensors are set to None (unavailable).
+        Energy sensors are only kept for the correct type.
+
         - Status 0: Unused - remove all sensors for this port
-        - Status 1: Smart Load - keep Smart Load sensors, remove AC Couple sensors
-        - Status 2: AC Couple - keep AC Couple sensors, remove Smart Load sensors
+        - Status 1: Smart Load - ensure power keys for both types, remove
+          wrong-type energy
+        - Status 2: AC Couple - ensure power keys for both types, remove
+          wrong-type energy
 
         Invalid status values (None, or outside 0-2 range) are logged as warnings
-        and those ports are skipped (no filtering applied). This can occur with
-        certain WiFi dongle firmware versions that don't properly expose these
-        registers.
+        and treated as unused. This can occur with certain WiFi dongle firmware
+        versions that don't properly expose these registers.
 
         Modifies the sensors dictionary in place.
 
@@ -1134,52 +1249,49 @@ class DeviceProcessingMixin(_MixinBase):
             )
             return
 
-        sensors_to_remove = []
+        sensors_to_remove: list[str] = []
         for port, status in smart_port_statuses.items():
-            # Invalid status values treated same as "unused" - remove all sensors
-            # This ensures we don't create sensors when register reads fail
+            smart_load_power_keys = [
+                f"smart_load{port}_power_l1",
+                f"smart_load{port}_power_l2",
+                f"smart_load{port}_power",
+            ]
+            smart_load_energy_keys = [
+                f"smart_load{port}_today",
+                f"smart_load{port}_total",
+            ]
+            ac_couple_power_keys = [
+                f"ac_couple{port}_power_l1",
+                f"ac_couple{port}_power_l2",
+                f"ac_couple{port}_power",
+            ]
+            ac_couple_energy_keys = [
+                f"ac_couple{port}_today",
+                f"ac_couple{port}_total",
+            ]
+
             if status is None or status not in VALID_STATUS_VALUES or status == 0:
                 # Unused or invalid port - remove all sensors
-                sensors_to_remove.extend(
-                    [
-                        # Smart Load power sensors
-                        f"smart_load{port}_power_l1",
-                        f"smart_load{port}_power_l2",
-                        f"smart_load{port}_power",
-                        # Smart Load energy sensors
-                        f"smart_load{port}_today",
-                        f"smart_load{port}_total",
-                        # AC Couple power sensors
-                        f"ac_couple{port}_power_l1",
-                        f"ac_couple{port}_power_l2",
-                        f"ac_couple{port}_power",
-                        # AC Couple energy sensors
-                        f"ac_couple{port}_today",
-                        f"ac_couple{port}_total",
-                    ]
-                )
+                sensors_to_remove.extend(smart_load_power_keys)
+                sensors_to_remove.extend(smart_load_energy_keys)
+                sensors_to_remove.extend(ac_couple_power_keys)
+                sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 1:
-                # Smart Load mode - remove AC Couple sensors (power and energy)
-                sensors_to_remove.extend(
-                    [
-                        f"ac_couple{port}_power_l1",
-                        f"ac_couple{port}_power_l2",
-                        f"ac_couple{port}_power",
-                        f"ac_couple{port}_today",
-                        f"ac_couple{port}_total",
-                    ]
-                )
+                # Smart Load mode: ensure smart_load power keys exist,
+                # mark ac_couple power as unavailable, remove wrong-type energy
+                for key in smart_load_power_keys:
+                    sensors.setdefault(key, 0.0)
+                for key in ac_couple_power_keys:
+                    sensors[key] = None
+                sensors_to_remove.extend(ac_couple_energy_keys)
             elif status == 2:
-                # AC Couple mode - remove Smart Load sensors (power and energy)
-                sensors_to_remove.extend(
-                    [
-                        f"smart_load{port}_power_l1",
-                        f"smart_load{port}_power_l2",
-                        f"smart_load{port}_power",
-                        f"smart_load{port}_today",
-                        f"smart_load{port}_total",
-                    ]
-                )
+                # AC Couple mode: ensure ac_couple power keys exist,
+                # mark smart_load power as unavailable, remove wrong-type energy
+                for key in ac_couple_power_keys:
+                    sensors.setdefault(key, 0.0)
+                for key in smart_load_power_keys:
+                    sensors[key] = None
+                sensors_to_remove.extend(smart_load_energy_keys)
 
         if sensors_to_remove:
             _LOGGER.debug(
@@ -1331,7 +1443,7 @@ class DeviceInfoMixin(_MixinBase):
                 if hasattr(group, "inverters"):
                     for inverter in group.inverters:
                         if inverter.serial_number == device_serial:
-                            return f"parallel_group_{group.first_device_serial}"
+                            return f"parallel_group_{group.name.lower()}"
 
         # LOCAL mode: Check parallel group device data for member_serials
         for serial, device_data in self.data["devices"].items():

@@ -29,6 +29,7 @@ from .const import (
     VOLT_WATT_SENSORS,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .coordinator_mappings import GRIDBOSS_SMART_PORT_POWER_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,6 +212,55 @@ async def async_setup_entry(
             async_add_entities(new_entities, True)
 
     entry.async_on_unload(coordinator.async_add_listener(_async_discover_new_batteries))
+
+    # Track known smart port sensor keys for late registration.
+    # Smart port power keys are excluded from static entity creation because
+    # port statuses are unknown until the first real Modbus/API read. Once
+    # _filter_unused_smart_port_sensors() populates keys for active ports,
+    # this listener registers the corresponding entities.
+    known_smart_port_keys: dict[str, set[str]] = {}
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        if device_data.get("type") == "gridboss":
+            known_smart_port_keys[serial] = {
+                k
+                for k in device_data.get("sensors", {})
+                if k in GRIDBOSS_SMART_PORT_POWER_KEYS
+            }
+
+    @callback
+    def _async_discover_smart_port_sensors() -> None:
+        """Register smart port entities that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "gridboss":
+                continue
+            known = known_smart_port_keys.setdefault(serial, set())
+            for sensor_key in device_data.get("sensors", {}):
+                if sensor_key not in GRIDBOSS_SMART_PORT_POWER_KEYS:
+                    continue
+                if sensor_key in known:
+                    continue
+                known.add(sensor_key)
+                if sensor_key in SENSOR_TYPES:
+                    new_entities.append(
+                        EG4InverterSensor(
+                            coordinator=coordinator,
+                            serial=serial,
+                            sensor_key=sensor_key,
+                            device_type="gridboss",
+                        )
+                    )
+        if new_entities:
+            _LOGGER.info(
+                "Late smart port registration: adding %d entities", len(new_entities)
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_smart_port_sensors)
+    )
 
 
 def _create_inverter_sensors(

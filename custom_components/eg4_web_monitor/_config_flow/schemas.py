@@ -5,12 +5,20 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
+
 from ..const import (
     CONF_BASE_URL,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DST_SYNC,
+    CONF_GRID_TYPE,
     CONF_INVERTER_SERIAL,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
@@ -29,6 +37,9 @@ from ..const import (
     DEFAULT_SERIAL_PARITY,
     DEFAULT_SERIAL_STOPBITS,
     DEFAULT_VERIFY_SSL,
+    GRID_TYPE_SINGLE_PHASE,
+    GRID_TYPE_SPLIT_PHASE,
+    GRID_TYPE_THREE_PHASE,
 )
 
 # Serial parity options
@@ -300,5 +311,44 @@ def build_serial_manual_entry_schema(
                 CONF_SERIAL_PORT,
                 default=defaults.get(CONF_SERIAL_PORT, "/dev/ttyUSB0"),
             ): str,
+        }
+    )
+
+
+def build_grid_type_schema(
+    default_grid_type: str = GRID_TYPE_SPLIT_PHASE,
+) -> vol.Schema:
+    """Build schema for grid type selection during device confirmation.
+
+    Uses a SelectSelector dropdown with three options: Split Phase (US),
+    Single Phase (Brazil/EU), and Three Phase (R/S/T systems).
+
+    Args:
+        default_grid_type: Pre-selected grid type from auto-detection.
+
+    Returns:
+        Voluptuous schema for grid type selection step.
+    """
+    return vol.Schema(
+        {
+            vol.Required(CONF_GRID_TYPE, default=default_grid_type): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(
+                            value=GRID_TYPE_SPLIT_PHASE,
+                            label="Split Phase (L1/L2)",
+                        ),
+                        SelectOptionDict(
+                            value=GRID_TYPE_SINGLE_PHASE,
+                            label="Single Phase",
+                        ),
+                        SelectOptionDict(
+                            value=GRID_TYPE_THREE_PHASE,
+                            label="Three Phase (R/S/T)",
+                        ),
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
     )

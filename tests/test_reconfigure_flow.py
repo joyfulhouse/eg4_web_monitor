@@ -803,6 +803,15 @@ class TestReconfigureDeviceManagement:
                 },
             )
 
+            # Grid type form shown for inverter
+            assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+
             # Should return to devices menu with 2 devices
             assert result["step_id"] == "reconfigure_devices"
             assert result["description_placeholders"]["device_count"] == "2"
@@ -882,6 +891,15 @@ class TestReconfigureDeviceManagement:
                     "dongle_serial": "BJ44444444",
                     "inverter_serial": "4444444444",
                 },
+            )
+
+            # Grid type form shown for inverter
+            assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
             )
 
             # Should return to devices menu with 2 devices

@@ -147,12 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Appareil trouve",
-        "description": "**{device_type}** : {device_model}\n**Numero de serie** : {device_serial}\n**Famille** : {device_family}\n**Firmware** : {device_firmware}\n**Puissance PV** : {device_pv_power}W | **SOC batterie** : {device_battery_soc}%\n\nAppareil #{device_count} ajoute. Que faire ensuite ?",
+        "title": "Confirm Device",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "data": {
+          "grid_type": "Grid Type"
+        },
+        "data_description": {
+          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added",
+        "description": "Device #{device_count} added successfully. What next?",
         "menu_options": {
-          "local_device_type": "Ajouter un autre appareil",
-          "local_add_cloud": "Ajouter les identifiants cloud",
-          "local_finish": "Terminer la configuration"
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
         }
       },
       "local_finish": {

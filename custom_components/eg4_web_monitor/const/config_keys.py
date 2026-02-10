@@ -61,6 +61,14 @@ CONF_SERIAL_BAUDRATE = "serial_baudrate"
 CONF_SERIAL_PARITY = "serial_parity"
 CONF_SERIAL_STOPBITS = "serial_stopbits"
 
+# Grid type configuration (per-device, stored in local_transports dict)
+CONF_GRID_TYPE = "grid_type"
+
+# Grid type values
+GRID_TYPE_SPLIT_PHASE = "split_phase"
+GRID_TYPE_SINGLE_PHASE = "single_phase"
+GRID_TYPE_THREE_PHASE = "three_phase"
+
 # =============================================================================
 # Connection Types
 # =============================================================================

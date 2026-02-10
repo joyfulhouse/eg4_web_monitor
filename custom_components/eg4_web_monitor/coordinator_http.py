@@ -39,7 +39,7 @@ from .coordinator_mappings import (
     _build_individual_battery_mapping,
     _get_transport_label,
 )
-from .coordinator_mixins import _MixinBase
+from .coordinator_mixins import _MixinBase, apply_gridboss_overlay
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -424,15 +424,30 @@ class HTTPUpdateMixin(_MixinBase):
                         group.name,
                         list(group_data.get("sensors", {}).keys()),
                     )
-                    processed["devices"][
-                        f"parallel_group_{group.first_device_serial}"
-                    ] = group_data
+                    processed["devices"][f"parallel_group_{group.name.lower()}"] = (
+                        group_data
+                    )
 
                     if hasattr(group, "mid_device") and group.mid_device:
                         try:
-                            processed["devices"][
-                                group.mid_device.serial_number
-                            ] = await self._process_mid_device_object(group.mid_device)
+                            mid_data = await self._process_mid_device_object(
+                                group.mid_device
+                            )
+                            processed["devices"][group.mid_device.serial_number] = (
+                                mid_data
+                            )
+
+                            # Apply GridBOSS CT overlay to parallel group.
+                            # GridBOSS CTs are the authoritative source for
+                            # grid and consumption measurements — inverter
+                            # register sums are internal estimates that diverge
+                            # from actual panel readings.  This mirrors the
+                            # overlay in _process_local_parallel_groups().
+                            apply_gridboss_overlay(
+                                group_data.get("sensors", {}),
+                                mid_data.get("sensors", {}),
+                                group.name,
+                            )
                         except Exception as e:
                             _LOGGER.error(
                                 "Error processing MID device %s: %s",

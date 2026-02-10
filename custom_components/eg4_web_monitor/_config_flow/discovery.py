@@ -21,6 +21,8 @@ from ..const import (
     DEFAULT_SERIAL_PARITY,
     DEFAULT_SERIAL_STOPBITS,
     DEFAULT_SERIAL_TIMEOUT,
+    GRID_TYPE_SPLIT_PHASE,
+    GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
@@ -411,6 +413,42 @@ async def discover_serial_device(
         await transport.disconnect()
 
 
+def detect_grid_type(device: DiscoveredDevice) -> str:
+    """Auto-detect the most likely grid type for a discovered device.
+
+    Uses device family, type code, and parallel config to determine
+    the best default grid type. The user can override this selection
+    in the config flow form.
+
+    Args:
+        device: Discovered device information.
+
+    Returns:
+        GRID_TYPE_SPLIT_PHASE or GRID_TYPE_THREE_PHASE. The function never
+        returns GRID_TYPE_SINGLE_PHASE since auto-detection cannot distinguish
+        Brazilian single-phase from US split-phase; users select it manually.
+    """
+    # Three-phase parallel configuration (role=3 means three-phase slave)
+    if device.parallel_master_slave == 3:
+        return GRID_TYPE_THREE_PHASE
+
+    # EG4-branded devices are always US split-phase
+    if device.family in (INVERTER_FAMILY_EG4_OFFGRID, INVERTER_FAMILY_EG4_HYBRID):
+        return GRID_TYPE_SPLIT_PHASE
+
+    # LXP-EU (device_type_code 12) is European three-phase
+    if device.family == INVERTER_FAMILY_LXP:
+        if device.device_type_code == DEVICE_TYPE_CODE_LXP_EU:
+            return GRID_TYPE_THREE_PHASE
+        # LXP-LB (device_type_code 44) - Americas platform, default split-phase
+        # Brazilian users will override to single_phase in the form
+        if device.device_type_code == DEVICE_TYPE_CODE_LXP_BR:
+            return GRID_TYPE_SPLIT_PHASE
+
+    # Fallback: split-phase (most common in the US market)
+    return GRID_TYPE_SPLIT_PHASE
+
+
 def build_device_config(
     discovered: DiscoveredDevice,
     transport_type: str,
@@ -422,6 +460,7 @@ def build_device_config(
     serial_baudrate: int | None = None,
     serial_parity: str | None = None,
     serial_stopbits: int | None = None,
+    grid_type: str | None = None,
 ) -> dict[str, Any]:
     """Build a device configuration dict from discovered info.
 
@@ -436,6 +475,7 @@ def build_device_config(
         serial_baudrate: Serial baudrate (for modbus_serial only).
         serial_parity: Serial parity (for modbus_serial only).
         serial_stopbits: Serial stop bits (for modbus_serial only).
+        grid_type: User-selected grid type (split_phase/single_phase/three_phase).
 
     Returns:
         Configuration dict ready for storage.
@@ -453,6 +493,10 @@ def build_device_config(
         "parallel_master_slave": discovered.parallel_master_slave,
         "parallel_phase": discovered.parallel_phase,
     }
+
+    # Store grid type if provided (non-GridBOSS devices only)
+    if grid_type and not discovered.is_gridboss:
+        config["grid_type"] = grid_type
 
     if transport_type == "modbus_tcp":
         config["host"] = host

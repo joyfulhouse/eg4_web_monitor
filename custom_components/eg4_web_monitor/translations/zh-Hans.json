@@ -147,12 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "已找到设备",
-        "description": "**{device_type}**: {device_model}\n**序列号**: {device_serial}\n**系列**: {device_family}\n**固件**: {device_firmware}\n**PV 功率**: {device_pv_power}W | **电池 SOC**: {device_battery_soc}%\n\n已添加第 {device_count} 个设备。下一步？",
+        "title": "Confirm Device",
+        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "data": {
+          "grid_type": "Grid Type"
+        },
+        "data_description": {
+          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+        }
+      },
+      "local_device_added": {
+        "title": "Device Added",
+        "description": "Device #{device_count} added successfully. What next?",
         "menu_options": {
-          "local_device_type": "添加另一个设备",
-          "local_add_cloud": "添加云凭据",
-          "local_finish": "完成设置"
+          "local_device_type": "Add Another Device",
+          "local_add_cloud": "Add Cloud Credentials",
+          "local_finish": "Finish Setup"
         }
       },
       "local_finish": {

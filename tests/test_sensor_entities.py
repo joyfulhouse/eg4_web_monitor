@@ -161,6 +161,29 @@ class TestShouldCreateSensor:
         for key in THREE_PHASE_ONLY_SENSORS:
             assert _should_create_sensor(key, features) is True
 
+    def test_single_phase_grid_type_suppresses_all_phase_sensors(self):
+        """Single-phase grid type suppresses both L1/L2 and R/S/T sensors.
+
+        This simulates the Brazilian LXP-LB scenario (issue #121) where the
+        grid_type override sets both supports_split_phase=False and
+        supports_three_phase=False.
+        """
+        features = {
+            "supports_split_phase": False,
+            "supports_three_phase": False,
+        }
+        for key in SPLIT_PHASE_ONLY_SENSORS:
+            assert _should_create_sensor(key, features) is False, (
+                f"Split-phase sensor {key} should be suppressed for single-phase"
+            )
+        for key in THREE_PHASE_ONLY_SENSORS:
+            assert _should_create_sensor(key, features) is False, (
+                f"Three-phase sensor {key} should be suppressed for single-phase"
+            )
+        # Regular sensors still created
+        assert _should_create_sensor("pv1_voltage", features) is True
+        assert _should_create_sensor("battery_power", features) is True
+
 
 # ── _create_inverter_sensors ─────────────────────────────────────────
 
@@ -319,7 +342,7 @@ class TestCreateSimpleDeviceSensors:
             "sensors": {"pv_total_power": 10000, "grid_power": 500},
         }
         entities = _create_simple_device_sensors(
-            coordinator, "parallel_group_INV001", device_data, "parallel_group"
+            coordinator, "parallel_group_a", device_data, "parallel_group"
         )
         valid_count = sum(1 for k in device_data["sensors"] if k in SENSOR_TYPES)
         assert len(entities) == valid_count
@@ -475,10 +498,10 @@ class TestAsyncSetupEntry:
             hass, mock_entry, lambda entities, _: added.extend(entities)
         )
 
-        # Capture the listener callback
+        # Capture the battery listener callback (first of two listeners)
         assert mock_entry.async_on_unload.called
         # The coordinator.async_add_listener was called with the callback
-        listener_call = coordinator.async_add_listener.call_args
+        listener_call = coordinator.async_add_listener.call_args_list[0]
         callback = listener_call[0][0]
 
         # Now simulate new batteries appearing in coordinator data
@@ -515,7 +538,7 @@ class TestAsyncSetupEntry:
             hass, mock_entry, lambda entities, _: added.extend(entities)
         )
 
-        listener_call = coordinator.async_add_listener.call_args
+        listener_call = coordinator.async_add_listener.call_args_list[0]
         callback = listener_call[0][0]
 
         # Call callback - no new batteries

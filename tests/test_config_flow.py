@@ -9,6 +9,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.eg4_web_monitor._config_flow.discovery import detect_grid_type
 from custom_components.eg4_web_monitor._config_flow.helpers import timezone_observes_dst
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -618,6 +619,7 @@ def _make_discovered_device(
     is_gridboss=False,
     pv_power=1500.0,
     battery_soc=65,
+    parallel_master_slave=0,
 ):
     """Create a DiscoveredDevice for use in tests."""
     from custom_components.eg4_web_monitor._config_flow.discovery import (
@@ -633,6 +635,7 @@ def _make_discovered_device(
         is_gridboss=is_gridboss,
         pv_power=pv_power,
         battery_soc=battery_soc,
+        parallel_master_slave=parallel_master_slave,
     )
 
 
@@ -709,9 +712,16 @@ class TestLocalModbusFlow:
                 },
             )
 
-            # Should show device confirmed menu
-            assert result["type"] == data_entry_flow.FlowResultType.MENU
+            # Should show grid type form
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
 
             # Finish without cloud
             result = await hass.config_entries.flow.async_configure(
@@ -842,6 +852,13 @@ class TestLocalModbusFlow:
             )
             assert result["step_id"] == "local_device_confirmed"
 
+            # Submit grid type to proceed
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
+
             # Add another device with same host:port
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -888,6 +905,13 @@ class TestLocalModbusFlow:
                 },
             )
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type to proceed
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
 
             # Try add same serial on different host
             result = await hass.config_entries.flow.async_configure(
@@ -960,8 +984,15 @@ class TestLocalDongleFlow:
                 },
             )
 
-            assert result["type"] == data_entry_flow.FlowResultType.MENU
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
 
             # Finish
             result = await hass.config_entries.flow.async_configure(
@@ -1086,6 +1117,13 @@ class TestLocalDongleFlow:
             )
             assert result["step_id"] == "local_device_confirmed"
 
+            # Submit grid type to proceed
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
+
             # Try same host:port with different dongle serial
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -1131,10 +1169,8 @@ class TestLocalDongleFlow:
 class TestLocalDeviceConfirmedAndFinish:
     """Tests for device confirmed menu and local finish."""
 
-    async def test_device_confirmed_shows_cloud_option_when_no_cloud(
-        self, hass: HomeAssistant
-    ):
-        """Test that local_device_confirmed includes cloud option when no cloud configured."""
+    async def test_device_confirmed_shows_grid_type_form(self, hass: HomeAssistant):
+        """Test that local_device_confirmed shows grid type form for inverters."""
         device = _make_discovered_device()
 
         with patch(
@@ -1156,11 +1192,90 @@ class TestLocalDeviceConfirmedAndFinish:
                 },
             )
 
+            # Inverters show grid type form
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "local_device_confirmed"
+            assert result["description_placeholders"]["device_model"] == "FlexBOSS21"
+
+    async def test_device_added_menu_shows_cloud_option_when_no_cloud(
+        self, hass: HomeAssistant
+    ):
+        """Test that local_device_added includes cloud option when no cloud configured."""
+        device = _make_discovered_device()
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(return_value=device),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.100",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            # Submit grid type form
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+
+            assert result["step_id"] == "local_device_added"
             # Without cloud, should have option to add cloud
             assert "local_add_cloud" in result["menu_options"]
             assert "local_device_type" in result["menu_options"]
             assert "local_finish" in result["menu_options"]
+
+    async def test_grid_type_stored_in_config(self, hass: HomeAssistant):
+        """Test that user-selected grid type is stored in transport config."""
+        device = _make_discovered_device(family="LXP", device_type_code=44)
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(return_value=device),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.100",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            # Select single_phase (Brazilian user)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "single_phase"},
+            )
+
+            # Finish the flow
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_finish"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"station_name": "Brazil Install"},
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+            transport = result["data"][CONF_LOCAL_TRANSPORTS][0]
+            assert transport["grid_type"] == "single_phase"
 
     async def test_local_finish_default_station_name(self, hass: HomeAssistant):
         """Test local finish uses device info when station name is empty."""
@@ -1183,6 +1298,12 @@ class TestLocalDeviceConfirmedAndFinish:
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
+            )
+
+            # Submit grid type form
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
             )
 
             result = await hass.config_entries.flow.async_configure(
@@ -1224,6 +1345,13 @@ class TestLocalDeviceConfirmedAndFinish:
                 },
             )
 
+            # Submit grid type form
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
+
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {"next_step_id": "local_finish"},
@@ -1233,7 +1361,7 @@ class TestLocalDeviceConfirmedAndFinish:
             assert result["step_id"] == "local_finish"
 
     async def test_gridboss_device_confirmed_label(self, hass: HomeAssistant):
-        """Test device_confirmed step reports GridBOSS type correctly."""
+        """Test GridBOSS skips grid type form and goes to device_added menu."""
         device = _make_discovered_device(
             serial="5555555555",
             model="GridBOSS",
@@ -1261,9 +1389,10 @@ class TestLocalDeviceConfirmedAndFinish:
                 },
             )
 
-            assert result["step_id"] == "local_device_confirmed"
-            assert result["description_placeholders"]["device_type"] == "MID"
-            assert result["description_placeholders"]["device_model"] == "GridBOSS"
+            # GridBOSS skips grid type form, goes straight to device_added menu
+            assert result["type"] == data_entry_flow.FlowResultType.MENU
+            assert result["step_id"] == "local_device_added"
+            assert result["description_placeholders"]["device_count"] == "1"
 
 
 # =====================================================
@@ -1299,6 +1428,13 @@ class TestAddMultipleLocalDevices:
                 },
             )
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type for first device
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
             assert result["description_placeholders"]["device_count"] == "1"
 
             # Add another device
@@ -1319,6 +1455,13 @@ class TestAddMultipleLocalDevices:
                 },
             )
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type for second device
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
             assert result["description_placeholders"]["device_count"] == "2"
 
             # Finish
@@ -1348,7 +1491,7 @@ class TestLocalThenCloudHybrid:
     async def test_local_then_add_cloud_creates_hybrid(
         self, hass: HomeAssistant, mock_api_single_plant
     ):
-        """Test adding cloud from local_device_confirmed creates hybrid entry."""
+        """Test adding cloud from local_device_added creates hybrid entry."""
         device = _make_discovered_device()
 
         with patch(
@@ -1370,6 +1513,13 @@ class TestLocalThenCloudHybrid:
                 },
             )
             assert result["step_id"] == "local_device_confirmed"
+
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
 
             # Choose to add cloud
             result = await hass.config_entries.flow.async_configure(
@@ -1579,7 +1729,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 },
             )
 
-            assert result["type"] == data_entry_flow.FlowResultType.MENU
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "local_device_confirmed"
 
     async def test_serial_manual_entry_redirect(self, hass: HomeAssistant):
@@ -1755,6 +1905,13 @@ class TestCloudThenAddLocal:
             )
             assert result["step_id"] == "local_device_confirmed"
 
+            # Submit grid type
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"grid_type": "split_phase"},
+            )
+            assert result["step_id"] == "local_device_added"
+
             # Cloud is already configured, so no local_add_cloud option
             assert "local_add_cloud" not in result["menu_options"]
 
@@ -1769,3 +1926,44 @@ class TestCloudThenAddLocal:
             assert result["data"][CONF_USERNAME] == "test@example.com"
             assert result["data"][CONF_PLANT_ID] == "123"
             assert len(result["data"][CONF_LOCAL_TRANSPORTS]) == 1
+
+
+# =====================================================
+# detect_grid_type auto-detection
+# =====================================================
+
+
+class TestDetectGridType:
+    """Tests for the detect_grid_type auto-detection function."""
+
+    def test_eg4_offgrid_returns_split_phase(self):
+        """EG4_OFFGRID family always returns split_phase."""
+        device = _make_discovered_device(family="EG4_OFFGRID")
+        assert detect_grid_type(device) == "split_phase"
+
+    def test_eg4_hybrid_returns_split_phase(self):
+        """EG4_HYBRID family always returns split_phase."""
+        device = _make_discovered_device(family="EG4_HYBRID")
+        assert detect_grid_type(device) == "split_phase"
+
+    def test_three_phase_parallel_config(self):
+        """parallel_master_slave=3 returns three_phase regardless of family."""
+        device = _make_discovered_device(
+            family="LXP", device_type_code=44, parallel_master_slave=3
+        )
+        assert detect_grid_type(device) == "three_phase"
+
+    def test_lxp_eu_returns_three_phase(self):
+        """LXP with device_type_code=12 (EU) returns three_phase."""
+        device = _make_discovered_device(family="LXP", device_type_code=12)
+        assert detect_grid_type(device) == "three_phase"
+
+    def test_lxp_lb_returns_split_phase(self):
+        """LXP with device_type_code=44 (LB/Americas) returns split_phase."""
+        device = _make_discovered_device(family="LXP", device_type_code=44)
+        assert detect_grid_type(device) == "split_phase"
+
+    def test_unknown_family_returns_split_phase(self):
+        """Unknown family defaults to split_phase."""
+        device = _make_discovered_device(family="UNKNOWN")
+        assert detect_grid_type(device) == "split_phase"

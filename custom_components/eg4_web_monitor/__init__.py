@@ -346,47 +346,96 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                     entity.entity_id,
                 )
 
-    # Parallel group identity stabilization.
-    # If the coordinator now produces a different serial for a PG than what's
-    # already registered (e.g., roleText master vs old arbitrary order), remap
-    # the coordinator data to use the existing serial — preserving all entities
-    # and automations. Truly stale duplicates (no matching coordinator entry)
-    # are removed.
+    # One-time migration: serial-based parallel group IDs → name-based IDs.
+    # Old format: parallel_group_{serial} (e.g., parallel_group_4524850115)
+    # New format: parallel_group_{letter} (e.g., parallel_group_a)
+    # The new format uses the cloud API's parallelGroup name for stability
+    # across LOCAL/HYBRID/cloud mode transitions.
     if coordinator.data and "devices" in coordinator.data:
         devices = coordinator.data["devices"]
         new_pg_ids = {k for k in devices if k.startswith("parallel_group_")}
 
-        # If registry has PG devices that don't match coordinator output,
-        # check if there's exactly one old and one new — remap data to old ID.
+        # Find old serial-based PG IDs that don't match any new name-based ID
         stale_ids = existing_pg_ids - new_pg_ids
-        fresh_ids = new_pg_ids - existing_pg_ids
 
-        if stale_ids and fresh_ids and len(stale_ids) == 1 and len(fresh_ids) == 1:
-            old_id = stale_ids.pop()
-            new_id = fresh_ids.pop()
-            # Remap: keep old device ID, use new data
-            devices[old_id] = devices.pop(new_id)
-            devices[old_id]["first_device_serial"] = old_id.removeprefix(
-                "parallel_group_"
-            )
-            _LOGGER.info(
-                "Remapped parallel group %s -> %s to preserve existing device",
-                new_id,
-                old_id,
-            )
-        else:
-            # Remove truly stale PG devices (no coordinator data at all)
-            for stale_id in stale_ids:
-                for device in dr.async_entries_for_config_entry(
-                    device_registry, entry.entry_id
+        claimed_new_ids: set[str] = set()
+        for stale_id in sorted(stale_ids):
+            # Find matching new name-based PG not already claimed or existing
+            matched_new_id = ""
+            for new_id in sorted(new_pg_ids):
+                if new_id not in existing_pg_ids and new_id not in claimed_new_ids:
+                    matched_new_id = new_id
+                    claimed_new_ids.add(new_id)
+                    break
+
+            if matched_new_id:
+                # Migrate entity unique_ids from old serial-based to new name-based
+                old_prefix = stale_id
+                new_prefix = matched_new_id
+                for entity in er.async_entries_for_config_entry(
+                    entity_registry, entry.entry_id
                 ):
-                    for domain, identifier in device.identifiers:
-                        if domain == DOMAIN and identifier == stale_id:
-                            device_registry.async_remove_device(device.id)
-                            _LOGGER.info(
-                                "Removed stale parallel group device: %s",
-                                stale_id,
+                    if entity.unique_id.startswith(f"{old_prefix}_"):
+                        new_uid = entity.unique_id.replace(old_prefix, new_prefix, 1)
+                        existing_entity = entity_registry.async_get_entity_id(
+                            entity.domain, DOMAIN, new_uid
+                        )
+                        if existing_entity:
+                            entity_registry.async_remove(entity.entity_id)
+                        else:
+                            entity_registry.async_update_entity(
+                                entity.entity_id, new_unique_id=new_uid
                             )
+                        _LOGGER.info(
+                            "Migrated PG entity %s: %s -> %s",
+                            entity.entity_id,
+                            old_prefix,
+                            new_prefix,
+                        )
+
+            # Remove the old serial-based PG device
+            for device in dr.async_entries_for_config_entry(
+                device_registry, entry.entry_id
+            ):
+                for domain, identifier in device.identifiers:
+                    if domain == DOMAIN and identifier == stale_id:
+                        device_registry.async_remove_device(device.id)
+                        _LOGGER.info(
+                            "Removed stale parallel group device: %s",
+                            stale_id,
+                        )
+
+    # One-time cleanup: remove stale smart port entities from previous versions
+    # that created entities for all 4 ports. Now only active ports get entities
+    # (determined dynamically by _filter_unused_smart_port_sensors).
+    from .coordinator_mappings import GRIDBOSS_SMART_PORT_POWER_KEYS
+
+    active_smart_port_keys: set[str] = set()
+    if coordinator.data and "devices" in coordinator.data:
+        for device_data in coordinator.data["devices"].values():
+            if device_data.get("type") == "gridboss":
+                active_smart_port_keys.update(
+                    k
+                    for k in device_data.get("sensors", {})
+                    if k in GRIDBOSS_SMART_PORT_POWER_KEYS
+                )
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
+        # Match by checking if any smart port key appears in the unique_id suffix
+        for sp_key in GRIDBOSS_SMART_PORT_POWER_KEYS:
+            if (
+                entity.unique_id.endswith(f"_{sp_key}")
+                and sp_key not in active_smart_port_keys
+            ):
+                entity_registry.async_remove(entity.entity_id)
+                _LOGGER.info(
+                    "Removed stale smart port entity: %s (key %s not active)",
+                    entity.entity_id,
+                    sp_key,
+                )
+                break
 
     # Forward entry setup to platforms (creates devices and entities)
     # Sensor platform first to create parent devices before other platforms
