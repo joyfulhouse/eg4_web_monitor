@@ -3186,10 +3186,10 @@ class TestPerTransportIntervals:
         """LOCAL with mixed transports: update_interval = min(modbus, dongle)."""
         mixed_local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mixed_local_config_entry)
-        # Default modbus=5, dongle=10 → min=5
+        # Default modbus=5, dongle=30 → min=5
         assert coordinator.update_interval == timedelta(seconds=5)
         assert coordinator._modbus_interval == 5
-        assert coordinator._dongle_interval == 10
+        assert coordinator._dongle_interval == 30
 
     def test_compute_update_interval_local_modbus_only(
         self, hass, modbus_only_local_config_entry
@@ -3205,7 +3205,7 @@ class TestPerTransportIntervals:
         """LOCAL with only Dongle: update_interval = dongle interval."""
         dongle_only_local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, dongle_only_local_config_entry)
-        assert coordinator.update_interval == timedelta(seconds=10)
+        assert coordinator.update_interval == timedelta(seconds=30)
 
     def test_should_poll_transport_first_call_always_true(
         self, hass, mixed_local_config_entry

@@ -1204,9 +1204,6 @@ class DeviceProcessingMixin(_MixinBase):
             sensors: Dictionary of sensor values to modify
             mid_device: MID device object to read port statuses from
         """
-        # Valid smart port status values
-        VALID_STATUS_VALUES = {0, 1, 2}
-
         smart_port_statuses: dict[int, int | None] = {}
         for port in range(1, 5):
             status_property = f"smart_port{port}_status"
@@ -1222,7 +1219,7 @@ class DeviceProcessingMixin(_MixinBase):
         # Check for invalid values and log warnings with diagnostic info
         invalid_ports: dict[int, int | None] = {}
         for port, status in smart_port_statuses.items():
-            if status is None or status not in VALID_STATUS_VALUES:
+            if status is None or status not in _SMART_PORT_STATUS_LABELS:
                 invalid_ports[port] = status
 
         if invalid_ports:
@@ -1287,7 +1284,7 @@ class DeviceProcessingMixin(_MixinBase):
                 f"ac_couple{port}_total",
             ]
 
-            if status is None or status not in VALID_STATUS_VALUES or status == 0:
+            if status is None or status not in _SMART_PORT_STATUS_LABELS or status == 0:
                 # Unused or invalid port - remove all sensors
                 sensors_to_remove.extend(smart_load_power_keys)
                 sensors_to_remove.extend(smart_load_energy_keys)

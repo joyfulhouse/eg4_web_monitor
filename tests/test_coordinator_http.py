@@ -577,6 +577,49 @@ def hybrid_dongle_config_entry():
     )
 
 
+@pytest.fixture
+def hybrid_mixed_config_entry():
+    """Create a hybrid config entry with both modbus_tcp and wifi_dongle transports.
+
+    This mirrors the real-world user setup: inverters on modbus, GridBOSS on dongle.
+    """
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="EG4 - Hybrid Mixed Test",
+        data={
+            CONF_USERNAME: "test",
+            CONF_PASSWORD: "test",
+            CONF_BASE_URL: "https://monitor.eg4electronics.com",
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test Plant",
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "serial": "INV001",
+                    "host": "192.168.1.100",
+                    "port": 8000,
+                    "transport_type": "modbus_tcp",
+                    "inverter_family": "EG4_HYBRID",
+                    "model": "18KPV",
+                },
+                {
+                    "serial": "MID001",
+                    "host": "192.168.1.200",
+                    "port": 8000,
+                    "transport_type": "wifi_dongle",
+                    "inverter_family": "EG4_GRIDBOSS",
+                    "model": "GridBOSS",
+                },
+            ],
+        },
+        options={},
+        entry_id="hybrid_mixed_test_entry",
+    )
+
+
 class TestHybridTransportGating:
     """Test HYBRID per-transport interval gating (issue #148)."""
 
@@ -605,6 +648,50 @@ class TestHybridTransportGating:
         assert coordinator._should_poll_hybrid_local() is True
         # Immediate second call should return False (interval not elapsed)
         assert coordinator._should_poll_hybrid_local() is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_should_poll_hybrid_local_mixed_transports(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_mixed_config_entry
+    ):
+        """With mixed transports, MID refresh gates on dongle interval only.
+
+        Even when modbus is ready, MID refresh should wait for dongle interval.
+        This is the real-world scenario: inverters on modbus, GridBOSS on dongle.
+        """
+        hybrid_mixed_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_mixed_config_entry)
+
+        # First call: both timestamps at 0 → dongle ready → True
+        assert coordinator._should_poll_hybrid_local() is True
+        # Second call: dongle timestamp was just stamped → not ready → False
+        # (modbus is also stamped, but the result is based on dongle only)
+        assert coordinator._should_poll_hybrid_local() is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_should_poll_hybrid_local_mixed_stamps_modbus(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_mixed_config_entry
+    ):
+        """Mixed transports: modbus timestamp is stamped even when dongle gates False.
+
+        Ensures the pre-compute pattern works — ALL transport timestamps update
+        on every call, preventing timestamp drift.
+        """
+        hybrid_mixed_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_mixed_config_entry)
+
+        # First call stamps both timestamps
+        coordinator._should_poll_hybrid_local()
+        modbus_stamp_1 = coordinator._last_modbus_poll
+        dongle_stamp_1 = coordinator._last_dongle_poll
+        assert modbus_stamp_1 > 0
+        assert dongle_stamp_1 > 0
+
+        # Second call: returns False (dongle not ready) but still stamps modbus
+        coordinator._last_modbus_poll = 0.0  # Reset modbus so it would be ready
+        coordinator._should_poll_hybrid_local()
+        assert coordinator._last_modbus_poll > 0  # Modbus was re-stamped
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -703,7 +790,7 @@ class TestHybridTransportGating:
         hybrid_dongle_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
 
-        # Dongle-only: interval should be DEFAULT_DONGLE_UPDATE_INTERVAL (10s)
+        # Dongle-only: interval should be DEFAULT_DONGLE_UPDATE_INTERVAL (30s)
         assert coordinator.update_interval is not None
         assert (
             coordinator.update_interval.total_seconds()

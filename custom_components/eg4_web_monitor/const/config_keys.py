@@ -107,12 +107,12 @@ MAX_PARAMETER_REFRESH_INTERVAL = 1440  # minutes (24 hours)
 
 # Per-transport polling defaults (LOCAL mode with mixed transports)
 DEFAULT_MODBUS_UPDATE_INTERVAL = 5  # seconds (wired, low overhead)
-DEFAULT_DONGLE_UPDATE_INTERVAL = 10  # seconds (WiFi, more conservative)
+DEFAULT_DONGLE_UPDATE_INTERVAL = 30  # seconds (WiFi dongle reads take ~8-10s)
 
 # Per-transport polling limits
 MIN_MODBUS_UPDATE_INTERVAL = 3  # seconds
 MAX_MODBUS_UPDATE_INTERVAL = 300  # seconds (5 minutes)
-MIN_DONGLE_UPDATE_INTERVAL = 5  # seconds
+MIN_DONGLE_UPDATE_INTERVAL = 15  # seconds (reads take ~7-10s, need recovery gap)
 MAX_DONGLE_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 
 # HTTP/Cloud polling interval limits (rate limit protection)

@@ -70,21 +70,32 @@ class HTTPUpdateMixin(_MixinBase):
             self.client._cache_ttl_config[key] = http_ttl
 
     def _should_poll_hybrid_local(self) -> bool:
-        """Check if any local transport interval has elapsed for HYBRID mode.
+        """Check if the dongle transport interval has elapsed for MID refresh.
 
-        Uses the pre-compute pattern from LOCAL mode (cc8d4e2 fix) to avoid
-        the per-device timestamp bug -- evaluates each transport type exactly
-        once via _should_poll_transport().
+        In HYBRID mode, MID devices (GridBOSS) are refreshed via WiFi dongle.
+        This method gates MID refresh specifically on the dongle interval,
+        not on any transport.  Evaluates ALL transport types so monotonic
+        timestamps are stamped for each (pre-compute pattern from cc8d4e2).
         """
         if not self._local_transport_configs:
             return True  # No local transports -> always refresh (HTTP-only fallback)
         unique_types = {
             c.get("transport_type", "modbus_tcp") for c in self._local_transport_configs
         }
-        # Evaluate ALL types (list, not generator) so every transport's
-        # monotonic timestamp is stamped even when an earlier one is True.
-        results = [self._should_poll_transport(tt) for tt in unique_types]
-        return any(results)
+        # Eagerly evaluate ALL types so every transport's monotonic timestamp
+        # is stamped even when an earlier one is True.
+        results = {tt: self._should_poll_transport(tt) for tt in unique_types}
+        # MID device is on the dongle — gate its refresh by dongle interval.
+        # If no dongle transport exists, fall back to any-transport-ready.
+        if "wifi_dongle" in results:
+            should_poll = results["wifi_dongle"]
+            _LOGGER.debug(
+                "HYBRID poll gate: transports=%s, dongle_ready=%s",
+                results,
+                should_poll,
+            )
+            return should_poll
+        return any(results.values())
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
         """Fetch data using library transport routing (local + cloud).
@@ -98,9 +109,9 @@ class HTTPUpdateMixin(_MixinBase):
         Returns:
             Dictionary containing device data with transport-aware labels.
         """
-        should_refresh_local = self._should_poll_hybrid_local()
+        include_mid = self._should_poll_hybrid_local()
         data = await self._async_update_http_data(
-            include_mid_refresh=should_refresh_local,
+            include_mid_refresh=include_mid,
         )
         data["connection_type"] = CONNECTION_TYPE_HYBRID
 
