@@ -25,6 +25,7 @@
 12. [GridBOSS CT Overlay](#12-gridboss-ct-overlay)
 13. [Entity Counts by Mode](#13-entity-counts-by-mode)
 14. [Key Constants Reference](#14-key-constants-reference)
+15. [All Calculations Reference](#15-all-calculations-reference)
 
 ---
 
@@ -862,3 +863,485 @@ entities (12 smart port power/status sensors).
 | `EG4_HYBRID` | True | False | FlexBOSS, 18kPV, 12kPV |
 | `LXP` (code 12) | False | True | LXP-EU (3-phase) |
 | `LXP` (code 44) | True | False | LXP-LB (BR/US) |
+
+---
+
+## 15. All Calculations Reference
+
+This section documents **every** calculation, derivation, scaling, and transformation
+in the data pipeline. Organized by pipeline stage.
+
+---
+
+### 15.1 Register Scaling (pylxpweb `_canonical_reader.py`)
+
+The canonical reader applies scale factors from `RegisterDefinition.scale`:
+
+```
+ScaleFactor.DIVIDE_10   → raw_value / 10.0     (voltages, energy kWh)
+ScaleFactor.DIVIDE_100  → raw_value / 100.0     (frequencies, currents)
+ScaleFactor.DIVIDE_1000 → raw_value / 1000.0    (cell voltages)
+ScaleFactor.NONE        → raw_value             (power W, status codes)
+```
+
+`read_scaled(registers, field)` returns the final float.
+`read_raw(registers, field)` returns the unscaled int.
+
+### 15.2 32-bit Register Pairs
+
+For lifetime energy counters spanning two 16-bit registers:
+
+```
+value = (high_word << 16) | low_word
+```
+
+`RegisterDefinition` with `size=2` auto-sets `little_endian=True` via
+`__post_init__`. The "low" register has the lower address, "high" the next.
+Final value is then scaled (typically ÷10 for kWh).
+
+**Example:** Regs 46-47 → `(reg47 << 16) | reg46` → `÷10` → `yield_lifetime` kWh.
+
+### 15.3 Battery SoC/SoH Byte Unpacking (Register 5)
+
+Register 5 (`soc_soh_packed`) encodes two values in a single 16-bit register:
+
+```python
+soc = raw_value & 0xFF        # Low byte: State of Charge (0-100%)
+soh = (raw_value >> 8) & 0xFF # High byte: State of Health (0-100%)
+```
+
+Handled by `InverterRuntimeData.from_modbus_registers()` in pylxpweb.
+
+### 15.4 Cloud API Scaling (`_map_device_properties`)
+
+**Function:** `coordinator_mixins._map_device_properties(device, property_map)`
+
+**Behavior:**
+1. Iterates `property_map` (API field → sensor key)
+2. Calls `getattr(device, property_name, None)` — catches TypeError/ValueError
+   from property getters that call `float(None)` on unpopulated data
+3. **Skips** `None` values and empty strings — keys not added to sensors dict
+4. Non-None values passed through as-is
+
+**Post-mapping scaling** in `coordinator_http.py` and `coordinator_mixins.py`:
+
+After `_map_device_properties()` produces the sensor dict, scaling is applied
+based on membership in these sets (defined in `const/sensors/mappings.py`):
+
+| Scaling Set | Factor | Applied To |
+|-------------|--------|------------|
+| `DIVIDE_BY_10_SENSORS` | `value / 10` | All energy sensors (kWh) |
+| `DIVIDE_BY_100_SENSORS` | `value / 100` | Frequency sensors (Hz) |
+| `VOLTAGE_SENSORS` | `value / 10` | GridBOSS voltage sensors (V) |
+| `CURRENT_SENSORS` | `value / 10` | GridBOSS current sensors (A) |
+
+**Note:** Inverter voltage/power sensors arrive pre-scaled from pylxpweb
+properties in CLOUD mode. Only GridBOSS and energy sensors need post-mapping
+scaling since they come from raw JSON fields.
+
+### 15.5 `_safe_numeric()` Helper
+
+**File:** `coordinator_mixins.py:260`
+
+```python
+def _safe_numeric(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+```
+
+Used throughout aggregation code. **Critical behavior:** `None` → `0.0`.
+This means summing a mix of real values and `None` treats missing data as zero.
+The smart port aggregation explicitly checks for `None` before calling this
+to avoid creating misleading `0.0` aggregates for wrong-type ports.
+
+---
+
+### 15.6 Inverter Computed Sensors
+
+These sensors are NOT read from a single register or API field. They are
+computed in the coordinator layer.
+
+#### `consumption_power` (Inverter, LOCAL)
+
+**Source:** `pylxpweb` `inverter.consumption_power` property
+
+```
+consumption_power = pv_total_power + grid_import - grid_export
+                    (clamped to >= 0)
+```
+
+**Where:** `coordinator_local.py` — set via `inverter.consumption_power`
+property accessor.
+
+#### `consumption` / `consumption_lifetime` (Inverter Energy, LOCAL)
+
+**Function:** `coordinator_mappings._energy_balance()`
+
+```python
+def _energy_balance(pv, discharge, grid_import, charge, grid_export):
+    if all(v is None for v in (pv, discharge, grid_import, charge, grid_export)):
+        return None
+    result = (float(pv or 0)
+              + float(discharge or 0)
+              + float(grid_import or 0)
+              - float(charge or 0)
+              - float(grid_export or 0))
+    return max(0.0, result)
+```
+
+**Formula:**
+```
+consumption = yield + discharging + grid_import - charging - grid_export
+              (clamped >= 0, returns None if all inputs None)
+```
+
+**When applied:**
+- `_build_energy_sensor_mapping()` always uses energy balance for LOCAL sensors
+- `_process_inverter_object()` recalculates when `_transport` is attached
+  (overrides pylxpweb's `energy_today_usage` which reads the wrong register)
+
+**CLOUD mode:** Uses `todayLoad` / `totalLoad` from API (server-computed).
+
+#### `battery_power` (Inverter)
+
+```
+battery_power = charge_power - discharge_power
+```
+
+Positive = net charging, negative = net discharging.
+
+**Source:** `inverter.battery_power` property in pylxpweb (LOCAL),
+or `batPower` API field (CLOUD).
+
+#### `grid_power` (Inverter)
+
+```
+grid_power = power_to_user - power_to_grid
+```
+
+Positive = importing from grid, negative = exporting to grid.
+
+**Where:** `coordinator_mixins.py` `_process_inverter_object()` line ~458.
+
+#### `eps_power_l1` / `eps_power_l2` (Inverter, LOCAL only)
+
+Split-phase EPS power per leg, computed from total EPS power and voltage ratio:
+
+```python
+eps_power_l1 = eps_power * (eps_voltage_l1 / (eps_voltage_l1 + eps_voltage_l2))
+eps_power_l2 = eps_power * (eps_voltage_l2 / (eps_voltage_l1 + eps_voltage_l2))
+```
+
+Returns `None` when both voltages are zero (no EPS output).
+
+**Source:** `inverter.eps_power_l1` / `inverter.eps_power_l2` properties in
+pylxpweb. Set in `coordinator_local.py` `_build_local_device_data()`.
+
+#### `total_load_power` (Inverter)
+
+Alias for `consumption_power`. Same value, different sensor key for
+backward compatibility.
+
+#### `rectifier_power` (Inverter)
+
+Direct alias for register 17 (`grid_power` in pylxpweb). Named `rectifier_power`
+in HA for disambiguation from the computed `grid_power` sensor.
+
+#### `grid_import_power` (Inverter)
+
+Direct alias for register 27 (`power_to_user` in pylxpweb).
+
+---
+
+### 15.7 GridBOSS Computed Sensors
+
+#### L1+L2 Aggregate Power (`_calculate_gridboss_aggregates`)
+
+**File:** `coordinator_mixins.py:1306`
+
+Computes total power from individual L1/L2 values using `sum_l1_l2()`:
+
+```python
+def sum_l1_l2(l1_key, l2_key):
+    if l1_key in sensors and l2_key in sensors:
+        l1_val, l2_val = sensors[l1_key], sensors[l2_key]
+        if l1_val is None and l2_val is None:
+            return None  # Wrong-type port marker
+        return _safe_numeric(l1_val) + _safe_numeric(l2_val)
+    return None  # Keys don't exist
+```
+
+**Simple L1+L2 pairs:**
+
+| Output Key | Formula |
+|------------|---------|
+| `grid_power` | `grid_power_l1 + grid_power_l2` |
+| `ups_power` | `ups_power_l1 + ups_power_l2` |
+| `load_power` | `load_power_l1 + load_power_l2` |
+| `generator_power` | `generator_power_l1 + generator_power_l2` |
+
+**Smart port per-port aggregates:**
+
+| Output Key | Formula |
+|------------|---------|
+| `smart_load{N}_power` | `smart_load{N}_power_l1 + smart_load{N}_power_l2` |
+| `ac_couple{N}_power` | `ac_couple{N}_power_l1 + ac_couple{N}_power_l2` |
+
+For wrong-type ports (both L1 and L2 are `None`), the per-port aggregate
+is also set to `None` (not 0.0).
+
+**Smart port total aggregates:**
+
+| Output Key | Formula |
+|------------|---------|
+| `smart_load_power` | Sum of all `smart_load{N}_power` where value is not None |
+| `ac_couple_power` | Sum of all `ac_couple{N}_power` where value is not None |
+
+Total keys are only created when at least one port of that type has a real
+value. If no ports are active, the total key is not added to the sensors dict.
+
+#### `consumption_power` (GridBOSS)
+
+```
+consumption_power = load_power   (direct CT measurement, NOT energy balance)
+```
+
+The GridBOSS load CT is the authoritative consumption measurement. Set in
+`_build_gridboss_sensor_mapping()` and `_get_mid_device_property_map()`.
+
+#### `hybrid_power` (GridBOSS)
+
+```
+hybrid_power = ups_power - grid_power
+```
+
+Computed by `MIDRuntimePropertiesMixin.hybrid_power` in pylxpweb.
+
+---
+
+### 15.8 Individual Battery Computed Sensors
+
+#### `battery_real_power`
+
+```
+battery_real_power = voltage * current
+```
+
+Computed by `pylxpweb` `Battery.power` property. Also available from
+`BatteryData.power` in LOCAL mode.
+
+#### `battery_cell_voltage_delta`
+
+```
+battery_cell_voltage_delta = max_cell_voltage - min_cell_voltage
+```
+
+Computed by pylxpweb `Battery.cell_voltage_delta` / `BatteryData.cell_voltage_delta`.
+
+#### `battery_remaining_capacity`
+
+```
+battery_remaining_capacity = max_capacity * soc / 100
+```
+
+Computed by pylxpweb `BatteryData.remaining_capacity`.
+
+#### `battery_capacity_percentage` (fallback)
+
+```
+battery_capacity_percentage = remaining_capacity / full_capacity * 100
+```
+
+Only computed when not already provided by the library. Calculated in
+`_calculate_battery_derived_sensors()`.
+
+#### `battery_cell_voltage_diff` (fallback)
+
+```
+battery_cell_voltage_diff = max_cell_voltage - min_cell_voltage
+```
+
+Rounded to 3 decimal places. Only computed when `battery_cell_voltage_diff`
+is not already in the sensors dict. Calculated in
+`_calculate_battery_derived_sensors()`.
+
+---
+
+### 15.9 Battery Bank Computed Sensors
+
+**File:** `coordinator_mappings._build_battery_bank_sensor_mapping()`
+
+#### `battery_bank_power`
+
+Primary formula:
+```
+battery_bank_power = charge_power - discharge_power
+```
+Positive = net charging, negative = net discharging.
+
+Fallback (when charge/discharge unavailable):
+```
+battery_bank_power = battery_data.battery_power   (V * I computation)
+```
+
+**Note:** In HTTP mode (`_extract_battery_bank_from_object`), the same
+charge−discharge formula is used as fallback when `batPower` API field
+is not present.
+
+#### Cross-Battery Diagnostic Sensors
+
+These are computed by `BatteryBankData` properties in pylxpweb, comparing
+values across all batteries in the bank:
+
+| Sensor Key | Computation |
+|------------|-------------|
+| `battery_bank_soc_delta` | `max(soc) - min(soc)` across all batteries |
+| `battery_bank_min_soh` | `min(soh)` across all batteries |
+| `battery_bank_soh_delta` | `max(soh) - min(soh)` across all batteries |
+| `battery_bank_voltage_delta` | `max(voltage) - min(voltage)` across all batteries |
+| `battery_bank_cell_voltage_delta_max` | `max(cell_voltage_delta)` across all batteries |
+| `battery_bank_cycle_count_delta` | `max(cycle_count) - min(cycle_count)` across all batteries |
+| `battery_bank_max_cell_temp` | `max(max_cell_temp)` across all batteries |
+| `battery_bank_temp_delta` | `max(max_cell_temp) - min(min_cell_temp)` across all batteries |
+
+All return `None` when insufficient data (fewer than 1 battery with the field).
+
+---
+
+### 15.10 Parallel Group Computations (LOCAL mode)
+
+**File:** `coordinator_local.py:_process_local_parallel_groups()`
+
+#### Power Sensor Summing
+
+These sensors are summed across all member inverters:
+
+```
+pv_total_power    = Σ inverter.pv_total_power
+grid_power        = Σ inverter.grid_power
+consumption_power = Σ inverter.consumption_power
+eps_power         = Σ inverter.eps_power
+ac_power          = Σ inverter.ac_power
+output_power      = Σ inverter.output_power
+```
+
+Only non-None values are included in each sum.
+
+#### Energy Sensor Summing
+
+```
+yield              = Σ inverter.yield
+charging           = Σ inverter.charging
+discharging        = Σ inverter.discharging
+grid_import        = Σ inverter.grid_import
+grid_export        = Σ inverter.grid_export
+consumption        = Σ inverter.consumption
+(same for _lifetime variants)
+```
+
+#### Battery Aggregates at Parallel Group Level
+
+```
+parallel_battery_charge_power    = Σ inverter.battery_charge_power
+parallel_battery_discharge_power = Σ inverter.battery_discharge_power
+parallel_battery_power           = discharge_sum - charge_sum
+                                   (positive = discharging)
+parallel_battery_soc             = average(inverter.state_of_charge)
+parallel_battery_voltage         = average(inverter.battery_voltage)
+parallel_battery_count           = Σ inverter.battery_bank_count
+parallel_battery_max_capacity    = Σ inverter.battery_bank_max_capacity
+parallel_battery_current_capacity = Σ inverter.battery_bank_current_capacity
+```
+
+**Sign convention note:** `parallel_battery_power` uses `discharge - charge`
+(positive = discharging), which is the **opposite** sign convention from
+`battery_bank_power` (which uses `charge - discharge`, positive = charging).
+
+#### Grid Voltage Copy
+
+Grid voltage L1/L2 is copied from the master inverter only (no averaging):
+```
+grid_voltage_l1 = master_inverter.grid_voltage_l1
+grid_voltage_l2 = master_inverter.grid_voltage_l2
+```
+
+Rationale: All inverters share the same grid, so one reading is representative.
+
+---
+
+### 15.11 GridBOSS CT Overlay (Full Mapping)
+
+**Function:** `apply_gridboss_overlay()` in `coordinator_mixins.py`
+
+The `_GRIDBOSS_PG_OVERLAY` dict maps GridBOSS sensor keys to parallel group
+sensor keys. Only non-None GridBOSS values are applied (cast to `float`).
+
+| GridBOSS Key | → Parallel Group Key | Category |
+|--------------|---------------------|----------|
+| `grid_power` | `grid_power` | Power |
+| `grid_power_l1` | `grid_power_l1` | Power |
+| `grid_power_l2` | `grid_power_l2` | Power |
+| `load_power` | `load_power` | Power |
+| `load_power_l1` | `load_power_l1` | Power |
+| `load_power_l2` | `load_power_l2` | Power |
+| `grid_export_today` | `grid_export` | Energy (daily) |
+| `grid_export_total` | `grid_export_lifetime` | Energy (lifetime) |
+| `grid_import_today` | `grid_import` | Energy (daily) |
+| `grid_import_total` | `grid_import_lifetime` | Energy (lifetime) |
+| `load_today` | `consumption` | Energy (daily) |
+| `load_total` | `consumption_lifetime` | Energy (lifetime) |
+
+#### LOCAL-Only Additional Overlays
+
+After the shared overlay, `_process_local_parallel_groups()` applies:
+
+**Consumption power addition:**
+```
+consumption_power = inverter_eps_sum + gridboss_load_power
+```
+
+Total consumption = inverter EPS loads (backup circuits) + GridBOSS load
+(main panel loads measured by CT). The GridBOSS CT doesn't measure backup
+circuits, so both must be summed.
+
+**AC couple PV inclusion** (optional, controlled by `CONF_INCLUDE_AC_COUPLE_PV`):
+```
+pv_total_power += Σ ac_couple_port_l1 + ac_couple_port_l2
+                  (for all ports with status == 2)
+```
+
+When enabled, AC-coupled solar inverters on smart ports are included in
+the total PV power. Default: disabled.
+
+---
+
+### 15.12 Smart Port Status Decode (Holding Register 20)
+
+```python
+for port in range(1, 5):
+    status = (register_20_value >> ((port - 1) * 2)) & 0x03
+```
+
+See [Section 5](#5-gridboss-holding-register-20-smart-port-status) for
+encoding details. The decoded status drives all smart port sensor filtering
+in [Section 11](#11-smart-port-sensor-filtering).
+
+---
+
+### 15.13 Cloud API vs LOCAL Calculation Differences
+
+| Sensor Key | CLOUD Source | LOCAL Computation |
+|------------|-------------|-------------------|
+| `consumption` | `todayLoad ÷ 10` (server-computed) | `_energy_balance(yield, discharge, grid_import, charge, grid_export)` |
+| `consumption_lifetime` | `totalLoad ÷ 10` (server-computed) | `_energy_balance(...)` on lifetime values |
+| `consumption_power` | `consumptionPower` API field | `inverter.consumption_power` property (energy balance on instantaneous power) |
+| `grid_power` (inverter) | Computed: `pToUser - pToGrid` | Computed: `power_to_user - power_to_grid` (same formula, different source) |
+| `battery_power` (inverter) | `batPower` API field | `inverter.battery_power` property (`charge - discharge`) |
+| `battery_bank_power` | `batPower` API or `charge - discharge` | `charge_power - discharge_power` (with V*I fallback) |
+| GridBOSS L1+L2 aggregates | Computed by `_calculate_gridboss_aggregates()` | Same function, same computation |
+| Smart port status | `smartPort{N}Status` API fields | Holding register 20 bit-decode |
+| GridBOSS energy | `getMidboxRuntime` API (÷10 scaling) | Input registers 42-118 (÷10 by canonical reader) |
