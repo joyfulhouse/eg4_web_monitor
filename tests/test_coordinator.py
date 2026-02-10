@@ -1,6 +1,7 @@
 """Tests for EG4 Data Update Coordinator with pylxpweb 0.3.5 device objects API."""
 
 import time
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,7 @@ from custom_components.eg4_web_monitor.const import (
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
     CONF_HTTP_POLLING_INTERVAL,
+    CONF_INCLUDE_AC_COUPLE_PV,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
     CONF_PLANT_ID,
@@ -602,6 +604,403 @@ class TestParallelGroupBatteryCount:
         # Should only count non-zero values (3), not 0
         sensors = parallel_group.get("sensors", {})
         assert sensors.get("parallel_battery_count") == 3
+
+
+class TestParallelGroupAggregation:
+    """Test parallel group power/energy/SOC aggregation across multiple devices."""
+
+    def _two_inverter_processed(self) -> dict[str, Any]:
+        """Return processed data with two inverters in parallel group 1."""
+        return {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,  # Master
+                    "sensors": {
+                        "pv_total_power": 3000.0,
+                        "grid_power": 200.0,
+                        "consumption_power": 2800.0,
+                        "eps_power": 100.0,
+                        "battery_charge_power": 500.0,
+                        "battery_discharge_power": 0.0,
+                        "ac_power": 2900.0,
+                        "output_power": 2900.0,
+                        "yield": 15.0,
+                        "charging": 3.0,
+                        "discharging": 1.0,
+                        "grid_import": 0.5,
+                        "grid_export": 2.0,
+                        "consumption": 12.0,
+                        "yield_lifetime": 1000.0,
+                        "charging_lifetime": 200.0,
+                        "discharging_lifetime": 150.0,
+                        "grid_import_lifetime": 50.0,
+                        "grid_export_lifetime": 300.0,
+                        "consumption_lifetime": 700.0,
+                        "state_of_charge": 80,
+                        "battery_voltage": 52.0,
+                        "battery_bank_count": 3,
+                        "battery_bank_max_capacity": 300.0,
+                        "battery_bank_current_capacity": 240.0,
+                        "grid_voltage_l1": 121.5,
+                        "grid_voltage_l2": 122.0,
+                    },
+                    "batteries": {},
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,  # Slave
+                    "sensors": {
+                        "pv_total_power": 2500.0,
+                        "grid_power": 100.0,
+                        "consumption_power": 2400.0,
+                        "eps_power": 50.0,
+                        "battery_charge_power": 300.0,
+                        "battery_discharge_power": 0.0,
+                        "ac_power": 2200.0,
+                        "output_power": 2200.0,
+                        "yield": 12.0,
+                        "charging": 2.0,
+                        "discharging": 0.5,
+                        "grid_import": 0.3,
+                        "grid_export": 1.5,
+                        "consumption": 10.0,
+                        "yield_lifetime": 800.0,
+                        "charging_lifetime": 180.0,
+                        "discharging_lifetime": 120.0,
+                        "grid_import_lifetime": 40.0,
+                        "grid_export_lifetime": 250.0,
+                        "consumption_lifetime": 600.0,
+                        "state_of_charge": 70,
+                        "battery_voltage": 51.0,
+                        "battery_bank_count": 2,
+                        "battery_bank_max_capacity": 200.0,
+                        "battery_bank_current_capacity": 140.0,
+                        "grid_voltage_l1": 121.3,
+                        "grid_voltage_l2": 121.8,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+    async def test_power_sensors_summed(self, hass, mock_config_entry):
+        """Test that power sensors are summed across devices."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"]["parallel_group_a"]
+        sensors = pg["sensors"]
+
+        assert sensors["pv_total_power"] == 5500.0  # 3000 + 2500
+        assert sensors["grid_power"] == 300.0  # 200 + 100
+        assert sensors["consumption_power"] == 5200.0  # 2800 + 2400
+        assert sensors["eps_power"] == 150.0  # 100 + 50
+        assert sensors["ac_power"] == 5100.0  # 2900 + 2200
+        assert sensors["output_power"] == 5100.0  # 2900 + 2200
+
+    async def test_energy_sensors_summed(self, hass, mock_config_entry):
+        """Test that energy sensors are summed across devices."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+
+        # Daily energy
+        assert sensors["yield"] == 27.0  # 15 + 12
+        assert sensors["charging"] == 5.0  # 3 + 2
+        assert sensors["discharging"] == 1.5  # 1 + 0.5
+        assert sensors["grid_import"] == 0.8  # 0.5 + 0.3
+        assert sensors["grid_export"] == 3.5  # 2 + 1.5
+        assert sensors["consumption"] == 22.0  # 12 + 10
+
+        # Lifetime energy
+        assert sensors["yield_lifetime"] == 1800.0  # 1000 + 800
+        assert sensors["charging_lifetime"] == 380.0  # 200 + 180
+        assert sensors["discharging_lifetime"] == 270.0  # 150 + 120
+        assert sensors["grid_import_lifetime"] == 90.0  # 50 + 40
+        assert sensors["grid_export_lifetime"] == 550.0  # 300 + 250
+        assert sensors["consumption_lifetime"] == 1300.0  # 700 + 600
+
+    async def test_battery_power_remapped_to_parallel_keys(
+        self, hass, mock_config_entry
+    ):
+        """Test battery charge/discharge remapped to parallel_battery_* keys."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+
+        # battery_charge_power and battery_discharge_power are removed,
+        # replaced with parallel_battery_* keys
+        assert "battery_charge_power" not in sensors
+        assert "battery_discharge_power" not in sensors
+        assert sensors["parallel_battery_charge_power"] == 800.0  # 500 + 300
+        assert sensors["parallel_battery_discharge_power"] == 0.0
+        # parallel_battery_power = discharge - charge
+        assert sensors["parallel_battery_power"] == -800.0  # 0 - 800
+
+    async def test_battery_power_discharging(self, hass, mock_config_entry):
+        """Test parallel_battery_power is positive when discharging."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        # Modify to discharging scenario
+        processed["devices"]["INV001"]["sensors"]["battery_charge_power"] = 0.0
+        processed["devices"]["INV001"]["sensors"]["battery_discharge_power"] = 1000.0
+        processed["devices"]["INV002"]["sensors"]["battery_charge_power"] = 0.0
+        processed["devices"]["INV002"]["sensors"]["battery_discharge_power"] = 800.0
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        assert sensors["parallel_battery_charge_power"] == 0.0
+        assert sensors["parallel_battery_discharge_power"] == 1800.0
+        assert sensors["parallel_battery_power"] == 1800.0  # 1800 - 0
+
+    async def test_soc_averaged(self, hass, mock_config_entry):
+        """Test that state_of_charge is averaged across devices."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        assert sensors["parallel_battery_soc"] == 75.0  # (80 + 70) / 2
+
+    async def test_battery_voltage_averaged(self, hass, mock_config_entry):
+        """Test that battery_voltage is averaged across devices."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        assert sensors["parallel_battery_voltage"] == 51.5  # (52.0 + 51.0) / 2
+
+    async def test_battery_capacity_summed(self, hass, mock_config_entry):
+        """Test max/current capacity summed from all devices."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        assert sensors["parallel_battery_max_capacity"] == 500.0  # 300 + 200
+        assert sensors["parallel_battery_current_capacity"] == 380.0  # 240 + 140
+
+    async def test_grid_voltage_from_master(self, hass, mock_config_entry):
+        """Test grid voltage copied from master device, not averaged."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        # Should use master (INV001) values, not average
+        assert sensors["grid_voltage_l1"] == 121.5
+        assert sensors["grid_voltage_l2"] == 122.0
+
+    async def test_group_metadata(self, hass, mock_config_entry):
+        """Test parallel group device metadata (member_count, member_serials)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"]["parallel_group_a"]
+        assert pg["type"] == "parallel_group"
+        assert pg["name"] == "Parallel Group A"
+        assert pg["member_count"] == 2
+        assert set(pg["member_serials"]) == {"INV001", "INV002"}
+        assert pg["first_device_serial"] == "INV001"  # Master
+
+    async def test_master_selection_falls_back_to_first(self, hass, mock_config_entry):
+        """Test that when no master (parallel_master_slave==1) exists, first device is used."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        # Remove master designation from both
+        processed["devices"]["INV001"]["parallel_master_slave"] = 0
+        processed["devices"]["INV002"]["parallel_master_slave"] = 0
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"]["parallel_group_a"]
+        # Falls back to first device in group
+        assert pg["first_device_serial"] == "INV001"
+
+    async def test_none_values_excluded_from_sums(self, hass, mock_config_entry):
+        """Test that None sensor values are excluded from power/energy sums."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        # Set some sensors to None on INV002
+        processed["devices"]["INV002"]["sensors"]["pv_total_power"] = None
+        processed["devices"]["INV002"]["sensors"]["yield"] = None
+        processed["devices"]["INV002"]["sensors"]["state_of_charge"] = None
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        # Only INV001 values used for None-ed sensors
+        assert sensors["pv_total_power"] == 3000.0  # Only INV001
+        assert sensors["yield"] == 15.0  # Only INV001
+        # SOC averaged with only 1 valid value
+        assert sensors["parallel_battery_soc"] == 80.0  # Only INV001
+
+    async def test_gridboss_overlay_replaces_inverter_values(
+        self, hass, mock_config_entry
+    ):
+        """Test that GridBOSS CT data overlays inverter-derived grid/load values."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        # Add a GridBOSS device with CT measurements
+        processed["devices"]["GB001"] = {
+            "type": "gridboss",
+            "sensors": {
+                "grid_power": -500.0,  # Exporting (CT reading)
+                "grid_power_l1": -250.0,
+                "grid_power_l2": -250.0,
+                "load_power": 4000.0,
+                "load_power_l1": 2000.0,
+                "load_power_l2": 2000.0,
+                "grid_export_today": 8.0,
+                "grid_export_total": 800.0,
+                "grid_import_today": 0.2,
+                "grid_import_total": 20.0,
+                "load_today": 25.0,
+                "load_total": 2500.0,
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+
+        # GridBOSS CT values should override inverter sums
+        assert sensors["grid_power"] == -500.0
+        assert sensors["grid_power_l1"] == -250.0
+        assert sensors["grid_power_l2"] == -250.0
+        assert sensors["load_power"] == 4000.0
+        assert sensors["load_power_l1"] == 2000.0
+        assert sensors["load_power_l2"] == 2000.0
+
+        # Energy overlays
+        assert sensors["grid_export"] == 8.0
+        assert sensors["grid_export_lifetime"] == 800.0
+        assert sensors["grid_import"] == 0.2
+        assert sensors["grid_import_lifetime"] == 20.0
+        assert sensors["consumption"] == 25.0
+        assert sensors["consumption_lifetime"] == 2500.0
+
+        # Consumption power = inverter consumption sum (5200) + GridBOSS load_power (4000)
+        assert sensors["consumption_power"] == 9200.0
+
+    async def test_gridboss_ac_couple_adds_to_pv_when_enabled(
+        self, hass, mock_config_entry
+    ):
+        """Test AC couple power adds to pv_total_power when option enabled."""
+        mock_config_entry.add_to_hass(hass)
+        # Enable AC couple PV inclusion
+        hass.config_entries.async_update_entry(
+            mock_config_entry,
+            options={CONF_INCLUDE_AC_COUPLE_PV: True},
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = self._two_inverter_processed()
+
+        # Add GridBOSS with AC couple port
+        processed["devices"]["GB001"] = {
+            "type": "gridboss",
+            "sensors": {
+                "smart_port1_status": 2,  # AC Couple mode
+                "ac_couple1_power_l1": 1500.0,
+                "ac_couple1_power_l2": 1200.0,
+                "smart_port2_status": 0,  # Unused
+                "smart_port3_status": 0,
+                "smart_port4_status": 0,
+                "load_power": 3000.0,
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        # pv_total_power = inverter sum (5500) + AC couple (1500 + 1200 = 2700)
+        assert sensors["pv_total_power"] == 8200.0
+
+    async def test_standalone_device_not_grouped(self, hass, mock_config_entry):
+        """Test that devices with parallel_number=0 are not grouped."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 0,  # Standalone
+                    "sensors": {"pv_total_power": 3000.0},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        # No parallel group should be created
+        assert "parallel_group_a" not in processed["devices"]
+
+    async def test_single_device_with_parallel_number_creates_group(
+        self, hass, mock_config_entry
+    ):
+        """Test single inverter with parallel_number > 0 creates group (e.g. 1 inverter + GridBOSS)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {
+                        "pv_total_power": 3000.0,
+                        "battery_charge_power": 500.0,
+                        "battery_discharge_power": 0.0,
+                        "state_of_charge": 80,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"].get("parallel_group_a")
+        assert pg is not None
+        assert pg["member_count"] == 1
+        assert pg["member_serials"] == ["INV001"]
+        assert pg["sensors"]["pv_total_power"] == 3000.0
+        assert pg["sensors"]["parallel_battery_charge_power"] == 500.0
 
 
 class TestDeferredLocalParameters:
