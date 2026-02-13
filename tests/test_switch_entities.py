@@ -205,6 +205,55 @@ class TestSwitchPlatformSetup:
         type_names = [type(e).__name__ for e in entities]
         assert "EG4DSTSwitch" in type_names
 
+    @pytest.mark.asyncio
+    async def test_local_only_excludes_cloud_only_working_modes(self, hass):
+        """LOCAL-only mode should NOT create switches for cloud-only working modes.
+
+        FUNC_BATTERY_BACKUP_CTRL and FUNC_GRID_PEAK_SHAVING have no Modbus
+        register mappings and can only be controlled via the Cloud API.
+        Regression test for issue #153.
+        """
+        coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_modes = [
+            e for e in entities if isinstance(e, EG4WorkingModeSwitch)
+        ]
+        working_mode_params = {e._mode_config["param"] for e in working_modes}
+
+        # These three have Modbus register support (register 21 bit fields)
+        assert "FUNC_AC_CHARGE" in working_mode_params
+        assert "FUNC_FORCED_CHG_EN" in working_mode_params
+        assert "FUNC_FORCED_DISCHG_EN" in working_mode_params
+
+        # These are Cloud API-only — must NOT be created in LOCAL mode
+        assert "FUNC_BATTERY_BACKUP_CTRL" not in working_mode_params
+        assert "FUNC_GRID_PEAK_SHAVING" not in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_cloud_mode_includes_all_working_modes(self, hass):
+        """Cloud mode should create ALL working mode switches."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False, local_only=False)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_modes_created = [
+            e for e in entities if isinstance(e, EG4WorkingModeSwitch)
+        ]
+        working_mode_params = {e._mode_config["param"] for e in working_modes_created}
+
+        # Cloud mode creates all working modes including cloud-only ones
+        assert "FUNC_AC_CHARGE" in working_mode_params
+        assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params
+        assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
+
 
 # ── QuickChargeSwitch ────────────────────────────────────────────────
 

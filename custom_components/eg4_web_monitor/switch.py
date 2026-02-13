@@ -161,8 +161,6 @@ async def async_setup_entry(
                             "FUNC_AC_CHARGE",  # Register 21, bit 7
                             "FUNC_FORCED_CHG_EN",  # Register 21, bit 11
                             "FUNC_FORCED_DISCHG_EN",  # Register 21, bit 10
-                            "FUNC_GRID_PEAK_SHAVING",  # Register 21 (via HTTP API)
-                            "FUNC_BATTERY_BACKUP_CTRL",  # Register 21 (via HTTP API)
                         }
                         if param not in modbus_supported_params:
                             _LOGGER.debug(

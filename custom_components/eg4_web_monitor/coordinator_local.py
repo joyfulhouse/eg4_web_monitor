@@ -70,6 +70,13 @@ _LIFETIME_ENERGY_KEYS = frozenset(
     }
 )
 
+# Computed energy keys derived from energy balance (yield + discharge +
+# grid_import - charge - grid_export).  Unlike register-backed keys in
+# _LIFETIME_ENERGY_KEYS, these can fluctuate slightly because each
+# component register is read at a different instant.  Clamping to the
+# previous value prevents HA total_increasing warnings.
+_COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
+
 
 class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
@@ -540,6 +547,44 @@ class LocalTransportMixin(_MixinBase):
                 return False
         return True
 
+    def _clamp_computed_energy(
+        self,
+        device_id: str,
+        sensors: dict[str, Any],
+    ) -> None:
+        """Clamp computed energy balance values to never decrease.
+
+        Energy balance values (consumption, consumption_lifetime) are derived
+        from multiple register reads that happen at slightly different times.
+        Small decreases (e.g. 0.1 kWh) are normal artifacts, not corruption.
+        Clamping prevents HA total_increasing state class warnings.
+
+        Args:
+            device_id: Device serial or parallel group ID for log context.
+            sensors: Current cycle's sensor dict (modified in place).
+        """
+        if not self.data:
+            return
+        prev_sensors = (
+            self.data.get("devices", {}).get(device_id, {}).get("sensors", {})
+        )
+        if not prev_sensors:
+            return
+
+        for key in _COMPUTED_ENERGY_KEYS:
+            prev = prev_sensors.get(key)
+            curr = sensors.get(key)
+            if prev is not None and curr is not None and curr < prev:
+                _LOGGER.debug(
+                    "Clamping %s for %s: %.1f -> %.1f (keeping %.1f)",
+                    key,
+                    device_id,
+                    prev,
+                    curr,
+                    prev,
+                )
+                sensors[key] = prev
+
     def _reject_corrupt_device(
         self,
         serial: str,
@@ -962,6 +1007,8 @@ class LocalTransportMixin(_MixinBase):
                 ):
                     return
 
+                self._clamp_computed_energy(serial, sensors)
+
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
@@ -1222,6 +1269,20 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [c.get("serial", "") for c in group_configs],
                 "sensors": {k: None for k in sensor_keys},
             }
+
+            # Pre-register device in HA device registry so that inverter
+            # entities referencing this PG via via_device don't trigger
+            # "non existing via_device" warnings during entity setup.
+            from homeassistant.helpers import device_registry as dr
+
+            device_registry = dr.async_get(self.hass)
+            device_registry.async_get_or_create(
+                config_entry_id=self.entry.entry_id,
+                identifiers={(DOMAIN, group_device_id)},
+                name=f"Parallel Group {group_name}",
+                manufacturer=MANUFACTURER,
+                model="Parallel Group",
+            )
 
             _LOGGER.debug(
                 "LOCAL: Static parallel group %s created with %d members "
@@ -1752,6 +1813,12 @@ class LocalTransportMixin(_MixinBase):
                                 group_sensors[vkey] = val
                         break
 
+            # Clamp computed energy balance values for the parallel group.
+            # Without GridBOSS, consumption is summed from member inverters'
+            # energy balance values which can fluctuate slightly.
+            group_device_id = f"parallel_group_{group_name.lower()}"
+            self._clamp_computed_energy(group_device_id, group_sensors)
+
             # Add last polled timestamp for parallel group
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
@@ -1759,11 +1826,7 @@ class LocalTransportMixin(_MixinBase):
             # Note: We create groups even with 1 inverter if parallel_number > 0,
             # since this indicates the inverter is configured for parallel operation
             # (e.g., single inverter + GridBOSS setup)
-            # Use group name as device ID for consistency with cloud API.
-            # Cloud API identifies groups by parallelGroup name ("A", "B").
-            # Using the name instead of a device serial ensures entity IDs
-            # remain stable across LOCAL/HYBRID/cloud mode transitions.
-            group_device_id = f"parallel_group_{group_name.lower()}"
+            # group_device_id computed above (before clamping)
             processed["devices"][group_device_id] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",

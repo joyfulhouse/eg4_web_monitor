@@ -1506,6 +1506,7 @@ class TestStaticLocalData:
 
     async def test_multi_device_static_data(self, hass, multi_device_config_entry):
         """Static data correctly handles mixed GridBOSS + inverter configs."""
+        multi_device_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, multi_device_config_entry)
         result = await coordinator._async_update_local_data()
 
@@ -1789,6 +1790,7 @@ class TestStaticLocalData:
             },
             entry_id="parallel_test",
         )
+        entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
@@ -1847,6 +1849,7 @@ class TestStaticLocalData:
             },
             entry_id="gridboss_parallel_test",
         )
+        entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
@@ -1919,6 +1922,7 @@ class TestStaticLocalData:
             },
             entry_id="fallback_test",
         )
+        entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
@@ -1995,6 +1999,7 @@ class TestStaticLocalData:
             },
             entry_id="single_parallel_test",
         )
+        entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
@@ -4018,6 +4023,7 @@ class TestParameterPreComputation:
 
     async def test_precomputed_once_not_per_device(self, hass, two_device_config_entry):
         """_include_params_this_cycle is computed once, shared across devices."""
+        two_device_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, two_device_config_entry)
         coordinator._local_parameters_loaded = True
 
@@ -4756,3 +4762,219 @@ class TestConditionalIndividualBatteryCreation:
 
         assert len(created) == 1
         assert "SER-01" in created
+
+
+class TestStaticParallelGroupDeviceRegistration:
+    """Test that static PG creation pre-registers devices in HA device registry."""
+
+    async def test_static_pg_registers_device_in_registry(self, hass):
+        """Static parallel group pre-registers device so via_device works."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Parallel",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                        "parallel_number": 1,
+                        "parallel_master_slave": 1,
+                    },
+                    {
+                        "serial": "INV002",
+                        "host": "192.168.1.101",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                        "parallel_number": 1,
+                        "parallel_master_slave": 2,
+                    },
+                ],
+            },
+            entry_id="static_pg_reg_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        # First refresh returns static data
+        result = await coordinator._async_update_local_data()
+        assert "parallel_group_a" in result["devices"]
+
+        # The PG device should be registered in the device registry
+        from homeassistant.helpers import device_registry as dr
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "parallel_group_a")}
+        )
+        assert device is not None
+        assert device.name == "Parallel Group A"
+        assert device.model == "Parallel Group"
+
+    async def test_static_pg_heuristic_registers_device(self, hass):
+        """Heuristic PG creation (no parallel_number) also pre-registers device."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Heuristic",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": "INV002",
+                        "host": "192.168.1.101",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="static_pg_heuristic_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        result = await coordinator._async_update_local_data()
+
+        # Heuristic creates PG when 2+ non-gridboss devices exist
+        assert "parallel_group_a" in result["devices"]
+
+        from homeassistant.helpers import device_registry as dr
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "parallel_group_a")}
+        )
+        assert device is not None
+
+
+class TestComputedEnergyClamp:
+    """Test _clamp_computed_energy for consumption/consumption_lifetime."""
+
+    @pytest.fixture
+    def coordinator_with_prev_consumption(self, hass):
+        """Coordinator with previous cycle's consumption data."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Clamp Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "INV001",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="clamp_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "sensors": {
+                        "consumption": 24.9,
+                        "consumption_lifetime": 4885.0,
+                    }
+                },
+                "parallel_group_a": {
+                    "sensors": {
+                        "consumption": 49.8,
+                        "consumption_lifetime": 9770.0,
+                    }
+                },
+            }
+        }
+        return coordinator
+
+    def test_decreasing_consumption_clamped(
+        self, coordinator_with_prev_consumption
+    ):
+        """Consumption that decreased is clamped to previous value."""
+        sensors = {"consumption": 24.8, "consumption_lifetime": 4884.9}
+        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
+        assert sensors["consumption"] == 24.9
+        assert sensors["consumption_lifetime"] == 4885.0
+
+    def test_increasing_consumption_passes(
+        self, coordinator_with_prev_consumption
+    ):
+        """Consumption that increased is not clamped."""
+        sensors = {"consumption": 25.1, "consumption_lifetime": 4886.0}
+        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
+        assert sensors["consumption"] == 25.1
+        assert sensors["consumption_lifetime"] == 4886.0
+
+    def test_equal_consumption_passes(
+        self, coordinator_with_prev_consumption
+    ):
+        """Equal consumption values are not clamped."""
+        sensors = {"consumption": 24.9, "consumption_lifetime": 4885.0}
+        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
+        assert sensors["consumption"] == 24.9
+        assert sensors["consumption_lifetime"] == 4885.0
+
+    def test_parallel_group_clamped(
+        self, coordinator_with_prev_consumption
+    ):
+        """PG consumption also gets clamped."""
+        sensors = {"consumption": 49.7, "consumption_lifetime": 9769.5}
+        coordinator_with_prev_consumption._clamp_computed_energy(
+            "parallel_group_a", sensors
+        )
+        assert sensors["consumption"] == 49.8
+        assert sensors["consumption_lifetime"] == 9770.0
+
+    def test_first_cycle_no_clamp(self, hass):
+        """First cycle (no previous data) does not clamp."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - First Cycle",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            entry_id="first_cycle_clamp",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = None  # First cycle
+
+        sensors = {"consumption": 24.8, "consumption_lifetime": 4884.9}
+        coordinator._clamp_computed_energy("INV001", sensors)
+        # Values unchanged — no previous data to clamp against
+        assert sensors["consumption"] == 24.8
+        assert sensors["consumption_lifetime"] == 4884.9
+
+    def test_none_values_not_clamped(
+        self, coordinator_with_prev_consumption
+    ):
+        """None values (unavailable) are not clamped."""
+        sensors = {"consumption": None, "consumption_lifetime": None}
+        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
+        assert sensors["consumption"] is None
+        assert sensors["consumption_lifetime"] is None
