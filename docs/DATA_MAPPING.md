@@ -347,11 +347,14 @@ based on port status.
 | 47 | `grid_export_today_l2` | `grid_export_l2` |
 | 48 | `grid_import_today_l1` | `grid_import_l1` |
 | 49 | `grid_import_today_l2` | `grid_import_l2` |
-| 50-57 | `smart_load{1-4}_energy_today_l{1-2}` | `smart_load{N}_l{P}` |
+| 52-59 | `smart_load{1-4}_energy_today_l{1-2}` | `smart_load{N}_l{P}` |
 | 60-67 | `ac_couple{1-4}_energy_today_l{1-2}` | `ac_couple{N}_l{P}` |
 
 > **Note:** L2 energy registers always read 0 in practice. Aggregate energy
 > sensors (e.g., `ups_today`, `load_today`) are computed by summing L1+L2 in pylxpweb.
+>
+> **Note:** Regs 50-51 are unused/unknown. Smart load daily energy starts at reg 52,
+> not 50. Confirmed by Cloud API ↔ Modbus comparison (issue #146).
 
 ### Lifetime Energy Registers (32-bit pairs, ÷10 → kWh)
 
@@ -365,9 +368,12 @@ based on port status.
 | 78-79 | `grid_export_total_l2` | `grid_export_lifetime_l2` |
 | 80-81 | `grid_import_total_l1` | `grid_import_lifetime_l1` |
 | 82-83 | `grid_import_total_l2` | `grid_import_lifetime_l2` |
-| 84-99 | `smart_load{1-4}_energy_total_l{1-2}` | `smart_load{N}_lifetime_l{P}` |
+| 88-103 | `smart_load{1-4}_energy_total_l{1-2}` | `smart_load{N}_lifetime_l{P}` |
 | 104-118 | `ac_couple{1-4}_energy_total_l{1-2}` | `ac_couple{N}_lifetime_l{P}` |
 
+> **Note:** Regs 84-87 are unused/unknown. Smart load lifetime energy starts at reg 88,
+> not 84. Confirmed by Cloud API ↔ Modbus comparison (issue #146).
+>
 > **Warning:** Input registers 105-108 are the HIGH words of 32-bit AC couple
 > lifetime energy, NOT smart port status. See [Section 5](#5-gridboss-holding-register-20-smart-port-status).
 
@@ -712,7 +718,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 - **bt_temperature**: Available (register 108) - LOCAL-only sensor
 - **Battery data**: Read from extended register range (5000+)
 - **Smart port status**: Read from holding register 20 (bit-packed)
-- **GridBOSS energy**: Read from input registers 42-118
+- **GridBOSS energy**: Read from input registers 42-118 (smart load daily at 52-59, lifetime at 88-103)
 
 ### CLOUD Mode
 
@@ -817,19 +823,54 @@ Called from BOTH:
 
 `_GRIDBOSS_PG_OVERLAY` dict maps GridBOSS sensor keys to parallel group keys:
 
-| GridBOSS Key | Parallel Group Key |
-|--------------|--------------------|
-| `grid_power_l1` | `grid_power_l1` (PG) |
-| `grid_power_l2` | `grid_power_l2` (PG) |
-| `load_power` | `consumption_power` (PG) |
-| `load_power_l1` | `load_power_l1` (PG) |
-| `load_power_l2` | `load_power_l2` (PG) |
-| `ups_power_l1` | `ups_power_l1` (PG) |
-| `ups_power_l2` | `ups_power_l2` (PG) |
+| GridBOSS Key | Parallel Group Key | Category |
+|--------------|--------------------|----------|
+| `grid_power` | `grid_power` (PG) | Power |
+| `grid_power_l1` | `grid_power_l1` (PG) | Power |
+| `grid_power_l2` | `grid_power_l2` (PG) | Power |
+| `load_power` | `load_power` (PG) | Power |
+| `load_power_l1` | `load_power_l1` (PG) | Power |
+| `load_power_l2` | `load_power_l2` (PG) | Power |
+| `grid_voltage_l1` | `grid_voltage_l1` (PG) | Voltage |
+| `grid_voltage_l2` | `grid_voltage_l2` (PG) | Voltage |
+| `grid_export_today` | `grid_export` (PG) | Energy (daily) |
+| `grid_export_total` | `grid_export_lifetime` (PG) | Energy (lifetime) |
+| `grid_import_today` | `grid_import` (PG) | Energy (daily) |
+| `grid_import_total` | `grid_import_lifetime` (PG) | Energy (lifetime) |
 
-Additional LOCAL-specific overlays (not in shared function):
-- `consumption_power` addition to parallel group
-- AC couple power mapping
+**Consumption energy (UPS + Load):** Computed separately after the overlay loop
+because it requires summing two MID sources (not a simple key→key mapping):
+
+```
+consumption       = ups_today + load_today
+consumption_lifetime = ups_total + load_total
+```
+
+UPS CTs measure inverter output (backup loads); Load CTs measure direct-from-grid
+loads that bypass the inverter. Both contribute to total consumption.
+
+### LOCAL-Specific Overlays
+
+After the shared `apply_gridboss_overlay()`, `coordinator_local.py` applies:
+
+**Consumption power (energy balance with MID grid_power):**
+```
+consumption_power = pv_total_power + battery_net + grid_power
+    where battery_net = parallel_battery_discharge_power - parallel_battery_charge_power
+    and grid_power is from MID overlay (positive = importing)
+    clamped to >= 0
+```
+
+**Grid voltage conditional:** Grid voltage is copied from the master inverter
+ONLY when no MID device is present. When a MID device exists, the overlay
+provides authoritative grid voltage (inverter regs 193-194 return 0 on
+18kPV/FlexBOSS firmware).
+
+**AC couple PV inclusion** (optional, controlled by `CONF_INCLUDE_AC_COUPLE_PV`):
+```
+pv_total_power += Σ ac_couple_port_l1 + ac_couple_port_l2
+                  (for all ports with status == 2)
+```
 
 ---
 
@@ -1304,13 +1345,19 @@ parallel_battery_current_capacity = Σ inverter.battery_bank_current_capacity
 
 #### Grid Voltage Copy
 
-Grid voltage L1/L2 is copied from the master inverter only (no averaging):
+Grid voltage L1/L2 comes from the MID device (GridBOSS) when present (via
+`apply_gridboss_overlay()`). When no MID device exists, it falls back to the
+master inverter:
 ```
-grid_voltage_l1 = master_inverter.grid_voltage_l1
-grid_voltage_l2 = master_inverter.grid_voltage_l2
+grid_voltage_l1 = gridboss.grid_voltage_l1  (if MID present)
+grid_voltage_l2 = gridboss.grid_voltage_l2  (if MID present)
+# OR
+grid_voltage_l1 = master_inverter.grid_voltage_l1  (fallback, no MID)
+grid_voltage_l2 = master_inverter.grid_voltage_l2  (fallback, no MID)
 ```
 
-Rationale: All inverters share the same grid, so one reading is representative.
+Rationale: Inverter regs 193-194 return 0 on 18kPV/FlexBOSS firmware. The MID
+device has authoritative grid voltage from its own sensors.
 
 ---
 
@@ -1329,25 +1376,36 @@ sensor keys. Only non-None GridBOSS values are applied (cast to `float`).
 | `load_power` | `load_power` | Power |
 | `load_power_l1` | `load_power_l1` | Power |
 | `load_power_l2` | `load_power_l2` | Power |
+| `grid_voltage_l1` | `grid_voltage_l1` | Voltage |
+| `grid_voltage_l2` | `grid_voltage_l2` | Voltage |
 | `grid_export_today` | `grid_export` | Energy (daily) |
 | `grid_export_total` | `grid_export_lifetime` | Energy (lifetime) |
 | `grid_import_today` | `grid_import` | Energy (daily) |
 | `grid_import_total` | `grid_import_lifetime` | Energy (lifetime) |
-| `load_today` | `consumption` | Energy (daily) |
-| `load_total` | `consumption_lifetime` | Energy (lifetime) |
+
+**Consumption energy (computed after overlay loop):**
+```
+consumption          = ups_today + load_today
+consumption_lifetime = ups_total + load_total
+```
+UPS CTs measure backup loads (inverter output); Load CTs measure non-backup
+loads (direct from grid). Both contribute to total consumption.
 
 #### LOCAL-Only Additional Overlays
 
 After the shared overlay, `_process_local_parallel_groups()` applies:
 
-**Consumption power addition:**
+**Consumption power (energy balance with MID grid_power):**
 ```
-consumption_power = inverter_eps_sum + gridboss_load_power
+consumption_power = pv_total_power + battery_net + grid_power
+    where battery_net = parallel_battery_discharge_power - parallel_battery_charge_power
+    and grid_power comes from MID overlay (positive = importing)
+    clamped to >= 0
 ```
 
-Total consumption = inverter EPS loads (backup circuits) + GridBOSS load
-(main panel loads measured by CT). The GridBOSS CT doesn't measure backup
-circuits, so both must be summed.
+Rationale: Inverters lack grid CTs in MID systems — their grid register
+values are unreliable. The MID overlay provides authoritative `grid_power`,
+which combined with known PV and battery flow yields accurate consumption.
 
 **AC couple PV inclusion** (optional, controlled by `CONF_INCLUDE_AC_COUPLE_PV`):
 ```
@@ -1385,7 +1443,7 @@ in [Section 11](#11-smart-port-sensor-filtering).
 | `battery_bank_power` | `batPower` API or `charge - discharge` | `charge_power - discharge_power` (with V*I fallback) |
 | GridBOSS L1+L2 aggregates | Computed by `_calculate_gridboss_aggregates()` | Same function, same computation |
 | Smart port status | `smartPort{N}Status` API fields | Holding register 20 bit-decode |
-| GridBOSS energy | `getMidboxRuntime` API (÷10 scaling) | Input registers 42-118 (÷10 by canonical reader) |
+| GridBOSS energy | `getMidboxRuntime` API (÷10 scaling) | Input registers 42-67 (daily), 68-103 (lifetime), 104-118 (AC couple) (÷10 by canonical reader) |
 
 ---
 

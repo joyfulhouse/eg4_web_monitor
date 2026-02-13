@@ -876,12 +876,12 @@ class TestParallelGroupAggregation:
     async def test_gridboss_overlay_replaces_inverter_values(
         self, hass, mock_config_entry
     ):
-        """Test that GridBOSS CT data overlays inverter-derived grid/load values."""
+        """Test that MID device CT data overlays inverter-derived values."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         processed = self._two_inverter_processed()
 
-        # Add a GridBOSS device with CT measurements
+        # Add a MID device (GridBOSS) with CT measurements
         processed["devices"]["GB001"] = {
             "type": "gridboss",
             "sensors": {
@@ -891,10 +891,15 @@ class TestParallelGroupAggregation:
                 "load_power": 4000.0,
                 "load_power_l1": 2000.0,
                 "load_power_l2": 2000.0,
+                "grid_voltage_l1": 121.8,
+                "grid_voltage_l2": 122.3,
                 "grid_export_today": 8.0,
                 "grid_export_total": 800.0,
                 "grid_import_today": 0.2,
                 "grid_import_total": 20.0,
+                # UPS = backup loads, Load = non-backup loads
+                "ups_today": 15.0,
+                "ups_total": 1500.0,
                 "load_today": 25.0,
                 "load_total": 2500.0,
             },
@@ -904,7 +909,7 @@ class TestParallelGroupAggregation:
 
         sensors = processed["devices"]["parallel_group_a"]["sensors"]
 
-        # GridBOSS CT values should override inverter sums
+        # MID device CT values should override inverter sums
         assert sensors["grid_power"] == -500.0
         assert sensors["grid_power_l1"] == -250.0
         assert sensors["grid_power_l2"] == -250.0
@@ -912,16 +917,22 @@ class TestParallelGroupAggregation:
         assert sensors["load_power_l1"] == 2000.0
         assert sensors["load_power_l2"] == 2000.0
 
+        # Grid voltage from MID device overrides master inverter
+        assert sensors["grid_voltage_l1"] == 121.8
+        assert sensors["grid_voltage_l2"] == 122.3
+
         # Energy overlays
         assert sensors["grid_export"] == 8.0
         assert sensors["grid_export_lifetime"] == 800.0
         assert sensors["grid_import"] == 0.2
         assert sensors["grid_import_lifetime"] == 20.0
-        assert sensors["consumption"] == 25.0
-        assert sensors["consumption_lifetime"] == 2500.0
+        # Consumption energy = ups + load (backup + non-backup)
+        assert sensors["consumption"] == 40.0  # 15 + 25
+        assert sensors["consumption_lifetime"] == 4000.0  # 1500 + 2500
 
-        # Consumption power = inverter consumption sum (5200) + GridBOSS load_power (4000)
-        assert sensors["consumption_power"] == 9200.0
+        # Consumption via energy balance with MID grid_power:
+        # pv(5500) + battery_net(0-800) + grid(-500) = 4200
+        assert sensors["consumption_power"] == 4200.0
 
     async def test_gridboss_ac_couple_adds_to_pv_when_enabled(
         self, hass, mock_config_entry

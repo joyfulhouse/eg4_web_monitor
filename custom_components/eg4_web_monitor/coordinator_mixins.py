@@ -67,13 +67,18 @@ _GRIDBOSS_PG_OVERLAY: dict[str, str] = {
     "load_power": "load_power",
     "load_power_l1": "load_power_l1",
     "load_power_l2": "load_power_l2",
+    # Voltage sensors (MID device has authoritative grid voltage readings;
+    # inverter regs 193-194 return 0 on 18kPV/FlexBOSS firmware)
+    "grid_voltage_l1": "grid_voltage_l1",
+    "grid_voltage_l2": "grid_voltage_l2",
     # Energy sensors (accumulated CT totals)
     "grid_export_today": "grid_export",
     "grid_export_total": "grid_export_lifetime",
     "grid_import_today": "grid_import",
     "grid_import_total": "grid_import_lifetime",
-    "load_today": "consumption",
-    "load_total": "consumption_lifetime",
+    # Note: consumption energy (ups + load) is computed separately after
+    # the overlay loop because it requires summing two MID sources that
+    # the simple key-to-key overlay cannot handle.
 }
 
 
@@ -106,6 +111,24 @@ def apply_gridboss_overlay(
                 gb_key,
                 gb_val,
                 pg_key,
+            )
+
+    # Consumption energy = UPS (backup loads) + Load (non-backup loads).
+    # UPS CTs measure inverter output; Load CTs measure direct-from-grid
+    # loads that bypass the inverter.  Both contribute to total consumption.
+    for period, pg_key in (("today", "consumption"), ("total", "consumption_lifetime")):
+        ups = gb_sensors.get(f"ups_{period}")
+        load = gb_sensors.get(f"load_{period}")
+        if ups is not None or load is not None:
+            total = float(ups or 0) + float(load or 0)
+            pg_sensors[pg_key] = total
+            _LOGGER.debug(
+                "Parallel group %s: consumption %s = ups(%s) + load(%s) = %s",
+                group_name,
+                period,
+                ups,
+                load,
+                total,
             )
 
 

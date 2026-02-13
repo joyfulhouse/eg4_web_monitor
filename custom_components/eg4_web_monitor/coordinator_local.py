@@ -1652,30 +1652,49 @@ class LocalTransportMixin(_MixinBase):
             if total_cur_cap > 0:
                 group_sensors["parallel_battery_current_capacity"] = total_cur_cap
 
-            # Override grid/load power and energy with GridBOSS data if available.
-            # The GridBOSS has the grid CTs and is the authoritative source for
-            # grid interaction — inverters don't see the actual grid import/export.
+            # Override grid/load power, energy, and voltage with MID device
+            # (GridBOSS) data if available.  The MID device has grid CTs and is
+            # the authoritative source for grid interaction — inverters don't
+            # see the actual grid import/export.
+            has_mid_device = False
             for serial, device_data in processed.get("devices", {}).items():
                 if device_data.get("type") != "gridboss":
                     continue
+                has_mid_device = True
                 gb_sensors = device_data.get("sensors", {})
                 apply_gridboss_overlay(group_sensors, gb_sensors, group_name)
-                # Add GridBOSS load_power to consumption_power total.
-                # Total consumption = inverter eps_power (already aggregated) + GridBOSS load_power
-                # The GridBOSS CT measures main panel loads; inverter EPS loads are on separate
-                # backup circuits not measured by GridBOSS.
-                load_power = gb_sensors.get("load_power")
-                if load_power is not None:
-                    existing = group_sensors.get("consumption_power", 0.0)
-                    group_sensors["consumption_power"] = existing + float(load_power)
-                    _LOGGER.debug(
-                        "LOCAL: Parallel group %s: consumption_power = inverter_sum(%s) + "
-                        "gridboss_load(%s) = %s",
-                        group_name,
-                        existing,
-                        load_power,
-                        group_sensors["consumption_power"],
-                    )
+
+                # Recompute consumption_power from energy balance using the
+                # MID device's authoritative grid_power (from CTs).  The
+                # inverters' own grid registers are unreliable in MID systems,
+                # so their energy-balance consumption_power (already summed
+                # above) is garbage.  We replace it here.
+                #
+                # Formula: consumption = pv + battery_net + grid_power
+                #   pv_total_power  — from inverters (they know their own PV)
+                #   battery_net     — discharge - charge (from inverters)
+                #   grid_power      — from MID overlay (positive = importing)
+                pv = float(group_sensors.get("pv_total_power", 0.0))
+                bat_discharge = float(
+                    group_sensors.get("parallel_battery_discharge_power", 0.0)
+                )
+                bat_charge = float(
+                    group_sensors.get("parallel_battery_charge_power", 0.0)
+                )
+                # grid_power already replaced by overlay above
+                grid = float(group_sensors.get("grid_power", 0.0))
+                battery_net = bat_discharge - bat_charge
+                consumption = max(0.0, pv + battery_net + grid)
+                group_sensors["consumption_power"] = consumption
+                _LOGGER.debug(
+                    "LOCAL: Parallel group %s: consumption_power = "
+                    "pv(%s) + bat_net(%s) + grid(%s) = %s",
+                    group_name,
+                    pv,
+                    battery_net,
+                    grid,
+                    consumption,
+                )
 
                 # Add AC couple power to pv_total_power for smart ports in AC couple mode
                 # Smart port status 2 = AC Couple (solar inverter connected)
@@ -1717,32 +1736,21 @@ class LocalTransportMixin(_MixinBase):
                             ac_couple_total,
                         )
 
-                # Calculate AC couple power for consumption (always include, regardless of option)
-                ac_couple_for_consumption = 0.0
-                for port_num in range(1, 5):
-                    status_key = f"smart_port{port_num}_status"
-                    status = gb_sensors.get(status_key)
-                    if status == 2:  # AC Couple mode
-                        l1 = gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
-                        l2 = gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
-                        ac_couple_for_consumption += float(l1) + float(l2)
+                break  # Only one MID device per system
 
-                # Skip energy balance recalculation - GridBOSS load_power (CT measurement)
-                # is the authoritative source for consumption, already set above
-
-                break  # Only one GridBOSS per system
-
-            # Copy grid voltage from the master/primary inverter.
-            # All inverters share the same grid, so the master's reading is
-            # representative — no averaging needed.
-            for serial, dd in group_devices:
-                if serial == first_serial:
-                    master_sensors = dd.get("sensors", {})
-                    for vkey in ("grid_voltage_l1", "grid_voltage_l2"):
-                        val = master_sensors.get(vkey)
-                        if val is not None:
-                            group_sensors[vkey] = val
-                    break
+            # Fallback: copy grid voltage from master inverter when no MID
+            # device is present.  MID devices provide authoritative grid
+            # voltage via the overlay above; inverter regs 193-194 return 0
+            # on 18kPV/FlexBOSS firmware so the overlay is preferred.
+            if not has_mid_device:
+                for serial, dd in group_devices:
+                    if serial == first_serial:
+                        master_sensors = dd.get("sensors", {})
+                        for vkey in ("grid_voltage_l1", "grid_voltage_l2"):
+                            val = master_sensors.get(vkey)
+                            if val is not None:
+                                group_sensors[vkey] = val
+                        break
 
             # Add last polled timestamp for parallel group
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
