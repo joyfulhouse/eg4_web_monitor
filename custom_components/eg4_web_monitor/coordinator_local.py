@@ -688,9 +688,7 @@ class LocalTransportMixin(_MixinBase):
                 # Use the per-cycle decision computed in _async_update_local_data
                 # (or fall back to the direct check for the deprecated single-
                 # device path which doesn't set _include_params_this_cycle).
-                include_params = getattr(
-                    self, "_include_params_this_cycle", False
-                )
+                include_params = getattr(self, "_include_params_this_cycle", False)
                 await inverter.refresh(include_parameters=include_params)
 
                 features: dict[str, Any] = {}
@@ -1446,6 +1444,17 @@ class LocalTransportMixin(_MixinBase):
                     total_battery_voltage += float(voltage)
                     voltage_count += 1
 
+                _LOGGER.debug(
+                    "LOCAL: Parallel group %s member %s: "
+                    "charge=%s, discharge=%s, pv=%s, soc=%s",
+                    group_name,
+                    serial,
+                    device_sensors.get("battery_charge_power"),
+                    device_sensors.get("battery_discharge_power"),
+                    device_sensors.get("pv_total_power"),
+                    device_sensors.get("state_of_charge"),
+                )
+
             # Remap battery sensors to parallel_battery_* keys for consistency
             # with cloud mode (which uses _process_parallel_group_object).
             # This ensures the same entity IDs regardless of connection mode.
@@ -1453,8 +1462,18 @@ class LocalTransportMixin(_MixinBase):
             discharge = group_sensors.pop("battery_discharge_power", 0.0)
             group_sensors["parallel_battery_charge_power"] = charge
             group_sensors["parallel_battery_discharge_power"] = discharge
-            # Battery power: positive = discharging (adds to sources), negative = charging
-            group_sensors["parallel_battery_power"] = discharge - charge
+            # Battery power: positive = charging, negative = discharging
+            # Matches HTTP path (ParallelGroup.battery_power) and per-inverter convention
+            group_sensors["parallel_battery_power"] = charge - discharge
+
+            _LOGGER.debug(
+                "LOCAL: Parallel group %s battery aggregation: "
+                "charge=%.1f, discharge=%.1f, net=%.1f (positive=charging)",
+                group_name,
+                charge,
+                discharge,
+                charge - discharge,
+            )
 
             if soc_count > 0:
                 group_sensors["parallel_battery_soc"] = round(total_soc / soc_count, 1)

@@ -751,11 +751,11 @@ class TestParallelGroupAggregation:
         assert "battery_discharge_power" not in sensors
         assert sensors["parallel_battery_charge_power"] == 800.0  # 500 + 300
         assert sensors["parallel_battery_discharge_power"] == 0.0
-        # parallel_battery_power = discharge - charge
-        assert sensors["parallel_battery_power"] == -800.0  # 0 - 800
+        # parallel_battery_power = charge - discharge (positive = charging)
+        assert sensors["parallel_battery_power"] == 800.0  # 800 - 0
 
     async def test_battery_power_discharging(self, hass, mock_config_entry):
-        """Test parallel_battery_power is positive when discharging."""
+        """Test parallel_battery_power is negative when discharging."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         processed = self._two_inverter_processed()
@@ -771,7 +771,8 @@ class TestParallelGroupAggregation:
         sensors = processed["devices"]["parallel_group_a"]["sensors"]
         assert sensors["parallel_battery_charge_power"] == 0.0
         assert sensors["parallel_battery_discharge_power"] == 1800.0
-        assert sensors["parallel_battery_power"] == 1800.0  # 1800 - 0
+        # charge - discharge: negative = discharging
+        assert sensors["parallel_battery_power"] == -1800.0  # 0 - 1800
 
     async def test_soc_averaged(self, hass, mock_config_entry):
         """Test that state_of_charge is averaged across devices."""
@@ -2190,8 +2191,9 @@ class TestParallelGroupAggregationMath:
     async def test_battery_power_remapping(self, hass, local_entry):
         """Battery charge/discharge are remapped to parallel_battery_* keys.
 
-        parallel_battery_power = total_discharge - total_charge
-        (positive = net discharging, negative = net charging)
+        parallel_battery_power = total_charge - total_discharge
+        (positive = net charging, negative = net discharging)
+        Matches HTTP path (ParallelGroup.battery_power) and per-inverter convention.
         """
         processed = self._make_processed(
             {
@@ -2212,8 +2214,8 @@ class TestParallelGroupAggregationMath:
         # Remapped keys
         assert sensors["parallel_battery_charge_power"] == 1500  # 0 + 1500
         assert sensors["parallel_battery_discharge_power"] == 2500  # 2500 + 0
-        # Net: 2500 discharge - 1500 charge = 1000 net discharge
-        assert sensors["parallel_battery_power"] == 1000
+        # Net: 1500 charge - 2500 discharge = -1000 (net discharging)
+        assert sensors["parallel_battery_power"] == -1000
 
         # Original keys should NOT exist (popped)
         assert "battery_charge_power" not in sensors
@@ -2346,7 +2348,7 @@ class TestParallelGroupAggregationMath:
 
         # Group totals
         total_pv = sensors["pv_total_power"]
-        total_battery = sensors["parallel_battery_power"]  # discharge - charge
+        total_battery = sensors["parallel_battery_power"]  # charge - discharge
         total_grid = sensors["grid_power"]  # signed: positive=import, negative=export
         total_consumption = sensors["consumption_power"]
 
@@ -2359,7 +2361,8 @@ class TestParallelGroupAggregationMath:
         # and grid_power is the signed net, there can be slight differences
         # in how the terms map. But the sum should be consistent.
         assert total_pv == 7700  # 3500 + 4200
-        assert total_battery == 300  # (900 + 0) - (0 + 600) = 300 net discharge
+        # charge - discharge: (0+600) - (900+0) = -300 (net discharging)
+        assert total_battery == -300
         assert total_grid == -400  # -1600 + 1200
         assert total_consumption == 7600  # 2800 + 4800
 
@@ -2402,8 +2405,8 @@ class TestParallelGroupAggregationMath:
         assert sensors["pv_total_power"] == 6500
         # Total consumption: 3000 + 3500 = 6500W
         assert sensors["consumption_power"] == 6500
-        # Battery: 1000 charge, 0 discharge → net = -1000 (charging)
-        assert sensors["parallel_battery_power"] == -1000
+        # Battery: charge - discharge = 1000 - 0 = 1000 (positive = charging)
+        assert sensors["parallel_battery_power"] == 1000
 
     @pytest.mark.asyncio
     async def test_none_sensor_values_skipped(self, hass, local_entry):
