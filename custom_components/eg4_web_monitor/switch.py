@@ -154,19 +154,11 @@ async def async_setup_entry(
 
                 # Add working mode switches
                 for mode_key, mode_config in WORKING_MODES.items():
-                    # For local-only mode, skip working modes without Modbus register support
+                    # For local-only mode, skip working modes without a Modbus
+                    # register mapping in _WORKING_MODE_PARAMETERS.
                     if coordinator.is_local_only():
                         param = mode_config.get("param", "")
-                        # Check if this mode has Modbus register support
-                        # Register 21 bit fields and Register 110 bit fields
-                        modbus_supported_params = {
-                            "FUNC_AC_CHARGE",  # Register 21, bit 7
-                            "FUNC_FORCED_CHG_EN",  # Register 21, bit 11
-                            "FUNC_FORCED_DISCHG_EN",  # Register 21, bit 10
-                            "FUNC_GRID_PEAK_SHAVING",  # Register 179, bit 7
-                            "FUNC_BATTERY_BACKUP_CTRL",  # Register 233, bit 1
-                        }
-                        if param not in modbus_supported_params:
+                        if not _WORKING_MODE_PARAMETERS.get(param):
                             _LOGGER.debug(
                                 "Skipping working mode %s for %s (no Modbus support)",
                                 param,
@@ -478,8 +470,8 @@ _WORKING_MODE_METHODS = {
     ),
 }
 
-# Mapping of working mode function names to HTTP API parameter names (local mode)
-# Format: func_key -> param_name (or None if not available via local transport)
+# Mapping of working mode function names to named-parameter constants used by
+# local Modbus writes.  A non-None value means the mode is writable locally.
 _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_AC_CHARGE": PARAM_FUNC_AC_CHARGE,
     "FUNC_FORCED_CHG_EN": PARAM_FUNC_FORCED_CHG_EN,

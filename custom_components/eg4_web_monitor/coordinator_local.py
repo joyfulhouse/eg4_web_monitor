@@ -550,7 +550,7 @@ class LocalTransportMixin(_MixinBase):
     def _register_pg_device(self, group_device_id: str, group_name: str) -> None:
         """Pre-register a parallel group in the HA device registry.
 
-        Ensures inverter entities referencing this PG via via_device do not
+        Ensures inverter entities referencing this PG via ``via_device`` do not
         trigger 'non existing via_device' warnings during entity setup.
         """
         device_registry = dr.async_get(self.hass)
