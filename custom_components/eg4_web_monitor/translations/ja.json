@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/クラウドポーリング間隔（秒）",
           "parameter_refresh_interval": "パラメーター更新間隔（分）",
           "library_debug": "ライブラリデバッグログ",
+          "data_validation": "レジスタデータ検証",
           "include_ac_couple_pv": "AC結合PVを合計に含める"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "クラウドAPIのデータ取得頻度（{min_http_interval}〜{max_http_interval}秒）。値が高いほどAPI負荷が軽減されます。ハイブリッドモードでは、クラウドデータのみを制御します。ローカルトランスポートデータはセンサー間隔で更新されます。",
           "parameter_refresh_interval": "SOC制限や充電設定などのインバーターパラメーターの更新頻度（{min_param_interval}～{max_param_interval}分）。",
           "library_debug": "pylxpwebライブラリのDEBUGログを有効にする（APIリクエスト、レスポンス、内部ライブラリ操作を表示）",
+          "data_validation": "ローカルレジスタ読み取りの破損検出を有効にします。物理的境界（SoC、周波数、スマートポートステータス）とエネルギー単調性を検証します。不安定なレジスタ読み取り（ゴーストエンティティ、エネルギースパイク、無効な値）が発生した場合にのみ有効にしてください。",
           "include_ac_couple_pv": "GridBOSSスマートポートからのAC結合ソーラーインバーター電力をパラレルグループのPV合計に追加"
         }
       }

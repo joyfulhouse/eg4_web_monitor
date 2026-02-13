@@ -272,6 +272,7 @@ PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(
         "parallel_battery_max_capacity",
         "parallel_battery_current_capacity",
         "parallel_battery_voltage",
+        "parallel_battery_current",
         "parallel_battery_count",
         # Grid voltage (from primary/master inverter — same grid, no averaging)
         "grid_voltage_l1",

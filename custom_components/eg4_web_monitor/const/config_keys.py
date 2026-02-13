@@ -20,6 +20,7 @@ CONF_PLANT_ID = "plant_id"
 CONF_PLANT_NAME = "plant_name"
 CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"
+CONF_DATA_VALIDATION = "data_validation"
 
 # Options flow configuration keys (configurable via UI after setup)
 CONF_SENSOR_UPDATE_INTERVAL = "sensor_update_interval"

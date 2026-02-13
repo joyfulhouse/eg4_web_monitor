@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/Cloud-Abfrageintervall (Sekunden)",
           "parameter_refresh_interval": "Parameter-Aktualisierungsintervall (Minuten)",
           "library_debug": "Bibliothek-Debug-Protokollierung",
+          "data_validation": "Registerdaten-Validierung",
           "include_ac_couple_pv": "AC-gekoppelte PV in Gesamtwerte einbeziehen"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "Wie oft die Cloud-API abgefragt werden soll ({min_http_interval}-{max_http_interval} Sekunden). Höhere Werte reduzieren die API-Last. Im Hybrid-Modus steuert dies nur Cloud-Daten; lokale Transportdaten werden im Sensorintervall aktualisiert.",
           "parameter_refresh_interval": "Wie oft Wechselrichterparameter wie SOC-Grenzwerte und Ladeeinstellungen aktualisiert werden ({min_param_interval}-{max_param_interval} Minuten).",
           "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)",
+          "data_validation": "Korruptionserkennung für lokale Registerlesevorgänge aktivieren. Prüft physikalische Grenzen (SoC, Frequenz, Smart-Port-Status) und Energie-Monotonie. Nur aktivieren bei instabilen Registerlesevorgängen (Geister-Entitäten, Energiespitzen, ungültige Werte).",
           "include_ac_couple_pv": "AC-gekoppelte Solar-Wechselrichterleistung (von GridBOSS Smart Ports) zu den PV-Gesamtwerten der Parallelgruppe hinzufügen"
         }
       }

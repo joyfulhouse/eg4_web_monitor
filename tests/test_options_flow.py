@@ -10,6 +10,7 @@ import pytest
 from custom_components.eg4_web_monitor._config_flow.options import EG4OptionsFlow
 from custom_components.eg4_web_monitor.const import (
     CONF_CONNECTION_TYPE,
+    CONF_DATA_VALIDATION,
     CONF_DONGLE_UPDATE_INTERVAL,
     CONF_HTTP_POLLING_INTERVAL,
     CONF_LOCAL_TRANSPORTS,
@@ -212,3 +213,93 @@ class TestOptionsFlowPerTransport:
         assert CONF_MODBUS_UPDATE_INTERVAL in schema_keys
         assert CONF_HTTP_POLLING_INTERVAL in schema_keys
         assert CONF_DONGLE_UPDATE_INTERVAL not in schema_keys
+
+
+class TestDataValidationOption:
+    """Tests for data_validation checkbox visibility in options flow."""
+
+    def _make_flow(
+        self,
+        connection_type: str,
+        local_transports: list[dict[str, str]] | None = None,
+        options: dict | None = None,
+    ) -> EG4OptionsFlow:
+        """Create an EG4OptionsFlow with a mock config entry."""
+        flow = EG4OptionsFlow.__new__(EG4OptionsFlow)
+        mock_entry = MagicMock()
+        mock_entry.data = {
+            CONF_CONNECTION_TYPE: connection_type,
+        }
+        if local_transports is not None:
+            mock_entry.data[CONF_LOCAL_TRANSPORTS] = local_transports
+        mock_entry.options = options or {}
+        mock_entry.entry_id = "test_entry"
+        type(flow).config_entry = PropertyMock(return_value=mock_entry)
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_data_validation_shown_for_modbus(self):
+        """data_validation checkbox shown when MODBUS transport exists."""
+        flow = self._make_flow(CONNECTION_TYPE_MODBUS)
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_DATA_VALIDATION in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_data_validation_shown_for_dongle(self):
+        """data_validation checkbox shown when DONGLE transport exists."""
+        flow = self._make_flow(CONNECTION_TYPE_DONGLE)
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_DATA_VALIDATION in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_data_validation_shown_for_local_mixed(self):
+        """data_validation shown for LOCAL with modbus + dongle."""
+        flow = self._make_flow(
+            CONNECTION_TYPE_LOCAL,
+            local_transports=[
+                {"transport_type": "modbus_tcp", "serial": "111"},
+                {"transport_type": "wifi_dongle", "serial": "222"},
+            ],
+        )
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_DATA_VALIDATION in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_data_validation_hidden_for_http_only(self):
+        """data_validation checkbox NOT shown for HTTP-only mode."""
+        flow = self._make_flow(CONNECTION_TYPE_HTTP)
+        result = await flow.async_step_init(user_input=None)
+        schema_keys = [str(k) for k in result["data_schema"].schema]
+        assert CONF_DATA_VALIDATION not in schema_keys
+
+    @pytest.mark.asyncio
+    async def test_data_validation_defaults_false(self):
+        """data_validation defaults to False when not set."""
+        flow = self._make_flow(CONNECTION_TYPE_MODBUS, options={})
+        result = await flow.async_step_init(user_input=None)
+        schema = result["data_schema"].schema
+        for key in schema:
+            if str(key) == CONF_DATA_VALIDATION:
+                assert key.default() is False
+                break
+        else:
+            pytest.fail("CONF_DATA_VALIDATION not found in schema")
+
+    @pytest.mark.asyncio
+    async def test_data_validation_reads_existing_option(self):
+        """data_validation reads current value from options."""
+        flow = self._make_flow(
+            CONNECTION_TYPE_MODBUS,
+            options={CONF_DATA_VALIDATION: True},
+        )
+        result = await flow.async_step_init(user_input=None)
+        schema = result["data_schema"].schema
+        for key in schema:
+            if str(key) == CONF_DATA_VALIDATION:
+                assert key.default() is True
+                break
+        else:
+            pytest.fail("CONF_DATA_VALIDATION not found in schema")

@@ -373,6 +373,7 @@
           "http_polling_interval": "Intervalle d'interrogation HTTP/cloud (secondes)",
           "parameter_refresh_interval": "Intervalle d'actualisation des parametres (minutes)",
           "library_debug": "Journalisation de debogage de la bibliotheque",
+          "data_validation": "Validation des Données de Registre",
           "include_ac_couple_pv": "Inclure le PV couplé CA dans les totaux"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "Fréquence d'interrogation de l'API cloud ({min_http_interval}-{max_http_interval} secondes). Des valeurs plus élevées réduisent la charge de l'API. En mode hybride, ceci contrôle uniquement les données cloud ; les données de transport local sont mises à jour à l'intervalle du capteur.",
           "parameter_refresh_interval": "Frequence d'actualisation des parametres de l'onduleur comme les limites SOC et les parametres de charge ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Activer la journalisation DEBUG pour la bibliotheque pylxpweb (affiche les requetes API, les reponses et les operations internes de la bibliotheque)",
+          "data_validation": "Activer la détection de corruption pour les lectures de registres locaux. Valide les limites physiques (SoC, fréquence, état des ports intelligents) et la monotonie énergétique. À activer uniquement en cas de lectures instables (entités fantômes, pics d'énergie, valeurs invalides).",
           "include_ac_couple_pv": "Ajouter la puissance de l'onduleur solaire couplé CA (depuis les Smart Ports du GridBOSS) aux totaux PV du groupe parallèle"
         }
       }

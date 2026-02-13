@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/클라우드 폴링 간격 (초)",
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
+          "data_validation": "레지스터 데이터 검증",
           "include_ac_couple_pv": "AC 결합 PV를 합계에 포함"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "클라우드 API 데이터 폴링 빈도 ({min_http_interval}-{max_http_interval}초). 높은 값은 API 부하를 줄입니다. 하이브리드 모드에서는 클라우드 전용 데이터만 제어합니다. 로컬 전송 데이터는 센서 간격으로 업데이트됩니다.",
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
+          "data_validation": "로컬 레지스터 읽기에 대한 손상 감지를 활성화합니다. 물리적 한계(SoC, 주파수, 스마트 포트 상태) 및 에너지 단조성을 검증합니다. 불안정한 레지스터 읽기(고스트 엔티티, 에너지 스파이크, 잘못된 값)가 발생하는 경우에만 활성화하세요.",
           "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가"
         }
       }

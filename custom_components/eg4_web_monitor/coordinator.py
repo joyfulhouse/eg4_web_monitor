@@ -36,6 +36,7 @@ from pylxpweb.devices.inverters.base import BaseInverter
 from .const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_DATA_VALIDATION,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
@@ -263,6 +264,14 @@ class EG4DataUpdateCoordinator(
         # Track serials that have already been notified about grid_type mismatch
         # to avoid creating duplicate repair issues on every poll cycle.
         self._grid_type_mismatch_notified: set[str] = set()
+
+        # Data validation: opt-in corruption detection for local register reads.
+        # When enabled, corrupt Modbus reads are rejected at two levels:
+        # 1. Transport: canary-field checks (SoC>100, freq out-of-range) discard bad reads
+        # 2. Coordinator: lifetime energy monotonicity checks reject decreasing counters
+        self._data_validation_enabled: bool = entry.options.get(
+            CONF_DATA_VALIDATION, False
+        )
 
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)

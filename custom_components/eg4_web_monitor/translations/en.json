@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/Cloud Polling Interval (seconds)",
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
           "library_debug": "Library Debug Logging",
+          "data_validation": "Register Data Validation",
           "include_ac_couple_pv": "Include AC-Coupled PV in Totals"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "How often to poll the cloud API for data ({min_http_interval}-{max_http_interval} seconds). Higher values reduce API load. In hybrid mode, this controls cloud-only data; local transport data updates at the sensor interval.",
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)",
+          "data_validation": "Enable corruption detection for local register reads. Validates physical bounds (SoC, frequency, smart port status) and energy monotonicity. Only enable if you experience unstable register reads (ghost entities, energy spikes, invalid values).",
           "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals"
         }
       }

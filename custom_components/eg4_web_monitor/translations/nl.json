@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/cloud-polling interval (seconden)",
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
+          "data_validation": "Registerdata Validatie",
           "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "Hoe vaak de cloud-API wordt bevraagd voor gegevens ({min_http_interval}-{max_http_interval} seconden). Hogere waarden verminderen de API-belasting. In hybride modus beheert dit alleen cloudgegevens; lokale transportgegevens worden bijgewerkt op het sensorinterval.",
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
+          "data_validation": "Corruptiedetectie voor lokale registerlezingen inschakelen. Valideert fysieke grenzen (SoC, frequentie, smartpoortstatus) en energiemonotoniteit. Alleen inschakelen bij instabiele registerlezingen (spookentiteiten, energiepieken, ongeldige waarden).",
           "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep"
         }
       }

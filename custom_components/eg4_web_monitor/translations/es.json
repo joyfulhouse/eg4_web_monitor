@@ -373,6 +373,7 @@
           "http_polling_interval": "Intervalo de consulta HTTP/nube (segundos)",
           "parameter_refresh_interval": "Intervalo de Actualizacion de Parametros (minutos)",
           "library_debug": "Registro de Depuracion de Libreria",
+          "data_validation": "Validación de Datos de Registro",
           "include_ac_couple_pv": "Incluir PV acoplado en CA en totales"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "Con qué frecuencia consultar la API en la nube ({min_http_interval}-{max_http_interval} segundos). Valores más altos reducen la carga de la API. En modo híbrido, esto controla solo los datos de la nube; los datos de transporte local se actualizan en el intervalo del sensor.",
           "parameter_refresh_interval": "Frecuencia de actualizacion de parametros del inversor como limites SOC y ajustes de carga ({min_param_interval}-{max_param_interval} minutos).",
           "library_debug": "Habilitar registro DEBUG para la libreria pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la libreria)",
+          "data_validation": "Habilitar detección de corrupción para lecturas de registros locales. Valida límites físicos (SoC, frecuencia, estado de puertos inteligentes) y monotonía de energía. Solo habilitar si experimenta lecturas inestables (entidades fantasma, picos de energía, valores inválidos).",
           "include_ac_couple_pv": "Agregar la potencia del inversor solar acoplado en CA (de los Smart Ports del GridBOSS) a los totales de PV del grupo paralelo"
         }
       }

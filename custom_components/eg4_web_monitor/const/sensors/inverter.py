@@ -467,6 +467,13 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:flash",
     },
+    "parallel_battery_current": {
+        "name": "Battery Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-dc",
+    },
     "parallel_battery_count": {
         "name": "Battery Count",
         "unit": None,

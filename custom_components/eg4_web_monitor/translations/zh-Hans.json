@@ -373,6 +373,7 @@
           "http_polling_interval": "HTTP/云端轮询间隔（秒）",
           "parameter_refresh_interval": "参数刷新间隔（分钟）",
           "library_debug": "库调试日志",
+          "data_validation": "寄存器数据验证",
           "include_ac_couple_pv": "将交流耦合光伏纳入总量"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "从云端API获取数据的频率（{min_http_interval}-{max_http_interval}秒）。较高的值可减少API负载。在混合模式下，此设置仅控制云端数据；本地传输数据按传感器间隔更新。",
           "parameter_refresh_interval": "刷新逆变器参数（如 SOC 限制和充电设置）的频率（{min_param_interval}-{max_param_interval} 分钟）。",
           "library_debug": "启用 pylxpweb 库的 DEBUG 日志（显示 API 请求、响应和内部库操作）",
+          "data_validation": "启用本地寄存器读取的损坏检测。验证物理边界（SoC、频率、智能端口状态）和能量单调性。仅在出现不稳定的寄存器读取时启用（幽灵实体、能量尖峰、无效值）。",
           "include_ac_couple_pv": "将GridBOSS智能端口的交流耦合太阳能逆变器功率添加到并联组光伏总量中"
         }
       }

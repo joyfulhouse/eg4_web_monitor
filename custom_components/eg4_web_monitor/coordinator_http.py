@@ -481,6 +481,34 @@ class HTTPUpdateMixin(_MixinBase):
                         group_data
                     )
 
+                    # Aggregate member inverter battery data for parallel group.
+                    # Single pass collects both battery count (override when
+                    # cloud returns 0) and battery current sum.
+                    pg_sensors = group_data.get("sensors", {})
+                    need_bat_count = pg_sensors.get("parallel_battery_count", 0) == 0
+                    total_bats = 0
+                    total_current = 0.0
+                    has_current = False
+                    for inv in getattr(group, "inverters", []):
+                        inv_serial = getattr(inv, "serial_number", None)
+                        if not inv_serial:
+                            continue
+                        inv_sensors = (
+                            processed["devices"].get(inv_serial, {}).get("sensors", {})
+                        )
+                        if need_bat_count:
+                            bat_count = inv_sensors.get("battery_bank_count")
+                            if bat_count is not None and bat_count > 0:
+                                total_bats += bat_count
+                        current = inv_sensors.get("battery_bank_current")
+                        if current is not None:
+                            total_current += float(current)
+                            has_current = True
+                    if need_bat_count and total_bats > 0:
+                        pg_sensors["parallel_battery_count"] = total_bats
+                    if has_current:
+                        pg_sensors["parallel_battery_current"] = total_current
+
                     if hasattr(group, "mid_device") and group.mid_device:
                         try:
                             mid_data = await self._process_mid_device_object(
@@ -569,6 +597,9 @@ class HTTPUpdateMixin(_MixinBase):
                         cloud_by_index[idx] = cloud_batt
 
                 for batt in transport_batteries:
+                    # Skip batteries with no CAN bus data (5002+ reg failure)
+                    if batt.voltage is None and batt.soc is None:
+                        continue
                     battery_key = f"{serial}-{batt.battery_index + 1:02d}"
                     # Start with transport data (real-time values)
                     battery_sensors = _build_individual_battery_mapping(batt)
@@ -597,7 +628,7 @@ class HTTPUpdateMixin(_MixinBase):
 
                 _LOGGER.debug(
                     "HYBRID: Merged %d batteries (transport + cloud metadata) for %s",
-                    len(transport_batteries),
+                    len(device_data.get("batteries", {})),
                     serial,
                 )
                 continue
@@ -607,13 +638,16 @@ class HTTPUpdateMixin(_MixinBase):
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
                 for batt in transport_batteries:
+                    # Skip batteries with no CAN bus data (5002+ reg failure)
+                    if batt.voltage is None and batt.soc is None:
+                        continue
                     battery_key = f"{serial}-{batt.battery_index + 1:02d}"
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(batt)
                     )
                 _LOGGER.debug(
                     "LOCAL: Added %d individual batteries for %s",
-                    len(transport_batteries),
+                    len(device_data.get("batteries", {})),
                     serial,
                 )
                 continue

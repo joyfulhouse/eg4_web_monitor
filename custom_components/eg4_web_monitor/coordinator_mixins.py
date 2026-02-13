@@ -141,6 +141,7 @@ if TYPE_CHECKING:
         _local_transports_attached: bool
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
+        _data_validation_enabled: bool
         _grid_type_mismatch_notified: set[str]
         _include_params_this_cycle: bool
         _last_available_state: bool
@@ -457,6 +458,28 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors.get("charging_lifetime"),
                 sensors.get("grid_export_lifetime"),
             )
+
+        # Overlay transport-exclusive sensors (Modbus-only, not in cloud API).
+        # When a local transport is attached in hybrid mode, _transport_runtime
+        # contains real-time Modbus register data for sensors the cloud API
+        # does not provide (e.g. bt_temperature reg 108, grid current regs
+        # 18/190/191, battery current reg 4).
+        transport_runtime = getattr(inverter, "_transport_runtime", None)
+        if transport_runtime is not None:
+            sensors = processed["sensors"]
+            _TRANSPORT_OVERLAY = (
+                ("bt_temperature", "temperature_t1"),
+                ("grid_current_l1", "inverter_rms_current_r"),
+                ("grid_current_l2", "inverter_rms_current_s"),
+                ("grid_current_l3", "inverter_rms_current_t"),
+                ("battery_current", "battery_current"),
+            )
+            for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
+                value = getattr(transport_runtime, runtime_attr, None)
+                if value is not None:
+                    sensors[sensor_key] = value
+            if (val := getattr(inverter, "total_load_power", None)) is not None:
+                sensors["total_load_power"] = val
 
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version

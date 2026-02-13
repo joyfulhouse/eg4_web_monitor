@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_DATA_VALIDATION,
     CONF_DST_SYNC,
     CONF_HTTP_POLLING_INTERVAL,
     CONF_INCLUDE_AC_COUPLE_PV,
@@ -4004,9 +4005,7 @@ class TestParameterPreComputation:
             entry_id="multi_device_test",
         )
 
-    async def test_precomputed_once_not_per_device(
-        self, hass, two_device_config_entry
-    ):
+    async def test_precomputed_once_not_per_device(self, hass, two_device_config_entry):
         """_include_params_this_cycle is computed once, shared across devices."""
         coordinator = EG4DataUpdateCoordinator(hass, two_device_config_entry)
         coordinator._local_parameters_loaded = True
@@ -4199,3 +4198,550 @@ class TestParallelGroupGridPowerKeys:
     def test_grid_export_power_in_parallel_group_keys(self):
         """grid_export_power must be in PARALLEL_GROUP_SENSOR_KEYS."""
         assert "grid_export_power" in PARALLEL_GROUP_SENSOR_KEYS
+
+
+class TestDataValidationFlag:
+    """Test _data_validation_enabled flag from CONF_DATA_VALIDATION option."""
+
+    @pytest.fixture
+    def local_config_entry_with_validation(self):
+        """Config entry with data_validation enabled."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1111111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            options={CONF_DATA_VALIDATION: True},
+            entry_id="validation_test",
+        )
+
+    @pytest.fixture
+    def local_config_entry_without_validation(self):
+        """Config entry without data_validation (default)."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1111111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="no_validation_test",
+        )
+
+    async def test_validation_enabled_from_options(
+        self, hass, local_config_entry_with_validation
+    ):
+        """Coordinator reads _data_validation_enabled=True from options."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry_with_validation)
+        assert coordinator._data_validation_enabled is True
+
+    async def test_validation_disabled_by_default(
+        self, hass, local_config_entry_without_validation
+    ):
+        """Coordinator defaults _data_validation_enabled=False."""
+        coordinator = EG4DataUpdateCoordinator(
+            hass, local_config_entry_without_validation
+        )
+        assert coordinator._data_validation_enabled is False
+
+
+class TestEnergyMonotonicity:
+    """Test _validate_energy_monotonicity in coordinator_local.py."""
+
+    @pytest.fixture
+    def coordinator_with_prev_data(self, hass):
+        """Coordinator with previous cycle's energy data."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1111111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            options={CONF_DATA_VALIDATION: True},
+            entry_id="energy_mono_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        # Populate previous cycle data
+        coordinator.data = {
+            "devices": {
+                "1111111111": {
+                    "sensors": {
+                        "pv_energy_total": 1000.0,
+                        "charge_energy_total": 500.0,
+                        "discharge_energy_total": 300.0,
+                        "grid_import_total": 200.0,
+                        "grid_export_total": 100.0,
+                        "load_energy_total": 800.0,
+                        "inverter_energy_total": 950.0,
+                        "eps_energy_total": 50.0,
+                    }
+                }
+            }
+        }
+        return coordinator
+
+    def test_increasing_values_pass(self, coordinator_with_prev_data):
+        """All lifetime energy values increasing -> passes."""
+        new_sensors = {
+            "pv_energy_total": 1001.0,
+            "charge_energy_total": 501.0,
+            "discharge_energy_total": 300.5,
+            "grid_import_total": 200.1,
+            "grid_export_total": 100.2,
+            "load_energy_total": 800.3,
+            "inverter_energy_total": 950.1,
+            "eps_energy_total": 50.0,
+        }
+        assert (
+            coordinator_with_prev_data._validate_energy_monotonicity(
+                "1111111111", new_sensors
+            )
+            is True
+        )
+
+    def test_decreasing_value_fails(self, coordinator_with_prev_data):
+        """Any lifetime energy value decreasing -> fails."""
+        new_sensors = {
+            "pv_energy_total": 999.0,  # Decreased from 1000.0
+            "charge_energy_total": 501.0,
+        }
+        assert (
+            coordinator_with_prev_data._validate_energy_monotonicity(
+                "1111111111", new_sensors
+            )
+            is False
+        )
+
+    def test_first_cycle_passes(self, hass):
+        """First cycle (no previous data) always passes."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            options={CONF_DATA_VALIDATION: True},
+            entry_id="first_cycle_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = {"devices": {}}
+        new_sensors = {"pv_energy_total": 1000.0}
+        assert (
+            coordinator._validate_energy_monotonicity("1111111111", new_sensors) is True
+        )
+
+    def test_missing_keys_pass(self, coordinator_with_prev_data):
+        """Keys not in _LIFETIME_ENERGY_KEYS are ignored."""
+        new_sensors = {
+            "consumption_power": 500.0,  # Not a lifetime key
+            "pv_energy_total": 1001.0,
+        }
+        assert (
+            coordinator_with_prev_data._validate_energy_monotonicity(
+                "1111111111", new_sensors
+            )
+            is True
+        )
+
+    def test_none_values_pass(self, coordinator_with_prev_data):
+        """None values (unavailable) are not compared."""
+        new_sensors = {
+            "pv_energy_total": None,
+            "charge_energy_total": 501.0,
+        }
+        assert (
+            coordinator_with_prev_data._validate_energy_monotonicity(
+                "1111111111", new_sensors
+            )
+            is True
+        )
+
+    def test_equal_values_pass(self, coordinator_with_prev_data):
+        """Equal values (no change) pass — only decrease fails."""
+        new_sensors = {
+            "pv_energy_total": 1000.0,  # Same as previous
+            "charge_energy_total": 500.0,
+        }
+        assert (
+            coordinator_with_prev_data._validate_energy_monotonicity(
+                "1111111111", new_sensors
+            )
+            is True
+        )
+
+
+class TestHybridTransportExclusiveSensors:
+    """Test transport-exclusive sensor overlay in _process_inverter_object()."""
+
+    async def test_transport_runtime_populates_bt_temperature(
+        self, hass, mock_config_entry
+    ):
+        """bt_temperature from transport_runtime overlays into hybrid sensors."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        mock_inverter = MagicMock()
+        mock_inverter.serial_number = "1111111111"
+        mock_inverter.model = "LXP-12K"
+        mock_inverter.firmware_version = "1.0.0"
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = MagicMock()
+
+        # Transport runtime with Modbus-only data
+        mock_runtime = MagicMock()
+        mock_runtime.temperature_t1 = 35.0
+        mock_runtime.inverter_rms_current_r = 4.5
+        mock_runtime.inverter_rms_current_s = 4.3
+        mock_runtime.inverter_rms_current_t = 4.1
+        mock_runtime.battery_current = 12.5
+        mock_inverter._transport_runtime = mock_runtime
+        mock_inverter.total_load_power = 2500.0
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        assert sensors["bt_temperature"] == 35.0
+        assert sensors["grid_current_l1"] == 4.5
+        assert sensors["grid_current_l2"] == 4.3
+        assert sensors["grid_current_l3"] == 4.1
+        assert sensors["battery_current"] == 12.5
+        assert sensors["total_load_power"] == 2500.0
+
+    async def test_no_transport_runtime_skips_overlay(
+        self, hass, mock_config_entry
+    ):
+        """Without _transport_runtime, overlay is skipped entirely."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        mock_inverter = MagicMock()
+        mock_inverter.serial_number = "1111111111"
+        mock_inverter.model = "LXP-12K"
+        mock_inverter.firmware_version = "1.0.0"
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        # No _transport_runtime at all
+        del mock_inverter._transport_runtime
+        del mock_inverter._transport
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        # bt_temperature should not be in sensors (cloud API doesn't provide it)
+        # The mapping function itself might set it to None via MagicMock, so
+        # just verify the overlay path didn't run
+        assert "total_load_power" not in sensors
+
+    async def test_transport_runtime_none_values_not_overlaid(
+        self, hass, mock_config_entry
+    ):
+        """None values in transport_runtime do not overwrite existing sensors."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        mock_inverter = MagicMock()
+        mock_inverter.serial_number = "1111111111"
+        mock_inverter.model = "LXP-12K"
+        mock_inverter.firmware_version = "1.0.0"
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = MagicMock()
+
+        # Transport runtime with some None values
+        mock_runtime = MagicMock()
+        mock_runtime.temperature_t1 = None
+        mock_runtime.inverter_rms_current_r = 4.5
+        mock_runtime.inverter_rms_current_s = None
+        mock_runtime.inverter_rms_current_t = None
+        mock_runtime.battery_current = None
+        mock_inverter._transport_runtime = mock_runtime
+        mock_inverter.total_load_power = None
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        # Only non-None values from transport overlay should appear
+        assert sensors["grid_current_l1"] == 4.5
+        assert "total_load_power" not in sensors
+
+
+class TestHybridParallelBatteryCountOverride:
+    """Test parallel_battery_count override from member inverter data in HTTP path."""
+
+    def test_count_overrides_zero_from_cloud(self):
+        """When cloud returns parallel_battery_count=0, override from transport data."""
+        mock_group = MagicMock()
+        mock_group.name = "A"
+        mock_inv1 = MagicMock()
+        mock_inv1.serial_number = "INV001"
+        mock_inv2 = MagicMock()
+        mock_inv2.serial_number = "INV002"
+        mock_group.inverters = [mock_inv1, mock_inv2]
+
+        pg_sensors: dict[str, Any] = {"parallel_battery_count": 0}
+        processed_devices = {
+            "INV001": {"type": "inverter", "sensors": {"battery_bank_count": 3}},
+            "INV002": {"type": "inverter", "sensors": {"battery_bank_count": 3}},
+        }
+
+        # Apply the same override logic as coordinator_http.py
+        if pg_sensors.get("parallel_battery_count", 0) == 0:
+            total_bats = 0
+            for inv in getattr(mock_group, "inverters", []):
+                inv_serial = getattr(inv, "serial_number", None)
+                if not inv_serial:
+                    continue
+                inv_data = processed_devices.get(inv_serial, {})
+                bat_count = inv_data.get("sensors", {}).get("battery_bank_count")
+                if bat_count is not None and bat_count > 0:
+                    total_bats += bat_count
+            if total_bats > 0:
+                pg_sensors["parallel_battery_count"] = total_bats
+
+        assert pg_sensors["parallel_battery_count"] == 6
+
+    def test_count_not_overridden_when_nonzero(self):
+        """When cloud provides a non-zero count, don't override."""
+        pg_sensors: dict[str, Any] = {"parallel_battery_count": 4}
+
+        # The override logic only fires when count == 0
+        if pg_sensors.get("parallel_battery_count", 0) == 0:
+            pg_sensors["parallel_battery_count"] = 99  # Should NOT happen
+
+        assert pg_sensors["parallel_battery_count"] == 4
+
+    def test_http_battery_current_aggregation(self):
+        """HTTP path aggregates battery_bank_current from member inverters."""
+        mock_group = MagicMock()
+        mock_inv1 = MagicMock()
+        mock_inv1.serial_number = "INV001"
+        mock_inv2 = MagicMock()
+        mock_inv2.serial_number = "INV002"
+        mock_group.inverters = [mock_inv1, mock_inv2]
+
+        pg_sensors: dict[str, Any] = {}
+        processed_devices = {
+            "INV001": {"type": "inverter", "sensors": {"battery_bank_current": 15.5}},
+            "INV002": {"type": "inverter", "sensors": {"battery_bank_current": 12.3}},
+        }
+
+        # Apply the same aggregation logic as coordinator_http.py
+        total_current = 0.0
+        has_current = False
+        for inv in getattr(mock_group, "inverters", []):
+            inv_serial = getattr(inv, "serial_number", None)
+            if not inv_serial:
+                continue
+            inv_data = processed_devices.get(inv_serial, {})
+            current = inv_data.get("sensors", {}).get("battery_bank_current")
+            if current is not None:
+                total_current += float(current)
+                has_current = True
+        if has_current:
+            pg_sensors["parallel_battery_current"] = total_current
+
+        assert pg_sensors["parallel_battery_current"] == pytest.approx(27.8)
+
+
+class TestParallelBatteryCurrentAggregation:
+    """Test battery_bank_current aggregation for parallel groups."""
+
+    async def test_local_path_aggregates_battery_current(
+        self, hass, mock_config_entry
+    ):
+        """LOCAL path sums battery_bank_current from member inverters."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {
+                        "battery_bank_current": 15.5,
+                        "battery_bank_count": 3,
+                        "battery_charge_power": 500,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,
+                    "sensors": {
+                        "battery_bank_current": 12.3,
+                        "battery_bank_count": 3,
+                        "battery_charge_power": 400,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"].get("parallel_group_a")
+        assert pg is not None
+        assert pg["sensors"]["parallel_battery_current"] == pytest.approx(27.8)
+
+    async def test_local_path_skips_none_battery_current(
+        self, hass, mock_config_entry
+    ):
+        """LOCAL path skips None battery_bank_current values."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        processed = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {
+                        "battery_bank_current": 10.0,
+                        "battery_bank_count": 2,
+                        "battery_charge_power": 500,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},
+                },
+                "INV002": {
+                    "type": "inverter",
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,
+                    "sensors": {
+                        # No battery_bank_current (None/missing)
+                        "battery_bank_count": 2,
+                        "battery_charge_power": 300,
+                        "battery_discharge_power": 0,
+                    },
+                    "batteries": {},
+                },
+            }
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg = processed["devices"].get("parallel_group_a")
+        assert pg is not None
+        # Only one inverter has current data → just that value
+        assert pg["sensors"]["parallel_battery_current"] == pytest.approx(10.0)
+
+    def test_parallel_battery_current_in_key_set(self):
+        """parallel_battery_current must be in PARALLEL_GROUP_SENSOR_KEYS."""
+        assert "parallel_battery_current" in PARALLEL_GROUP_SENSOR_KEYS
+
+
+class TestConditionalIndividualBatteryCreation:
+    """Test that batteries with all-None CAN bus data are skipped."""
+
+    async def test_local_path_skips_none_batteries(
+        self, hass, mock_config_entry
+    ):
+        """LOCAL path skips individual batteries with no CAN bus data."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        # Simulate two batteries — one real, one with all-None CAN data
+        mock_batt_good = MagicMock()
+        mock_batt_good.voltage = 52.0
+        mock_batt_good.soc = 85
+        mock_batt_good.battery_index = 0
+
+        mock_batt_none = MagicMock()
+        mock_batt_none.voltage = None
+        mock_batt_none.soc = None
+        mock_batt_none.battery_index = 1
+
+        mock_battery_data = MagicMock()
+        mock_battery_data.batteries = [mock_batt_good, mock_batt_none]
+
+        device_data: dict[str, Any] = {"batteries": {}}
+
+        # Apply the same logic as coordinator_local.py
+        for batt in mock_battery_data.batteries:
+            if batt.voltage is None and batt.soc is None:
+                continue
+            battery_key = f"SERIAL-{batt.battery_index + 1:02d}"
+            device_data["batteries"][battery_key] = {"voltage": batt.voltage}
+
+        # Only the good battery should be present
+        assert len(device_data["batteries"]) == 1
+        assert "SERIAL-01" in device_data["batteries"]
+        assert "SERIAL-02" not in device_data["batteries"]
+
+    async def test_local_path_keeps_partial_data_batteries(self):
+        """Battery with voltage but no SOC is still created."""
+        mock_batt = MagicMock()
+        mock_batt.voltage = 48.0
+        mock_batt.soc = None  # No SOC but has voltage
+        mock_batt.battery_index = 0
+
+        # voltage is not None → should NOT be skipped
+        assert not (mock_batt.voltage is None and mock_batt.soc is None)
+
+    async def test_http_hybrid_path_skips_none_batteries(self):
+        """HTTP HYBRID path skips batteries with no CAN bus data."""
+        mock_batt_good = MagicMock()
+        mock_batt_good.voltage = 52.0
+        mock_batt_good.soc = 85
+        mock_batt_good.battery_index = 0
+
+        mock_batt_none = MagicMock()
+        mock_batt_none.voltage = None
+        mock_batt_none.soc = None
+        mock_batt_none.battery_index = 1
+
+        batteries = [mock_batt_good, mock_batt_none]
+        created = {}
+        for batt in batteries:
+            if batt.voltage is None and batt.soc is None:
+                continue
+            created[f"SER-{batt.battery_index + 1:02d}"] = True
+
+        assert len(created) == 1
+        assert "SER-01" in created

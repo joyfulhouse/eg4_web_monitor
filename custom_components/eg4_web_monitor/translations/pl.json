@@ -373,6 +373,7 @@
           "http_polling_interval": "Interwał odpytywania HTTP/chmury (sekundy)",
           "parameter_refresh_interval": "Interwal odswiezania parametrow (minuty)",
           "library_debug": "Logowanie debugowania biblioteki",
+          "data_validation": "Walidacja Danych Rejestru",
           "include_ac_couple_pv": "Uwzględnij PV sprzężone AC w sumach"
         },
         "data_description": {
@@ -382,6 +383,7 @@
           "http_polling_interval": "Jak często odpytywać API chmury o dane ({min_http_interval}-{max_http_interval} sekund). Wyższe wartości zmniejszają obciążenie API. W trybie hybrydowym kontroluje to tylko dane z chmury; dane z transportu lokalnego są aktualizowane w interwale czujnika.",
           "parameter_refresh_interval": "Jak czesto odswiezac parametry falownika, takie jak limity SOC i ustawienia ladowania ({min_param_interval}-{max_param_interval} minut).",
           "library_debug": "Wlacz logowanie DEBUG dla biblioteki pylxpweb (pokazuje zadania API, odpowiedzi i wewnetrzne operacje biblioteki)",
+          "data_validation": "Włącz wykrywanie uszkodzeń dla lokalnych odczytów rejestrów. Sprawdza granice fizyczne (SoC, częstotliwość, status portów inteligentnych) i monotoniczność energii. Włącz tylko w przypadku niestabilnych odczytów (encje-duchy, skoki energii, nieprawidłowe wartości).",
           "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej"
         }
       }
