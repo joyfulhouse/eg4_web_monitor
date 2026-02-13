@@ -153,3 +153,6 @@ deps/
 homeassistant-dev/
 docker-compose.override.yml.trash/
 .trash/
+
+# Local scratchpad and one-off scripts (not part of the integration)
+scratchpad/

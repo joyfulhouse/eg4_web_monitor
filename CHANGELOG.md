@@ -5,6 +5,23 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.29] - 2026-02-13
+
+### Fixed
+
+- **Smart load energy off-by-one** ([#146](https://github.com/joyfulhouse/eg4_web_monitor/issues/146)): Corrected GridBOSS smart load energy register addresses in pylxpweb — daily energy shifted +2 (regs 50→52), lifetime shifted +4 (regs 84→88). Confirmed by Cloud API vs Modbus comparison.
+- **Parallel group grid voltage**: Grid voltage now overlaid from MID device (authoritative GridBOSS CT reading). Falls back to master inverter only when no MID device present. Fixes 0V readings on inverters where firmware doesn't populate regs 193-194.
+- **Parallel group consumption energy**: Now computed as UPS + Load CT energy from MID device instead of using inverter load counters (which double-counted). Fixes consumption energy divergence between LOCAL and CLOUD modes.
+- **Parallel group consumption power**: New energy-balance formula `max(0, pv + battery_net + grid_power)` using MID device grid power overlay. Fixes 0W consumption power in LOCAL mode.
+
+### Changed
+
+- **Dead code removal**: Removed unused `ac_couple_for_consumption` variable and phantom function reference in overlay comments
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.3` (smart load energy register fix)
+
 ## [3.2.0-beta.28] - 2026-02-13
 
 ### Added
