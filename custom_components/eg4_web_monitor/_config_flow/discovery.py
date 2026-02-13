@@ -155,7 +155,7 @@ async def _read_device_info_from_transport(
                 model_params = await transport.read_parameters(0, 2)
                 model_info = from_registers(model_params[0], model_params[1])
                 specific_model = model_info.get_model_name(device_type_code)
-                if specific_model and not specific_model.startswith("Unknown"):
+                if specific_model and "Unknown" not in specific_model:
                     model = specific_model
                     _LOGGER.debug(
                         "Model from HOLD_MODEL for %s: %s (power_rating=%d)",

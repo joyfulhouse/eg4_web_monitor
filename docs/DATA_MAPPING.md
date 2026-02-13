@@ -228,6 +228,45 @@ Holding registers use Modbus function code 0x03 (read/write). These map to
 
 Definitions: `pylxpweb/registers/inverter_holding.py`
 
+### HOLD_MODEL (Registers 0-1) — Model Detection
+
+Registers 0-1 contain a 32-bit bitfield (`HOLD_MODEL`) with hardware
+configuration. Used during discovery to refine the model name beyond what
+register 19 (device type code) provides.
+
+**Extraction formula** (`InverterModelInfo.from_registers()`):
+
+```python
+# Base rating: bits 5-7 of the low byte of reg0
+power_rating = ((reg0 & 0xFF) >> 5) & 0x7
+
+# FlexBOSS family offset: bit 8 of reg1 adds 8
+if reg1 & 0x100:
+    power_rating += 8
+```
+
+**Usage in discovery** (`_config_flow/discovery.py`):
+
+1. `_read_device_info_from_transport()` reads device type code from reg 19
+2. For non-GridBOSS devices, reads HOLD_MODEL from `transport.read_parameters(0, 2)`
+3. `InverterModelInfo.from_registers(reg0, reg1)` extracts `power_rating`
+4. `get_model_name(device_type_code, power_rating)` resolves specific model name
+5. Guard: if result contains "Unknown", falls back to family default name
+
+**Power rating → model mapping:**
+
+| Device Type | powerRating | Model |
+|-------------|-------------|-------|
+| 2092 | 2 | 12KPV |
+| 2092 | 6 | 18KPV |
+| 10284 | 8 | FlexBOSS21 |
+| 10284 | 9 | FlexBOSS18 |
+| 54 | 6 | 12000XP |
+| 54 | 8 | 18000XP |
+
+> **Note**: See `pylxpweb/docs/DEVICE_TYPES.md` for full bit layout documentation,
+> validated device table, and example decodings.
+
 ### Function Enable Bitfield (Register 21)
 
 | Bit | HA Entity Key | Entity Type | Purpose |

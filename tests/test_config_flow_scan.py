@@ -247,14 +247,14 @@ class TestDiscoveryModelInfo:
     def _make_transport(
         device_type_code: int = 10284,
         power_rating: int | None = None,
-        us_version: bool = True,
     ) -> MagicMock:
         """Build a mock transport with optional HOLD_MODEL register data.
 
         When power_rating is provided, read_parameters(0, 2) returns
-        register values with power_rating encoded in bits 8-11 of reg0.
-        When power_rating is None, read_parameters(0, 2) raises to
-        simulate a transport that cannot read HOLD_MODEL.
+        register values that encode power_rating in bits 5-7 of the low
+        byte of reg0, plus bit 8 of reg1 for the FlexBOSS offset (+8).
+        When power_rating is None, read_parameters raises to simulate
+        a transport that cannot read HOLD_MODEL.
         """
         transport = MagicMock()
         transport.read_device_type = AsyncMock(return_value=device_type_code)
@@ -267,9 +267,15 @@ class TestDiscoveryModelInfo:
         transport.read_runtime = AsyncMock(return_value=runtime)
 
         if power_rating is not None:
-            # Encode power_rating in bits 8-11 of reg0
-            reg0 = (power_rating << 8) | 0xC0  # Lower bits don't matter
-            reg1 = 0x0009
+            # Encode power_rating: base in bits 5-7 of low byte of reg0,
+            # offset of 8 via bit 8 of reg1 (FlexBOSS family).
+            if power_rating >= 8:
+                base = power_rating - 8
+                reg1 = 0x0109  # bit 8 set → +8 offset
+            else:
+                base = power_rating
+                reg1 = 0x0009
+            reg0 = 0x8600 | (base << 5)
             transport.read_parameters = AsyncMock(return_value={0: reg0, 1: reg1})
         else:
             # Simulate transport that can't read registers 0-1
