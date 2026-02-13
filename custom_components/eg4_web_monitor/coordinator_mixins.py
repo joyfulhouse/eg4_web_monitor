@@ -141,6 +141,8 @@ if TYPE_CHECKING:
         _local_transports_attached: bool
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
+        _grid_type_mismatch_notified: set[str]
+        _include_params_this_cycle: bool
         _last_available_state: bool
         _last_parameter_refresh: datetime | None
         _parameter_refresh_interval: timedelta
@@ -928,6 +930,7 @@ class DeviceProcessingMixin(_MixinBase):
         return {
             # Core metrics
             "voltage": "battery_bank_voltage",
+            "current": "battery_bank_current",
             "soc": "battery_bank_soc",
             "charge_power": "battery_bank_charge_power",
             "discharge_power": "battery_bank_discharge_power",
@@ -1068,6 +1071,31 @@ class DeviceProcessingMixin(_MixinBase):
             property_map = self._get_mid_device_property_map()
             processed["sensors"] = _map_device_properties(mid_device, property_map)
             processed["sensors"]["firmware_version"] = firmware_version
+
+            # Diagnostic logging for smart port energy (issue #146)
+            _LOGGER.debug(
+                "MID %s smart port energy: "
+                "today=[%s, %s, %s, %s] total=[%s, %s, %s, %s] "
+                "power=[%s, %s, %s, %s] status=[%s, %s, %s, %s]",
+                mid_device.serial_number,
+                getattr(mid_device, "e_smart_load1_today", None),
+                getattr(mid_device, "e_smart_load2_today", None),
+                getattr(mid_device, "e_smart_load3_today", None),
+                getattr(mid_device, "e_smart_load4_today", None),
+                getattr(mid_device, "e_smart_load1_total", None),
+                getattr(mid_device, "e_smart_load2_total", None),
+                getattr(mid_device, "e_smart_load3_total", None),
+                getattr(mid_device, "e_smart_load4_total", None),
+                processed["sensors"].get("smart_load1_power_l1"),
+                processed["sensors"].get("smart_load2_power_l1"),
+                processed["sensors"].get("smart_load3_power_l1"),
+                processed["sensors"].get("smart_load4_power_l1"),
+                getattr(mid_device, "smart_port1_status", None),
+                getattr(mid_device, "smart_port2_status", None),
+                getattr(mid_device, "smart_port3_status", None),
+                getattr(mid_device, "smart_port4_status", None),
+            )
+
             self._filter_unused_smart_port_sensors(processed["sensors"], mid_device)
             self._calculate_gridboss_aggregates(processed["sensors"])
             processed["sensors"]["midbox_last_polled"] = dt_util.utcnow()
