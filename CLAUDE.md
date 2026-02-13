@@ -91,7 +91,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 - `discovery.py` — Device auto-discovery via Modbus/Dongle
 - `schemas.py` — Voluptuous schema builders
 - `helpers.py` — Utility functions (unique IDs, migration, etc.)
-- `options.py` — EG4OptionsFlow for interval configuration
+- `options.py` — EG4OptionsFlow for interval configuration and data validation toggle
 
 ### Onboarding Flow
 1. **Entry Menu**: User picks "Cloud (HTTP)" or "Local Device"
@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.2.0-beta.5** — Unified config flow, pylxpweb>=0.6.5
+- **v3.2.0-beta.28** — Hybrid transport overlay, data validation, pylxpweb>=0.9.2
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
@@ -242,7 +242,7 @@ docker restart homeassistant-dev
 This project uses `uv` for dependency management. Tests run from the repository root:
 
 ```bash
-# Run all tests (228 tests)
+# Run all tests (692 tests)
 uv run pytest tests/ -x --tb=short
 
 # Run with coverage
@@ -271,11 +271,15 @@ uv run python tests/validate_platinum_tier.py
 ```
 
 ### Test Files
-- `test_config_flow.py` — Cloud onboarding, menu navigation, error handling
-- `test_reconfigure_flow.py` — Reconfigure menu, credential updates
+- `test_config_flow.py` — Cloud onboarding, menu navigation, error handling (56 tests)
+- `test_reconfigure_flow.py` — Reconfigure menu, credential updates (24 tests)
 - `test_config_flow_helpers.py` — Utility functions (unique IDs, timezone, migration)
-- `test_coordinator.py` — Data update coordinator
-- `test_sensor.py` — Sensor entity creation and updates
+- `test_coordinator.py` — Data update coordinator (120+ tests)
+- `test_coordinator_http.py` — HTTP flow, error handling, station data (19 tests)
+- `test_coordinator_local.py` — Modbus params, local device data, transport (23 tests)
+- `test_sensor_entities.py` — Sensor entity creation, feature filtering (42 tests)
+- `test_update_entities.py` — Firmware update entity lifecycle (38 tests)
+- `test_options_flow.py` — Options flow, data validation toggle
 - `conftest.py` — Shared fixtures (mock stations, mock API client)
 
 ### Testing Framework

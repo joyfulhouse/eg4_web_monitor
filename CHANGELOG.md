@@ -5,6 +5,32 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.28] - 2026-02-13
+
+### Added
+
+- **Hybrid transport-exclusive sensors**: When local transport is attached in hybrid mode, Modbus-only sensors are now overlaid onto the cloud-derived data: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power` ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149))
+- **Parallel battery current**: New `parallel_battery_current` sensor aggregates battery current across member inverters in parallel groups (both LOCAL and HTTP paths)
+- **Data validation toggle**: New option in Options flow (local/hybrid modes only) to enable/disable pylxpweb transport-level canary checks that reject corrupt Modbus reads ([#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139))
+- **Energy monotonicity validation**: Coordinator-level checks ensure lifetime energy counters never decrease (detects register corruption or rollover)
+- **692 tests** (up from 666): Added 12 tests for hybrid transport overlay, parallel battery current aggregation, individual battery filtering, data validation options flow
+
+### Fixed
+
+- **Parallel battery count override**: When cloud API returns 0 batteries but local transport has BMS data (register 96), the correct count from member inverters is now used
+- **Individual battery filtering**: Batteries with no CAN bus data (5002+ register read failure) are now skipped instead of creating "Unknown" entities in HA. Common on LXP-EU inverters.
+- **Debug log accuracy**: Fixed 3 locations reporting pre-filter battery count instead of post-filter count after individual battery filtering
+- **Parallel battery power sign**: Corrected sign convention in LOCAL mode parallel group aggregation ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149))
+
+### Changed
+
+- **pylxpweb data validation**: Canary checks tuned in pylxpweb v0.9.2 — grid frequency range widened to 30-90 Hz (0 Hz allowed for off-grid/EPS), `ac_input_type` check removed (unreliable), ghost battery cascade skip in `BatteryBankData`
+- **Data validation translations**: All 13 language files updated with data validation toggle strings
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.2` (transport-level data validation with tuned canary checks)
+
 ## [3.2.0-beta.27] - 2026-02-10
 
 ### Fixed

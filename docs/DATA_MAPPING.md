@@ -26,6 +26,7 @@
 13. [Entity Counts by Mode](#13-entity-counts-by-mode)
 14. [Key Constants Reference](#14-key-constants-reference)
 15. [All Calculations Reference](#15-all-calculations-reference)
+16. [Data Validation](#1514-data-validation-two-layer-architecture)
 
 ---
 
@@ -549,6 +550,12 @@ combination. When 5002+ data is unavailable:
 - Cloud API returns `batteryArray=[]`, `totalNumber=0`
 - Cross-battery diagnostic sensors (`battery_bank_soc_delta`, etc.) return None
 
+**Individual Battery Filtering (beta.28+):** Even when 5002+ registers are
+read, individual batteries with ALL CAN bus data as `None` (voltage=None,
+soc=None) are skipped. This prevents creating "Unknown" entities when CAN
+communication is not established. The guard checks `batt.voltage is None and
+batt.soc is None` in both `coordinator_local.py` and `coordinator_http.py`.
+
 ### Battery Register Space (Modbus)
 
 Base address: 5002, 30 registers per battery, max 5 batteries per inverter.
@@ -646,6 +653,7 @@ See [Section 6 - Parallel Group Energy](#parallel-group-energy-getinverterenergy
 | `parallel_battery_charge_power` | Sum of inverter charge powers |
 | `parallel_battery_discharge_power` | Sum of inverter discharge powers |
 | `parallel_battery_power` | `charge - discharge` |
+| `parallel_battery_current` | Sum of inverter `battery_bank_current` |
 | `parallel_battery_soc` | Average SOC |
 | `parallel_battery_voltage` | Average voltage |
 | `parallel_battery_count` | Sum of battery counts |
@@ -720,6 +728,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
+- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
 
@@ -733,8 +742,10 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 | Sensor Key | LOCAL | CLOUD | HYBRID | Notes |
 |------------|-------|-------|--------|-------|
-| `bt_temperature` | Yes | No | Yes (local) | Modbus reg 108 only |
-| `grid_current_l1/l2/l3` | Yes | No | Yes (local) | Modbus regs 18, 190, 191 |
+| `bt_temperature` | Yes | No | Yes (overlay) | Modbus reg 108 only |
+| `grid_current_l1/l2/l3` | Yes | No | Yes (overlay) | Modbus regs 18, 190, 191 |
+| `battery_current` (inverter) | Yes | No | Yes (overlay) | Modbus reg 4 (via `_transport_runtime`) |
+| `total_load_power` | Yes | API | Yes (overlay) | Aliased from consumption_power |
 | `consumption_power` (inverter) | Computed | API | API or computed | Energy balance vs API |
 | `consumption` (energy) | Computed | API (÷10) | API (÷10) | `_energy_balance()` vs `todayLoad` |
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
@@ -870,7 +881,7 @@ entities (12 smart port power/status sensors).
 | `ALL_INVERTER_SENSOR_KEYS` | 82 | Union of all above |
 | `GRIDBOSS_SENSOR_KEYS` | 50+ | All GridBOSS sensor keys |
 | `GRIDBOSS_SMART_PORT_POWER_KEYS` | 26 | Smart load + AC couple power (L1/L2 + aggregates + totals) |
-| `PARALLEL_GROUP_SENSOR_KEYS` | 30 | PG power, energy, battery aggregates (incl. grid import/export) |
+| `PARALLEL_GROUP_SENSOR_KEYS` | 31 | PG power, energy, battery aggregates (incl. grid import/export, battery current) |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 
 ### Scaling Sets (const/sensors/mappings.py)
@@ -1281,6 +1292,7 @@ parallel_battery_power           = discharge_sum - charge_sum
                                    (positive = discharging)
 parallel_battery_soc             = average(inverter.state_of_charge)
 parallel_battery_voltage         = average(inverter.battery_voltage)
+parallel_battery_current         = Σ inverter.battery_bank_current
 parallel_battery_count           = Σ inverter.battery_bank_count
 parallel_battery_max_capacity    = Σ inverter.battery_bank_max_capacity
 parallel_battery_current_capacity = Σ inverter.battery_bank_current_capacity
@@ -1374,3 +1386,58 @@ in [Section 11](#11-smart-port-sensor-filtering).
 | GridBOSS L1+L2 aggregates | Computed by `_calculate_gridboss_aggregates()` | Same function, same computation |
 | Smart port status | `smartPort{N}Status` API fields | Holding register 20 bit-decode |
 | GridBOSS energy | `getMidboxRuntime` API (÷10 scaling) | Input registers 42-118 (÷10 by canonical reader) |
+
+---
+
+### 15.14 Data Validation (Two-Layer Architecture)
+
+Data validation operates at two independent layers:
+
+#### Layer 1: Transport-Level (pylxpweb)
+
+Controlled by `inverter.validate_data` property (set from `CONF_DATA_VALIDATION`
+option in the Options flow). When enabled, `is_corrupt()` canary checks run
+after each Modbus read. If corrupt, the read is rejected and the previous
+cached value is preserved.
+
+**Canary fields by data class:**
+
+| Data Class | Check | Threshold | Rationale |
+|------------|-------|-----------|-----------|
+| `InverterRuntimeData` | `_raw_soc > 100` | SoC physically 0-100% | Register desync |
+| `InverterRuntimeData` | `_raw_soh > 100` | SoH physically 0-100% | Register desync |
+| `InverterRuntimeData` | `frequency < 30 or > 90` | World grids 50/60 Hz | Extreme corruption only |
+| `InverterRuntimeData` | `frequency == 0` | **Allowed** (off-grid/EPS) | Not corruption |
+| `BatteryData` | `_raw_soc > 100` | SoC 0-100% | CAN bus error |
+| `BatteryData` | `_raw_soh > 100` | SoH 0-100% | CAN bus error |
+| `BatteryData` | `voltage > 100V` | No LFP exceeds 60V | Register desync |
+| `BatteryBankData` | Cascade to batteries | Skips ghost batteries (V=0, SoC=0) | No CAN data |
+| `MidboxRuntimeData` | `frequency < 30 or > 90` | Same as inverter | Extreme corruption |
+| `MidboxRuntimeData` | `smart_port_status > 2` | Valid: 0, 1, 2 | Bit decode error |
+
+**Implementation:** `coordinator_local.py` sets `inverter.validate_data = self._data_validation_enabled`
+before each `inverter.refresh()` call. The `_data_validation_enabled` property
+reads from `CONF_DATA_VALIDATION` in the config entry options (default: `True`).
+
+#### Layer 2: Coordinator-Level (eg4_web_monitor)
+
+**Energy monotonicity:** `_validate_energy_monotonicity()` in `coordinator_local.py`
+checks that lifetime energy counters never decrease between poll cycles.
+
+```
+_LIFETIME_ENERGY_KEYS = frozenset({
+    "yield_lifetime", "charging_lifetime", "discharging_lifetime",
+    "grid_import_lifetime", "grid_export_lifetime", "consumption_lifetime",
+})
+```
+
+When a decrease is detected, the new (lower) value is rejected and the
+previous value is preserved. This catches register rollover and corruption
+that passes Layer 1 canary checks.
+
+#### Options Flow
+
+The data validation toggle appears in Options flow (`_config_flow/options.py`)
+only when local transports are configured (Modbus TCP, WiFi dongle, serial).
+Cloud-only mode does not show this option since the cloud API has its own
+server-side validation.
