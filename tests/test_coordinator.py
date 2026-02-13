@@ -9,6 +9,7 @@ from datetime import timedelta
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -134,6 +135,48 @@ def mock_station_object(mock_inverter):
     mock.detect_dst_status = MagicMock(return_value=True)
     mock.sync_dst_setting = AsyncMock(return_value=True)
     return mock
+
+
+def _make_local_entry(
+    transports: list[dict[str, Any]],
+    entry_id: str = "local_test",
+    title: str = "EG4 - Local Test",
+) -> MockConfigEntry:
+    """Build a LOCAL-mode MockConfigEntry with the given transports."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=title,
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_LOCAL_TRANSPORTS: transports,
+        },
+        entry_id=entry_id,
+    )
+
+
+def _make_inverter_transport(
+    serial: str,
+    host: str = "192.168.1.100",
+    *,
+    parallel_number: int | None = None,
+    parallel_master_slave: int | None = None,
+) -> dict[str, Any]:
+    """Build a single inverter transport config dict."""
+    transport: dict[str, Any] = {
+        "serial": serial,
+        "host": host,
+        "port": 502,
+        "transport_type": "modbus_tcp",
+        "inverter_family": "EG4_HYBRID",
+        "model": "FlexBOSS21",
+    }
+    if parallel_number is not None:
+        transport["parallel_number"] = parallel_number
+    if parallel_master_slave is not None:
+        transport["parallel_master_slave"] = parallel_master_slave
+    return transport
 
 
 class TestCoordinatorInitialization:
@@ -4767,49 +4810,40 @@ class TestConditionalIndividualBatteryCreation:
 class TestStaticParallelGroupDeviceRegistration:
     """Test that static PG creation pre-registers devices in HA device registry."""
 
-    async def test_static_pg_registers_device_in_registry(self, hass):
-        """Static parallel group pre-registers device so via_device works."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Parallel",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INV001",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                        "parallel_number": 1,
-                        "parallel_master_slave": 1,
-                    },
-                    {
-                        "serial": "INV002",
-                        "host": "192.168.1.101",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                        "parallel_number": 1,
-                        "parallel_master_slave": 2,
-                    },
+    @pytest.mark.parametrize(
+        ("test_id", "transports"),
+        [
+            (
+                "explicit_parallel",
+                [
+                    _make_inverter_transport(
+                        "INV001", "192.168.1.100",
+                        parallel_number=1, parallel_master_slave=1,
+                    ),
+                    _make_inverter_transport(
+                        "INV002", "192.168.1.101",
+                        parallel_number=1, parallel_master_slave=2,
+                    ),
                 ],
-            },
-            entry_id="static_pg_reg_test",
-        )
+            ),
+            (
+                "heuristic_parallel",
+                [
+                    _make_inverter_transport("INV001", "192.168.1.100"),
+                    _make_inverter_transport("INV002", "192.168.1.101"),
+                ],
+            ),
+        ],
+        ids=["explicit_parallel_number", "heuristic_2_plus_devices"],
+    )
+    async def test_static_pg_registers_device(self, hass, test_id, transports):
+        """Static PG creation pre-registers device so via_device works."""
+        entry = _make_local_entry(transports, entry_id=f"pg_reg_{test_id}")
         entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
 
-        # First refresh returns static data
         result = await coordinator._async_update_local_data()
         assert "parallel_group_a" in result["devices"]
-
-        # The PG device should be registered in the device registry
-        from homeassistant.helpers import device_registry as dr
 
         device_registry = dr.async_get(hass)
         device = device_registry.async_get_device(
@@ -4818,51 +4852,6 @@ class TestStaticParallelGroupDeviceRegistration:
         assert device is not None
         assert device.name == "Parallel Group A"
         assert device.model == "Parallel Group"
-
-    async def test_static_pg_heuristic_registers_device(self, hass):
-        """Heuristic PG creation (no parallel_number) also pre-registers device."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Heuristic",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INV001",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                    },
-                    {
-                        "serial": "INV002",
-                        "host": "192.168.1.101",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                    },
-                ],
-            },
-            entry_id="static_pg_heuristic_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
-        result = await coordinator._async_update_local_data()
-
-        # Heuristic creates PG when 2+ non-gridboss devices exist
-        assert "parallel_group_a" in result["devices"]
-
-        from homeassistant.helpers import device_registry as dr
-
-        device_registry = dr.async_get(hass)
-        device = device_registry.async_get_device(
-            identifiers={(DOMAIN, "parallel_group_a")}
-        )
-        assert device is not None
 
 
 class TestComputedEnergyClamp:

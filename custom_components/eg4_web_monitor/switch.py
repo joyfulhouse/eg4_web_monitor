@@ -25,10 +25,12 @@ from .const import (
     FUNCTION_PARAM_MAPPING,
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
+    PARAM_FUNC_GRID_PEAK_SHAVING,
     SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
@@ -161,6 +163,8 @@ async def async_setup_entry(
                             "FUNC_AC_CHARGE",  # Register 21, bit 7
                             "FUNC_FORCED_CHG_EN",  # Register 21, bit 11
                             "FUNC_FORCED_DISCHG_EN",  # Register 21, bit 10
+                            "FUNC_GRID_PEAK_SHAVING",  # Register 179, bit 7
+                            "FUNC_BATTERY_BACKUP_CTRL",  # Register 233, bit 1
                         }
                         if param not in modbus_supported_params:
                             _LOGGER.debug(
@@ -480,9 +484,9 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_AC_CHARGE": PARAM_FUNC_AC_CHARGE,
     "FUNC_FORCED_CHG_EN": PARAM_FUNC_FORCED_CHG_EN,
     "FUNC_FORCED_DISCHG_EN": PARAM_FUNC_FORCED_DISCHG_EN,
-    # These modes don't have direct local transport equivalents
-    "FUNC_GRID_PEAK_SHAVING": None,  # Not available via local transport
-    "FUNC_BATTERY_BACKUP_CTRL": None,  # Not available via local transport
+    # Extended function registers (verified via Modbus probe 2026-02-13)
+    "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
+    "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
 }
 
 

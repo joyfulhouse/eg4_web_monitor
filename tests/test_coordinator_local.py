@@ -125,7 +125,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 8 register ranges are read."""
+        """All 10 register ranges are read."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -134,8 +134,8 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 8 register ranges should be read
-        assert mock_transport.read_named_parameters.call_count == 8
+        # 10 register ranges: 21, 64-79, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
+        assert mock_transport.read_named_parameters.call_count == 10
         assert "PARAM_A" in result
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
@@ -157,10 +157,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 8 ranges attempted despite first failure
-        assert call_count == 8
+        # All 10 ranges attempted despite first failure
+        assert call_count == 10
         # Successful ranges contributed their params
-        assert len(result) == 7  # 8 total - 1 failed
+        assert len(result) == 9  # 10 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""

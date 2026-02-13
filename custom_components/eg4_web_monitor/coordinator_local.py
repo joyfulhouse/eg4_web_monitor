@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Any
 
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -70,11 +70,9 @@ _LIFETIME_ENERGY_KEYS = frozenset(
     }
 )
 
-# Computed energy keys derived from energy balance (yield + discharge +
-# grid_import - charge - grid_export).  Unlike register-backed keys in
-# _LIFETIME_ENERGY_KEYS, these can fluctuate slightly because each
-# component register is read at a different instant.  Clamping to the
-# previous value prevents HA total_increasing warnings.
+# Derived from energy balance arithmetic; small decreases are normal
+# timing artifacts (not corruption).  Clamped to prevent HA
+# total_increasing warnings.
 _COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
 
 
@@ -105,8 +103,10 @@ class LocalTransportMixin(_MixinBase):
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
+                (179, 1),  # Extended functions (FUNC_GRID_PEAK_SHAVING, etc.)
                 (227, 1),  # System charge SOC limit (HOLD_SYSTEM_CHARGE_SOC_LIMIT)
                 (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
+                (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
             ]
 
             for start, count in register_ranges:
@@ -547,21 +547,31 @@ class LocalTransportMixin(_MixinBase):
                 return False
         return True
 
+    def _register_pg_device(self, group_device_id: str, group_name: str) -> None:
+        """Pre-register a parallel group in the HA device registry.
+
+        Ensures inverter entities referencing this PG via via_device do not
+        trigger 'non existing via_device' warnings during entity setup.
+        """
+        device_registry = dr.async_get(self.hass)
+        device_registry.async_get_or_create(
+            config_entry_id=self.entry.entry_id,
+            identifiers={(DOMAIN, group_device_id)},
+            name=f"Parallel Group {group_name}",
+            manufacturer=MANUFACTURER,
+            model="Parallel Group",
+        )
+
     def _clamp_computed_energy(
         self,
         device_id: str,
         sensors: dict[str, Any],
     ) -> None:
-        """Clamp computed energy balance values to never decrease.
+        """Clamp computed energy values so they never decrease.
 
-        Energy balance values (consumption, consumption_lifetime) are derived
-        from multiple register reads that happen at slightly different times.
-        Small decreases (e.g. 0.1 kWh) are normal artifacts, not corruption.
-        Clamping prevents HA total_increasing state class warnings.
-
-        Args:
-            device_id: Device serial or parallel group ID for log context.
-            sensors: Current cycle's sensor dict (modified in place).
+        Small decreases are normal timing artifacts from reading multiple
+        registers at different instants.  Clamping prevents HA
+        total_increasing state class warnings.
         """
         if not self.data:
             return
@@ -1270,19 +1280,7 @@ class LocalTransportMixin(_MixinBase):
                 "sensors": {k: None for k in sensor_keys},
             }
 
-            # Pre-register device in HA device registry so that inverter
-            # entities referencing this PG via via_device don't trigger
-            # "non existing via_device" warnings during entity setup.
-            from homeassistant.helpers import device_registry as dr
-
-            device_registry = dr.async_get(self.hass)
-            device_registry.async_get_or_create(
-                config_entry_id=self.entry.entry_id,
-                identifiers={(DOMAIN, group_device_id)},
-                name=f"Parallel Group {group_name}",
-                manufacturer=MANUFACTURER,
-                model="Parallel Group",
-            )
+            self._register_pg_device(group_device_id, group_name)
 
             _LOGGER.debug(
                 "LOCAL: Static parallel group %s created with %d members "
@@ -1813,20 +1811,15 @@ class LocalTransportMixin(_MixinBase):
                                 group_sensors[vkey] = val
                         break
 
-            # Clamp computed energy balance values for the parallel group.
-            # Without GridBOSS, consumption is summed from member inverters'
-            # energy balance values which can fluctuate slightly.
+            # Clamp computed energy values before storing the parallel group.
             group_device_id = f"parallel_group_{group_name.lower()}"
             self._clamp_computed_energy(group_device_id, group_sensors)
 
-            # Add last polled timestamp for parallel group
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
-            # Create parallel group device entry
-            # Note: We create groups even with 1 inverter if parallel_number > 0,
-            # since this indicates the inverter is configured for parallel operation
-            # (e.g., single inverter + GridBOSS setup)
-            # group_device_id computed above (before clamping)
+            # Create groups even with 1 inverter if parallel_number > 0,
+            # since this indicates the inverter is configured for parallel
+            # operation (e.g., single inverter + GridBOSS setup).
             processed["devices"][group_device_id] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",
@@ -1837,19 +1830,7 @@ class LocalTransportMixin(_MixinBase):
                 "sensors": group_sensors,
             }
 
-            # Register parallel group device in device registry immediately
-            # This must happen BEFORE entity platforms create entities that
-            # reference this device via via_device
-            from homeassistant.helpers import device_registry as dr
-
-            device_registry = dr.async_get(self.hass)
-            device_registry.async_get_or_create(
-                config_entry_id=self.entry.entry_id,
-                identifiers={(DOMAIN, group_device_id)},
-                name=f"Parallel Group {group_name}",
-                manufacturer=MANUFACTURER,
-                model="Parallel Group",
-            )
+            self._register_pg_device(group_device_id, group_name)
 
             _LOGGER.info(
                 "LOCAL: Created parallel group %s with %d devices: %s sensors",

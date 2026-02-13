@@ -7,9 +7,11 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.const import (
     INVERTER_FAMILY_EG4_OFFGRID,
+    PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_GREEN_EN,
-    PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_GRID_PEAK_SHAVING,
     WORKING_MODES,
 )
 from custom_components.eg4_web_monitor.switch import (
@@ -206,11 +208,13 @@ class TestSwitchPlatformSetup:
         assert "EG4DSTSwitch" in type_names
 
     @pytest.mark.asyncio
-    async def test_local_only_excludes_cloud_only_working_modes(self, hass):
-        """LOCAL-only mode should NOT create switches for cloud-only working modes.
+    async def test_local_only_includes_all_modbus_working_modes(self, hass):
+        """LOCAL-only mode creates switches for all Modbus-backed working modes.
 
-        FUNC_BATTERY_BACKUP_CTRL and FUNC_GRID_PEAK_SHAVING have no Modbus
-        register mappings and can only be controlled via the Cloud API.
+        All five working modes have holding register bit field mappings:
+        - FUNC_AC_CHARGE (reg 21 bit 7), FUNC_FORCED_CHG_EN (reg 21 bit 11),
+          FUNC_FORCED_DISCHG_EN (reg 21 bit 10), FUNC_GRID_PEAK_SHAVING
+          (reg 179 bit 7), FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1).
         Regression test for issue #153.
         """
         coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
@@ -225,14 +229,12 @@ class TestSwitchPlatformSetup:
         ]
         working_mode_params = {e._mode_config["param"] for e in working_modes}
 
-        # These three have Modbus register support (register 21 bit fields)
-        assert "FUNC_AC_CHARGE" in working_mode_params
-        assert "FUNC_FORCED_CHG_EN" in working_mode_params
-        assert "FUNC_FORCED_DISCHG_EN" in working_mode_params
-
-        # These are Cloud API-only — must NOT be created in LOCAL mode
-        assert "FUNC_BATTERY_BACKUP_CTRL" not in working_mode_params
-        assert "FUNC_GRID_PEAK_SHAVING" not in working_mode_params
+        # All five have Modbus register support
+        assert "FUNC_AC_CHARGE" in working_mode_params  # Register 21, bit 7
+        assert "FUNC_FORCED_CHG_EN" in working_mode_params  # Register 21, bit 11
+        assert "FUNC_FORCED_DISCHG_EN" in working_mode_params  # Register 21, bit 10
+        assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params  # Register 179, bit 7
+        assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params  # Register 233, bit 1
 
     @pytest.mark.asyncio
     async def test_cloud_mode_includes_all_working_modes(self, hass):
@@ -503,21 +505,34 @@ class TestWorkingModeSwitch:
         inverter.enable_ac_charge_mode.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_peak_shaving_no_local_raises(self):
-        """Peak shaving has no Modbus mapping: local-only should raise."""
-        coordinator = _mock_coordinator(
-            has_local=False, has_http=False, local_only=True
-        )
+    async def test_peak_shaving_local_write(self):
+        """Peak shaving uses local named parameter write (reg 179 bit 7)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
         mode_config = WORKING_MODES["peak_shaving_mode"]
         switch = EG4WorkingModeSwitch(
             coordinator, "1234567890", "peak_shaving_mode", mode_config
         )
         _prep(switch)
+        await switch.async_turn_on()
 
-        with pytest.raises(
-            HomeAssistantError, match="not available via local transport"
-        ):
-            await switch.async_turn_on()
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_GRID_PEAK_SHAVING, True, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_battery_backup_ctrl_local_write(self):
+        """Battery backup ctrl uses local named parameter write (reg 233 bit 1)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        mode_config = WORKING_MODES["battery_backup_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "battery_backup_mode", mode_config
+        )
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_BATTERY_BACKUP_CTRL, True, serial="1234567890"
+        )
 
     def test_extra_state_attributes(self):
         """Extra attributes include description and function_parameter."""
