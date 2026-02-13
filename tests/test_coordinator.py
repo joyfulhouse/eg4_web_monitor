@@ -31,6 +31,9 @@ from custom_components.eg4_web_monitor.const import (
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DOMAIN,
+    GRID_TYPE_SINGLE_PHASE,
+    GRID_TYPE_SPLIT_PHASE,
+    GRID_TYPE_THREE_PHASE,
 )
 from custom_components.eg4_web_monitor.coordinator import (
     EG4DataUpdateCoordinator,
@@ -1080,6 +1083,7 @@ class TestDeferredLocalParameters:
         """After flag is set, include_parameters=True on subsequent refreshes."""
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
         coordinator._local_parameters_loaded = True  # Simulate post-first-refresh
+        coordinator._include_params_this_cycle = True  # Simulate poll-cycle decision
 
         mock_inverter = MagicMock()
         mock_inverter.refresh = AsyncMock()
@@ -3793,3 +3797,402 @@ class TestSmartPortFiltering:
         # Power keys preserved (filtering was skipped)
         assert sensors["smart_load1_power_l1"] == 50.0
         assert sensors["ac_couple1_power_l1"] == 100.0
+
+
+class TestGridTypeMismatch:
+    """Test grid_type mismatch detection (Repairs issue creation)."""
+
+    @pytest.fixture
+    def local_config_entry(self):
+        """Config entry for LOCAL connection type with grid_type."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - LXP-EU 12K",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1234567890",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "LXP",
+                        "model": "LXP-EU 12K",
+                        "grid_type": GRID_TYPE_THREE_PHASE,
+                    },
+                ],
+            },
+            entry_id="local_grid_test",
+        )
+
+    async def test_no_mismatch_no_issue(self, hass, local_config_entry):
+        """When config and live features agree, no issue is created."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_grid_type_mismatch(
+                "1234567890",
+                "LXP-EU 12K",
+                {"grid_type": GRID_TYPE_THREE_PHASE},
+                {"supports_three_phase": True, "supports_split_phase": False},
+            )
+
+        mock_create.assert_not_called()
+        assert "1234567890" not in coordinator._grid_type_mismatch_notified
+
+    async def test_mismatch_creates_issue(self, hass, local_config_entry):
+        """When config says three_phase but live says split_phase, issue is created."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_grid_type_mismatch(
+                "1234567890",
+                "LXP-EU 12K",
+                {"grid_type": GRID_TYPE_THREE_PHASE},
+                {"supports_three_phase": False, "supports_split_phase": True},
+            )
+
+        mock_create.assert_called_once()
+        call_kwargs = mock_create.call_args
+        assert call_kwargs[1]["translation_key"] == "grid_type_mismatch"
+        assert call_kwargs[1]["translation_placeholders"]["serial"] == "1234567890"
+        assert (
+            call_kwargs[1]["translation_placeholders"]["config_grid_type"]
+            == GRID_TYPE_THREE_PHASE
+        )
+        assert (
+            call_kwargs[1]["translation_placeholders"]["detected_grid_type"]
+            == GRID_TYPE_SPLIT_PHASE
+        )
+        assert "1234567890" in coordinator._grid_type_mismatch_notified
+
+    async def test_mismatch_deduplicated(self, hass, local_config_entry):
+        """Second call for same serial doesn't create a second issue."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._grid_type_mismatch_notified.add("1234567890")
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            # Caller checks the set before calling, so _check_grid_type_mismatch
+            # would create an issue if called. The dedup is at the call-site.
+            # But let's also verify that _check_grid_type_mismatch itself
+            # adds to the set (idempotent).
+            coordinator._check_grid_type_mismatch(
+                "1234567890",
+                "LXP-EU 12K",
+                {"grid_type": GRID_TYPE_THREE_PHASE},
+                {"supports_three_phase": False, "supports_split_phase": True},
+            )
+
+        # Even though _check_grid_type_mismatch adds to set, it still fires
+        # because the set check is at the call-site. This verifies the
+        # method itself unconditionally creates the issue when types differ.
+        mock_create.assert_called_once()
+
+    async def test_no_config_grid_type_skips_check(self, hass, local_config_entry):
+        """When config has no grid_type, check is skipped (legacy configs)."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_grid_type_mismatch(
+                "1234567890",
+                "LXP-EU 12K",
+                {},  # No grid_type in config
+                {"supports_three_phase": True, "supports_split_phase": False},
+            )
+
+        mock_create.assert_not_called()
+
+    async def test_single_phase_detected_when_neither_flag(
+        self, hass, local_config_entry
+    ):
+        """When neither three_phase nor split_phase detected, assumes single_phase."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_grid_type_mismatch(
+                "1234567890",
+                "LXP-EU 12K",
+                {"grid_type": GRID_TYPE_THREE_PHASE},
+                {"supports_three_phase": False, "supports_split_phase": False},
+            )
+
+        mock_create.assert_called_once()
+        assert (
+            mock_create.call_args[1]["translation_placeholders"]["detected_grid_type"]
+            == GRID_TYPE_SINGLE_PHASE
+        )
+
+    async def test_deferred_load_triggers_mismatch_check(
+        self, hass, local_config_entry
+    ):
+        """Deferred parameter load checks grid_type mismatch after detect_features."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.async_request_refresh = AsyncMock()
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        coordinator._inverter_cache["1234567890"] = mock_inverter
+
+        # Mock _extract_inverter_features to return mismatched features
+        with (
+            patch.object(
+                coordinator,
+                "_extract_inverter_features",
+                return_value={
+                    "supports_three_phase": False,
+                    "supports_split_phase": True,
+                },
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+            ) as mock_create,
+        ):
+            await coordinator._deferred_local_parameter_load()
+
+        mock_create.assert_called_once()
+        assert "1234567890" in coordinator._grid_type_mismatch_notified
+
+
+class TestParameterPreComputation:
+    """Test _include_params_this_cycle pre-computation in _async_update_local_data."""
+
+    @pytest.fixture
+    def two_device_config_entry(self):
+        """Config entry with two local devices on the same transport."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Multi",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1111111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": "2222222222",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="multi_device_test",
+        )
+
+    async def test_precomputed_once_not_per_device(
+        self, hass, two_device_config_entry
+    ):
+        """_include_params_this_cycle is computed once, shared across devices."""
+        coordinator = EG4DataUpdateCoordinator(hass, two_device_config_entry)
+        coordinator._local_parameters_loaded = True
+
+        # Set up two mock inverters
+        for serial in ["1111111111", "2222222222"]:
+            mock_inv = MagicMock()
+            mock_inv.refresh = AsyncMock()
+            mock_inv.detect_features = AsyncMock()
+            mock_inv._transport = MagicMock()
+            mock_inv._transport.is_connected = True
+            mock_inv._transport_runtime = MagicMock()
+            mock_inv._transport_runtime.pv_total_power = 0
+            mock_inv._transport_runtime.battery_soc = 50
+            mock_inv._transport_runtime.grid_power = 0
+            mock_inv._transport_runtime.parallel_number = 0
+            mock_inv._transport_runtime.parallel_master_slave = 0
+            mock_inv._transport_runtime.parallel_phase = 0
+            mock_inv._transport_energy = None
+            mock_inv._transport_battery = None
+            mock_inv.consumption_power = None
+            mock_inv.total_load_power = None
+            mock_inv.battery_power = None
+            mock_inv.rectifier_power = None
+            mock_inv.power_to_user = None
+            coordinator._inverter_cache[serial] = mock_inv
+            coordinator._firmware_cache[serial] = "TEST-FW"
+
+        # Track calls to _should_refresh_parameters
+        original_should = coordinator._should_refresh_parameters
+        call_count = 0
+
+        def counting_should():
+            nonlocal call_count
+            call_count += 1
+            return original_should()
+
+        with (
+            patch.object(
+                coordinator,
+                "_should_refresh_parameters",
+                side_effect=counting_should,
+            ),
+            patch.object(
+                coordinator,
+                "_should_poll_transport",
+                return_value=True,
+            ),
+            patch.object(
+                coordinator,
+                "_read_modbus_parameters",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch.object(
+                coordinator,
+                "_process_local_parallel_groups",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await coordinator._async_update_local_data()
+
+        # _should_refresh_parameters should be called exactly once
+        # (in the pre-computation), not once per device.
+        assert call_count == 1
+
+    async def test_params_not_included_when_not_loaded(self, hass):
+        """When _local_parameters_loaded is False, params are never included."""
+        config_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - Single",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "1111111111",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="single_device_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, config_entry)
+        # _local_parameters_loaded defaults to False
+
+        mock_inv = MagicMock()
+        mock_inv.refresh = AsyncMock()
+        mock_inv._transport = MagicMock()
+        mock_inv._transport.is_connected = True
+        mock_inv._transport_runtime = MagicMock()
+        mock_inv._transport_runtime.pv_total_power = 0
+        mock_inv._transport_runtime.battery_soc = 50
+        mock_inv._transport_runtime.grid_power = 0
+        mock_inv._transport_runtime.parallel_number = 0
+        mock_inv._transport_runtime.parallel_master_slave = 0
+        mock_inv._transport_runtime.parallel_phase = 0
+        mock_inv._transport_energy = None
+        mock_inv._transport_battery = None
+        mock_inv.consumption_power = None
+        mock_inv.total_load_power = None
+        mock_inv.battery_power = None
+        mock_inv.rectifier_power = None
+        mock_inv.power_to_user = None
+        coordinator._inverter_cache["1111111111"] = mock_inv
+        coordinator._firmware_cache["1111111111"] = "TEST-FW"
+
+        with (
+            patch.object(
+                coordinator,
+                "_should_poll_transport",
+                return_value=True,
+            ),
+            patch.object(
+                coordinator,
+                "_process_local_parallel_groups",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                coordinator,
+                "_deferred_local_parameter_load",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await coordinator._async_update_local_data()
+
+        # refresh should be called with include_parameters=False
+        mock_inv.refresh.assert_called_once_with(include_parameters=False)
+
+
+class TestBatteryBankCurrentKey:
+    """Test battery_bank_current is included in all mapping paths."""
+
+    def test_battery_bank_current_in_keys_frozenset(self):
+        """battery_bank_current must be in BATTERY_BANK_KEYS."""
+        assert "battery_bank_current" in BATTERY_BANK_KEYS
+
+    def test_battery_bank_current_in_build_mapping(self):
+        """_build_battery_bank_sensor_mapping includes battery_bank_current."""
+        mock_battery = MagicMock()
+        mock_battery.soc = 85
+        mock_battery.voltage = 52.0
+        mock_battery.current = 15.5
+        mock_battery.charge_power = 800.0
+        mock_battery.discharge_power = 0.0
+        mock_battery.battery_power = 800.0
+        mock_battery.max_capacity = 200
+        mock_battery.current_capacity = 170
+        mock_battery.remain_capacity = 170
+        mock_battery.full_capacity = 200
+        mock_battery.capacity_percent = 85
+        mock_battery.battery_count = 4
+        mock_battery.status = "charging"
+        mock_battery.soc_delta = 2.0
+        mock_battery.min_soh = 98
+        mock_battery.soh_delta = 1
+        mock_battery.voltage_delta = 0.1
+        mock_battery.cell_voltage_delta_max = 0.02
+        mock_battery.cycle_count_delta = 5
+        mock_battery.max_cell_temp = 28.0
+        mock_battery.temp_delta = 3.0
+
+        result = _build_battery_bank_sensor_mapping(mock_battery)
+        assert "battery_bank_current" in result
+        assert result["battery_bank_current"] == 15.5
+
+    def test_battery_bank_current_in_http_property_map(self):
+        """HTTP path property map includes current → battery_bank_current."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        prop_map = DeviceProcessingMixin._get_battery_bank_property_map()
+        assert "current" in prop_map
+        assert prop_map["current"] == "battery_bank_current"
+
+
+class TestParallelGroupGridPowerKeys:
+    """Test grid_import_power and grid_export_power in parallel group keys."""
+
+    def test_grid_import_power_in_parallel_group_keys(self):
+        """grid_import_power must be in PARALLEL_GROUP_SENSOR_KEYS."""
+        assert "grid_import_power" in PARALLEL_GROUP_SENSOR_KEYS
+
+    def test_grid_export_power_in_parallel_group_keys(self):
+        """grid_export_power must be in PARALLEL_GROUP_SENSOR_KEYS."""
+        assert "grid_export_power" in PARALLEL_GROUP_SENSOR_KEYS

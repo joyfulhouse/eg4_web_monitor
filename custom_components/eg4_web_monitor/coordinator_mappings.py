@@ -96,6 +96,7 @@ BATTERY_BANK_KEYS: frozenset[str] = frozenset(
     {
         "battery_bank_soc",
         "battery_bank_voltage",
+        "battery_bank_current",
         "battery_bank_charge_power",
         "battery_bank_discharge_power",
         "battery_bank_power",
@@ -243,6 +244,8 @@ PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(
         # Power sensors (from inverter summing)
         "pv_total_power",
         "grid_power",
+        "grid_import_power",
+        "grid_export_power",
         "consumption_power",
         "eps_power",
         "ac_power",
@@ -468,23 +471,18 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    # Calculate battery_power with fallback if voltage/current unavailable
-    # Primary: charge_power - discharge_power (positive = charging, negative = discharging)
-    # This matches the charge/discharge sensors for consistency
+    # Calculate battery_power with fallback:
+    # Primary: charge_power - discharge_power (matches charge/discharge sensors)
     # Fallback: voltage * current (from battery_power property)
     charge = battery_data.charge_power
     discharge = battery_data.discharge_power
-    voltage = battery_data.voltage
-    current = battery_data.current
 
-    # Log battery_bank_count for debugging issue #129
-    battery_count = battery_data.battery_count
     _LOGGER.debug(
         "LOCAL battery_bank: count=%s, voltage=%s, current=%s, "
         "charge=%s, discharge=%s, soc=%s, capacity=%s",
-        battery_count,
-        voltage,
-        current,
+        battery_data.battery_count,
+        battery_data.voltage,
+        battery_data.current,
         charge,
         discharge,
         battery_data.soc,
@@ -493,31 +491,15 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
 
     battery_power: float | None = None
     if charge is not None and discharge is not None:
-        # Use charge - discharge for consistency with charge/discharge power sensors
         battery_power = charge - discharge
-        _LOGGER.debug(
-            "LOCAL battery_bank_power: using charge-discharge: "
-            "charge=%s, discharge=%s, result=%s",
-            charge,
-            discharge,
-            battery_power,
-        )
     elif battery_data.battery_power is not None:
-        # Fallback to V*I calculation
         battery_power = battery_data.battery_power
-        _LOGGER.debug(
-            "LOCAL battery_bank_power: using V*I fallback: "
-            "voltage=%s, current=%s, result=%s",
-            voltage,
-            current,
-            battery_power,
-        )
     else:
         _LOGGER.warning(
             "LOCAL battery_bank_power: cannot calculate - "
             "voltage=%s, current=%s, charge=%s, discharge=%s",
-            voltage,
-            current,
+            battery_data.voltage,
+            battery_data.current,
             charge,
             discharge,
         )
@@ -525,6 +507,7 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
     sensors: dict[str, Any] = {
         "battery_bank_soc": battery_data.soc,
         "battery_bank_voltage": battery_data.voltage,
+        "battery_bank_current": battery_data.current,
         "battery_bank_charge_power": battery_data.charge_power,
         "battery_bank_discharge_power": battery_data.discharge_power,
         "battery_bank_power": battery_power,
@@ -540,9 +523,9 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_last_polled": dt_util.utcnow(),
     }
 
-    # Cross-battery diagnostics — computed by BatteryBankData properties
-    # Properties return None when insufficient data, so only add if available
-    diagnostic_map = {
+    # Cross-battery diagnostics — computed by BatteryBankData properties.
+    # Properties return None when insufficient data, so only add non-None values.
+    diagnostic_sensors = {
         "battery_bank_min_soh": battery_data.min_soh,
         "battery_bank_max_cell_temp": battery_data.max_cell_temp,
         "battery_bank_temp_delta": battery_data.temp_delta,
@@ -552,9 +535,7 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_voltage_delta": battery_data.voltage_delta,
         "battery_bank_cycle_count_delta": battery_data.cycle_count_delta,
     }
-    for key, value in diagnostic_map.items():
-        if value is not None:
-            sensors[key] = value
+    sensors.update({k: v for k, v in diagnostic_sensors.items() if v is not None})
 
     return sensors
 

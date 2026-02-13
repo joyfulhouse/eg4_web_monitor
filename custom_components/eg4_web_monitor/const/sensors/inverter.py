@@ -553,6 +553,13 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
+    "battery_bank_current": {
+        "name": "Battery Bank Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:battery",
+    },
     "battery_bank_charge_power": {
         "name": "Battery Bank Charge Power",
         "unit": UnitOfPower.WATT,

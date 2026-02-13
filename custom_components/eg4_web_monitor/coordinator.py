@@ -260,6 +260,10 @@ class EG4DataUpdateCoordinator(
         # with None values for immediate entity creation (zero Modbus reads).
         self._local_static_phase_done: bool = False
 
+        # Track serials that have already been notified about grid_type mismatch
+        # to avoid creating duplicate repair issues on every poll cycle.
+        self._grid_type_mismatch_notified: set[str] = set()
+
         # Semaphore to limit concurrent API calls and prevent rate limiting
         self._api_semaphore = asyncio.Semaphore(3)
 

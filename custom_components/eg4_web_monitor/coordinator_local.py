@@ -9,6 +9,7 @@ import asyncio
 import logging
 from typing import Any
 
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -26,8 +27,13 @@ from .const import (
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
     DOMAIN,
+    GRID_TYPE_SINGLE_PHASE,
+    GRID_TYPE_SPLIT_PHASE,
+    GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
     MANUFACTURER,
+    SPLIT_PHASE_ONLY_SENSORS,
+    THREE_PHASE_ONLY_SENSORS,
 )
 from .coordinator_mixins import _MixinBase, apply_gridboss_overlay
 from .coordinator_mappings import (
@@ -119,6 +125,73 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
         return params
+
+    def _check_grid_type_mismatch(
+        self,
+        serial: str,
+        model: str,
+        config: dict[str, Any],
+        live_features: dict[str, Any],
+    ) -> None:
+        """Detect mismatch between config grid_type and live feature detection.
+
+        When the user selected a wrong grid_type during setup (e.g., single_phase
+        for a three-phase inverter), static entity creation skips phase-specific
+        sensors. This creates a Repairs issue telling the user to reconfigure.
+        """
+        config_grid_type = config.get("grid_type")
+        if not config_grid_type:
+            return
+
+        live_three = live_features.get("supports_three_phase", False)
+        live_split = live_features.get("supports_split_phase", False)
+
+        # Derive what grid_type the live detection implies
+        if live_three:
+            detected_type = GRID_TYPE_THREE_PHASE
+        elif live_split:
+            detected_type = GRID_TYPE_SPLIT_PHASE
+        else:
+            detected_type = GRID_TYPE_SINGLE_PHASE
+
+        if config_grid_type == detected_type:
+            return
+
+        # Count phase-specific sensors that are missing due to the mismatch
+        phase_sensor_counts = {
+            GRID_TYPE_THREE_PHASE: len(THREE_PHASE_ONLY_SENSORS),
+            GRID_TYPE_SPLIT_PHASE: len(SPLIT_PHASE_ONLY_SENSORS),
+        }
+        skipped = phase_sensor_counts.get(detected_type, 0)
+
+        _LOGGER.warning(
+            "Grid type mismatch for %s (%s): config=%s, detected=%s. "
+            "%d phase-specific sensors are missing. "
+            "Reconfigure the integration with the correct grid type.",
+            serial,
+            model,
+            config_grid_type,
+            detected_type,
+            skipped,
+        )
+
+        self._grid_type_mismatch_notified.add(serial)
+
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"grid_type_mismatch_{serial}",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="grid_type_mismatch",
+            translation_placeholders={
+                "serial": serial,
+                "model": model,
+                "config_grid_type": config_grid_type,
+                "detected_grid_type": detected_type,
+                "skipped_count": str(skipped),
+            },
+        )
 
     def _build_local_device_data(
         self,
@@ -612,10 +685,12 @@ class LocalTransportMixin(_MixinBase):
                 if transport and not transport.is_connected:
                     await transport.connect()
 
-                # Skip parameters on first refresh to reduce Modbus traffic
-                # during HA's setup timeout window. Parameters + feature
-                # detection are deferred to a background task after setup.
-                include_params = self._local_parameters_loaded
+                # Use the per-cycle decision computed in _async_update_local_data
+                # (or fall back to the direct check for the deprecated single-
+                # device path which doesn't set _include_params_this_cycle).
+                include_params = getattr(
+                    self, "_include_params_this_cycle", False
+                )
                 await inverter.refresh(include_parameters=include_params)
 
                 features: dict[str, Any] = {}
@@ -638,11 +713,19 @@ class LocalTransportMixin(_MixinBase):
                             e,
                         )
 
+                # Check for grid_type mismatch between config and live detection
+                if features and serial not in self._grid_type_mismatch_notified:
+                    self._check_grid_type_mismatch(serial, model, config, features)
+
                 if serial not in self._firmware_cache:
                     fw = "Unknown"
                     transport = inverter._transport
-                    if transport and hasattr(transport, "read_firmware_version"):
-                        read_fw = getattr(transport, "read_firmware_version")
+                    read_fw = (
+                        getattr(transport, "read_firmware_version", None)
+                        if transport
+                        else None
+                    )
+                    if read_fw is not None:
                         fw = await read_fw() or "Unknown"
                     self._firmware_cache[serial] = fw
                 firmware_version = self._firmware_cache[serial]
@@ -754,17 +837,17 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
-                if self._local_parameters_loaded:
+                if include_params:
                     transport = inverter._transport
                     if transport:
                         param_data = await self._read_modbus_parameters(transport)
                     else:
                         param_data = {}
                     processed["parameters"][serial] = param_data
-                else:
-                    # Defer parameter reads on first refresh to stay within
-                    # HA's setup timeout. Empty dict is safe — switch/number
-                    # entities will show unknown until background load completes.
+                elif serial not in processed["parameters"]:
+                    # No param read this cycle — preserve existing data or
+                    # defer on first refresh (empty dict is safe — switch/number
+                    # entities show unknown until background load completes).
                     processed["parameters"][serial] = {}
 
                 _LOGGER.debug(
@@ -827,6 +910,11 @@ class LocalTransportMixin(_MixinBase):
         concurrent Modbus access with the regular poll cycle.
         """
         try:
+            # Build serial→config lookup for grid_type mismatch checks
+            config_by_serial: dict[str, dict[str, Any]] = {
+                c.get("serial", ""): c for c in self._local_transport_configs
+            }
+
             loaded = 0
             for serial, inverter in self._inverter_cache.items():
                 try:
@@ -835,6 +923,15 @@ class LocalTransportMixin(_MixinBase):
                     await inverter.refresh(force=False, include_parameters=True)
                     if hasattr(inverter, "detect_features"):
                         await inverter.detect_features()
+                        # Check grid_type mismatch on first feature detection
+                        if serial not in self._grid_type_mismatch_notified:
+                            features = self._extract_inverter_features(inverter)
+                            config = config_by_serial.get(serial, {})
+                            model = config.get("model", "")
+                            if features:
+                                self._check_grid_type_mismatch(
+                                    serial, model, config, features
+                                )
                     loaded += 1
                     _LOGGER.debug(
                         "LOCAL: Background parameter load complete for %s",
@@ -1080,6 +1177,13 @@ class LocalTransportMixin(_MixinBase):
                 if self._should_poll_transport(tt):
                     pollable_types.add(tt)
 
+        # Pre-compute parameter refresh decision once for the entire poll cycle
+        # so every device sees the same answer.  Stored as instance attr because
+        # _process_single_local_device reads it without a parameter change.
+        self._include_params_this_cycle = (
+            self._local_parameters_loaded and self._should_refresh_parameters()
+        )
+
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
             transport_type = config.get("transport_type", "modbus_tcp")
@@ -1183,6 +1287,10 @@ class LocalTransportMixin(_MixinBase):
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
 
+        # Stamp parameter refresh timestamp if params were read this cycle.
+        if self._include_params_this_cycle and successful_devices > 0:
+            self._last_parameter_refresh = dt_util.utcnow()
+
         # On first successful refresh, schedule background parameter +
         # feature detection load so that switch/number entities and
         # capability-based sensor filtering become available on the
@@ -1271,11 +1379,11 @@ class LocalTransportMixin(_MixinBase):
             # Power sensors to sum (battery handled separately as parallel_battery_*)
             # Note: PV string sensors (pv1/2/3) excluded — per-inverter detail
             # is not useful at group level; pv_total_power covers the aggregate.
-            # Note: grid_export_power is redundant — grid_power is signed
-            # (positive=import, negative=export).
             power_sensors = [
                 "pv_total_power",
                 "grid_power",
+                "grid_import_power",
+                "grid_export_power",
                 "consumption_power",
                 "eps_power",
                 "battery_charge_power",

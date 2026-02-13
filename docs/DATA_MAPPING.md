@@ -529,6 +529,26 @@ Mapping dict: `PARALLEL_GROUP_FIELD_MAPPING`
 
 ## 7. Individual Battery Data
 
+### Battery Data Sources
+
+Battery data comes from two distinct register ranges:
+
+1. **Regular registers (0-255):** Aggregate battery bank data (SOC, voltage,
+   current, charge/discharge power, temperature, capacity). Available on ALL
+   inverters with batteries connected. Mapped via `BatteryBankData`.
+
+2. **Extended registers (5002+):** Individual battery CAN bus data (per-battery
+   cell voltages, temperatures, cycle counts, SOH). Only available when
+   batteries actively communicate via CAN bus to the inverter.
+
+**Important:** Some batteries do not communicate on the 5002+ range. This is
+NOT specific to any inverter family — it can occur with any inverter/battery
+combination. When 5002+ data is unavailable:
+- Battery bank aggregate entities ARE created (from regular registers)
+- Individual battery entities are NOT created (no per-battery data)
+- Cloud API returns `batteryArray=[]`, `totalNumber=0`
+- Cross-battery diagnostic sensors (`battery_bank_soc_delta`, etc.) return None
+
 ### Battery Register Space (Modbus)
 
 Base address: 5002, 30 registers per battery, max 5 batteries per inverter.
@@ -576,20 +596,25 @@ These are derived from register/API data in `coordinator_mappings.py`:
 
 ### Battery Bank Aggregate Keys
 
-From `_build_battery_bank_sensor_mapping()`, computed across all batteries:
+From `_build_battery_bank_sensor_mapping()`, sourced from regular registers:
 
 | HA Sensor Key | Source |
 |---------------|--------|
-| `battery_bank_soc` | BatteryBankData.soc (average) |
-| `battery_bank_voltage` | BatteryBankData.voltage (average) |
-| `battery_bank_charge_power` | Sum of battery charge powers |
-| `battery_bank_discharge_power` | Sum of battery discharge powers |
+| `battery_bank_soc` | BatteryBankData.soc (register 5 low byte) |
+| `battery_bank_voltage` | BatteryBankData.voltage (register 4, ÷10) |
+| `battery_bank_current` | BatteryBankData.current (register 98, ÷10, signed) |
+| `battery_bank_charge_power` | BatteryBankData.charge_power (register 10) |
+| `battery_bank_discharge_power` | BatteryBankData.discharge_power (register 11) |
 | `battery_bank_power` | `charge_power - discharge_power` |
-| `battery_bank_count` | Number of batteries detected |
-| `battery_bank_min_soh` | Min SOH across all batteries |
-| `battery_bank_max_cell_temp` | Max cell temp across all batteries |
-| `battery_bank_soc_delta` | Max SOC - Min SOC |
-| `battery_bank_cell_voltage_delta_max` | Max cell voltage delta across batteries |
+| `battery_bank_count` | BatteryBankData.battery_count (register 96) |
+| `battery_bank_min_soh` | Min SOH across individual batteries (5002+ only) |
+| `battery_bank_max_cell_temp` | Max cell temp across individual batteries (5002+ only) |
+| `battery_bank_soc_delta` | Max SOC - Min SOC across individual batteries (5002+ only) |
+| `battery_bank_cell_voltage_delta_max` | Max cell voltage delta across individual batteries (5002+ only) |
+
+**Note:** Cross-battery diagnostic sensors (min_soh, max_cell_temp, soc_delta,
+etc.) require individual battery data from the 5002+ register range. When
+batteries don't communicate on 5002+, these sensors return None.
 
 ---
 
@@ -603,6 +628,8 @@ Parallel groups aggregate data from multiple inverters in the same group.
 |---------------|-------------|
 | `pv_total_power` | Sum of all inverter `pv_total_power` |
 | `grid_power` | Sum of all inverter `grid_power` |
+| `grid_import_power` | Sum of all inverter `grid_import_power` |
+| `grid_export_power` | Sum of all inverter `grid_export_power` |
 | `consumption_power` | Sum of all inverter `consumption_power` |
 | `eps_power` | Sum of all inverter `eps_power` |
 | `ac_power` | Sum of all inverter `ac_power` |
@@ -837,13 +864,13 @@ entities (12 smart port power/status sensors).
 |----------|-------|-------------|
 | `INVERTER_RUNTIME_KEYS` | 37 | Voltage, current, power, temperature, status |
 | `INVERTER_ENERGY_KEYS` | 12 | Daily + lifetime energy (6 each) |
-| `BATTERY_BANK_KEYS` | 22 | Battery aggregate sensors |
+| `BATTERY_BANK_KEYS` | 23 | Battery aggregate sensors (incl. battery_bank_current) |
 | `INVERTER_COMPUTED_KEYS` | 7 | Derived sensors (consumption, battery, EPS split) |
 | `INVERTER_METADATA_KEYS` | 4 | Firmware, transport, host, last_polled |
 | `ALL_INVERTER_SENSOR_KEYS` | 82 | Union of all above |
 | `GRIDBOSS_SENSOR_KEYS` | 50+ | All GridBOSS sensor keys |
 | `GRIDBOSS_SMART_PORT_POWER_KEYS` | 26 | Smart load + AC couple power (L1/L2 + aggregates + totals) |
-| `PARALLEL_GROUP_SENSOR_KEYS` | 28 | PG power, energy, battery aggregates |
+| `PARALLEL_GROUP_SENSOR_KEYS` | 30 | PG power, energy, battery aggregates (incl. grid import/export) |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 
 ### Scaling Sets (const/sensors/mappings.py)
@@ -1223,6 +1250,8 @@ These sensors are summed across all member inverters:
 ```
 pv_total_power    = Σ inverter.pv_total_power
 grid_power        = Σ inverter.grid_power
+grid_import_power = Σ inverter.grid_import_power
+grid_export_power = Σ inverter.grid_export_power
 consumption_power = Σ inverter.consumption_power
 eps_power         = Σ inverter.eps_power
 ac_power          = Σ inverter.ac_power

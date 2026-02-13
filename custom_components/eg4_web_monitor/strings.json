@@ -579,5 +579,11 @@
     "invalid_date_format": {
       "message": "Invalid date format. Please use YYYY-MM-DD format."
     }
+  },
+  "issues": {
+    "grid_type_mismatch": {
+      "title": "Grid type mismatch for {serial}",
+      "description": "Inverter **{serial}** ({model}) was configured as **{config_grid_type}** but live detection found **{detected_grid_type}**. This causes {skipped_count} sensors to be missing.\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor** and reconfigure the integration with the correct grid type."
+    }
   }
 }
