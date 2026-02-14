@@ -5,6 +5,24 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.32] - 2026-02-13
+
+### Fixed
+
+- **Three-phase entity registration order** ([#154](https://github.com/joyfulhouse/eg4_web_monitor/issues/154)): Split sensor entity registration from 2 phases into 3 so parallel group devices are registered before inverters/GridBOSS that reference them via `via_device`, preventing warnings on HA 2025.12.0+
+- **battery_bank_count logging crash** ([#155](https://github.com/joyfulhouse/eg4_web_monitor/issues/155)): Fixed `%d` format TypeError when `battery_bank_count` key exists with `None` value during static entity phase — now uses `or 0` instead of `dict.get` default
+- **bt_temperature entity creation** ([#155](https://github.com/joyfulhouse/eg4_web_monitor/issues/155)): Made `bt_temperature` mapping unconditional so the entity is created during static phase; value populates once BMS registers are read
+- **GridBOSS firmware shows "unknown"** ([#156](https://github.com/joyfulhouse/eg4_web_monitor/issues/156)): Read firmware from `transport.read_firmware_version()` + `_firmware_cache` pattern instead of the always-None `mid_device.firmware_version` property
+
+### Changed
+
+- **Deduplicated modbus_supported_params**: `_WORKING_MODE_PARAMETERS` dict is now the single source of truth for which working modes support LOCAL writes, eliminating a redundant parallel list
+- **707 tests** (up from 703)
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.5` (holding register 179/233 bit field mappings for Battery Backup and Grid Peak Shaving switches)
+
 ## [3.2.0-beta.29] - 2026-02-13
 
 ### Fixed
