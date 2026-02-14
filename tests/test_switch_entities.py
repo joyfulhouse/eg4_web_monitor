@@ -79,6 +79,10 @@ def _mock_coordinator(
     mock_inverter.disable_pv_charge_priority = AsyncMock(return_value=True)
     mock_inverter.enable_forced_discharge = AsyncMock(return_value=True)
     mock_inverter.disable_forced_discharge = AsyncMock(return_value=True)
+    mock_inverter.enable_peak_shaving_mode = AsyncMock(return_value=True)
+    mock_inverter.disable_peak_shaving_mode = AsyncMock(return_value=True)
+    mock_inverter.enable_battery_backup_ctrl = AsyncMock(return_value=True)
+    mock_inverter.disable_battery_backup_ctrl = AsyncMock(return_value=True)
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
     # Station device info
@@ -544,6 +548,108 @@ class TestWorkingModeSwitch:
         attrs = switch.extra_state_attributes
         assert attrs["function_parameter"] == "FUNC_AC_CHARGE"
         assert "description" in attrs
+
+
+# ── Cloud Fallback ──────────────────────────────────────────────────
+
+
+class TestCloudFallback:
+    """Test local-write-with-cloud-fallback for HYBRID mode switches."""
+
+    @pytest.mark.asyncio
+    async def test_battery_backup_local_fail_falls_back_to_cloud(self):
+        """HYBRID: local write fails -> cloud API called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        # Local was attempted
+        coordinator.write_named_parameter.assert_called_once()
+        # Cloud fallback fired
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_battery_backup_local_fail_no_cloud_raises(self):
+        """LOCAL-only: local write fails -> error propagates."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="Modbus timeout"):
+            await switch.async_turn_on()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_local_fail_falls_back_to_cloud(self):
+        """HYBRID: off-grid local write fails -> cloud API called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_off()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.disable_green_mode.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_working_mode_local_fail_falls_back_to_cloud(self):
+        """HYBRID: working mode local write fails -> cloud API called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        mode_config = WORKING_MODES["battery_backup_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "battery_backup_mode", mode_config
+        )
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup_ctrl.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_working_mode_local_success_no_cloud_call(self):
+        """Local write succeeds -> cloud API NOT called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        mode_config = WORKING_MODES["ac_charge_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "ac_charge_mode", mode_config
+        )
+        _prep(switch)
+        await switch.async_turn_on()
+
+        # Local succeeded
+        coordinator.write_named_parameter.assert_called_once()
+        # Cloud was NOT called
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_ac_charge_mode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_peak_shaving_local_fail_falls_back_to_cloud(self):
+        """HYBRID: peak shaving local fail -> cloud API called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        mode_config = WORKING_MODES["peak_shaving_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "peak_shaving_mode", mode_config
+        )
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_peak_shaving_mode.assert_called_once()
 
 
 # ── DSTSwitch ────────────────────────────────────────────────────────

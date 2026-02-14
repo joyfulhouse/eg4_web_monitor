@@ -930,6 +930,62 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e
 
+    async def _execute_local_with_fallback(
+        self,
+        action_name: str,
+        parameter: str,
+        value: bool,
+        cloud_enable_method: str,
+        cloud_disable_method: str,
+    ) -> None:
+        """Execute a switch action preferring local transport, falling back to cloud.
+
+        In HYBRID mode, if the local Modbus write fails (e.g. timeout due to bus
+        contention), transparently retries via the cloud API. Both paths are
+        idempotent (set specific state, not toggle), so a double-write is safe.
+
+        Args:
+            action_name: Human-readable name of the action for logging.
+            parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
+            value: True to enable, False to disable.
+            cloud_enable_method: Inverter method name to call when enabling.
+            cloud_disable_method: Inverter method name to call when disabling.
+
+        Raises:
+            HomeAssistantError: If all available transports fail.
+        """
+        if self.coordinator.has_local_transport(self._serial):
+            try:
+                await self._execute_named_parameter_action(
+                    action_name=action_name,
+                    parameter=parameter,
+                    value=value,
+                )
+                return
+            except HomeAssistantError:
+                if self.coordinator.has_http_api():
+                    _LOGGER.warning(
+                        "Local transport write failed for %s on device %s, "
+                        "falling back to cloud API",
+                        action_name,
+                        self._serial,
+                    )
+                else:
+                    raise
+
+        if self.coordinator.has_http_api():
+            await self._execute_switch_action(
+                action_name=action_name,
+                enable_method=cloud_enable_method,
+                disable_method=cloud_disable_method,
+                turn_on=value,
+                refresh_params=True,
+            )
+        else:
+            raise HomeAssistantError(
+                f"No transport available for {action_name}"
+            )
+
     async def _execute_named_parameter_action(
         self,
         action_name: str,
