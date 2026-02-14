@@ -1633,8 +1633,6 @@ class TestStaticLocalData:
     def test_static_keys_match_runtime_mapping(self):
         """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys."""
         mock_runtime = MagicMock()
-        # bt_temperature is conditionally included, so we ensure it's present
-        mock_runtime.temperature_t1 = 25.0
         mapping = _build_runtime_sensor_mapping(mock_runtime)
         assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
 
@@ -3545,8 +3543,6 @@ class TestMappingKeyConsistency:
     def test_inverter_local_runtime_keys_subset_of_static(self):
         """LOCAL _build_runtime_sensor_mapping() keys ⊆ INVERTER_RUNTIME_KEYS."""
         mock_runtime = MagicMock()
-        # bt_temperature is conditionally included — set it to a value
-        mock_runtime.temperature_t1 = 25
         sensors = _build_runtime_sensor_mapping(mock_runtime)
         local_keys = set(sensors.keys())
         unknown = local_keys - INVERTER_RUNTIME_KEYS
@@ -4527,9 +4523,7 @@ class TestHybridTransportExclusiveSensors:
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
 
-        # bt_temperature should not be in sensors (cloud API doesn't provide it)
-        # The mapping function itself might set it to None via MagicMock, so
-        # just verify the overlay path didn't run
+        # Verify the transport overlay path didn't run (no _transport_runtime)
         assert "total_load_power" not in sensors
 
     async def test_transport_runtime_none_values_not_overlaid(
