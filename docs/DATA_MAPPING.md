@@ -181,7 +181,8 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 67 | `battery_temperature` | 1 | C | `battery_temperature` |
 | 108 | `temperature_t1` | ÷10 | C | `bt_temperature` |
 
-> **Note:** `bt_temperature` (reg 108) is LOCAL-only. Not available via Cloud API.
+> **Note:** `bt_temperature` (reg 108) is Modbus-only (not available via Cloud API).
+> Available in LOCAL and HYBRID modes (overlaid via `_TRANSPORT_OVERLAY`).
 
 ### Energy Registers (Daily)
 
@@ -294,6 +295,35 @@ if reg1 & 0x100:
 | 102 | `discharge_current` | number | A | 0-140 |
 | 105 | `ongrid_discharge_soc` | number | % | 10-90 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
+
+### Extended Function Enable (Register 179)
+
+16-bit bit field for extended functions. Added in pylxpweb 0.9.5.
+
+| Bit | Parameter Key | HA Entity Key | Purpose |
+|-----|---------------|---------------|---------|
+| 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
+
+> **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
+> `FUNC_AC_COUPLING_FUNCTION`, `FUNC_BAT_CHARGE_CONTROL`, etc.) but only bit 7 has been
+> confirmed via live toggle testing. Other bits have placeholder names (`FUNC_179_BIT0` etc.)
+> until verified.
+
+Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
+
+### Extended Function Enable 2 (Register 233)
+
+16-bit bit field for additional functions. Added in pylxpweb 0.9.5.
+
+| Bit | Parameter Key | HA Entity Key | Purpose |
+|-----|---------------|---------------|---------|
+| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed) |
+
+> **Note:** Register 233 contains 9 API-mapped parameters (`BIT_DRY_CONTRACTOR_MULTIPLEX`,
+> `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.) but only
+> bit 1 has been confirmed via live toggle testing. Bit 12 is observed set (possibly
+> `FUNC_QUICK_CHARGE_CTRL`). This was the root cause of issue #153 — beta.31 shipped with
+> `pylxpweb>=0.9.4` in manifest but these register mappings only exist in 0.9.5.
 
 ---
 
@@ -754,7 +784,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 - **Data source**: Modbus TCP or WiFi Dongle (direct register reads)
 - **Static entity creation**: First refresh creates all entities with `None` values (zero Modbus reads). Second refresh populates real data.
 - **Consumption**: Computed via `_energy_balance()` from register values
-- **bt_temperature**: Available (register 108) - LOCAL-only sensor
+- **bt_temperature**: Available (register 108) - Modbus-only, also in HYBRID via transport overlay
 - **Battery data**: Read from extended register range (5000+)
 - **Smart port status**: Read from holding register 20 (bit-packed)
 - **GridBOSS energy**: Read from input registers 42-118 (smart load daily at 52-59, lifetime at 88-103)
@@ -915,35 +945,35 @@ pv_total_power += Σ ac_couple_port_l1 + ac_couple_port_l2
 
 ## 13. Entity Counts by Mode
 
-Captured 2026-02-10 from Docker test environment.
+Captured 2026-02-13 from Docker test environment (v3.2.0-beta.32).
 
 **Test configuration:** 2 inverters (FlexBOSS21 + 18kPV), 1 GridBOSS, batteries.
 Smart ports: Port 1 = AC Couple, Port 2 = Unused, Port 3 = Smart Load, Port 4 = Unused.
 
-| Mode | Total | Sensors | Switches | Updates | Numbers | Unavail | Unknown |
-|------|-------|---------|----------|---------|---------|---------|---------|
-| LOCAL | 373 | 332 | 14 | 3 | 18 | 0 | 14 |
-| CLOUD | 369 | 328 | 14 | 3 | 18 | 0 | 10 |
-| HYBRID | 365 | 324 | 14 | 3 | 18 | 0 | 6 |
-| LOCAL-NOMIDBOX | 365 | 324 | 14 | 3 | 18 | 0 | 6 |
+| Mode | Total | Sensors | Switches | Updates | Numbers | Buttons | Selects | Unavail | Unknown |
+|------|-------|---------|----------|---------|---------|---------|---------|---------|---------|
+| CLOUD | 475 | 424 | 17 | 3 | 18 | 11 | 2 | 10 | 8 |
+| HYBRID | 485 | 434 | 17 | 3 | 18 | 11 | 2 | 17 | 8 |
+| LOCAL | 454 | 413 | 14 | 3 | 18 | 4 | 2 | 2 | 2 |
+| LOCAL-NOMIDBOX | 391 | 352 | 14 | 2 | 18 | 3 | 2 | 1 | 1 |
 
-**Core parity:** 365 entities present in ALL 4 modes.
+**Entity growth since v3.2.0-beta.25:** Entity counts increased from ~365-373 to ~391-485
+due to addition of button entities (cloud-only commands), select entities (working mode),
+additional switch entities (cloud-only controls), and transport-exclusive sensors.
 
-### GridBOSS Entities Per Mode
+### Mode Differences
 
-| Mode | GridBOSS Entities |
-|------|-------------------|
-| LOCAL | 66 |
-| CLOUD | 62 |
-| HYBRID | 58 |
-| LOCAL-NOMIDBOX | 58 |
+- **HYBRID** has the most entities (485): combines LOCAL sensors + CLOUD-only buttons/switches
+- **CLOUD** (475): includes cloud-only command buttons (11) and cloud-only switches (3 extra vs LOCAL)
+- **LOCAL** (454): includes transport-exclusive sensors (bt_temperature, grid_current, etc.)
+- **LOCAL-NOMIDBOX** (391): no GridBOSS sensors, fewer buttons/updates
 
 ### Known Discrepancies
 
-LOCAL has 4 extra entities (`ac_couple{2,4}_power_l{1,2}`) for unused ports that
-should be filtered. CLOUD has 4 extra entities (`smart_load{2,4}_power_l{1,2}`)
-for unused ports. HYBRID and LOCAL-NOMIDBOX correctly show only active port
-entities (12 smart port power/status sensors).
+HYBRID has 10 more entities than CLOUD due to transport-exclusive sensors
+(`bt_temperature`, `battery_current`, `total_load_power`, `grid_current_l1/l2/l3`,
+`transport_ip_address` per inverter). CLOUD has cloud-only command buttons not
+available in LOCAL mode.
 
 ---
 
@@ -953,15 +983,15 @@ entities (12 smart port power/status sensors).
 
 | Constant | Count | Description |
 |----------|-------|-------------|
-| `INVERTER_RUNTIME_KEYS` | 37 | Voltage, current, power, temperature, status |
+| `INVERTER_RUNTIME_KEYS` | 43 | Voltage, current, power, temperature, status, grid_current_l1/l2/l3 |
 | `INVERTER_ENERGY_KEYS` | 12 | Daily + lifetime energy (6 each) |
 | `BATTERY_BANK_KEYS` | 23 | Battery aggregate sensors (incl. battery_bank_current) |
 | `INVERTER_COMPUTED_KEYS` | 7 | Derived sensors (consumption, battery, EPS split) |
 | `INVERTER_METADATA_KEYS` | 4 | Firmware, transport, host, last_polled |
-| `ALL_INVERTER_SENSOR_KEYS` | 82 | Union of all above |
-| `GRIDBOSS_SENSOR_KEYS` | 50+ | All GridBOSS sensor keys |
+| `ALL_INVERTER_SENSOR_KEYS` | 89 | Union of all above |
+| `GRIDBOSS_SENSOR_KEYS` | 65 | All GridBOSS sensor keys (incl. smart port, energy, metadata) |
 | `GRIDBOSS_SMART_PORT_POWER_KEYS` | 26 | Smart load + AC couple power (L1/L2 + aggregates + totals) |
-| `PARALLEL_GROUP_SENSOR_KEYS` | 31 | PG power, energy, battery aggregates (incl. grid import/export, battery current) |
+| `PARALLEL_GROUP_SENSOR_KEYS` | 32 | PG power, energy, battery aggregates (incl. grid import/export, battery current) |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 
 ### Scaling Sets (const/sensors/mappings.py)
