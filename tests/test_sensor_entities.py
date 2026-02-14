@@ -420,7 +420,7 @@ class TestAsyncSetupEntry:
         assert station_count == len(STATION_SENSOR_TYPES)
 
     async def test_inverter_with_batteries_phases(self, hass, mock_entry):
-        """Inverter with batteries → phase 1 and phase 2 entities created."""
+        """Inverter with batteries → device and battery phases created."""
         # Find valid sensor keys
         valid_key = next(k for k in SENSOR_TYPES if not k.startswith("battery_bank_"))
         batt_key = next(
@@ -447,10 +447,94 @@ class TestAsyncSetupEntry:
 
         await async_setup_entry(hass, mock_entry, mock_add)
 
-        # Phase 1 (inverter sensors) and phase 2 (battery sensors)
+        # Phase 2 (inverter sensors) and phase 3 (battery sensors)
+        # Phase 1 (parallel groups) is empty here so not called
         assert call_count == 2
-        assert len(phases[0]) >= 1  # Phase 1: inverter sensors
-        assert len(phases[1]) >= 1  # Phase 2: battery sensors
+        assert len(phases[0]) >= 1  # Phase 2: inverter sensors
+        assert len(phases[1]) >= 1  # Phase 3: battery sensors
+
+    async def test_parallel_group_registered_before_inverter(self, hass, mock_entry):
+        """Parallel group entities are registered before inverter entities.
+
+        Inverters reference parallel groups via via_device. If inverter entities
+        are registered first, HA warns about non-existing via_device references.
+        Regression test for https://github.com/joyfulhouse/eg4_web_monitor/issues/154
+        """
+        valid_key = next(k for k in SENSOR_TYPES if not k.startswith("battery_bank_"))
+        pg_key = "pv_total_power"
+
+        # Dict insertion order: inverter FIRST, parallel group SECOND.
+        # This mirrors the HTTP coordinator path where inverters are processed
+        # before parallel groups.
+        coordinator = _mock_coordinator(
+            devices={
+                "INV001": _inverter_device(sensors={valid_key: 42}),
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "model": "Parallel Group",
+                    "sensors": {pg_key: 5000},
+                },
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        phases: list[list] = []
+
+        def mock_add(entities, update_before_add):
+            phases.append(list(entities))
+
+        await async_setup_entry(hass, mock_entry, mock_add)
+
+        # Phase 1: parallel group, Phase 2: inverter
+        assert len(phases) == 2
+        phase1_serials = {e._serial for e in phases[0]}
+        phase2_serials = {e._serial for e in phases[1]}
+        assert "parallel_group_a" in phase1_serials
+        assert "INV001" in phase2_serials
+        assert "INV001" not in phase1_serials
+
+    async def test_gridboss_registered_after_parallel_group(self, hass, mock_entry):
+        """GridBOSS entities are registered after parallel group entities.
+
+        GridBOSS also references parallel groups via via_device, so it must
+        be in a later phase than parallel groups.
+        Regression test for https://github.com/joyfulhouse/eg4_web_monitor/issues/154
+        """
+        pg_key = "pv_total_power"
+        gb_keys = [k for k in ["grid_power", "load_power"] if k in SENSOR_TYPES]
+        if not gb_keys:
+            pytest.skip("No gridboss sensor keys in SENSOR_TYPES")
+
+        # GridBOSS FIRST, parallel group SECOND in dict order
+        coordinator = _mock_coordinator(
+            devices={
+                "GB001": {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                    "sensors": {k: 100 for k in gb_keys},
+                },
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "model": "Parallel Group",
+                    "sensors": {pg_key: 5000},
+                },
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        phases: list[list] = []
+
+        def mock_add(entities, update_before_add):
+            phases.append(list(entities))
+
+        await async_setup_entry(hass, mock_entry, mock_add)
+
+        assert len(phases) == 2
+        phase1_serials = {e._serial for e in phases[0]}
+        phase2_serials = {e._serial for e in phases[1]}
+        assert "parallel_group_a" in phase1_serials
+        assert "GB001" in phase2_serials
+        assert "GB001" not in phase1_serials
 
     async def test_gridboss_device_creates_sensors(self, hass, mock_entry):
         """GridBOSS device creates sensors via _create_simple_device_sensors."""

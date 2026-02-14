@@ -83,20 +83,23 @@ async def async_setup_entry(
 ) -> None:
     """Set up EG4 Web Monitor sensor entities.
 
-    Entity registration is split into two phases to ensure proper device hierarchy:
-    1. Phase 1: Station, inverter, gridboss, parallel group, and battery bank entities
-       (creates parent devices first)
-    2. Phase 2: Individual battery entities (can safely reference battery bank via_device)
+    Entity registration is split into three phases to ensure proper device hierarchy:
+    1. Phase 1: Station + parallel group entities (root devices, no via_device)
+    2. Phase 2: Inverter, gridboss, and battery bank entities (via_device → parallel group)
+    3. Phase 3: Individual battery entities (via_device → battery bank)
 
     This ordering prevents HA warning about non-existing via_device references.
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
+    See: https://github.com/joyfulhouse/eg4_web_monitor/issues/154
     """
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    # Phase 1 entities: devices that don't reference other custom devices via via_device
+    # Phase 1 entities: root devices (station, parallel groups) - no via_device
     phase1_entities: list[SensorEntity] = []
-    # Phase 2 entities: individual batteries that reference battery bank via via_device
+    # Phase 2 entities: inverters, gridboss, battery banks (via_device → parallel group)
     phase2_entities: list[SensorEntity] = []
+    # Phase 3 entities: individual batteries (via_device → battery bank)
+    phase3_entities: list[SensorEntity] = []
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for sensor setup")
@@ -142,10 +145,16 @@ async def async_setup_entry(
                 len(battery_entities),
                 serial,
             )
-            phase1_entities.extend(inverter_entities)
-            phase2_entities.extend(battery_entities)
-        elif device_type in ("gridboss", "parallel_group"):
+            phase2_entities.extend(inverter_entities)
+            phase3_entities.extend(battery_entities)
+        elif device_type == "parallel_group":
             phase1_entities.extend(
+                _create_simple_device_sensors(
+                    coordinator, serial, device_data, device_type
+                )
+            )
+        elif device_type == "gridboss":
+            phase2_entities.extend(
                 _create_simple_device_sensors(
                     coordinator, serial, device_data, device_type
                 )
@@ -155,23 +164,31 @@ async def async_setup_entry(
                 "Unknown device type '%s' for device %s", device_type, serial
             )
 
-    # Phase 1: Register parent devices first (inverters, battery banks, etc.)
-    # This ensures battery bank devices exist before individual batteries reference them
+    # Phase 1: Register root devices (station + parallel groups)
     if phase1_entities:
         async_add_entities(phase1_entities, True)
         _LOGGER.info(
-            "Phase 1: Added %d sensor entities (inverters, battery banks, etc.)",
+            "Phase 1: Added %d root entities (station, parallel groups)",
             len(phase1_entities),
         )
 
-    # Phase 2: Register individual battery entities (reference battery bank via via_device)
+    # Phase 2: Register child devices (inverters, gridboss, battery banks)
+    # These reference parallel groups via via_device
     if phase2_entities:
         async_add_entities(phase2_entities, True)
         _LOGGER.info(
-            "Phase 2: Added %d individual battery sensor entities", len(phase2_entities)
+            "Phase 2: Added %d device entities (inverters, gridboss, battery banks)",
+            len(phase2_entities),
         )
 
-    if not phase1_entities and not phase2_entities:
+    # Phase 3: Register individual battery entities (reference battery bank via via_device)
+    if phase3_entities:
+        async_add_entities(phase3_entities, True)
+        _LOGGER.info(
+            "Phase 3: Added %d individual battery sensor entities", len(phase3_entities)
+        )
+
+    if not phase1_entities and not phase2_entities and not phase3_entities:
         _LOGGER.warning("No sensor entities created")
 
     # Track known batteries for late registration when new batteries appear
@@ -269,15 +286,15 @@ def _create_inverter_sensors(
     """Create sensor entities for an inverter device.
 
     Returns a tuple of two lists:
-    - First list: Inverter and battery bank entities (phase 1 - parent devices)
-    - Second list: Individual battery entities (phase 2 - reference battery bank)
+    - First list: Inverter and battery bank entities (phase 2)
+    - Second list: Individual battery entities (phase 3)
 
     This separation ensures battery bank devices are registered before individual
     batteries that reference them via via_device.
     """
-    # Phase 1: Inverter sensors and battery bank sensors
+    # Inverter sensors and battery bank sensors (phase 2)
     inverter_entities: list[SensorEntity] = []
-    # Phase 2: Individual battery sensors (reference battery bank via via_device)
+    # Individual battery sensors (phase 3 - reference battery bank via via_device)
     battery_entities: list[SensorEntity] = []
 
     # Get device features for capability-based filtering
@@ -310,7 +327,7 @@ def _create_inverter_sensors(
             skipped_sensors,
         )
 
-    # Create battery bank sensors (separate device, but still phase 1)
+    # Create battery bank sensors (separate device, phase 2)
     # Battery bank is a parent device for individual batteries
     battery_bank_sensor_count = 0
     for sensor_key in device_data.get("sensors", {}):
@@ -329,7 +346,7 @@ def _create_inverter_sensors(
             "Created %d battery bank sensors for %s", battery_bank_sensor_count, serial
         )
 
-    # Create individual battery sensors (phase 2 - these reference battery bank)
+    # Create individual battery sensors (phase 3 - these reference battery bank)
     batteries = device_data.get("batteries", {})
     _LOGGER.debug(
         "Creating battery sensors for %s: found %d batteries",
