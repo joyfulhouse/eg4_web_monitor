@@ -1603,7 +1603,7 @@ class DeviceInfoMixin(_MixinBase):
         if not has_battery_bank_data:
             return None
 
-        battery_count = sensors.get("battery_bank_count", 0)
+        battery_count = sensors.get("battery_bank_count") or 0
         model = device_data.get("model", "Unknown")
 
         device_info: DeviceInfo = {

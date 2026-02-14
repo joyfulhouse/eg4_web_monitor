@@ -364,12 +364,9 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "radiator1_temperature": runtime_data.radiator_temperature_1,
         "radiator2_temperature": runtime_data.radiator_temperature_2,
         # BT Temperature (Modbus register 108, local-only)
-        # Only include if value is present (not available via HTTP API)
-        **(
-            {"bt_temperature": runtime_data.temperature_t1}
-            if runtime_data.temperature_t1 is not None
-            else {}
-        ),
+        # Always include key so entity is created during static phase;
+        # value will be None until bms_data register group is read.
+        "bt_temperature": runtime_data.temperature_t1,
         # Status
         "status_code": runtime_data.device_status,
         # Inverter RMS current (3-phase R/S/T mapped to L1/L2/L3)
