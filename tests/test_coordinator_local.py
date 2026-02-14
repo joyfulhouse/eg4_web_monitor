@@ -586,3 +586,153 @@ class TestAsyncUpdateLocalDataEdgeCases:
 
         with pytest.raises(UpdateFailed, match="All .* local transports failed"):
             await coordinator._async_update_local_data()
+
+
+class TestGridBOSSFirmwareCache:
+    """GridBOSS firmware version should be read from transport and cached (#156)."""
+
+    async def test_gridboss_firmware_read_from_transport(self, hass):
+        """GridBOSS firmware is read via transport.read_firmware_version(), not MIDDevice property."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - GridBOSS FW",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "GB001",
+                        "host": "192.168.1.200",
+                        "port": 502,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "MID_DEVICE",
+                        "model": "GridBOSS",
+                        "is_gridboss": True,
+                        "dongle_serial": "D001",
+                    },
+                ],
+            },
+            entry_id="gb_fw_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+
+        # Build a mock MIDDevice with a transport that returns firmware
+        mock_transport = MagicMock()
+        mock_transport.is_connected = True
+        mock_transport.read_firmware_version = AsyncMock(return_value="IAAB-1600")
+
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        mock_mid.has_data = True
+        mock_mid.refresh = AsyncMock()
+        # MIDDevice.firmware_version property returns None (the bug scenario)
+        mock_mid.firmware_version = None
+
+        coordinator._mid_device_cache["GB001"] = mock_mid
+
+        # Mock out the sensor mapping and other helpers
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_gridboss_sensor_mapping",
+                return_value={"grid_voltage": 240.0},
+            ),
+            patch.object(coordinator, "_filter_unused_smart_port_sensors"),
+            patch.object(coordinator, "_calculate_gridboss_aggregates"),
+            patch.object(
+                coordinator,
+                "_validate_and_reject_if_corrupt",
+                return_value=False,
+            ),
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            device_availability: dict[str, bool] = {}
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability=device_availability,
+            )
+
+        # Firmware should come from transport, not the MIDDevice property
+        device_data = processed["devices"]["GB001"]
+        assert device_data["firmware_version"] == "IAAB-1600"
+        assert device_data["sensors"]["firmware_version"] == "IAAB-1600"
+        # Cached for subsequent calls
+        assert coordinator._firmware_cache["GB001"] == "IAAB-1600"
+
+    async def test_gridboss_firmware_cached_on_second_call(self, hass):
+        """Firmware is read once and cached — transport not called again."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - GridBOSS FW Cache",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "GB002",
+                        "host": "192.168.1.200",
+                        "port": 502,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "MID_DEVICE",
+                        "model": "GridBOSS",
+                        "is_gridboss": True,
+                        "dongle_serial": "D002",
+                    },
+                ],
+            },
+            entry_id="gb_fw_cache_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        # Pre-populate firmware cache (simulates first refresh already done)
+        coordinator._firmware_cache["GB002"] = "IAAB-1600"
+
+        mock_transport = MagicMock()
+        mock_transport.is_connected = True
+        mock_transport.read_firmware_version = AsyncMock(return_value="SHOULD-NOT-BE-CALLED")
+
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        mock_mid.has_data = True
+        mock_mid.refresh = AsyncMock()
+        mock_mid.firmware_version = None
+
+        coordinator._mid_device_cache["GB002"] = mock_mid
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_gridboss_sensor_mapping",
+                return_value={"grid_voltage": 240.0},
+            ),
+            patch.object(coordinator, "_filter_unused_smart_port_sensors"),
+            patch.object(coordinator, "_calculate_gridboss_aggregates"),
+            patch.object(
+                coordinator,
+                "_validate_and_reject_if_corrupt",
+                return_value=False,
+            ),
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            device_availability: dict[str, bool] = {}
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability=device_availability,
+            )
+
+        # Should use cached value, NOT call transport again
+        mock_transport.read_firmware_version.assert_not_called()
+        assert processed["devices"]["GB002"]["firmware_version"] == "IAAB-1600"

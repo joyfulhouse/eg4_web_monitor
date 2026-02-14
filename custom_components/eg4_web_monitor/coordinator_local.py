@@ -806,9 +806,13 @@ class LocalTransportMixin(_MixinBase):
 
                 await mid_device.refresh()
 
-                firmware_version: str = "Unknown"
-                if hasattr(mid_device, "firmware_version"):
-                    firmware_version = mid_device.firmware_version or "Unknown"
+                if serial not in self._firmware_cache:
+                    fw = "Unknown"
+                    read_fw = getattr(transport, "read_firmware_version", None)
+                    if read_fw is not None:
+                        fw = await read_fw() or "Unknown"
+                    self._firmware_cache[serial] = fw
+                firmware_version = self._firmware_cache[serial]
 
                 if not mid_device.has_data:
                     raise TransportReadError(
