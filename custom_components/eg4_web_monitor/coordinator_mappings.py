@@ -22,6 +22,102 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _compute_charge_discharge_rates(
+    current: float | None,
+    capacity_ah: float | None,
+) -> tuple[float | None, float | None]:
+    """Compute charge and discharge C-rates from current and capacity.
+
+    The result is the percentage of total capacity being charged/discharged
+    per hour.  For example, 11.6 A on a 280 Ah battery → 4.1 %/h.
+
+    Args:
+        current: Battery current in amps (positive = charging, negative = discharging).
+        capacity_ah: Total battery capacity in amp-hours (Ah).
+
+    Returns:
+        Tuple of (charge_rate_pct_per_hour, discharge_rate_pct_per_hour).
+        Each is >= 0, or None if capacity is unavailable/zero.
+    """
+    if current is None or capacity_ah is None or capacity_ah <= 0:
+        return None, None
+
+    charge_rate = max(0.0, current) / capacity_ah * 100
+    discharge_rate = max(0.0, -current) / capacity_ah * 100
+
+    return charge_rate, discharge_rate
+
+
+def _safe_float(value: Any) -> float | None:
+    """Coerce *value* to float, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _write_rounded_rates(
+    sensors: dict[str, Any],
+    charge_key: str,
+    discharge_key: str,
+    current: float | None,
+    capacity_ah: float | None,
+) -> None:
+    """Compute charge/discharge C-rates and write rounded values into *sensors*.
+
+    Calls ``_compute_charge_discharge_rates`` and writes non-None results
+    rounded to 2 decimal places.  Centralises the repeated compute-and-store
+    pattern used at bank, parallel-group, and individual-battery levels.
+    """
+    charge_rate, discharge_rate = _compute_charge_discharge_rates(current, capacity_ah)
+    if charge_rate is not None:
+        sensors[charge_key] = round(charge_rate, 2)
+    if discharge_rate is not None:
+        sensors[discharge_key] = round(discharge_rate, 2)
+
+
+def compute_bank_charge_rates(sensors: dict[str, Any]) -> None:
+    """Compute battery bank charge/discharge C-rates from merged sensor dict.
+
+    Reads ``battery_bank_current`` and ``battery_bank_full_capacity`` from
+    *sensors* and writes ``battery_bank_charge_rate`` /
+    ``battery_bank_discharge_rate`` back as %/h.
+
+    Called from both LOCAL and HTTP coordinator paths after runtime and
+    battery bank sensors have been merged.
+    """
+    _write_rounded_rates(
+        sensors,
+        "battery_bank_charge_rate",
+        "battery_bank_discharge_rate",
+        _safe_float(sensors.get("battery_bank_current")),
+        _safe_float(sensors.get("battery_bank_full_capacity")),
+    )
+
+
+def compute_parallel_group_charge_rates(
+    group_sensors: dict[str, Any],
+) -> None:
+    """Compute parallel group charge/discharge C-rates from aggregated capacity.
+
+    Reads ``parallel_battery_current`` and ``parallel_battery_max_capacity``
+    from *group_sensors* and writes ``parallel_battery_charge_rate`` /
+    ``parallel_battery_discharge_rate`` as %/h.
+
+    Called from both LOCAL and HTTP coordinator paths after parallel group
+    sensors have been aggregated.
+    """
+    _write_rounded_rates(
+        group_sensors,
+        "parallel_battery_charge_rate",
+        "parallel_battery_discharge_rate",
+        _safe_float(group_sensors.get("parallel_battery_current")),
+        _safe_float(group_sensors.get("parallel_battery_max_capacity")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Static sensor key sets — extracted from the mapping function dicts below.
 # Used by _build_static_local_data() for immediate entity creation during
@@ -72,6 +168,8 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "grid_current_l1",
         "grid_current_l2",
         "grid_current_l3",
+        "max_charge_current",
+        "max_discharge_current",
     }
 )
 
@@ -117,6 +215,8 @@ BATTERY_BANK_KEYS: frozenset[str] = frozenset(
         "battery_bank_soh_delta",
         "battery_bank_voltage_delta",
         "battery_bank_cycle_count_delta",
+        "battery_bank_charge_rate",
+        "battery_bank_discharge_rate",
     }
 )
 
@@ -273,6 +373,8 @@ PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(
         "parallel_battery_current_capacity",
         "parallel_battery_voltage",
         "parallel_battery_current",
+        "parallel_battery_charge_rate",
+        "parallel_battery_discharge_rate",
         "parallel_battery_count",
         # Grid voltage (from primary/master inverter — same grid, no averaging)
         "grid_voltage_l1",
@@ -375,6 +477,11 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "grid_current_l1": runtime_data.inverter_rms_current_r,
         "grid_current_l2": runtime_data.inverter_rms_current_s,
         "grid_current_l3": runtime_data.inverter_rms_current_t,
+        # BMS charge/discharge current limits (registers 81-82).
+        # Not in SENSOR_TYPES — used as intermediate data for computing
+        # battery_bank_charge_rate and battery_bank_discharge_rate.
+        "max_charge_current": runtime_data.bms_charge_current_limit,
+        "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
 
 
@@ -550,7 +657,7 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    return {
+    sensors: dict[str, Any] = {
         # Core battery metrics
         "battery_real_voltage": battery.voltage,
         "battery_real_current": battery.current,
@@ -590,6 +697,17 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         # Last polled timestamp for individual battery device
         "battery_last_polled": dt_util.utcnow(),
     }
+
+    # Charge/discharge C-rate as percentage of capacity per hour
+    _write_rounded_rates(
+        sensors,
+        "battery_charge_rate",
+        "battery_discharge_rate",
+        battery.current,
+        battery.max_capacity,
+    )
+
+    return sensors
 
 
 def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:

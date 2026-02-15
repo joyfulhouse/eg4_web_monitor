@@ -191,13 +191,17 @@ async def async_setup_entry(
     if not phase1_entities and not phase2_entities and not phase3_entities:
         _LOGGER.warning("No sensor entities created")
 
-    # Track known batteries for late registration when new batteries appear
-    # after the static-data first refresh (individual batteries are discovered
-    # only when real Modbus reads complete).
-    known_batteries: set[str] = set()
+    # Track known battery sensor keys for late registration.
+    # Individual batteries are discovered only when real Modbus reads complete
+    # (after the static-data first refresh). Additionally, some sensor keys
+    # (e.g. discharge_rate) may only appear once transport data is available,
+    # so we track at the sensor-key level to catch new keys on known batteries.
+    known_battery_sensor_keys: dict[str, set[str]] = {}
     for serial, device_data in coordinator.data.get("devices", {}).items():
-        for battery_key in device_data.get("batteries", {}):
-            known_batteries.add(battery_key)
+        for battery_key, battery_sensors in device_data.get("batteries", {}).items():
+            known_battery_sensor_keys[battery_key] = {
+                k for k in battery_sensors if k in SENSOR_TYPES
+            }
 
     @callback
     def _async_discover_new_batteries() -> None:
@@ -211,19 +215,19 @@ async def async_setup_entry(
             for battery_key, battery_sensors in device_data.get(
                 "batteries", {}
             ).items():
-                if battery_key in known_batteries:
-                    continue
-                known_batteries.add(battery_key)
+                known_keys = known_battery_sensor_keys.get(battery_key, set())
                 for sensor_key in battery_sensors:
-                    if sensor_key in SENSOR_TYPES:
+                    if sensor_key in SENSOR_TYPES and sensor_key not in known_keys:
+                        known_keys.add(sensor_key)
                         new_entities.append(
                             EG4BatterySensor(
                                 coordinator, serial, battery_key, sensor_key
                             )
                         )
+                known_battery_sensor_keys[battery_key] = known_keys
         if new_entities:
             _LOGGER.info(
-                "Late battery registration: adding %d entities for new batteries",
+                "Late battery registration: adding %d entities for new batteries/sensors",
                 len(new_entities),
             )
             async_add_entities(new_entities, True)

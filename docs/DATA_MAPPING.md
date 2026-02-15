@@ -1546,21 +1546,23 @@ cached value is preserved.
 before each `inverter.refresh()` call. The `_data_validation_enabled` property
 reads from `CONF_DATA_VALIDATION` in the config entry options (default: `True`).
 
-#### Layer 2: Coordinator-Level (eg4_web_monitor)
+#### Layer 2: Device-Level Energy Monotonicity (pylxpweb)
 
-**Energy monotonicity:** `_validate_energy_monotonicity()` in `coordinator_local.py`
-checks that lifetime energy counters never decrease between poll cycles.
+**Energy monotonicity:** `validate_energy_monotonicity()` in `pylxpweb/validation.py`
+checks that lifetime energy counters never decrease (and don't spike upward
+by more than 72 kWh — the max hourly throughput at 300A/240V) between
+refresh cycles. Runs inside device `refresh()`
+methods (`BaseInverter._fetch_energy()`, `_fetch_combined_input_data()`,
+`MIDDevice.refresh()`), protecting all pylxpweb consumers automatically.
 
-```
-_LIFETIME_ENERGY_KEYS = frozenset({
-    "yield_lifetime", "charging_lifetime", "discharging_lifetime",
-    "grid_import_lifetime", "grid_export_lifetime", "consumption_lifetime",
-})
-```
+Validated fields are returned by `lifetime_energy_values()` on each data class:
+- `InverterEnergyData`: 8 fields (pv_energy_total, charge_energy_total, etc.)
+- `MidboxRuntimeData`: 24 fields (all `*energy_total*` fields)
 
-When a decrease is detected, the new (lower) value is rejected and the
-previous value is preserved. This catches register rollover and corruption
-that passes Layer 1 canary checks.
+When corruption is detected, the new value is rejected and the previous
+cached value is preserved. After 3 consecutive rejections of the same
+direction, the new value is accepted as a baseline (self-healing), provided
+it exceeds 1000 kWh minimum.
 
 #### Options Flow
 

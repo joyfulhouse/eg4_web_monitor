@@ -982,9 +982,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 refresh_params=True,
             )
         else:
-            raise HomeAssistantError(
-                f"No transport available for {action_name}"
-            )
+            raise HomeAssistantError(f"No transport available for {action_name}")
 
     async def _execute_named_parameter_action(
         self,

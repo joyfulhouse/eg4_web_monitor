@@ -38,8 +38,12 @@ from .const import (
 from .coordinator_mappings import (
     _build_individual_battery_mapping,
     _get_transport_label,
+    compute_parallel_group_charge_rates,
 )
-from .coordinator_mixins import _MixinBase, apply_gridboss_overlay
+from .coordinator_mixins import (
+    _MixinBase,
+    apply_gridboss_overlay,
+)
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,6 +100,88 @@ class HTTPUpdateMixin(_MixinBase):
             )
             return should_poll
         return any(results.values())
+
+    async def _refresh_station_devices(self, include_mid: bool = True) -> None:
+        """Refresh station devices, serializing by transport endpoint.
+
+        WiFi dongles are simple embedded devices that cannot handle concurrent
+        Modbus TCP connections reliably.  When multiple devices (inverters +
+        GridBOSS) share the same dongle, concurrent ``asyncio.gather()`` calls
+        overwhelm the dongle and produce corrupt register data (voltage spikes,
+        energy value spikes).
+
+        This method groups devices by their transport endpoint (host:port) and
+        refreshes devices within the same group sequentially.  Groups on
+        different endpoints — or devices without local transports — are still
+        refreshed concurrently.
+
+        Falls back to ``station.refresh_all_data()`` when no local transports
+        are attached (pure HTTP mode), since concurrent HTTP API calls are safe.
+
+        Args:
+            include_mid: Whether to include MID/GridBOSS devices in the refresh.
+        """
+        if self.station is None:
+            return
+
+        # Fast path: no local transports → concurrent HTTP is safe
+        if not self._local_transports_attached:
+            if include_mid:
+                await self.station.refresh_all_data()
+            else:
+                tasks = [inv.refresh() for inv in self.station.all_inverters]
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+            return
+
+        # Group devices by transport endpoint for serialized access
+        endpoint_groups: dict[str, list[Any]] = {}
+        no_transport: list[Any] = []
+
+        all_devices: list[Any] = list(self.station.all_inverters)
+        if include_mid:
+            all_devices.extend(self.station.all_mid_devices)
+
+        for device in all_devices:
+            transport = getattr(device, "_transport", None)
+            if transport is None:
+                no_transport.append(device)
+                continue
+            host = getattr(transport, "_host", "")
+            port = getattr(transport, "_port", 0)
+            endpoint = f"{host}:{port}"
+            endpoint_groups.setdefault(endpoint, []).append(device)
+
+        async def _refresh_group_sequentially(devices: list[Any]) -> None:
+            """Refresh devices on the same endpoint one at a time."""
+            for device in devices:
+                try:
+                    await device.refresh()
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Device %s refresh failed: %s",
+                        getattr(device, "serial_number", "?"),
+                        exc,
+                    )
+
+        # Build concurrent coroutines:
+        #  - Each endpoint group is one sequential coroutine
+        #  - Cloud-only devices (no transport) refresh concurrently
+        coros: list[Any] = []
+        for endpoint, devices in endpoint_groups.items():
+            _LOGGER.debug(
+                "HYBRID: Serializing %d device(s) on endpoint %s",
+                len(devices),
+                endpoint,
+            )
+            coros.append(_refresh_group_sequentially(devices))
+
+        # Cloud-only devices can refresh concurrently (HTTP API)
+        for device in no_transport:
+            coros.append(device.refresh())
+
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)
 
     async def _async_update_hybrid_data(self) -> dict[str, Any]:
         """Fetch data using library transport routing (local + cloud).
@@ -220,16 +306,14 @@ class HTTPUpdateMixin(_MixinBase):
                     _LOGGER.debug(
                         "Refreshing all station data for plant %s", self.plant_id
                     )
-                    await self.station.refresh_all_data()
+                    await self._refresh_station_devices(include_mid=True)
                 else:
                     _LOGGER.debug(
                         "Refreshing inverters only for plant %s "
                         "(MID dongle interval not elapsed)",
                         self.plant_id,
                     )
-                    inv_tasks = [inv.refresh() for inv in self.station.all_inverters]
-                    if inv_tasks:
-                        await asyncio.gather(*inv_tasks, return_exceptions=True)
+                    await self._refresh_station_devices(include_mid=False)
 
             # Log inverter data status after refresh
             for inverter in self.station.all_inverters:
@@ -509,6 +593,9 @@ class HTTPUpdateMixin(_MixinBase):
                     if has_current:
                         pg_sensors["parallel_battery_current"] = total_current
 
+                    # Compute parallel group charge/discharge C-rates (%/h)
+                    compute_parallel_group_charge_rates(pg_sensors)
+
                     if hasattr(group, "mid_device") and group.mid_device:
                         try:
                             mid_data = await self._process_mid_device_object(
@@ -529,6 +616,7 @@ class HTTPUpdateMixin(_MixinBase):
                                 mid_data.get("sensors", {}),
                                 group.name,
                             )
+
                         except Exception as e:
                             _LOGGER.error(
                                 "Error processing MID device %s: %s",

@@ -53,8 +53,11 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     _build_battery_bank_sensor_mapping,
     _build_energy_sensor_mapping,
     _build_gridboss_sensor_mapping,
+    _build_individual_battery_mapping,
     _build_runtime_sensor_mapping,
+    _compute_charge_discharge_rates,
     _features_from_family,
+    compute_bank_charge_rates,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
     apply_gridboss_overlay,
@@ -1658,7 +1661,13 @@ class TestStaticLocalData:
         mock_battery.discharge_power = 0
         mock_battery.battery_power = 500
         mapping = _build_battery_bank_sensor_mapping(mock_battery)
-        assert set(mapping.keys()) == BATTERY_BANK_KEYS
+        # Charge/discharge rate keys are computed by compute_bank_charge_rates()
+        # after the raw mapping, so they appear in the frozenset but not here.
+        computed_keys = {
+            "battery_bank_charge_rate",
+            "battery_bank_discharge_rate",
+        }
+        assert set(mapping.keys()) == BATTERY_BANK_KEYS - computed_keys
 
     def test_static_keys_match_gridboss_mapping(self):
         """GRIDBOSS_SENSOR_KEYS covers _build_gridboss_sensor_mapping keys + metadata."""
@@ -4325,146 +4334,6 @@ class TestDataValidationFlag:
         assert coordinator._data_validation_enabled is False
 
 
-class TestEnergyMonotonicity:
-    """Test _validate_energy_monotonicity in coordinator_local.py."""
-
-    @pytest.fixture
-    def coordinator_with_prev_data(self, hass):
-        """Coordinator with previous cycle's energy data."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 Electronics - Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "1111111111",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                    },
-                ],
-            },
-            options={CONF_DATA_VALIDATION: True},
-            entry_id="energy_mono_test",
-        )
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
-        # Populate previous cycle data
-        coordinator.data = {
-            "devices": {
-                "1111111111": {
-                    "sensors": {
-                        "pv_energy_total": 1000.0,
-                        "charge_energy_total": 500.0,
-                        "discharge_energy_total": 300.0,
-                        "grid_import_total": 200.0,
-                        "grid_export_total": 100.0,
-                        "load_energy_total": 800.0,
-                        "inverter_energy_total": 950.0,
-                        "eps_energy_total": 50.0,
-                    }
-                }
-            }
-        }
-        return coordinator
-
-    def test_increasing_values_pass(self, coordinator_with_prev_data):
-        """All lifetime energy values increasing -> passes."""
-        new_sensors = {
-            "pv_energy_total": 1001.0,
-            "charge_energy_total": 501.0,
-            "discharge_energy_total": 300.5,
-            "grid_import_total": 200.1,
-            "grid_export_total": 100.2,
-            "load_energy_total": 800.3,
-            "inverter_energy_total": 950.1,
-            "eps_energy_total": 50.0,
-        }
-        assert (
-            coordinator_with_prev_data._validate_energy_monotonicity(
-                "1111111111", new_sensors
-            )
-            is True
-        )
-
-    def test_decreasing_value_fails(self, coordinator_with_prev_data):
-        """Any lifetime energy value decreasing -> fails."""
-        new_sensors = {
-            "pv_energy_total": 999.0,  # Decreased from 1000.0
-            "charge_energy_total": 501.0,
-        }
-        assert (
-            coordinator_with_prev_data._validate_energy_monotonicity(
-                "1111111111", new_sensors
-            )
-            is False
-        )
-
-    def test_first_cycle_passes(self, hass):
-        """First cycle (no previous data) always passes."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 Electronics - Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={CONF_DATA_VALIDATION: True},
-            entry_id="first_cycle_test",
-        )
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
-        coordinator.data = {"devices": {}}
-        new_sensors = {"pv_energy_total": 1000.0}
-        assert (
-            coordinator._validate_energy_monotonicity("1111111111", new_sensors) is True
-        )
-
-    def test_missing_keys_pass(self, coordinator_with_prev_data):
-        """Keys not in _LIFETIME_ENERGY_KEYS are ignored."""
-        new_sensors = {
-            "consumption_power": 500.0,  # Not a lifetime key
-            "pv_energy_total": 1001.0,
-        }
-        assert (
-            coordinator_with_prev_data._validate_energy_monotonicity(
-                "1111111111", new_sensors
-            )
-            is True
-        )
-
-    def test_none_values_pass(self, coordinator_with_prev_data):
-        """None values (unavailable) are not compared."""
-        new_sensors = {
-            "pv_energy_total": None,
-            "charge_energy_total": 501.0,
-        }
-        assert (
-            coordinator_with_prev_data._validate_energy_monotonicity(
-                "1111111111", new_sensors
-            )
-            is True
-        )
-
-    def test_equal_values_pass(self, coordinator_with_prev_data):
-        """Equal values (no change) pass — only decrease fails."""
-        new_sensors = {
-            "pv_energy_total": 1000.0,  # Same as previous
-            "charge_energy_total": 500.0,
-        }
-        assert (
-            coordinator_with_prev_data._validate_energy_monotonicity(
-                "1111111111", new_sensors
-            )
-            is True
-        )
-
-
 class TestHybridTransportExclusiveSensors:
     """Test transport-exclusive sensor overlay in _process_inverter_object()."""
 
@@ -4961,3 +4830,177 @@ class TestComputedEnergyClamp:
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
         assert sensors["consumption"] is None
         assert sensors["consumption_lifetime"] is None
+
+
+class TestChargeDischargeRates:
+    """Test charge/discharge C-rate computation at all three levels.
+
+    C-rate = |current_A| / capacity_Ah * 100  →  %/h
+    """
+
+    # --- Core helper function tests ---
+
+    def test_charging_produces_nonzero_charge_rate(self):
+        """Positive current yields charge_rate > 0, discharge_rate = 0."""
+        charge, discharge = _compute_charge_discharge_rates(50.0, 200.0)
+        assert charge == 25.0  # 50/200*100
+        assert discharge == 0.0
+
+    def test_discharging_produces_nonzero_discharge_rate(self):
+        """Negative current yields charge_rate = 0, discharge_rate > 0."""
+        charge, discharge = _compute_charge_discharge_rates(-30.0, 200.0)
+        assert charge == 0.0
+        assert discharge == 15.0  # 30/200*100
+
+    def test_idle_produces_zero_rates(self):
+        """Zero current yields both rates at 0."""
+        charge, discharge = _compute_charge_discharge_rates(0.0, 200.0)
+        assert charge == 0.0
+        assert discharge == 0.0
+
+    def test_none_current_returns_none_pair(self):
+        """None current yields (None, None)."""
+        charge, discharge = _compute_charge_discharge_rates(None, 200.0)
+        assert charge is None
+        assert discharge is None
+
+    def test_zero_capacity_returns_none_pair(self):
+        """Zero capacity yields (None, None) to avoid division by zero."""
+        charge, discharge = _compute_charge_discharge_rates(50.0, 0.0)
+        assert charge is None
+        assert discharge is None
+
+    def test_none_capacity_returns_none_pair(self):
+        """None capacity yields (None, None)."""
+        charge, discharge = _compute_charge_discharge_rates(50.0, None)
+        assert charge is None
+        assert discharge is None
+
+    def test_high_current_exceeds_100(self):
+        """Current exceeding capacity can produce rates > 100%/h (no clamp)."""
+        charge, discharge = _compute_charge_discharge_rates(300.0, 200.0)
+        assert charge == 150.0  # 300/200*100 — valid for high-current situations
+        assert discharge == 0.0
+
+    def test_real_world_eg4_values(self):
+        """Real-world example: 11.6A discharge on 280Ah battery = 4.14%/h."""
+        charge, discharge = _compute_charge_discharge_rates(-11.6, 280.0)
+        assert charge == 0.0
+        assert discharge == pytest.approx(4.142857, rel=1e-4)
+
+    # --- Battery bank level ---
+
+    def test_bank_rates_computed_from_sensor_dict(self):
+        """compute_bank_charge_rates writes rate keys into sensor dict."""
+        sensors: dict[str, Any] = {
+            "battery_bank_current": 25.0,
+            "battery_bank_full_capacity": 840.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert sensors["battery_bank_charge_rate"] == pytest.approx(2.98, abs=0.01)
+        assert sensors["battery_bank_discharge_rate"] == 0.0
+
+    def test_bank_rates_discharge(self):
+        """Bank rates when discharging (negative current)."""
+        sensors: dict[str, Any] = {
+            "battery_bank_current": -40.0,
+            "battery_bank_full_capacity": 840.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert sensors["battery_bank_charge_rate"] == 0.0
+        assert sensors["battery_bank_discharge_rate"] == pytest.approx(4.76, abs=0.01)
+
+    def test_bank_rates_missing_current_no_keys(self):
+        """Without battery_bank_current, no rate keys are written."""
+        sensors: dict[str, Any] = {
+            "battery_bank_full_capacity": 840.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert "battery_bank_charge_rate" not in sensors
+        assert "battery_bank_discharge_rate" not in sensors
+
+    def test_bank_rates_missing_capacity_no_keys(self):
+        """Without capacity, no rate keys are written."""
+        sensors: dict[str, Any] = {
+            "battery_bank_current": 25.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert "battery_bank_charge_rate" not in sensors
+        assert "battery_bank_discharge_rate" not in sensors
+
+    def test_bank_rates_non_numeric_values_handled(self):
+        """Non-numeric values (e.g. MagicMock) don't crash."""
+        sensors: dict[str, Any] = {
+            "battery_bank_current": "not_a_number",
+            "battery_bank_full_capacity": 840.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert "battery_bank_charge_rate" not in sensors
+        assert "battery_bank_discharge_rate" not in sensors
+
+    def test_bank_rates_rounded_to_two_decimals(self):
+        """Rate values are rounded to 2 decimal places."""
+        sensors: dict[str, Any] = {
+            "battery_bank_current": 33.0,
+            "battery_bank_full_capacity": 840.0,
+        }
+        compute_bank_charge_rates(sensors)
+        assert sensors["battery_bank_charge_rate"] == 3.93  # 33/840*100 = 3.928...
+
+    # --- Individual battery level ---
+
+    @staticmethod
+    def _make_battery_mock(
+        *,
+        current: float = 0.0,
+        max_capacity: float = 280.0,
+    ) -> MagicMock:
+        """Create a minimal mock battery for ``_build_individual_battery_mapping``."""
+        battery = MagicMock()
+        battery.voltage = 50.0
+        battery.current = current
+        battery.power = battery.voltage * current
+        battery.soc = 80
+        battery.soh = 99
+        battery.max_capacity = max_capacity
+        battery.charge_current_limit = 20.0
+        battery.discharge_current_limit = 20.0
+        return battery
+
+    def test_individual_battery_charge_rate(self):
+        """Individual battery mapping includes charge/discharge rate."""
+        battery = self._make_battery_mock(current=15.0)
+        mapping = _build_individual_battery_mapping(battery)
+        assert mapping["battery_charge_rate"] == pytest.approx(5.36, abs=0.01)  # 15/280*100
+        assert mapping["battery_discharge_rate"] == 0.0
+
+    def test_individual_battery_discharge_rate(self):
+        """Individual battery shows discharge rate when current is negative."""
+        battery = self._make_battery_mock(current=-11.6)
+        mapping = _build_individual_battery_mapping(battery)
+        assert mapping["battery_charge_rate"] == 0.0
+        assert mapping["battery_discharge_rate"] == pytest.approx(4.14, abs=0.01)
+
+    def test_individual_battery_no_rate_without_capacity(self):
+        """No rate keys when capacity is zero."""
+        battery = self._make_battery_mock(current=10.0, max_capacity=0.0)
+        mapping = _build_individual_battery_mapping(battery)
+        assert "battery_charge_rate" not in mapping
+        assert "battery_discharge_rate" not in mapping
+
+    # --- Frozenset membership ---
+
+    def test_bank_rate_keys_in_battery_bank_frozenset(self):
+        """Bank rate keys are in BATTERY_BANK_KEYS for entity creation."""
+        assert "battery_bank_charge_rate" in BATTERY_BANK_KEYS
+        assert "battery_bank_discharge_rate" in BATTERY_BANK_KEYS
+
+    def test_parallel_rate_keys_in_parallel_group_frozenset(self):
+        """Parallel rate keys are in PARALLEL_GROUP_SENSOR_KEYS."""
+        assert "parallel_battery_charge_rate" in PARALLEL_GROUP_SENSOR_KEYS
+        assert "parallel_battery_discharge_rate" in PARALLEL_GROUP_SENSOR_KEYS
+
+    def test_bms_limit_keys_in_runtime_frozenset(self):
+        """BMS limit keys are in INVERTER_RUNTIME_KEYS."""
+        assert "max_charge_current" in INVERTER_RUNTIME_KEYS
+        assert "max_discharge_current" in INVERTER_RUNTIME_KEYS

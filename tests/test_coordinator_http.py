@@ -955,3 +955,167 @@ class TestBatteryExtraction:
         batteries = result["devices"]["INV001"]["batteries"]
         assert len(batteries) == 1
         assert "INV001-01" in batteries
+
+
+# ── _refresh_station_devices (serialized dongle access) ──────────────
+
+
+class TestRefreshStationDevices:
+    """Test serialized device refresh for HYBRID mode dongle protection."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_no_transports_uses_gather(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Without local transports attached, delegates to station.refresh_all_data()."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.station = _mock_station([_mock_inverter()])
+        coordinator._local_transports_attached = False
+
+        await coordinator._refresh_station_devices(include_mid=True)
+        coordinator.station.refresh_all_data.assert_awaited_once()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_shared_dongle_serialized(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Devices sharing same dongle endpoint are refreshed sequentially."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        # Two inverters + GridBOSS, all on same dongle (192.168.1.100:8000)
+        inv1 = _mock_inverter(serial="INV001")
+        inv1._transport = MagicMock()
+        inv1._transport._host = "192.168.1.100"
+        inv1._transport._port = 8000
+        inv1.refresh = AsyncMock()
+
+        inv2 = _mock_inverter(serial="INV002")
+        inv2._transport = MagicMock()
+        inv2._transport._host = "192.168.1.100"
+        inv2._transport._port = 8000
+        inv2.refresh = AsyncMock()
+
+        mid = MagicMock()
+        mid.serial_number = "MID001"
+        mid._transport = MagicMock()
+        mid._transport._host = "192.168.1.100"
+        mid._transport._port = 8000
+        mid.refresh = AsyncMock()
+
+        station = _mock_station([inv1, inv2])
+        station.all_mid_devices = [mid]
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        # All three devices refreshed
+        inv1.refresh.assert_awaited_once()
+        inv2.refresh.assert_awaited_once()
+        mid.refresh.assert_awaited_once()
+        # station.refresh_all_data should NOT have been called
+        station.refresh_all_data.assert_not_awaited()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_exclude_mid_when_include_mid_false(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """When include_mid=False, MID devices are excluded."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        inv = _mock_inverter(serial="INV001")
+        inv._transport = MagicMock()
+        inv._transport._host = "192.168.1.100"
+        inv._transport._port = 8000
+        inv.refresh = AsyncMock()
+
+        mid = MagicMock()
+        mid.serial_number = "MID001"
+        mid._transport = MagicMock()
+        mid._transport._host = "192.168.1.100"
+        mid._transport._port = 8000
+        mid.refresh = AsyncMock()
+
+        station = _mock_station([inv])
+        station.all_mid_devices = [mid]
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=False)
+
+        inv.refresh.assert_awaited_once()
+        mid.refresh.assert_not_awaited()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_cloud_only_devices_still_refreshed(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Devices without local transport are refreshed via HTTP (concurrent)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        # One device with transport, one without
+        inv1 = _mock_inverter(serial="INV001")
+        inv1._transport = MagicMock()
+        inv1._transport._host = "192.168.1.100"
+        inv1._transport._port = 8000
+        inv1.refresh = AsyncMock()
+
+        inv2 = _mock_inverter(serial="INV002")
+        inv2._transport = None  # Cloud-only
+        inv2.refresh = AsyncMock()
+
+        station = _mock_station([inv1, inv2])
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        inv1.refresh.assert_awaited_once()
+        inv2.refresh.assert_awaited_once()
+
+
+class TestMidboxVoltageCanary:
+    """Test voltage canary on MidboxRuntimeData.is_corrupt()."""
+
+    def test_normal_voltage_passes(self):
+        """Normal US split-phase voltage passes canary."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        data = MidboxRuntimeData(grid_l1_voltage=122.5, grid_l2_voltage=122.4)
+        assert data.is_corrupt() is False
+
+    def test_zero_voltage_passes(self):
+        """Zero voltage (grid down) passes canary."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        data = MidboxRuntimeData(grid_l1_voltage=0.0, grid_l2_voltage=0.0)
+        assert data.is_corrupt() is False
+
+    def test_corrupt_l1_voltage_rejected(self):
+        """Corrupt L1 voltage (register 0xFFFF/10 = 6553.5V) is rejected."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        data = MidboxRuntimeData(grid_l1_voltage=6553.5, grid_l2_voltage=122.4)
+        assert data.is_corrupt() is True
+
+    def test_corrupt_l2_voltage_rejected(self):
+        """Corrupt L2 voltage detected."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        data = MidboxRuntimeData(grid_l1_voltage=122.5, grid_l2_voltage=6553.5)
+        assert data.is_corrupt() is True
+
+    def test_none_voltage_passes(self):
+        """None voltage (not read) passes canary."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        data = MidboxRuntimeData(grid_l1_voltage=None, grid_l2_voltage=None)
+        assert data.is_corrupt() is False

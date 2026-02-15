@@ -268,7 +268,8 @@ class EG4DataUpdateCoordinator(
         # Data validation: opt-in corruption detection for local register reads.
         # When enabled, corrupt Modbus reads are rejected at two levels:
         # 1. Transport: canary-field checks (SoC>100, freq out-of-range) discard bad reads
-        # 2. Coordinator: lifetime energy monotonicity checks reject decreasing counters
+        # 2. Device: lifetime energy monotonicity checks reject decreasing counters
+        #    (validated in pylxpweb device refresh methods, not coordinator)
         self._data_validation_enabled: bool = entry.options.get(
             CONF_DATA_VALIDATION, False
         )

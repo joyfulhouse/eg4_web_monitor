@@ -38,6 +38,9 @@ from .coordinator_mappings import (
     _apply_grid_type_override,
     _build_battery_bank_sensor_mapping,
     _energy_balance,
+    _safe_float,
+    _write_rounded_rates,
+    compute_bank_charge_rates,
 )
 from .utils import clean_battery_display_name
 
@@ -586,6 +589,12 @@ class DeviceProcessingMixin(_MixinBase):
                     inverter.serial_number,
                 )
 
+        # Compute battery bank charge/discharge rate percentages.
+        # At this point sensors dict has battery_bank_current (from battery
+        # bank data) and max_charge_current / max_discharge_current (from
+        # _map_device_properties).
+        compute_bank_charge_rates(processed["sensors"])
+
         # Fetch quick charge and battery backup status with 30s throttle
         # These are cloud API calls that should not run every update cycle
         _STATUS_FETCH_INTERVAL = 30  # seconds
@@ -828,6 +837,17 @@ class DeviceProcessingMixin(_MixinBase):
         property_map = self._get_battery_property_map()
         sensors = _map_device_properties(battery, property_map)
         self._calculate_battery_derived_sensors(sensors)
+
+        # Compute charge/discharge C-rate as percentage of capacity per hour.
+        # Use _safe_float() to handle non-numeric values from mock objects.
+        _write_rounded_rates(
+            sensors,
+            "battery_charge_rate",
+            "battery_discharge_rate",
+            _safe_float(sensors.get("battery_real_current")),
+            _safe_float(sensors.get("battery_full_capacity")),
+        )
+
         return sensors
 
     @staticmethod

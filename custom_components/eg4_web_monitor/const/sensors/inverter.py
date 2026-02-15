@@ -474,6 +474,20 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:current-dc",
     },
+    "parallel_battery_charge_rate": {
+        "name": "Battery Charge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+        "suggested_display_precision": 2,
+    },
+    "parallel_battery_discharge_rate": {
+        "name": "Battery Discharge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+        "suggested_display_precision": 2,
+    },
     "parallel_battery_count": {
         "name": "Battery Count",
         "unit": None,
@@ -580,6 +594,20 @@ SENSOR_TYPES = {
         "device_class": "power",
         "state_class": "measurement",
         "icon": "mdi:battery-minus",
+    },
+    "battery_bank_charge_rate": {
+        "name": "Battery Bank Charge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+        "suggested_display_precision": 2,
+    },
+    "battery_bank_discharge_rate": {
+        "name": "Battery Bank Discharge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+        "suggested_display_precision": 2,
     },
     "battery_bank_power": {
         "name": "Battery Bank Power",
@@ -816,6 +844,20 @@ SENSOR_TYPES = {
         "device_class": "current",
         "state_class": "measurement",
         "icon": "mdi:current-dc",
+    },
+    "battery_charge_rate": {
+        "name": "Charge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-charging",
+        "suggested_display_precision": 2,
+    },
+    "battery_discharge_rate": {
+        "name": "Discharge Rate",
+        "unit": "%/h",
+        "state_class": "measurement",
+        "icon": "mdi:battery-minus",
+        "suggested_display_precision": 2,
     },
     "battery_max_cell_temp_num": {
         "name": "Max Temp Cell Number",

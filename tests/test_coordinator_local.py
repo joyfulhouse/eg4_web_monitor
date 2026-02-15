@@ -641,11 +641,6 @@ class TestGridBOSSFirmwareCache:
             ),
             patch.object(coordinator, "_filter_unused_smart_port_sensors"),
             patch.object(coordinator, "_calculate_gridboss_aggregates"),
-            patch.object(
-                coordinator,
-                "_validate_and_reject_if_corrupt",
-                return_value=False,
-            ),
         ):
             processed: dict[str, Any] = {
                 "devices": {},
@@ -715,11 +710,6 @@ class TestGridBOSSFirmwareCache:
             ),
             patch.object(coordinator, "_filter_unused_smart_port_sensors"),
             patch.object(coordinator, "_calculate_gridboss_aggregates"),
-            patch.object(
-                coordinator,
-                "_validate_and_reject_if_corrupt",
-                return_value=False,
-            ),
         ):
             processed: dict[str, Any] = {
                 "devices": {},

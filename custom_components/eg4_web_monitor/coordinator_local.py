@@ -35,7 +35,10 @@ from .const import (
     SPLIT_PHASE_ONLY_SENSORS,
     THREE_PHASE_ONLY_SENSORS,
 )
-from .coordinator_mixins import _MixinBase, apply_gridboss_overlay
+from .coordinator_mixins import (
+    _MixinBase,
+    apply_gridboss_overlay,
+)
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     GRIDBOSS_SENSOR_KEYS,
@@ -51,24 +54,11 @@ from .coordinator_mappings import (
     _features_from_family,
     _get_transport_label,
     _parse_inverter_family,
+    compute_bank_charge_rates,
+    compute_parallel_group_charge_rates,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Lifetime energy keys that must never decrease between poll cycles.
-# A decrease indicates register corruption, not a real energy change.
-_LIFETIME_ENERGY_KEYS = frozenset(
-    {
-        "pv_energy_total",
-        "charge_energy_total",
-        "discharge_energy_total",
-        "grid_import_total",
-        "grid_export_total",
-        "load_energy_total",
-        "inverter_energy_total",
-        "eps_energy_total",
-    }
-)
 
 # Derived from energy balance arithmetic; small decreases are normal
 # timing artifacts (not corruption).  Clamped to prevent HA
@@ -251,6 +241,8 @@ class LocalTransportMixin(_MixinBase):
             device_data["sensors"].update(
                 _build_battery_bank_sensor_mapping(battery_data)
             )
+            # Compute battery bank charge/discharge rate from merged sensor data
+            compute_bank_charge_rates(device_data["sensors"])
 
         device_data["sensors"]["firmware_version"] = firmware_version
         device_data["sensors"]["connection_transport"] = _get_transport_label(
@@ -507,46 +499,6 @@ class LocalTransportMixin(_MixinBase):
                 device_availability,
             )
 
-    def _validate_energy_monotonicity(
-        self,
-        serial: str,
-        new_sensors: dict[str, Any],
-    ) -> bool:
-        """Reject if any lifetime energy counter decreased.
-
-        Lifetime energy values are monotonic counters -- they can only increase.
-        A decrease definitively indicates register corruption rather than a
-        real energy change.
-
-        Args:
-            serial: Device serial number for log context.
-            new_sensors: Current cycle's sensor dict.
-
-        Returns:
-            True if all lifetime energy values are monotonically increasing
-            (or this is the first cycle), False if any counter decreased.
-        """
-        if not self.data:
-            return True  # First poll cycle, no previous data
-        prev_device = self.data.get("devices", {}).get(serial, {})
-        prev_sensors = prev_device.get("sensors", {})
-        if not prev_sensors:
-            return True  # No previous data to compare
-
-        for key in _LIFETIME_ENERGY_KEYS:
-            prev = prev_sensors.get(key)
-            curr = new_sensors.get(key)
-            if prev is not None and curr is not None and curr < prev:
-                _LOGGER.warning(
-                    "Energy monotonicity violation for %s: %s decreased %.1f -> %.1f",
-                    serial,
-                    key,
-                    prev,
-                    curr,
-                )
-                return False
-        return True
-
     def _register_pg_device(self, group_device_id: str, group_name: str) -> None:
         """Pre-register a parallel group in the HA device registry.
 
@@ -594,62 +546,6 @@ class LocalTransportMixin(_MixinBase):
                     prev,
                 )
                 sensors[key] = prev
-
-    def _reject_corrupt_device(
-        self,
-        serial: str,
-        processed: dict[str, Any],
-        device_availability: dict[str, bool],
-    ) -> None:
-        """Roll back device data to previous cycle on validation failure.
-
-        Preserves the last-known-good device data in the processed dict so
-        that HA entities keep their previous values instead of going unavailable.
-
-        Args:
-            serial: Device serial number.
-            processed: Shared output dict (modified in place).
-            device_availability: Per-device availability tracking (modified in place).
-        """
-        prev = self.data.get("devices", {}).get(serial) if self.data else None
-        if prev:
-            processed["devices"][serial] = prev
-        device_availability[serial] = prev is not None
-
-    def _validate_and_reject_if_corrupt(
-        self,
-        serial: str,
-        sensors: dict[str, Any],
-        processed: dict[str, Any],
-        device_availability: dict[str, bool],
-        device_label: str,
-    ) -> bool:
-        """Validate energy monotonicity and reject device data if corrupt.
-
-        Combines the validation check, warning log, and rollback into a single
-        call to avoid duplicating this pattern at each device processing site.
-
-        Args:
-            serial: Device serial number.
-            sensors: Current cycle's sensor dict.
-            processed: Shared output dict (modified in place on rejection).
-            device_availability: Per-device availability tracking.
-            device_label: Human-readable label for log messages (e.g. "GridBOSS").
-
-        Returns:
-            True if data was rejected (caller should return early), False if valid.
-        """
-        if not self._data_validation_enabled:
-            return False
-        if self._validate_energy_monotonicity(serial, sensors):
-            return False
-        _LOGGER.warning(
-            "LOCAL: Rejecting %s %s data due to energy monotonicity violation",
-            device_label,
-            serial,
-        )
-        self._reject_corrupt_device(serial, processed, device_availability)
-        return True
 
     async def _process_single_local_device(
         self,
@@ -838,11 +734,6 @@ class LocalTransportMixin(_MixinBase):
                     "binary_sensors": {},
                 }
 
-                if self._validate_and_reject_if_corrupt(
-                    serial, sensors, processed, device_availability, "GridBOSS"
-                ):
-                    return
-
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
@@ -957,6 +848,8 @@ class LocalTransportMixin(_MixinBase):
                     device_data["sensors"].update(
                         _build_battery_bank_sensor_mapping(battery_data)
                     )
+                    # Compute battery bank charge/discharge rate from merged sensor data
+                    compute_bank_charge_rates(device_data["sensors"])
 
                     if hasattr(battery_data, "batteries") and battery_data.batteries:
                         for batt in battery_data.batteries:
@@ -1015,11 +908,6 @@ class LocalTransportMixin(_MixinBase):
                     sensors.get("rectifier_power"),
                     sensors.get("grid_import_power"),
                 )
-
-                if self._validate_and_reject_if_corrupt(
-                    serial, sensors, processed, device_availability, serial
-                ):
-                    return
 
                 self._clamp_computed_energy(serial, sensors)
 
@@ -1132,6 +1020,26 @@ class LocalTransportMixin(_MixinBase):
                         serial,
                         e,
                     )
+
+            # Propagate total inverter rated power to GridBOSS devices so
+            # their energy delta and power canary thresholds scale correctly.
+            total_kw: float = 0.0
+            for inv in self._inverter_cache.values():
+                if not getattr(inv, "_features_detected", False):
+                    continue
+                inv_feat: Any = getattr(inv, "_features", None)
+                if inv_feat is None:
+                    continue
+                inv_model_info: Any = getattr(inv_feat, "model_info", None)
+                if inv_model_info is None:
+                    continue
+                dtc: int = getattr(inv_feat, "device_type_code", 0)
+                kw: Any = inv_model_info.get_power_rating_kw(dtc)
+                if isinstance(kw, (int, float)) and kw > 0:
+                    total_kw += kw
+            if total_kw > 0:
+                for mid in self._mid_device_cache.values():
+                    mid.set_max_system_power(total_kw)
 
             if loaded > 0:
                 _LOGGER.info(
@@ -1714,6 +1622,9 @@ class LocalTransportMixin(_MixinBase):
                 group_sensors["parallel_battery_max_capacity"] = total_max_cap
             if total_cur_cap > 0:
                 group_sensors["parallel_battery_current_capacity"] = total_cur_cap
+
+            # Compute parallel group charge/discharge C-rates (%/h)
+            compute_parallel_group_charge_rates(group_sensors)
 
             # Override grid/load power, energy, and voltage with MID device
             # (GridBOSS) data if available.  The MID device has grid CTs and is
