@@ -489,7 +489,13 @@
           "smart_load": "Smart Load",
           "ac_couple": "AC Couple"
         }
-      }
+      },
+      "battery_bank_charge_rate": {"name": "Battery Bank Charge Rate"},
+      "battery_bank_discharge_rate": {"name": "Battery Bank Discharge Rate"},
+      "battery_charge_rate": {"name": "Charge Rate"},
+      "battery_discharge_rate": {"name": "Discharge Rate"},
+      "parallel_battery_charge_rate": {"name": "Battery Charge Rate"},
+      "parallel_battery_discharge_rate": {"name": "Battery Discharge Rate"}
     },
     "switch": {
       "quick_charge": {
