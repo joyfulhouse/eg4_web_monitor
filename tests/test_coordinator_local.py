@@ -503,6 +503,82 @@ class TestAttachLocalTransports:
         coordinator.station.attach_local_transports.assert_not_called()
 
 
+class TestAttachForcedTransportRead:
+    """Test forced transport read after HYBRID attachment."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_attach_forces_transport_read(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """refresh(force=True) called for attached inverters after attachment."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_result = MagicMock()
+        mock_result.matched = 1
+        mock_result.unmatched = 0
+        mock_result.failed = 0
+        mock_result.unmatched_serials = []
+        mock_result.failed_serials = []
+
+        mock_inverter = MagicMock()
+        mock_inverter._transport = MagicMock()
+        mock_inverter.serial_number = "1234567890"
+        mock_inverter.refresh = AsyncMock()
+
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock(return_value=mock_result)
+        mock_station.is_hybrid_mode = True
+        mock_station.all_inverters = [mock_inverter]
+        coordinator.station = mock_station
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+            return_value=[MagicMock()],
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        assert coordinator._local_transports_attached is True
+        mock_inverter.refresh.assert_called_once_with(force=True)
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_attach_force_refresh_failure_nonfatal(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Exception in forced refresh logged but attachment still succeeds."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_result = MagicMock()
+        mock_result.matched = 1
+        mock_result.unmatched = 0
+        mock_result.failed = 0
+        mock_result.unmatched_serials = []
+        mock_result.failed_serials = []
+
+        mock_inverter = MagicMock()
+        mock_inverter._transport = MagicMock()
+        mock_inverter.serial_number = "1234567890"
+        mock_inverter.refresh = AsyncMock(side_effect=ConnectionError("timeout"))
+
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock(return_value=mock_result)
+        mock_station.is_hybrid_mode = True
+        mock_station.all_inverters = [mock_inverter]
+        coordinator.station = mock_station
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+            return_value=[MagicMock()],
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        # Attachment still succeeds despite force-refresh failure
+        assert coordinator._local_transports_attached is True
+
+
 # ── _log_transport_error ─────────────────────────────────────────────
 
 

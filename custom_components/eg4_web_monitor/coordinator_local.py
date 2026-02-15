@@ -205,6 +205,37 @@ class LocalTransportMixin(_MixinBase):
             },
         )
 
+    def _check_missing_grid_type(
+        self,
+        serial: str,
+        model: str,
+        features: dict[str, Any],
+    ) -> None:
+        """Surface a Repairs issue when LXP device has no grid_type configured.
+
+        LXP-EU defaults to three-phase but many residential users run
+        single-phase. Without explicit grid_type, incorrect three-phase
+        sensors are created.
+        """
+        if serial in self._grid_type_mismatch_notified:
+            return
+        family = features.get("inverter_family")
+        if family != "LXP":
+            return
+        if not features.get("supports_three_phase", False):
+            return
+
+        self._grid_type_mismatch_notified.add(serial)
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"grid_type_missing_{serial}",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="grid_type_missing",
+            translation_placeholders={"serial": serial, "model": model},
+        )
+
     def _build_local_device_data(
         self,
         inverter: BaseInverter,
@@ -782,7 +813,10 @@ class LocalTransportMixin(_MixinBase):
 
                 # Check for grid_type mismatch between config and live detection
                 if features and serial not in self._grid_type_mismatch_notified:
-                    self._check_grid_type_mismatch(serial, model, config, features)
+                    if config.get("grid_type") is None:
+                        self._check_missing_grid_type(serial, model, features)
+                    else:
+                        self._check_grid_type_mismatch(serial, model, config, features)
 
                 if serial not in self._firmware_cache:
                     fw = "Unknown"
@@ -1006,9 +1040,14 @@ class LocalTransportMixin(_MixinBase):
                             config = config_by_serial.get(serial, {})
                             model = config.get("model", "")
                             if features:
-                                self._check_grid_type_mismatch(
-                                    serial, model, config, features
-                                )
+                                if config.get("grid_type") is None:
+                                    self._check_missing_grid_type(
+                                        serial, model, features
+                                    )
+                                else:
+                                    self._check_grid_type_mismatch(
+                                        serial, model, config, features
+                                    )
                     loaded += 1
                     _LOGGER.debug(
                         "LOCAL: Background parameter load complete for %s",
@@ -1810,6 +1849,19 @@ class LocalTransportMixin(_MixinBase):
                 if transport is not None:
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
+
+            # Force transport reads so _transport_runtime is populated on the
+            # FIRST _process_station_data() call. Without this, the HTTP cache
+            # prevents transport reads and transport-exclusive sensors are missing.
+            for inverter in self.station.all_inverters:
+                if getattr(inverter, "_transport", None) is not None:
+                    try:
+                        await inverter.refresh(force=True)
+                    except Exception:
+                        _LOGGER.warning(
+                            "HYBRID: forced transport read failed for %s",
+                            inverter.serial_number,
+                        )
 
             # Log hybrid mode status
             if self.station.is_hybrid_mode:

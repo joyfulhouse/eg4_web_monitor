@@ -4034,6 +4034,115 @@ class TestGridTypeMismatch:
         assert "1234567890" in coordinator._grid_type_mismatch_notified
 
 
+class TestMissingGridType:
+    """Test _check_missing_grid_type (Repairs issue for LXP-EU without grid_type)."""
+
+    @pytest.fixture
+    def lxp_no_grid_config_entry(self):
+        """Config entry for LXP device WITHOUT grid_type set."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - LXP-EU 12K",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "4344340013",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "LXP",
+                        "model": "LXP-EU 12K",
+                        # No grid_type!
+                    },
+                ],
+            },
+            entry_id="lxp_no_grid_test",
+        )
+
+    async def test_lxp_eu_no_grid_type_creates_repairs_issue(
+        self, hass, lxp_no_grid_config_entry
+    ):
+        """LXP family, no grid_type, three-phase default → issue created."""
+        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_missing_grid_type(
+                "4344340013",
+                "LXP-EU 12K",
+                {"inverter_family": "LXP", "supports_three_phase": True},
+            )
+
+        mock_create.assert_called_once()
+        call_kwargs = mock_create.call_args
+        assert call_kwargs[1]["translation_key"] == "grid_type_missing"
+        assert call_kwargs[1]["translation_placeholders"]["serial"] == "4344340013"
+        assert call_kwargs[1]["translation_placeholders"]["model"] == "LXP-EU 12K"
+        assert "4344340013" in coordinator._grid_type_mismatch_notified
+
+    async def test_lxp_eu_with_grid_type_no_issue(self, hass, lxp_no_grid_config_entry):
+        """LXP family but grid_type IS set → _check_missing_grid_type not called.
+
+        The call-site gates on config.get("grid_type") is None, so this verifies
+        the method itself does nothing when the serial is already notified.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
+        # If grid_type were set, the call-site calls _check_grid_type_mismatch
+        # instead. We verify _check_missing_grid_type doesn't fire when serial
+        # is already in the notified set (dedup path).
+        coordinator._grid_type_mismatch_notified.add("4344340013")
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_missing_grid_type(
+                "4344340013",
+                "LXP-EU 12K",
+                {"inverter_family": "LXP", "supports_three_phase": True},
+            )
+
+        mock_create.assert_not_called()
+
+    async def test_non_lxp_no_issue(self, hass, lxp_no_grid_config_entry):
+        """EG4_HYBRID family, no grid_type → no issue (unambiguous)."""
+        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_missing_grid_type(
+                "1234567890",
+                "18kPV",
+                {"inverter_family": "EG4_HYBRID", "supports_three_phase": False},
+            )
+
+        mock_create.assert_not_called()
+
+    async def test_dedup_missing_grid_type(self, hass, lxp_no_grid_config_entry):
+        """Second call for same serial doesn't create a duplicate issue."""
+        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_create:
+            coordinator._check_missing_grid_type(
+                "4344340013",
+                "LXP-EU 12K",
+                {"inverter_family": "LXP", "supports_three_phase": True},
+            )
+            coordinator._check_missing_grid_type(
+                "4344340013",
+                "LXP-EU 12K",
+                {"inverter_family": "LXP", "supports_three_phase": True},
+            )
+
+        mock_create.assert_called_once()
+
+
 class TestParameterPreComputation:
     """Test _include_params_this_cycle pre-computation in _async_update_local_data."""
 
@@ -4251,6 +4360,48 @@ class TestBatteryBankCurrentKey:
         prop_map = DeviceProcessingMixin._get_battery_bank_property_map()
         assert "current" in prop_map
         assert prop_map["current"] == "battery_bank_current"
+
+
+class TestBatteryBankBMSFallback:
+    """Test BMS fallback sensors appear in mapping when batteries=[]."""
+
+    def test_build_mapping_includes_fallback_sensors(self):
+        """3 diagnostic keys present via bank-level BMS fallback."""
+        mock_battery = MagicMock()
+        mock_battery.soc = 85
+        mock_battery.voltage = 52.0
+        mock_battery.current = 15.5
+        mock_battery.charge_power = 800.0
+        mock_battery.discharge_power = 0.0
+        mock_battery.battery_power = 800.0
+        mock_battery.max_capacity = 200
+        mock_battery.current_capacity = 170
+        mock_battery.remain_capacity = 170
+        mock_battery.full_capacity = 200
+        mock_battery.capacity_percent = 85
+        mock_battery.battery_count = 4
+        mock_battery.status = "charging"
+        # Unfixable diagnostics return None (need individual batteries)
+        mock_battery.soc_delta = None
+        mock_battery.min_soh = None
+        mock_battery.soh_delta = None
+        mock_battery.voltage_delta = None
+        mock_battery.cycle_count_delta = None
+        # BMS fallback diagnostics return values (bank-level registers)
+        mock_battery.max_cell_temp = 35.0
+        mock_battery.temp_delta = 5.5
+        mock_battery.cell_voltage_delta_max = 0.050
+
+        result = _build_battery_bank_sensor_mapping(mock_battery)
+        assert "battery_bank_max_cell_temp" in result
+        assert result["battery_bank_max_cell_temp"] == 35.0
+        assert "battery_bank_temp_delta" in result
+        assert result["battery_bank_temp_delta"] == 5.5
+        assert "battery_bank_cell_voltage_delta_max" in result
+        assert result["battery_bank_cell_voltage_delta_max"] == 0.050
+        # Unfixable diagnostics should NOT be present (None filtered)
+        assert "battery_bank_soc_delta" not in result
+        assert "battery_bank_min_soh" not in result
 
 
 class TestParallelGroupGridPowerKeys:
