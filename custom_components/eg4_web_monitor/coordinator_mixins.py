@@ -50,6 +50,13 @@ _LOGGER = logging.getLogger(__name__)
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
 
+# Cache the last known good smart port statuses per MID device serial.
+# WiFi dongles return corrupt status register data ~3% of polls (all-zeros
+# or out-of-range values like status=3). Using cached values prevents the
+# filter from being skipped, which would allow raw AC couple data to leak
+# through as smart_load sensor values.
+_last_good_smart_port_statuses: dict[str, dict[int, int]] = {}
+
 # Map raw smart port status integers to human-readable enum labels
 _SMART_PORT_STATUS_LABELS: dict[int, str] = {
     0: "unused",
@@ -133,6 +140,35 @@ def apply_gridboss_overlay(
                 load,
                 total,
             )
+
+
+def compute_total_inverter_power_kw(
+    inverters: Any,
+) -> float:
+    """Sum the rated power (kW) of all inverters whose features have been detected.
+
+    Used by both HTTP and LOCAL paths to propagate the total inverter power
+    rating to GridBOSS/MID devices for energy delta and power canary scaling.
+
+    Args:
+        inverters: Iterable of inverter objects (BaseInverter instances).
+
+    Returns:
+        Total rated power in kW, or 0.0 if no ratings are available.
+    """
+    total_kw: float = 0.0
+    for inv in inverters:
+        inv_feat: Any = getattr(inv, "_features", None)
+        if inv_feat is None:
+            continue
+        inv_model_info: Any = getattr(inv_feat, "model_info", None)
+        if inv_model_info is None:
+            continue
+        dtc: int = getattr(inv_feat, "device_type_code", 0)
+        kw: Any = inv_model_info.get_power_rating_kw(dtc)
+        if isinstance(kw, (int, float)) and kw > 0:
+            total_kw += kw
+    return total_kw
 
 
 if TYPE_CHECKING:
@@ -1310,23 +1346,30 @@ class DeviceProcessingMixin(_MixinBase):
             smart_port_statuses,
         )
 
-        # Check for invalid values and log warnings with diagnostic info
-        invalid_ports: dict[int, int | None] = {}
-        for port, status in smart_port_statuses.items():
-            if status is None or status not in _SMART_PORT_STATUS_LABELS:
-                invalid_ports[port] = status
+        # Determine if this read is valid or corrupt.
+        # A valid read has at least one non-zero status and all values in range 0-2.
+        serial = getattr(mid_device, "serial_number", "unknown")
+        all_valid_range = all(
+            s is not None and s in _SMART_PORT_STATUS_LABELS
+            for s in smart_port_statuses.values()
+        )
+        has_nonzero = any(s != 0 for s in smart_port_statuses.values() if s is not None)
+        is_good_read = bool(smart_port_statuses) and all_valid_range and has_nonzero
 
-        if invalid_ports:
-            # Get device info for troubleshooting
-            serial = getattr(mid_device, "serial_number", "unknown")
-            firmware = getattr(mid_device, "firmware_version", "unknown")
-            has_transport = (
-                hasattr(mid_device, "_transport") and mid_device._transport is not None
-            )
-
-            # Only log warning once per device to avoid log spam
-            if serial not in _warned_smart_port_devices:
+        # Log invalid values from the raw read before any cache substitution
+        if not is_good_read:
+            raw_invalid: dict[int, int | None] = {
+                p: s
+                for p, s in smart_port_statuses.items()
+                if s is None or s not in _SMART_PORT_STATUS_LABELS
+            }
+            if raw_invalid and serial not in _warned_smart_port_devices:
                 _warned_smart_port_devices.add(serial)
+                firmware = getattr(mid_device, "firmware_version", "unknown")
+                has_transport = (
+                    hasattr(mid_device, "_transport")
+                    and mid_device._transport is not None
+                )
                 _LOGGER.warning(
                     "Invalid Smart Port status values detected for MID device %s "
                     "(firmware: %s, has_local_transport: %s). "
@@ -1336,26 +1379,37 @@ class DeviceProcessingMixin(_MixinBase):
                     serial,
                     firmware,
                     has_transport,
-                    invalid_ports,
+                    raw_invalid,
                 )
 
-        # Convert raw status integers to enum string labels (always, even
-        # when we skip power sensor filtering on all-zeros below)
+        if is_good_read:
+            # Cache this as the last known good status set
+            _last_good_smart_port_statuses[serial] = {
+                p: s for p, s in smart_port_statuses.items() if s is not None
+            }
+        elif serial in _last_good_smart_port_statuses:
+            # Corrupt read -- fall back to cached statuses
+            _LOGGER.debug(
+                "Smart Port status read looks corrupt (%s), using cached statuses: %s",
+                smart_port_statuses,
+                _last_good_smart_port_statuses[serial],
+            )
+            smart_port_statuses = {
+                p: s for p, s in _last_good_smart_port_statuses[serial].items()
+            }
+        else:
+            # No cache yet and current read is suspect -- skip filtering
+            # to avoid removing sensors that may be in use.
+            _LOGGER.debug(
+                "Smart Port statuses all zero/invalid with no cache — "
+                "skipping sensor filtering on initial poll"
+            )
+            return
+
+        # Convert raw status integers to enum string labels
         for port, status in smart_port_statuses.items():
             if status is not None and status in _SMART_PORT_STATUS_LABELS:
                 sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS[status]
-
-        # If all statuses are 0 or None, the dongle likely returned unreliable data.
-        # Skip filtering entirely to avoid removing sensors for ports that are
-        # actually in use. On subsequent polls with correct data, the filter will
-        # correctly remove sensors for genuinely unused ports.
-        valid_statuses = [s for s in smart_port_statuses.values() if s is not None]
-        if valid_statuses and all(s == 0 for s in valid_statuses):
-            _LOGGER.debug(
-                "All Smart Port statuses are 0 — skipping sensor filtering "
-                "(dongle may have returned unreliable data on initial poll)"
-            )
-            return
 
         sensors_to_remove: list[str] = []
         for port, status in smart_port_statuses.items():

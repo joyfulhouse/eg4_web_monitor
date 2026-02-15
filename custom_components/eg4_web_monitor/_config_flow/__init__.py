@@ -68,6 +68,7 @@ from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_DATA_VALIDATION,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
@@ -1416,15 +1417,30 @@ class EG4ConfigFlow(
         connection_type = _derive_connection_type(self._has_cloud, self._has_local)
         return format_entry_title(connection_type, self._plant_name or "Local")
 
+    @property
+    def _has_dongle(self) -> bool:
+        """Check if any configured local transport is a WiFi dongle."""
+        return any(
+            t.get("transport_type") == "wifi_dongle" for t in self._local_transports
+        )
+
     async def _create_entry(self) -> ConfigFlowResult:
         """Create a new config entry from current flow state."""
         unique_id = self._build_unique_id()
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
+        # Auto-enable data validation when a WiFi dongle is configured.
+        # Dongle transports share a Modbus bus with the coordinator, so
+        # concurrent reads cause TID mismatches and corrupt register data.
+        options: dict[str, Any] | None = None
+        if self._has_dongle:
+            options = {CONF_DATA_VALIDATION: True}
+
         return self.async_create_entry(
             title=self._build_title(),
             data=self._build_entry_data(),
+            options=options,
         )
 
     def _update_entry(self) -> ConfigFlowResult:
@@ -1436,10 +1452,18 @@ class EG4ConfigFlow(
             return self.async_abort(reason="entry_not_found")
 
         new_data = self._build_entry_data()
+
+        # Auto-enable data validation when a WiFi dongle is added during
+        # reconfigure (if not already explicitly set by the user).
+        new_options = dict(entry.options)
+        if self._has_dongle and not entry.options.get(CONF_DATA_VALIDATION):
+            new_options[CONF_DATA_VALIDATION] = True
+
         self.hass.config_entries.async_update_entry(
             entry,
             data=new_data,
             title=self._build_title(),
+            options=new_options,
         )
         return self.async_abort(
             reason="reconfigure_successful",

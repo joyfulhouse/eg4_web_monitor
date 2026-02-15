@@ -708,6 +708,10 @@
     "grid_type_missing": {
       "title": "Grid type not configured for {model} ({serial})",
       "description": "This LXP-EU device defaults to three-phase mode. If your system is single-phase, reconfigure the integration and select the correct grid type to avoid extra sensor entities."
+    },
+    "dongle_validation_disabled": {
+      "title": "WiFi dongle 데이터 검증 권장",
+      "description": "WiFi dongle이 구성되어 있지만 **데이터 검증**이 비활성화되어 있습니다. WiFi dongle은 Modbus 버스를 공유하며, 동시 읽기로 인해 레지스터 데이터가 손상될 수 있습니다(예: 에너지 스파이크).\n\n수정하려면 **설정 > 기기 및 서비스 > EG4 Web Monitor > 구성**으로 이동하여 **데이터 검증**을 활성화하세요."
     }
   }
 }

@@ -91,8 +91,18 @@ from .coordinator_mixins import (
     FirmwareUpdateMixin,
     ParameterManagementMixin,
 )
+from .const.sensors import SENSOR_TYPES
 
 _LOGGER = logging.getLogger(__name__)
+
+# Sensor keys with state_class=total_increasing.  On startup (self.data is
+# None), zeros for these keys are replaced with None in the coordinator cache
+# to prevent HA's statistics from recording false counter resets.
+_TOTAL_INCREASING_KEYS: frozenset[str] = frozenset(
+    k
+    for k, v in SENSOR_TYPES.items()
+    if isinstance(v, dict) and v.get("state_class") == "total_increasing"
+)
 
 
 class EG4DataUpdateCoordinator(
@@ -393,6 +403,22 @@ class EG4DataUpdateCoordinator(
         try:
             data = await self._route_update_by_connection_type()
             self._consecutive_update_failures = 0
+
+            # On startup (no prior cache), suppress 0 values for
+            # total_increasing sensors.  These zeros are not real readings —
+            # they come from default-initialized device models before the
+            # first genuine Modbus/API response.  Publishing 0 causes HA's
+            # statistics to record a false counter reset, permanently
+            # inflating long-term energy totals.
+            if self.data is None:
+                for device_data in data.get("devices", {}).values():
+                    sensors = device_data.get("sensors")
+                    if not sensors:
+                        continue
+                    for key in _TOTAL_INCREASING_KEYS:
+                        if key in sensors and sensors[key] == 0:
+                            sensors[key] = None
+
             return data
         except ConfigEntryAuthFailed:
             raise

@@ -38,6 +38,7 @@ from .const import (
 from .coordinator_mixins import (
     _MixinBase,
     apply_gridboss_overlay,
+    compute_total_inverter_power_kw,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -1062,20 +1063,12 @@ class LocalTransportMixin(_MixinBase):
 
             # Propagate total inverter rated power to GridBOSS devices so
             # their energy delta and power canary thresholds scale correctly.
-            total_kw: float = 0.0
-            for inv in self._inverter_cache.values():
-                if not getattr(inv, "_features_detected", False):
-                    continue
-                inv_feat: Any = getattr(inv, "_features", None)
-                if inv_feat is None:
-                    continue
-                inv_model_info: Any = getattr(inv_feat, "model_info", None)
-                if inv_model_info is None:
-                    continue
-                dtc: int = getattr(inv_feat, "device_type_code", 0)
-                kw: Any = inv_model_info.get_power_rating_kw(dtc)
-                if isinstance(kw, (int, float)) and kw > 0:
-                    total_kw += kw
+            detected = (
+                inv
+                for inv in self._inverter_cache.values()
+                if getattr(inv, "_features_detected", False)
+            )
+            total_kw = compute_total_inverter_power_kw(detected)
             if total_kw > 0:
                 for mid in self._mid_device_cache.values():
                     mid.set_max_system_power(total_kw)
@@ -1090,6 +1083,23 @@ class LocalTransportMixin(_MixinBase):
                 await self.async_request_refresh()
         except Exception as e:
             _LOGGER.error("LOCAL: Background parameter load error: %s", e)
+
+    def _warn_dongle_validation_disabled(self) -> None:
+        """Create a Repairs issue if a WiFi dongle is configured without data validation."""
+        if not self._has_dongle_transport() or self._data_validation_enabled:
+            return
+        _LOGGER.warning(
+            "WiFi dongle detected but data validation is disabled. "
+            "Enable it in Options to prevent corrupt register data."
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            "dongle_validation_disabled",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="dongle_validation_disabled",
+        )
 
     def _build_static_local_data(self) -> dict[str, Any]:
         """Build device data from config entry metadata without register reads.
@@ -1165,6 +1175,7 @@ class LocalTransportMixin(_MixinBase):
             processed["parameters"][serial] = {}
 
         self._add_static_parallel_groups(processed)
+        self._warn_dongle_validation_disabled()
 
         return processed
 
@@ -1841,20 +1852,18 @@ class LocalTransportMixin(_MixinBase):
 
             self._local_transports_attached = True
 
-            # Override pylxpweb's hardcoded cache TTLs with the user-
-            # configured coordinator intervals so battery/runtime refresh
-            # rates honour the options flow settings.
+            # Configure each inverter with a local transport:
+            # 1. Propagate data validation (prevents GridBOSS data spikes)
+            # 2. Align cache TTLs with coordinator's user-configured intervals
+            # 3. Force initial transport read so _transport_runtime is
+            #    populated on the first _process_station_data() call
+            validation_enabled = self._data_validation_enabled
             for inverter in self.station.all_inverters:
                 transport = getattr(inverter, "_transport", None)
                 if transport is not None:
+                    inverter.validate_data = validation_enabled
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
-
-            # Force transport reads so _transport_runtime is populated on the
-            # FIRST _process_station_data() call. Without this, the HTTP cache
-            # prevents transport reads and transport-exclusive sensors are missing.
-            for inverter in self.station.all_inverters:
-                if getattr(inverter, "_transport", None) is not None:
                     try:
                         await inverter.refresh(force=True)
                     except Exception:
@@ -1863,12 +1872,21 @@ class LocalTransportMixin(_MixinBase):
                             inverter.serial_number,
                         )
 
+            # Propagate validation to MID devices.  set_max_system_power()
+            # cannot be called here because inverter features have not been
+            # detected yet — it runs later in _deferred_local_parameter_load().
+            for mid in self.station.all_mid_devices:
+                if getattr(mid, "_transport", None) is not None:
+                    mid.validate_data = validation_enabled
+
             # Log hybrid mode status
             if self.station.is_hybrid_mode:
                 _LOGGER.info(
                     "Station is now in hybrid mode with %d local transport(s) attached",
                     result.matched,
                 )
+
+            self._warn_dongle_validation_disabled()
 
         except Exception as err:
             _LOGGER.error("Failed to attach local transports: %s", err)

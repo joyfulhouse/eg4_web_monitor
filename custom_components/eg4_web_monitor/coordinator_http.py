@@ -43,6 +43,7 @@ from .coordinator_mappings import (
 from .coordinator_mixins import (
     _MixinBase,
     apply_gridboss_overlay,
+    compute_total_inverter_power_kw,
 )
 from .utils import clean_battery_display_name
 
@@ -504,6 +505,23 @@ class HTTPUpdateMixin(_MixinBase):
         # Populate processed devices from results
         for serial, device_data in inverter_results:
             processed["devices"][serial] = device_data
+
+        # Propagate total inverter power rating to MID devices (one-time).
+        # Features are detected inside _process_inverter_object(), so the
+        # ratings become available only after the first inverter processing.
+        if self.station.all_mid_devices and not getattr(
+            self, "_mid_power_rating_set", False
+        ):
+            total_kw = compute_total_inverter_power_kw(self.station.all_inverters)
+            if total_kw > 0:
+                for mid in self.station.all_mid_devices:
+                    mid.set_max_system_power(total_kw)
+                self._mid_power_rating_set = True
+                _LOGGER.info(
+                    "Set max system power %.1f kW on %d MID device(s)",
+                    total_kw,
+                    len(self.station.all_mid_devices),
+                )
 
         # Process parallel group data if available
         if hasattr(self.station, "parallel_groups") and self.station.parallel_groups:

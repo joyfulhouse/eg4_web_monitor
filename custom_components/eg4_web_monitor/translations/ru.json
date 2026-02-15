@@ -708,6 +708,10 @@
     "grid_type_missing": {
       "title": "Grid type not configured for {model} ({serial})",
       "description": "This LXP-EU device defaults to three-phase mode. If your system is single-phase, reconfigure the integration and select the correct grid type to avoid extra sensor entities."
+    },
+    "dongle_validation_disabled": {
+      "title": "Рекомендуется валидация данных для WiFi dongle",
+      "description": "WiFi dongle настроен, но **Валидация данных** отключена. WiFi dongle используют общую шину Modbus, и одновременное чтение может вызвать повреждение данных регистров (например, скачки энергии).\n\nДля исправления перейдите в **Настройки > Устройства и службы > EG4 Web Monitor > Настройка** и включите **Валидацию данных**."
     }
   }
 }

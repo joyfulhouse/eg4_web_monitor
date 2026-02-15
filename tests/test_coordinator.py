@@ -3598,9 +3598,13 @@ class TestSmartPortFiltering:
     """Tests for _filter_unused_smart_port_sensors dual-key creation."""
 
     @staticmethod
-    def _make_mid_device(statuses: dict[int, int | None]) -> MagicMock:
+    def _make_mid_device(
+        statuses: dict[int, int | None],
+        serial: str = "TEST_MID_FILTER",
+    ) -> MagicMock:
         """Create a mock MID device with smart port status attributes."""
         device = MagicMock()
+        device.serial_number = serial
         for port in range(1, 5):
             attr = f"smart_port{port}_status"
             if port in statuses:
@@ -3838,33 +3842,60 @@ class TestSmartPortFiltering:
         assert sensors["smart_port3_status"] == "smart_load"
         assert sensors["smart_port4_status"] == "unused"
 
-    def test_all_zeros_early_return_still_converts_labels(self):
-        """When all statuses are 0 (unreliable dongle data), labels are still converted."""
+    def test_all_zeros_no_cache_skips_filtering(self):
+        """When all statuses are 0 with no cache, filtering is skipped."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
         )
 
-        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0})
+        # Use unique serial with no cached statuses
+        serial = "TEST_MID_ZEROS_NOCACHE"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_port1_status": 0,
-            "smart_port2_status": 0,
-            "smart_port3_status": 0,
-            "smart_port4_status": 0,
-            # Power keys that should NOT be removed (all-zeros skips filtering)
             "smart_load1_power_l1": 50.0,
             "ac_couple1_power_l1": 100.0,
         }
 
         DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
 
-        # Status labels converted despite early return
-        assert sensors["smart_port1_status"] == "unused"
-        assert sensors["smart_port2_status"] == "unused"
-        assert sensors["smart_port3_status"] == "unused"
-        assert sensors["smart_port4_status"] == "unused"
-        # Power keys preserved (filtering was skipped)
+        # Power keys preserved (no cache → skip filtering)
         assert sensors["smart_load1_power_l1"] == 50.0
         assert sensors["ac_couple1_power_l1"] == 100.0
+
+    def test_all_zeros_with_cache_uses_cached_statuses(self):
+        """When all statuses are 0 but cache exists, cached statuses are used."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_ZEROS_CACHED"
+        # Pre-populate cache: port 1 = AC couple, others unused
+        _last_good_smart_port_statuses[serial] = {1: 2, 2: 0, 3: 0, 4: 0}
+
+        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {
+            "smart_load1_power_l1": 50.0,
+            "smart_load1_power_l2": 30.0,
+            "ac_couple1_power_l1": 100.0,
+            "ac_couple1_power_l2": 120.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # Cached status says port 1 = AC couple → smart_load1 keys REMOVED
+        assert "smart_load1_power_l1" not in sensors
+        assert "smart_load1_power_l2" not in sensors
+        # AC couple keys preserved
+        assert sensors["ac_couple1_power_l1"] == 100.0
+        assert sensors["ac_couple1_power_l2"] == 120.0
+
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
 
 
 class TestGridTypeMismatch:
@@ -5155,3 +5186,138 @@ class TestChargeDischargeRates:
         """BMS limit keys are in INVERTER_RUNTIME_KEYS."""
         assert "max_charge_current" in INVERTER_RUNTIME_KEYS
         assert "max_discharge_current" in INVERTER_RUNTIME_KEYS
+
+
+class TestStartupZeroSuppression:
+    """Test that total_increasing sensors suppress 0 on startup.
+
+    On restart, devices may return 0 for energy counters before real
+    data arrives.  Publishing 0 causes HA's statistics to record false
+    counter resets, permanently inflating long-term energy totals.
+    """
+
+    async def test_zero_suppressed_on_first_poll(self, hass, mock_config_entry):
+        """Zero values for total_increasing sensors are None on first poll."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        fake_data = {
+            "devices": {
+                "1111111111": {
+                    "type": "gridboss",
+                    "sensors": {
+                        "load_total": 0,
+                        "grid_import_total": 0,
+                        "grid_export_total": 0,
+                        "grid_power": 500,
+                        "frequency": 60.01,
+                    },
+                },
+            },
+        }
+
+        assert coordinator.data is None  # No prior cache
+
+        with patch.object(
+            coordinator, "_route_update_by_connection_type", return_value=fake_data
+        ):
+            result = await coordinator._async_update_data()
+
+        sensors = result["devices"]["1111111111"]["sensors"]
+        # total_increasing keys should be suppressed to None
+        assert sensors["load_total"] is None
+        assert sensors["grid_import_total"] is None
+        assert sensors["grid_export_total"] is None
+        # Non-total_increasing keys should be unchanged
+        assert sensors["grid_power"] == 500
+        assert sensors["frequency"] == 60.01
+
+    async def test_zero_not_suppressed_on_subsequent_polls(
+        self, hass, mock_config_entry
+    ):
+        """Zero values are accepted on subsequent polls (e.g. midnight reset)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Simulate prior cache exists
+        coordinator.data = {
+            "devices": {
+                "1111111111": {
+                    "sensors": {"load_total": 100.0},
+                },
+            },
+        }
+
+        fake_data = {
+            "devices": {
+                "1111111111": {
+                    "sensors": {
+                        "yield": 0,
+                        "load_total": 0,
+                    },
+                },
+            },
+        }
+
+        with patch.object(
+            coordinator, "_route_update_by_connection_type", return_value=fake_data
+        ):
+            result = await coordinator._async_update_data()
+
+        sensors = result["devices"]["1111111111"]["sensors"]
+        # self.data was NOT None, so zeros are kept
+        assert sensors["yield"] == 0
+        assert sensors["load_total"] == 0
+
+    async def test_nonzero_values_preserved_on_first_poll(
+        self, hass, mock_config_entry
+    ):
+        """Non-zero total_increasing values pass through on first poll."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        fake_data = {
+            "devices": {
+                "1111111111": {
+                    "sensors": {
+                        "load_total": 10804.5,
+                        "grid_import_total": 2500.0,
+                        "yield": 15.3,
+                    },
+                },
+            },
+        }
+
+        assert coordinator.data is None
+
+        with patch.object(
+            coordinator, "_route_update_by_connection_type", return_value=fake_data
+        ):
+            result = await coordinator._async_update_data()
+
+        sensors = result["devices"]["1111111111"]["sensors"]
+        assert sensors["load_total"] == 10804.5
+        assert sensors["grid_import_total"] == 2500.0
+        assert sensors["yield"] == 15.3
+
+
+class TestTotalIncreasingKeysConstant:
+    """Verify _TOTAL_INCREASING_KEYS frozenset is correctly built."""
+
+    def test_frozenset_has_expected_keys(self):
+        """Key lifetime energy sensors are in the frozenset."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            _TOTAL_INCREASING_KEYS,
+        )
+
+        assert "load_total" in _TOTAL_INCREASING_KEYS
+        assert "grid_import_total" in _TOTAL_INCREASING_KEYS
+        assert "grid_export_total" in _TOTAL_INCREASING_KEYS
+        assert "consumption_lifetime" in _TOTAL_INCREASING_KEYS
+        assert "yield" in _TOTAL_INCREASING_KEYS
+        assert "yield_lifetime" in _TOTAL_INCREASING_KEYS
+
+    def test_non_energy_keys_excluded(self):
+        """Power and measurement sensors are NOT in the frozenset."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            _TOTAL_INCREASING_KEYS,
+        )
+
+        assert "grid_power" not in _TOTAL_INCREASING_KEYS
+        assert "frequency" not in _TOTAL_INCREASING_KEYS
+        assert "battery_soc" not in _TOTAL_INCREASING_KEYS
+        assert "battery_voltage" not in _TOTAL_INCREASING_KEYS
