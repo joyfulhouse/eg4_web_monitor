@@ -591,22 +591,22 @@
         }
       },
       "battery_bank_charge_rate": {
-        "name": "Battery Bank Charge Rate"
+        "name": "バッテリーバンク充電率"
       },
       "battery_bank_discharge_rate": {
-        "name": "Battery Bank Discharge Rate"
+        "name": "バッテリーバンク放電率"
       },
       "battery_charge_rate": {
-        "name": "Charge Rate"
+        "name": "充電率"
       },
       "battery_discharge_rate": {
-        "name": "Discharge Rate"
+        "name": "放電率"
       },
       "parallel_battery_charge_rate": {
-        "name": "Battery Charge Rate"
+        "name": "バッテリー充電率"
       },
       "parallel_battery_discharge_rate": {
-        "name": "Battery Discharge Rate"
+        "name": "バッテリー放電率"
       }
     },
     "switch": {

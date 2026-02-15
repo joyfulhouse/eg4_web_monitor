@@ -591,22 +591,22 @@
         }
       },
       "battery_bank_charge_rate": {
-        "name": "Battery Bank Charge Rate"
+        "name": "Taxa de carga do banco de baterias"
       },
       "battery_bank_discharge_rate": {
-        "name": "Battery Bank Discharge Rate"
+        "name": "Taxa de descarga do banco de baterias"
       },
       "battery_charge_rate": {
-        "name": "Charge Rate"
+        "name": "Taxa de carga"
       },
       "battery_discharge_rate": {
-        "name": "Discharge Rate"
+        "name": "Taxa de descarga"
       },
       "parallel_battery_charge_rate": {
-        "name": "Battery Charge Rate"
+        "name": "Taxa de carga da bateria"
       },
       "parallel_battery_discharge_rate": {
-        "name": "Battery Discharge Rate"
+        "name": "Taxa de descarga da bateria"
       }
     },
     "switch": {
