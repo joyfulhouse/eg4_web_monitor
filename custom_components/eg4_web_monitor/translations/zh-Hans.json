@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "电网电压 T"
       },
+      "grid_voltage": {
+        "name": "电网电压"
+      },
+
       "grid_frequency": {
         "name": "电网频率"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "EPS 电压 T"
       },
+      "eps_voltage": {
+        "name": "EPS电压"
+      },
+
       "eps_frequency": {
         "name": "EPS 频率"
       },

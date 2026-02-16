@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "계통 전압 T"
       },
+      "grid_voltage": {
+        "name": "계통 전압"
+      },
+
       "grid_frequency": {
         "name": "계통 주파수"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "EPS 전압 T"
       },
+      "eps_voltage": {
+        "name": "EPS 전압"
+      },
+
       "eps_frequency": {
         "name": "EPS 주파수"
       },

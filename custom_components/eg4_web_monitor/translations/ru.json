@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "Напряжение сети T"
       },
+      "grid_voltage": {
+        "name": "Напряжение сети"
+      },
+
       "grid_frequency": {
         "name": "Частота сети"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "Напряжение EPS T"
       },
+      "eps_voltage": {
+        "name": "Напряжение EPS"
+      },
+
       "eps_frequency": {
         "name": "Частота EPS"
       },

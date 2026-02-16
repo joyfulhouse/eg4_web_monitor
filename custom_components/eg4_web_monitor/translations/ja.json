@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "系統電圧 T相"
       },
+      "grid_voltage": {
+        "name": "系統電圧"
+      },
+
       "grid_frequency": {
         "name": "系統周波数"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "EPS電圧 T相"
       },
+      "eps_voltage": {
+        "name": "EPS電圧"
+      },
+
       "eps_frequency": {
         "name": "EPS周波数"
       },

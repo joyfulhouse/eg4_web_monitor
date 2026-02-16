@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "Netspanning T"
       },
+      "grid_voltage": {
+        "name": "Netspanning"
+      },
+
       "grid_frequency": {
         "name": "Netfrequentie"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "EPS-spanning T"
       },
+      "eps_voltage": {
+        "name": "EPS-spanning"
+      },
+
       "eps_frequency": {
         "name": "EPS-frequentie"
       },

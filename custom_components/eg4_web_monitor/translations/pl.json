@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "Napiecie sieci T"
       },
+      "grid_voltage": {
+        "name": "Napięcie Sieci"
+      },
+
       "grid_frequency": {
         "name": "Czestotliwosc sieci"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "Napiecie EPS T"
       },
+      "eps_voltage": {
+        "name": "Napięcie EPS"
+      },
+
       "eps_frequency": {
         "name": "Czestotliwosc EPS"
       },

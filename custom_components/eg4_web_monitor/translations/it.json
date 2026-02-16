@@ -516,6 +516,10 @@
       "grid_voltage_t": {
         "name": "Tensione Rete T"
       },
+      "grid_voltage": {
+        "name": "Tensione Rete"
+      },
+
       "grid_frequency": {
         "name": "Frequenza Rete"
       },
@@ -528,6 +532,10 @@
       "eps_voltage_t": {
         "name": "Tensione EPS T"
       },
+      "eps_voltage": {
+        "name": "Tensione EPS"
+      },
+
       "eps_frequency": {
         "name": "Frequenza EPS"
       },
