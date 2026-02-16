@@ -692,14 +692,6 @@
     }
   },
   "issues": {
-    "grid_type_mismatch": {
-      "title": "Grid type mismatch for {serial}",
-      "description": "Inverter **{serial}** ({model}) was configured as **{config_grid_type}** but live detection found **{detected_grid_type}**. This causes {skipped_count} sensors to be missing.\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor** and reconfigure the integration with the correct grid type."
-    },
-    "grid_type_missing": {
-      "title": "Grid type not configured for {model} ({serial})",
-      "description": "This LXP-EU device defaults to three-phase mode. If your system is single-phase, reconfigure the integration and select the correct grid type to avoid extra sensor entities."
-    },
     "dongle_validation_disabled": {
       "title": "Validation des données recommandée pour WiFi dongle",
       "description": "Un WiFi dongle est configuré mais la **Validation des données** est désactivée. Les WiFi dongles partagent un bus Modbus, et les lectures simultanées peuvent provoquer des données de registre corrompues (p. ex., pics d'énergie).\n\nPour corriger, allez dans **Paramètres > Appareils et services > EG4 Web Monitor > Configurer** et activez la **Validation des données**."

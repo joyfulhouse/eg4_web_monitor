@@ -27,13 +27,8 @@ from .const import (
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
     DOMAIN,
-    GRID_TYPE_SINGLE_PHASE,
-    GRID_TYPE_SPLIT_PHASE,
-    GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
     MANUFACTURER,
-    SPLIT_PHASE_ONLY_SENSORS,
-    THREE_PHASE_ONLY_SENSORS,
 )
 from .coordinator_mixins import (
     _MixinBase,
@@ -139,104 +134,6 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
         return params
-
-    def _check_grid_type_mismatch(
-        self,
-        serial: str,
-        model: str,
-        config: dict[str, Any],
-        live_features: dict[str, Any],
-    ) -> None:
-        """Detect mismatch between config grid_type and live feature detection.
-
-        When the user selected a wrong grid_type during setup (e.g., single_phase
-        for a three-phase inverter), static entity creation skips phase-specific
-        sensors. This creates a Repairs issue telling the user to reconfigure.
-        """
-        config_grid_type = config.get("grid_type")
-        if not config_grid_type:
-            return
-
-        live_three = live_features.get("supports_three_phase", False)
-        live_split = live_features.get("supports_split_phase", False)
-
-        # Derive what grid_type the live detection implies
-        if live_three:
-            detected_type = GRID_TYPE_THREE_PHASE
-        elif live_split:
-            detected_type = GRID_TYPE_SPLIT_PHASE
-        else:
-            detected_type = GRID_TYPE_SINGLE_PHASE
-
-        if config_grid_type == detected_type:
-            return
-
-        # Count phase-specific sensors that are missing due to the mismatch
-        phase_sensor_counts = {
-            GRID_TYPE_THREE_PHASE: len(THREE_PHASE_ONLY_SENSORS),
-            GRID_TYPE_SPLIT_PHASE: len(SPLIT_PHASE_ONLY_SENSORS),
-        }
-        skipped = phase_sensor_counts.get(detected_type, 0)
-
-        _LOGGER.warning(
-            "Grid type mismatch for %s (%s): config=%s, detected=%s. "
-            "%d phase-specific sensors are missing. "
-            "Reconfigure the integration with the correct grid type.",
-            serial,
-            model,
-            config_grid_type,
-            detected_type,
-            skipped,
-        )
-
-        self._grid_type_mismatch_notified.add(serial)
-
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            f"grid_type_mismatch_{serial}",
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="grid_type_mismatch",
-            translation_placeholders={
-                "serial": serial,
-                "model": model,
-                "config_grid_type": config_grid_type,
-                "detected_grid_type": detected_type,
-                "skipped_count": str(skipped),
-            },
-        )
-
-    def _check_missing_grid_type(
-        self,
-        serial: str,
-        model: str,
-        features: dict[str, Any],
-    ) -> None:
-        """Surface a Repairs issue when LXP device has no grid_type configured.
-
-        LXP-EU defaults to three-phase but many residential users run
-        single-phase. Without explicit grid_type, incorrect three-phase
-        sensors are created.
-        """
-        if serial in self._grid_type_mismatch_notified:
-            return
-        family = features.get("inverter_family")
-        if family != "LXP":
-            return
-        if not features.get("supports_three_phase", False):
-            return
-
-        self._grid_type_mismatch_notified.add(serial)
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            f"grid_type_missing_{serial}",
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="grid_type_missing",
-            translation_placeholders={"serial": serial, "model": model},
-        )
 
     def _build_local_device_data(
         self,
@@ -814,13 +711,6 @@ class LocalTransportMixin(_MixinBase):
                             e,
                         )
 
-                # Check for grid_type mismatch between config and live detection
-                if features and serial not in self._grid_type_mismatch_notified:
-                    if config.get("grid_type") is None:
-                        self._check_missing_grid_type(serial, model, features)
-                    else:
-                        self._check_grid_type_mismatch(serial, model, config, features)
-
                 if serial not in self._firmware_cache:
                     fw = "Unknown"
                     transport = inverter._transport
@@ -1024,11 +914,6 @@ class LocalTransportMixin(_MixinBase):
         concurrent Modbus access with the regular poll cycle.
         """
         try:
-            # Build serial→config lookup for grid_type mismatch checks
-            config_by_serial: dict[str, dict[str, Any]] = {
-                c.get("serial", ""): c for c in self._local_transport_configs
-            }
-
             loaded = 0
             for serial, inverter in self._inverter_cache.items():
                 try:
@@ -1037,20 +922,6 @@ class LocalTransportMixin(_MixinBase):
                     await inverter.refresh(force=False, include_parameters=True)
                     if hasattr(inverter, "detect_features"):
                         await inverter.detect_features()
-                        # Check grid_type mismatch on first feature detection
-                        if serial not in self._grid_type_mismatch_notified:
-                            features = self._extract_inverter_features(inverter)
-                            config = config_by_serial.get(serial, {})
-                            model = config.get("model", "")
-                            if features:
-                                if config.get("grid_type") is None:
-                                    self._check_missing_grid_type(
-                                        serial, model, features
-                                    )
-                                else:
-                                    self._check_grid_type_mismatch(
-                                        serial, model, config, features
-                                    )
                     loaded += 1
                     _LOGGER.debug(
                         "LOCAL: Background parameter load complete for %s",

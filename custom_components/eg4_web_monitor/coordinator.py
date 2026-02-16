@@ -271,10 +271,6 @@ class EG4DataUpdateCoordinator(
         # with None values for immediate entity creation (zero Modbus reads).
         self._local_static_phase_done: bool = False
 
-        # Track serials that have already been notified about grid_type mismatch
-        # to avoid creating duplicate repair issues on every poll cycle.
-        self._grid_type_mismatch_notified: set[str] = set()
-
         # Data validation: opt-in corruption detection for local register reads.
         # When enabled, corrupt Modbus reads are rejected at two levels:
         # 1. Transport: canary-field checks (SoC>100, freq out-of-range) discard bad reads
