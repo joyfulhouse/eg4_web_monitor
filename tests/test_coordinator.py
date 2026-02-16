@@ -33,9 +33,6 @@ from custom_components.eg4_web_monitor.const import (
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DOMAIN,
-    GRID_TYPE_SINGLE_PHASE,
-    GRID_TYPE_SPLIT_PHASE,
-    GRID_TYPE_THREE_PHASE,
 )
 from custom_components.eg4_web_monitor.coordinator import (
     EG4DataUpdateCoordinator,
@@ -57,6 +54,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     _build_runtime_sensor_mapping,
     _compute_charge_rate,
     _features_from_family,
+    alias_common_voltage_sensors,
     compute_bank_charge_rate,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
@@ -3872,280 +3870,53 @@ class TestSmartPortFiltering:
         _last_good_smart_port_statuses.pop(serial, None)
 
 
-class TestGridTypeMismatch:
-    """Test grid_type mismatch detection (Repairs issue creation)."""
+class TestCommonVoltageSensors:
+    """Test grid_voltage/eps_voltage aliasing for non-three-phase configs."""
 
-    @pytest.fixture
-    def local_config_entry(self):
-        """Config entry for LOCAL connection type with grid_type."""
-        return MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 Electronics - LXP-EU 12K",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "1234567890",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "LXP",
-                        "model": "LXP-EU 12K",
-                        "grid_type": GRID_TYPE_THREE_PHASE,
-                    },
-                ],
-            },
-            entry_id="local_grid_test",
-        )
+    def test_alias_fires_for_split_phase(self):
+        """Split-phase config gets grid_voltage aliased from grid_voltage_r."""
+        sensors: dict[str, Any] = {"grid_voltage_r": 240.1, "eps_voltage_r": 120.5}
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 240.1
+        assert sensors["eps_voltage"] == 120.5
 
-    async def test_no_mismatch_no_issue(self, hass, local_config_entry):
-        """When config and live features agree, no issue is created."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+    def test_alias_fires_for_single_phase(self):
+        """Single-phase config gets grid_voltage aliased from grid_voltage_r."""
+        sensors: dict[str, Any] = {"grid_voltage_r": 230.0, "eps_voltage_r": 230.0}
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 230.0
+        assert sensors["eps_voltage"] == 230.0
 
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_grid_type_mismatch(
-                "1234567890",
-                "LXP-EU 12K",
-                {"grid_type": GRID_TYPE_THREE_PHASE},
-                {"supports_three_phase": True, "supports_split_phase": False},
-            )
+    def test_alias_skipped_for_three_phase(self):
+        """Three-phase config does NOT get grid_voltage alias."""
+        sensors: dict[str, Any] = {"grid_voltage_r": 230.0, "eps_voltage_r": 230.0}
+        features: dict[str, Any] = {"supports_three_phase": True}
+        alias_common_voltage_sensors(sensors, features)
+        assert "grid_voltage" not in sensors
+        assert "eps_voltage" not in sensors
 
-        mock_create.assert_not_called()
-        assert "1234567890" not in coordinator._grid_type_mismatch_notified
+    def test_alias_handles_missing_values(self):
+        """Missing R-phase values don't create aliases."""
+        sensors: dict[str, Any] = {}
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert "grid_voltage" not in sensors
+        assert "eps_voltage" not in sensors
 
-    async def test_mismatch_creates_issue(self, hass, local_config_entry):
-        """When config says three_phase but live says split_phase, issue is created."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+    def test_alias_handles_none_values(self):
+        """None R-phase values don't create aliases."""
+        sensors: dict[str, Any] = {"grid_voltage_r": None, "eps_voltage_r": None}
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert "grid_voltage" not in sensors
+        assert "eps_voltage" not in sensors
 
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_grid_type_mismatch(
-                "1234567890",
-                "LXP-EU 12K",
-                {"grid_type": GRID_TYPE_THREE_PHASE},
-                {"supports_three_phase": False, "supports_split_phase": True},
-            )
-
-        mock_create.assert_called_once()
-        call_kwargs = mock_create.call_args
-        assert call_kwargs[1]["translation_key"] == "grid_type_mismatch"
-        assert call_kwargs[1]["translation_placeholders"]["serial"] == "1234567890"
-        assert (
-            call_kwargs[1]["translation_placeholders"]["config_grid_type"]
-            == GRID_TYPE_THREE_PHASE
-        )
-        assert (
-            call_kwargs[1]["translation_placeholders"]["detected_grid_type"]
-            == GRID_TYPE_SPLIT_PHASE
-        )
-        assert "1234567890" in coordinator._grid_type_mismatch_notified
-
-    async def test_mismatch_deduplicated(self, hass, local_config_entry):
-        """Second call for same serial doesn't create a second issue."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-        coordinator._grid_type_mismatch_notified.add("1234567890")
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            # Caller checks the set before calling, so _check_grid_type_mismatch
-            # would create an issue if called. The dedup is at the call-site.
-            # But let's also verify that _check_grid_type_mismatch itself
-            # adds to the set (idempotent).
-            coordinator._check_grid_type_mismatch(
-                "1234567890",
-                "LXP-EU 12K",
-                {"grid_type": GRID_TYPE_THREE_PHASE},
-                {"supports_three_phase": False, "supports_split_phase": True},
-            )
-
-        # Even though _check_grid_type_mismatch adds to set, it still fires
-        # because the set check is at the call-site. This verifies the
-        # method itself unconditionally creates the issue when types differ.
-        mock_create.assert_called_once()
-
-    async def test_no_config_grid_type_skips_check(self, hass, local_config_entry):
-        """When config has no grid_type, check is skipped (legacy configs)."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_grid_type_mismatch(
-                "1234567890",
-                "LXP-EU 12K",
-                {},  # No grid_type in config
-                {"supports_three_phase": True, "supports_split_phase": False},
-            )
-
-        mock_create.assert_not_called()
-
-    async def test_single_phase_detected_when_neither_flag(
-        self, hass, local_config_entry
-    ):
-        """When neither three_phase nor split_phase detected, assumes single_phase."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_grid_type_mismatch(
-                "1234567890",
-                "LXP-EU 12K",
-                {"grid_type": GRID_TYPE_THREE_PHASE},
-                {"supports_three_phase": False, "supports_split_phase": False},
-            )
-
-        mock_create.assert_called_once()
-        assert (
-            mock_create.call_args[1]["translation_placeholders"]["detected_grid_type"]
-            == GRID_TYPE_SINGLE_PHASE
-        )
-
-    async def test_deferred_load_triggers_mismatch_check(
-        self, hass, local_config_entry
-    ):
-        """Deferred parameter load checks grid_type mismatch after detect_features."""
-        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-        coordinator.async_request_refresh = AsyncMock()
-
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter.detect_features = AsyncMock()
-        coordinator._inverter_cache["1234567890"] = mock_inverter
-
-        # Mock _extract_inverter_features to return mismatched features
-        with (
-            patch.object(
-                coordinator,
-                "_extract_inverter_features",
-                return_value={
-                    "supports_three_phase": False,
-                    "supports_split_phase": True,
-                },
-            ),
-            patch(
-                "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-            ) as mock_create,
-        ):
-            await coordinator._deferred_local_parameter_load()
-
-        mock_create.assert_called_once()
-        assert "1234567890" in coordinator._grid_type_mismatch_notified
-
-
-class TestMissingGridType:
-    """Test _check_missing_grid_type (Repairs issue for LXP-EU without grid_type)."""
-
-    @pytest.fixture
-    def lxp_no_grid_config_entry(self):
-        """Config entry for LXP device WITHOUT grid_type set."""
-        return MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 Electronics - LXP-EU 12K",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "4344340013",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "LXP",
-                        "model": "LXP-EU 12K",
-                        # No grid_type!
-                    },
-                ],
-            },
-            entry_id="lxp_no_grid_test",
-        )
-
-    async def test_lxp_eu_no_grid_type_creates_repairs_issue(
-        self, hass, lxp_no_grid_config_entry
-    ):
-        """LXP family, no grid_type, three-phase default → issue created."""
-        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_missing_grid_type(
-                "4344340013",
-                "LXP-EU 12K",
-                {"inverter_family": "LXP", "supports_three_phase": True},
-            )
-
-        mock_create.assert_called_once()
-        call_kwargs = mock_create.call_args
-        assert call_kwargs[1]["translation_key"] == "grid_type_missing"
-        assert call_kwargs[1]["translation_placeholders"]["serial"] == "4344340013"
-        assert call_kwargs[1]["translation_placeholders"]["model"] == "LXP-EU 12K"
-        assert "4344340013" in coordinator._grid_type_mismatch_notified
-
-    async def test_lxp_eu_with_grid_type_no_issue(self, hass, lxp_no_grid_config_entry):
-        """LXP family but grid_type IS set → _check_missing_grid_type not called.
-
-        The call-site gates on config.get("grid_type") is None, so this verifies
-        the method itself does nothing when the serial is already notified.
-        """
-        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
-        # If grid_type were set, the call-site calls _check_grid_type_mismatch
-        # instead. We verify _check_missing_grid_type doesn't fire when serial
-        # is already in the notified set (dedup path).
-        coordinator._grid_type_mismatch_notified.add("4344340013")
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_missing_grid_type(
-                "4344340013",
-                "LXP-EU 12K",
-                {"inverter_family": "LXP", "supports_three_phase": True},
-            )
-
-        mock_create.assert_not_called()
-
-    async def test_non_lxp_no_issue(self, hass, lxp_no_grid_config_entry):
-        """EG4_HYBRID family, no grid_type → no issue (unambiguous)."""
-        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_missing_grid_type(
-                "1234567890",
-                "18kPV",
-                {"inverter_family": "EG4_HYBRID", "supports_three_phase": False},
-            )
-
-        mock_create.assert_not_called()
-
-    async def test_dedup_missing_grid_type(self, hass, lxp_no_grid_config_entry):
-        """Second call for same serial doesn't create a duplicate issue."""
-        coordinator = EG4DataUpdateCoordinator(hass, lxp_no_grid_config_entry)
-
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
-        ) as mock_create:
-            coordinator._check_missing_grid_type(
-                "4344340013",
-                "LXP-EU 12K",
-                {"inverter_family": "LXP", "supports_three_phase": True},
-            )
-            coordinator._check_missing_grid_type(
-                "4344340013",
-                "LXP-EU 12K",
-                {"inverter_family": "LXP", "supports_three_phase": True},
-            )
-
-        mock_create.assert_called_once()
+    def test_common_voltage_keys_in_all_inverter_sensor_keys(self):
+        """grid_voltage and eps_voltage must be in ALL_INVERTER_SENSOR_KEYS."""
+        assert "grid_voltage" in ALL_INVERTER_SENSOR_KEYS
+        assert "eps_voltage" in ALL_INVERTER_SENSOR_KEYS
 
 
 class TestParameterPreComputation:
@@ -4528,9 +4299,7 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["battery_current"] == 12.5
         assert sensors["total_load_power"] == 2500.0
 
-    async def test_no_transport_runtime_skips_overlay(
-        self, hass, mock_config_entry
-    ):
+    async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -4665,9 +4434,7 @@ class TestHybridParallelBatteryCountOverride:
 class TestParallelBatteryCurrentAggregation:
     """Test battery_bank_current aggregation for parallel groups."""
 
-    async def test_local_path_aggregates_battery_current(
-        self, hass, mock_config_entry
-    ):
+    async def test_local_path_aggregates_battery_current(self, hass, mock_config_entry):
         """LOCAL path sums battery_bank_current from member inverters."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -4705,9 +4472,7 @@ class TestParallelBatteryCurrentAggregation:
         assert pg is not None
         assert pg["sensors"]["parallel_battery_current"] == pytest.approx(27.8)
 
-    async def test_local_path_skips_none_battery_current(
-        self, hass, mock_config_entry
-    ):
+    async def test_local_path_skips_none_battery_current(self, hass, mock_config_entry):
         """LOCAL path skips None battery_bank_current values."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -4754,12 +4519,10 @@ class TestParallelBatteryCurrentAggregation:
 class TestConditionalIndividualBatteryCreation:
     """Test that batteries with all-None CAN bus data are skipped."""
 
-    async def test_local_path_skips_none_batteries(
-        self, hass, mock_config_entry
-    ):
+    async def test_local_path_skips_none_batteries(self, hass, mock_config_entry):
         """LOCAL path skips individual batteries with no CAN bus data."""
         mock_config_entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        _coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         # Simulate two batteries — one real, one with all-None CAN data
         mock_batt_good = MagicMock()
@@ -4832,12 +4595,16 @@ class TestStaticParallelGroupDeviceRegistration:
                 "explicit_parallel",
                 [
                     _make_inverter_transport(
-                        "INV001", "192.168.1.100",
-                        parallel_number=1, parallel_master_slave=1,
+                        "INV001",
+                        "192.168.1.100",
+                        parallel_number=1,
+                        parallel_master_slave=1,
                     ),
                     _make_inverter_transport(
-                        "INV002", "192.168.1.101",
-                        parallel_number=1, parallel_master_slave=2,
+                        "INV002",
+                        "192.168.1.101",
+                        parallel_number=1,
+                        parallel_master_slave=2,
                     ),
                 ],
             ),
@@ -4914,36 +4681,28 @@ class TestComputedEnergyClamp:
         }
         return coordinator
 
-    def test_decreasing_consumption_clamped(
-        self, coordinator_with_prev_consumption
-    ):
+    def test_decreasing_consumption_clamped(self, coordinator_with_prev_consumption):
         """Consumption that decreased is clamped to previous value."""
         sensors = {"consumption": 24.8, "consumption_lifetime": 4884.9}
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
         assert sensors["consumption"] == 24.9
         assert sensors["consumption_lifetime"] == 4885.0
 
-    def test_increasing_consumption_passes(
-        self, coordinator_with_prev_consumption
-    ):
+    def test_increasing_consumption_passes(self, coordinator_with_prev_consumption):
         """Consumption that increased is not clamped."""
         sensors = {"consumption": 25.1, "consumption_lifetime": 4886.0}
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
         assert sensors["consumption"] == 25.1
         assert sensors["consumption_lifetime"] == 4886.0
 
-    def test_equal_consumption_passes(
-        self, coordinator_with_prev_consumption
-    ):
+    def test_equal_consumption_passes(self, coordinator_with_prev_consumption):
         """Equal consumption values are not clamped."""
         sensors = {"consumption": 24.9, "consumption_lifetime": 4885.0}
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
         assert sensors["consumption"] == 24.9
         assert sensors["consumption_lifetime"] == 4885.0
 
-    def test_parallel_group_clamped(
-        self, coordinator_with_prev_consumption
-    ):
+    def test_parallel_group_clamped(self, coordinator_with_prev_consumption):
         """PG consumption also gets clamped."""
         sensors = {"consumption": 49.7, "consumption_lifetime": 9769.5}
         coordinator_with_prev_consumption._clamp_computed_energy(
@@ -4974,9 +4733,7 @@ class TestComputedEnergyClamp:
         assert sensors["consumption"] == 24.8
         assert sensors["consumption_lifetime"] == 4884.9
 
-    def test_none_values_not_clamped(
-        self, coordinator_with_prev_consumption
-    ):
+    def test_none_values_not_clamped(self, coordinator_with_prev_consumption):
         """None values (unavailable) are not clamped."""
         sensors = {"consumption": None, "consumption_lifetime": None}
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
@@ -5111,7 +4868,9 @@ class TestChargeRates:
         """Individual battery mapping includes signed charge rate."""
         battery = self._make_battery_mock(current=15.0)
         mapping = _build_individual_battery_mapping(battery)
-        assert mapping["battery_charge_rate"] == pytest.approx(5.36, abs=0.01)  # 15/280*100
+        assert mapping["battery_charge_rate"] == pytest.approx(
+            5.36, abs=0.01
+        )  # 15/280*100
 
     def test_individual_battery_negative_charge_rate(self):
         """Individual battery shows negative rate when current is negative."""

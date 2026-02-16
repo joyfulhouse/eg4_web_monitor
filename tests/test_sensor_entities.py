@@ -7,6 +7,7 @@ import pytest
 
 from custom_components.eg4_web_monitor.const import (
     DISCHARGE_RECOVERY_SENSORS,
+    NON_THREE_PHASE_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
@@ -183,6 +184,24 @@ class TestShouldCreateSensor:
         # Regular sensors still created
         assert _should_create_sensor("pv1_voltage", features) is True
         assert _should_create_sensor("battery_power", features) is True
+
+    def test_non_three_phase_sensors_created_for_single_phase(self):
+        """grid_voltage and eps_voltage should be created for single-phase."""
+        features = {"supports_three_phase": False, "supports_split_phase": False}
+        for key in NON_THREE_PHASE_SENSORS:
+            assert _should_create_sensor(key, features) is True
+
+    def test_non_three_phase_sensors_created_for_split_phase(self):
+        """grid_voltage and eps_voltage should be created for split-phase."""
+        features = {"supports_three_phase": False, "supports_split_phase": True}
+        for key in NON_THREE_PHASE_SENSORS:
+            assert _should_create_sensor(key, features) is True
+
+    def test_non_three_phase_sensors_not_created_for_three_phase(self):
+        """grid_voltage and eps_voltage should NOT be created for three-phase."""
+        features = {"supports_three_phase": True, "supports_split_phase": False}
+        for key in NON_THREE_PHASE_SENSORS:
+            assert _should_create_sensor(key, features) is False
 
 
 # ── _create_inverter_sensors ─────────────────────────────────────────
