@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Batteriebank-Laderate"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Batteriebank-Entladerate"
-      },
       "battery_charge_rate": {
         "name": "Laderate"
       },
-      "battery_discharge_rate": {
-        "name": "Entladerate"
-      },
       "parallel_battery_charge_rate": {
         "name": "Batterie-Laderate"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Batterie-Entladerate"
       }
     },
     "switch": {

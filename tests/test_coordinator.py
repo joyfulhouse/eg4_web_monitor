@@ -55,9 +55,9 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     _build_gridboss_sensor_mapping,
     _build_individual_battery_mapping,
     _build_runtime_sensor_mapping,
-    _compute_charge_discharge_rates,
+    _compute_charge_rate,
     _features_from_family,
-    compute_bank_charge_rates,
+    compute_bank_charge_rate,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
     apply_gridboss_overlay,
@@ -540,8 +540,7 @@ class TestParallelGroupBatteryCount:
                         "battery_bank_count": 3,  # Has 3 batteries
                         "battery_soc": 50,
                         "battery_voltage": 52.0,
-                        "battery_charge_power": 500,
-                        "battery_discharge_power": 0,
+                        "battery_power": 500,
                     },
                     "batteries": {},  # Empty - no CAN bus data
                 },
@@ -553,8 +552,7 @@ class TestParallelGroupBatteryCount:
                         "battery_bank_count": 3,  # Has 3 batteries
                         "battery_soc": 55,
                         "battery_voltage": 52.5,
-                        "battery_charge_power": 600,
-                        "battery_discharge_power": 0,
+                        "battery_power": 600,
                     },
                     "batteries": {},  # Empty - no CAN bus data
                 },
@@ -672,8 +670,7 @@ class TestParallelGroupAggregation:
                         "grid_power": 200.0,
                         "consumption_power": 2800.0,
                         "eps_power": 100.0,
-                        "battery_charge_power": 500.0,
-                        "battery_discharge_power": 0.0,
+                        "battery_power": 500.0,
                         "ac_power": 2900.0,
                         "output_power": 2900.0,
                         "yield": 15.0,
@@ -707,8 +704,7 @@ class TestParallelGroupAggregation:
                         "grid_power": 100.0,
                         "consumption_power": 2400.0,
                         "eps_power": 50.0,
-                        "battery_charge_power": 300.0,
-                        "battery_discharge_power": 0.0,
+                        "battery_power": 300.0,
                         "ac_power": 2200.0,
                         "output_power": 2200.0,
                         "yield": 12.0,
@@ -792,14 +788,9 @@ class TestParallelGroupAggregation:
 
         sensors = processed["devices"]["parallel_group_a"]["sensors"]
 
-        # battery_charge_power and battery_discharge_power are removed,
-        # replaced with parallel_battery_* keys
-        assert "battery_charge_power" not in sensors
-        assert "battery_discharge_power" not in sensors
-        assert sensors["parallel_battery_charge_power"] == 800.0  # 500 + 300
-        assert sensors["parallel_battery_discharge_power"] == 0.0
-        # parallel_battery_power = charge - discharge (positive = charging)
-        assert sensors["parallel_battery_power"] == 800.0  # 800 - 0
+        # battery_power is removed (popped), replaced with parallel_battery_power
+        assert "battery_power" not in sensors
+        assert sensors["parallel_battery_power"] == 800.0  # 500 + 300
 
     async def test_battery_power_discharging(self, hass, mock_config_entry):
         """Test parallel_battery_power is negative when discharging."""
@@ -807,19 +798,15 @@ class TestParallelGroupAggregation:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         processed = self._two_inverter_processed()
 
-        # Modify to discharging scenario
-        processed["devices"]["INV001"]["sensors"]["battery_charge_power"] = 0.0
-        processed["devices"]["INV001"]["sensors"]["battery_discharge_power"] = 1000.0
-        processed["devices"]["INV002"]["sensors"]["battery_charge_power"] = 0.0
-        processed["devices"]["INV002"]["sensors"]["battery_discharge_power"] = 800.0
+        # Modify to discharging scenario (negative = discharging)
+        processed["devices"]["INV001"]["sensors"]["battery_power"] = -1000.0
+        processed["devices"]["INV002"]["sensors"]["battery_power"] = -800.0
 
         await coordinator._process_local_parallel_groups(processed)
 
         sensors = processed["devices"]["parallel_group_a"]["sensors"]
-        assert sensors["parallel_battery_charge_power"] == 0.0
-        assert sensors["parallel_battery_discharge_power"] == 1800.0
-        # charge - discharge: negative = discharging
-        assert sensors["parallel_battery_power"] == -1800.0  # 0 - 1800
+        # Signed sum: negative = discharging
+        assert sensors["parallel_battery_power"] == -1800.0  # -1000 + -800
 
     async def test_soc_averaged(self, hass, mock_config_entry):
         """Test that state_of_charge is averaged across devices."""
@@ -1046,8 +1033,7 @@ class TestParallelGroupAggregation:
                     "parallel_master_slave": 1,
                     "sensors": {
                         "pv_total_power": 3000.0,
-                        "battery_charge_power": 500.0,
-                        "battery_discharge_power": 0.0,
+                        "battery_power": 500.0,
                         "state_of_charge": 80,
                     },
                     "batteries": {},
@@ -1062,7 +1048,7 @@ class TestParallelGroupAggregation:
         assert pg["member_count"] == 1
         assert pg["member_serials"] == ["INV001"]
         assert pg["sensors"]["pv_total_power"] == 3000.0
-        assert pg["sensors"]["parallel_battery_charge_power"] == 500.0
+        assert pg["sensors"]["parallel_battery_power"] == 500.0
 
 
 class TestDeferredLocalParameters:
@@ -1661,11 +1647,10 @@ class TestStaticLocalData:
         mock_battery.discharge_power = 0
         mock_battery.battery_power = 500
         mapping = _build_battery_bank_sensor_mapping(mock_battery)
-        # Charge/discharge rate keys are computed by compute_bank_charge_rates()
-        # after the raw mapping, so they appear in the frozenset but not here.
+        # Charge rate key is computed by compute_bank_charge_rate()
+        # after the raw mapping, so it appears in the frozenset but not here.
         computed_keys = {
             "battery_bank_charge_rate",
-            "battery_bank_discharge_rate",
         }
         assert set(mapping.keys()) == BATTERY_BANK_KEYS - computed_keys
 
@@ -2140,8 +2125,7 @@ class TestParallelGroupAggregationMath:
                 "grid_power": 200,  # importing 200W
                 "consumption_power": 2800,
                 "eps_power": 100,
-                "battery_charge_power": 0,
-                "battery_discharge_power": 900,
+                "battery_power": -900,  # discharging 900W
                 "ac_power": 2700,
                 "output_power": 2700,
             },
@@ -2150,8 +2134,7 @@ class TestParallelGroupAggregationMath:
                 "grid_power": -500,  # exporting 500W
                 "consumption_power": 3100,
                 "eps_power": 200,
-                "battery_charge_power": 600,
-                "battery_discharge_power": 0,
+                "battery_power": 600,  # charging 600W
                 "ac_power": 3800,
                 "output_power": 3800,
             },
@@ -2256,20 +2239,18 @@ class TestParallelGroupAggregationMath:
 
     @pytest.mark.asyncio
     async def test_battery_power_remapping(self, hass, local_entry):
-        """Battery charge/discharge are remapped to parallel_battery_* keys.
+        """battery_power is summed and remapped to parallel_battery_power.
 
-        parallel_battery_power = total_charge - total_discharge
+        parallel_battery_power = sum of battery_power across inverters
         (positive = net charging, negative = net discharging)
         Matches HTTP path (ParallelGroup.battery_power) and per-inverter convention.
         """
         processed = self._make_processed(
             {
-                "battery_charge_power": 0,
-                "battery_discharge_power": 2500,
+                "battery_power": -2500,  # discharging 2500W
             },
             {
-                "battery_charge_power": 1500,
-                "battery_discharge_power": 0,
+                "battery_power": 1500,  # charging 1500W
             },
         )
 
@@ -2278,15 +2259,11 @@ class TestParallelGroupAggregationMath:
 
         sensors = processed["devices"]["parallel_group_a"]["sensors"]
 
-        # Remapped keys
-        assert sensors["parallel_battery_charge_power"] == 1500  # 0 + 1500
-        assert sensors["parallel_battery_discharge_power"] == 2500  # 2500 + 0
-        # Net: 1500 charge - 2500 discharge = -1000 (net discharging)
+        # Net: -2500 + 1500 = -1000 (net discharging)
         assert sensors["parallel_battery_power"] == -1000
 
-        # Original keys should NOT exist (popped)
-        assert "battery_charge_power" not in sensors
-        assert "battery_discharge_power" not in sensors
+        # Original key should NOT exist (popped)
+        assert "battery_power" not in sensors
 
     @pytest.mark.asyncio
     async def test_battery_count_and_capacity_summed(self, hass, local_entry):
@@ -2390,19 +2367,19 @@ class TestParallelGroupAggregationMath:
         Since this equation is linear, summing per-inverter consumption equals
         computing consumption from summed group totals.
         """
-        # Inverter 1: consumption = 3500 + (900 - 0) + 200 - 1800 = 2800
+        # Inverter 1: battery_power = -900 (discharging)
+        # consumption = 3500 + 900 + 200 - 1800 = 2800
         inv1 = {
             "pv_total_power": 3500,
-            "battery_charge_power": 0,
-            "battery_discharge_power": 900,
+            "battery_power": -900,  # discharging 900W
             "grid_power": -1600,  # net export (200 import - 1800 export)
             "consumption_power": 2800,
         }
-        # Inverter 2: consumption = 4200 + (0 - 600) + 1500 - 300 = 4800
+        # Inverter 2: battery_power = 600 (charging)
+        # consumption = 4200 - 600 + 1500 - 300 = 4800
         inv2 = {
             "pv_total_power": 4200,
-            "battery_charge_power": 600,
-            "battery_discharge_power": 0,
+            "battery_power": 600,  # charging 600W
             "grid_power": 1200,  # net import
             "consumption_power": 4800,
         }
@@ -2447,16 +2424,14 @@ class TestParallelGroupAggregationMath:
                 "pv_total_power": 6000,  # High PV
                 "grid_power": -2000,  # Exporting excess
                 "consumption_power": 3000,
-                "battery_charge_power": 1000,
-                "battery_discharge_power": 0,
+                "battery_power": 1000,  # charging 1000W
                 "eps_power": 0,
             },
             {
                 "pv_total_power": 500,  # Low PV (shaded)
                 "grid_power": 3000,  # Heavy import
                 "consumption_power": 3500,
-                "battery_charge_power": 0,
-                "battery_discharge_power": 0,
+                "battery_power": 0,  # idle
                 "eps_power": 0,
             },
         )
@@ -2811,8 +2786,7 @@ class TestGridBOSSOverlay:
                         "consumption_power": 1400,
                         "eps_power": 100,
                         "pv_total_power": 2000,
-                        "battery_charge_power": 0,
-                        "battery_discharge_power": 450,
+                        "battery_power": -450,  # discharging 450W
                         "state_of_charge": 80,
                         "battery_voltage": 52.0,
                     },
@@ -4707,8 +4681,7 @@ class TestParallelBatteryCurrentAggregation:
                     "sensors": {
                         "battery_bank_current": 15.5,
                         "battery_bank_count": 3,
-                        "battery_charge_power": 500,
-                        "battery_discharge_power": 0,
+                        "battery_power": 500,
                     },
                     "batteries": {},
                 },
@@ -4719,8 +4692,7 @@ class TestParallelBatteryCurrentAggregation:
                     "sensors": {
                         "battery_bank_current": 12.3,
                         "battery_bank_count": 3,
-                        "battery_charge_power": 400,
-                        "battery_discharge_power": 0,
+                        "battery_power": 400,
                     },
                     "batteries": {},
                 },
@@ -4749,8 +4721,7 @@ class TestParallelBatteryCurrentAggregation:
                     "sensors": {
                         "battery_bank_current": 10.0,
                         "battery_bank_count": 2,
-                        "battery_charge_power": 500,
-                        "battery_discharge_power": 0,
+                        "battery_power": 500,
                     },
                     "batteries": {},
                 },
@@ -4761,8 +4732,7 @@ class TestParallelBatteryCurrentAggregation:
                     "sensors": {
                         # No battery_bank_current (None/missing)
                         "battery_bank_count": 2,
-                        "battery_charge_power": 300,
-                        "battery_discharge_power": 0,
+                        "battery_power": 300,
                     },
                     "batteries": {},
                 },
@@ -5014,119 +4984,107 @@ class TestComputedEnergyClamp:
         assert sensors["consumption_lifetime"] is None
 
 
-class TestChargeDischargeRates:
-    """Test charge/discharge C-rate computation at all three levels.
+class TestChargeRates:
+    """Test signed C-rate computation at all three levels.
 
-    C-rate = |current_A| / capacity_Ah * 100  →  %/h
+    C-rate = current_A / capacity_Ah * 100  →  %/h (signed)
+    Positive = charging, negative = discharging.
     """
 
     # --- Core helper function tests ---
 
-    def test_charging_produces_nonzero_charge_rate(self):
-        """Positive current yields charge_rate > 0, discharge_rate = 0."""
-        charge, discharge = _compute_charge_discharge_rates(50.0, 200.0)
-        assert charge == 25.0  # 50/200*100
-        assert discharge == 0.0
+    def test_charging_produces_positive_rate(self):
+        """Positive current yields positive rate."""
+        rate = _compute_charge_rate(50.0, 200.0)
+        assert rate == 25.0  # 50/200*100
 
-    def test_discharging_produces_nonzero_discharge_rate(self):
-        """Negative current yields charge_rate = 0, discharge_rate > 0."""
-        charge, discharge = _compute_charge_discharge_rates(-30.0, 200.0)
-        assert charge == 0.0
-        assert discharge == 15.0  # 30/200*100
+    def test_discharging_produces_negative_rate(self):
+        """Negative current yields negative rate."""
+        rate = _compute_charge_rate(-30.0, 200.0)
+        assert rate == -15.0  # -30/200*100
 
-    def test_idle_produces_zero_rates(self):
-        """Zero current yields both rates at 0."""
-        charge, discharge = _compute_charge_discharge_rates(0.0, 200.0)
-        assert charge == 0.0
-        assert discharge == 0.0
+    def test_idle_produces_zero_rate(self):
+        """Zero current yields 0."""
+        rate = _compute_charge_rate(0.0, 200.0)
+        assert rate == 0.0
 
-    def test_none_current_returns_none_pair(self):
-        """None current yields (None, None)."""
-        charge, discharge = _compute_charge_discharge_rates(None, 200.0)
-        assert charge is None
-        assert discharge is None
+    def test_none_current_returns_none(self):
+        """None current yields None."""
+        rate = _compute_charge_rate(None, 200.0)
+        assert rate is None
 
-    def test_zero_capacity_returns_none_pair(self):
-        """Zero capacity yields (None, None) to avoid division by zero."""
-        charge, discharge = _compute_charge_discharge_rates(50.0, 0.0)
-        assert charge is None
-        assert discharge is None
+    def test_zero_capacity_returns_none(self):
+        """Zero capacity yields None to avoid division by zero."""
+        rate = _compute_charge_rate(50.0, 0.0)
+        assert rate is None
 
-    def test_none_capacity_returns_none_pair(self):
-        """None capacity yields (None, None)."""
-        charge, discharge = _compute_charge_discharge_rates(50.0, None)
-        assert charge is None
-        assert discharge is None
+    def test_none_capacity_returns_none(self):
+        """None capacity yields None."""
+        rate = _compute_charge_rate(50.0, None)
+        assert rate is None
 
     def test_high_current_exceeds_100(self):
         """Current exceeding capacity can produce rates > 100%/h (no clamp)."""
-        charge, discharge = _compute_charge_discharge_rates(300.0, 200.0)
-        assert charge == 150.0  # 300/200*100 — valid for high-current situations
-        assert discharge == 0.0
+        rate = _compute_charge_rate(300.0, 200.0)
+        assert rate == 150.0  # 300/200*100 — valid for high-current situations
 
     def test_real_world_eg4_values(self):
-        """Real-world example: 11.6A discharge on 280Ah battery = 4.14%/h."""
-        charge, discharge = _compute_charge_discharge_rates(-11.6, 280.0)
-        assert charge == 0.0
-        assert discharge == pytest.approx(4.142857, rel=1e-4)
+        """Real-world example: 11.6A discharge on 280Ah battery = -4.14%/h."""
+        rate = _compute_charge_rate(-11.6, 280.0)
+        assert rate == pytest.approx(-4.142857, rel=1e-4)
 
     # --- Battery bank level ---
 
-    def test_bank_rates_computed_from_sensor_dict(self):
-        """compute_bank_charge_rates writes rate keys into sensor dict."""
+    def test_bank_rate_computed_from_sensor_dict(self):
+        """compute_bank_charge_rate writes signed rate key into sensor dict."""
         sensors: dict[str, Any] = {
             "battery_bank_current": 25.0,
             "battery_bank_full_capacity": 840.0,
         }
-        compute_bank_charge_rates(sensors)
+        compute_bank_charge_rate(sensors)
         assert sensors["battery_bank_charge_rate"] == pytest.approx(2.98, abs=0.01)
-        assert sensors["battery_bank_discharge_rate"] == 0.0
 
-    def test_bank_rates_discharge(self):
-        """Bank rates when discharging (negative current)."""
+    def test_bank_rate_discharge(self):
+        """Bank rate is negative when discharging (negative current)."""
         sensors: dict[str, Any] = {
             "battery_bank_current": -40.0,
             "battery_bank_full_capacity": 840.0,
         }
-        compute_bank_charge_rates(sensors)
-        assert sensors["battery_bank_charge_rate"] == 0.0
-        assert sensors["battery_bank_discharge_rate"] == pytest.approx(4.76, abs=0.01)
+        compute_bank_charge_rate(sensors)
+        assert sensors["battery_bank_charge_rate"] == pytest.approx(-4.76, abs=0.01)
 
-    def test_bank_rates_missing_current_no_keys(self):
-        """Without battery_bank_current, no rate keys are written."""
+    def test_bank_rate_missing_current_no_key(self):
+        """Without battery_bank_current, no rate key is written."""
         sensors: dict[str, Any] = {
             "battery_bank_full_capacity": 840.0,
         }
-        compute_bank_charge_rates(sensors)
+        compute_bank_charge_rate(sensors)
         assert "battery_bank_charge_rate" not in sensors
-        assert "battery_bank_discharge_rate" not in sensors
 
-    def test_bank_rates_missing_capacity_no_keys(self):
-        """Without capacity, no rate keys are written."""
+    def test_bank_rate_missing_capacity_no_key(self):
+        """Without capacity, no rate key is written."""
         sensors: dict[str, Any] = {
             "battery_bank_current": 25.0,
         }
-        compute_bank_charge_rates(sensors)
+        compute_bank_charge_rate(sensors)
         assert "battery_bank_charge_rate" not in sensors
-        assert "battery_bank_discharge_rate" not in sensors
 
-    def test_bank_rates_non_numeric_values_handled(self):
+    def test_bank_rate_non_numeric_values_handled(self):
         """Non-numeric values (e.g. MagicMock) don't crash."""
         sensors: dict[str, Any] = {
             "battery_bank_current": "not_a_number",
             "battery_bank_full_capacity": 840.0,
         }
-        compute_bank_charge_rates(sensors)
+        compute_bank_charge_rate(sensors)
         assert "battery_bank_charge_rate" not in sensors
-        assert "battery_bank_discharge_rate" not in sensors
 
-    def test_bank_rates_rounded_to_two_decimals(self):
+    def test_bank_rate_rounded_to_two_decimals(self):
         """Rate values are rounded to 2 decimal places."""
         sensors: dict[str, Any] = {
             "battery_bank_current": 33.0,
             "battery_bank_full_capacity": 840.0,
         }
-        compute_bank_charge_rates(sensors)
+        compute_bank_charge_rate(sensors)
         assert sensors["battery_bank_charge_rate"] == 3.93  # 33/840*100 = 3.928...
 
     # --- Individual battery level ---
@@ -5150,37 +5108,34 @@ class TestChargeDischargeRates:
         return battery
 
     def test_individual_battery_charge_rate(self):
-        """Individual battery mapping includes charge/discharge rate."""
+        """Individual battery mapping includes signed charge rate."""
         battery = self._make_battery_mock(current=15.0)
         mapping = _build_individual_battery_mapping(battery)
         assert mapping["battery_charge_rate"] == pytest.approx(5.36, abs=0.01)  # 15/280*100
-        assert mapping["battery_discharge_rate"] == 0.0
 
-    def test_individual_battery_discharge_rate(self):
-        """Individual battery shows discharge rate when current is negative."""
+    def test_individual_battery_negative_charge_rate(self):
+        """Individual battery shows negative rate when current is negative."""
         battery = self._make_battery_mock(current=-11.6)
         mapping = _build_individual_battery_mapping(battery)
-        assert mapping["battery_charge_rate"] == 0.0
-        assert mapping["battery_discharge_rate"] == pytest.approx(4.14, abs=0.01)
+        assert mapping["battery_charge_rate"] == pytest.approx(-4.14, abs=0.01)
 
     def test_individual_battery_no_rate_without_capacity(self):
-        """No rate keys when capacity is zero."""
+        """No rate key when capacity is zero."""
         battery = self._make_battery_mock(current=10.0, max_capacity=0.0)
         mapping = _build_individual_battery_mapping(battery)
         assert "battery_charge_rate" not in mapping
-        assert "battery_discharge_rate" not in mapping
 
     # --- Frozenset membership ---
 
-    def test_bank_rate_keys_in_battery_bank_frozenset(self):
-        """Bank rate keys are in BATTERY_BANK_KEYS for entity creation."""
+    def test_bank_rate_key_in_battery_bank_frozenset(self):
+        """Bank rate key is in BATTERY_BANK_KEYS for entity creation."""
         assert "battery_bank_charge_rate" in BATTERY_BANK_KEYS
-        assert "battery_bank_discharge_rate" in BATTERY_BANK_KEYS
+        assert "battery_bank_discharge_rate" not in BATTERY_BANK_KEYS
 
-    def test_parallel_rate_keys_in_parallel_group_frozenset(self):
-        """Parallel rate keys are in PARALLEL_GROUP_SENSOR_KEYS."""
+    def test_parallel_rate_key_in_parallel_group_frozenset(self):
+        """Parallel rate key is in PARALLEL_GROUP_SENSOR_KEYS."""
         assert "parallel_battery_charge_rate" in PARALLEL_GROUP_SENSOR_KEYS
-        assert "parallel_battery_discharge_rate" in PARALLEL_GROUP_SENSOR_KEYS
+        assert "parallel_battery_discharge_rate" not in PARALLEL_GROUP_SENSOR_KEYS
 
     def test_bms_limit_keys_in_runtime_frozenset(self):
         """BMS limit keys are in INVERTER_RUNTIME_KEYS."""

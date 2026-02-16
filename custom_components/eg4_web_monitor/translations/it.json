@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Tasso di carica del banco batterie"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Tasso di scarica del banco batterie"
-      },
       "battery_charge_rate": {
         "name": "Tasso di carica"
       },
-      "battery_discharge_rate": {
-        "name": "Tasso di scarica"
-      },
       "parallel_battery_charge_rate": {
         "name": "Tasso di carica batteria"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Tasso di scarica batteria"
       }
     },
     "switch": {

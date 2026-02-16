@@ -90,20 +90,6 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:solar-power-variant-outline",
     },
-    "battery_charge_power": {
-        "name": "Battery Charge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-charging",
-    },
-    "battery_discharge_power": {
-        "name": "Battery Discharge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
-    },
     "power_output": {
         "name": "Power Output",
         "unit": UnitOfPower.WATT,
@@ -418,20 +404,6 @@ SENSOR_TYPES = {
         "icon": "mdi:transmission-tower-import",
     },
     # Parallel Group aggregate battery sensors (calculated from all inverters)
-    "parallel_battery_charge_power": {
-        "name": "Battery Charge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-charging",
-    },
-    "parallel_battery_discharge_power": {
-        "name": "Battery Discharge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
-    },
     "parallel_battery_power": {
         "name": "Battery Power",
         "unit": UnitOfPower.WATT,
@@ -479,13 +451,6 @@ SENSOR_TYPES = {
         "unit": "%/h",
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
-        "suggested_display_precision": 2,
-    },
-    "parallel_battery_discharge_rate": {
-        "name": "Battery Discharge Rate",
-        "unit": "%/h",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
         "suggested_display_precision": 2,
     },
     "parallel_battery_count": {
@@ -581,32 +546,11 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
-    "battery_bank_charge_power": {
-        "name": "Battery Bank Charge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-charging",
-    },
-    "battery_bank_discharge_power": {
-        "name": "Battery Bank Discharge Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
-    },
     "battery_bank_charge_rate": {
         "name": "Battery Bank Charge Rate",
         "unit": "%/h",
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
-        "suggested_display_precision": 2,
-    },
-    "battery_bank_discharge_rate": {
-        "name": "Battery Bank Discharge Rate",
-        "unit": "%/h",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
         "suggested_display_precision": 2,
     },
     "battery_bank_power": {
@@ -850,13 +794,6 @@ SENSOR_TYPES = {
         "unit": "%/h",
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
-        "suggested_display_precision": 2,
-    },
-    "battery_discharge_rate": {
-        "name": "Discharge Rate",
-        "unit": "%/h",
-        "state_class": "measurement",
-        "icon": "mdi:battery-minus",
         "suggested_display_precision": 2,
     },
     "battery_max_cell_temp_num": {

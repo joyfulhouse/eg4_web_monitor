@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Batterijbank laadsnelheid"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Batterijbank ontlaadsnelheid"
-      },
       "battery_charge_rate": {
         "name": "Laadsnelheid"
       },
-      "battery_discharge_rate": {
-        "name": "Ontlaadsnelheid"
-      },
       "parallel_battery_charge_rate": {
         "name": "Batterij laadsnelheid"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Batterij ontlaadsnelheid"
       }
     },
     "switch": {

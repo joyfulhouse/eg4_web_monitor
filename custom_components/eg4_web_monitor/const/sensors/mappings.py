@@ -18,8 +18,6 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "ppv1": "pv1_power",
     "ppv2": "pv2_power",
     "ppv3": "pv3_power",
-    "pCharge": "battery_charge_power",
-    "pDisCharge": "battery_discharge_power",
     "batPower": "battery_power",
     "batStatus": "battery_status",
     "consumptionPower": "consumption_power",

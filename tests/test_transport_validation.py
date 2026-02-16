@@ -35,8 +35,6 @@ class TestRuntimeDataConsistency:
             "vpv2": 3200,  # decivolts
             "vBat": 534,  # decivolts
             "soc": 80,
-            "pCharge": 0,
-            "pDisCharge": 500,
             "pinv": 2000,
             "vacr": 2459,  # decivolts
             "fac": 6000,  # centihertz
@@ -57,8 +55,6 @@ class TestRuntimeDataConsistency:
             "pv2_voltage": 320.0,
             "battery_voltage": 53.4,
             "battery_soc": 80,
-            "battery_charge_power": 0.0,
-            "battery_discharge_power": 500.0,
             "inverter_power": 2000.0,
             "grid_voltage_r": 245.9,
             "grid_frequency": 60.0,
@@ -281,8 +277,6 @@ class TestSensorKeyMapping:
             "pv_total_power",
             "battery_voltage",
             "state_of_charge",
-            "battery_charge_power",
-            "battery_discharge_power",
             "grid_voltage_r",
             "internal_temperature",
         ]
@@ -303,8 +297,6 @@ class TestSensorKeyMapping:
             "ppv": "pv_total_power",
             "soc": "state_of_charge",
             "vBat": "battery_voltage",
-            "pCharge": "battery_charge_power",
-            "pDisCharge": "battery_discharge_power",
         }
 
         # Verify mapping values are valid sensor keys

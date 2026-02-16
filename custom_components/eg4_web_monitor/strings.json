@@ -408,56 +408,156 @@
       }
     },
     "sensor": {
-      "ac_power": {"name": "AC Power"},
-      "ac_voltage": {"name": "AC Voltage"},
-      "ac_current": {"name": "AC Current"},
-      "frequency": {"name": "Frequency"},
-      "dc_power": {"name": "DC Power"},
-      "dc_voltage": {"name": "DC Voltage"},
-      "dc_current": {"name": "DC Current"},
-      "battery_power": {"name": "Battery Power"},
-      "battery_voltage": {"name": "Battery Voltage"},
-      "battery_current": {"name": "Battery Current"},
-      "state_of_charge": {"name": "State of Charge"},
-      "state_of_health": {"name": "State of Health"},
-      "total_energy": {"name": "Total Energy"},
-      "daily_energy": {"name": "Daily Energy"},
-      "monthly_energy": {"name": "Monthly Energy"},
-      "yearly_energy": {"name": "Yearly Energy"},
-      "internal_temperature": {"name": "Internal Temperature"},
-      "radiator1_temperature": {"name": "Radiator 1 Temperature"},
-      "radiator2_temperature": {"name": "Radiator 2 Temperature"},
-      "bt_temperature": {"name": "BT Temperature"},
-      "status_code": {"name": "Status Code"},
-      "status_text": {"name": "Status"},
-      "grid_power": {"name": "Grid Power"},
-      "load_power": {"name": "Load Power"},
-      "pv_total_power": {"name": "PV Total Power"},
-      "pv1_power": {"name": "PV1 Power"},
-      "pv2_power": {"name": "PV2 Power"},
-      "pv3_power": {"name": "PV3 Power"},
-      "cell_voltage_max": {"name": "Maximum Cell Voltage"},
-      "cell_voltage_min": {"name": "Minimum Cell Voltage"},
-      "cell_voltage_delta": {"name": "Cell Voltage Delta"},
-      "cycle_count": {"name": "Cycle Count"},
-      "firmware_version": {"name": "Firmware Version"},
-      "grid_voltage_r": {"name": "Grid Voltage R"},
-      "grid_voltage_s": {"name": "Grid Voltage S"},
-      "grid_voltage_t": {"name": "Grid Voltage T"},
-      "grid_frequency": {"name": "Grid Frequency"},
-      "eps_voltage_r": {"name": "EPS Voltage R"},
-      "eps_voltage_s": {"name": "EPS Voltage S"},
-      "eps_voltage_t": {"name": "EPS Voltage T"},
-      "eps_frequency": {"name": "EPS Frequency"},
-      "eps_power": {"name": "EPS Power"},
-      "eps_power_l1": {"name": "EPS Power L1"},
-      "eps_power_l2": {"name": "EPS Power L2"},
-      "power_output": {"name": "Power Output"},
-      "rectifier_power": {"name": "Rectifier Power"},
-      "ac_couple_power": {"name": "AC Couple Power"},
-      "bus1_voltage": {"name": "Bus 1 Voltage"},
-      "bus2_voltage": {"name": "Bus 2 Voltage"},
-      "total_load_power": {"name": "Total Load Power"},
+      "ac_power": {
+        "name": "AC Power"
+      },
+      "ac_voltage": {
+        "name": "AC Voltage"
+      },
+      "ac_current": {
+        "name": "AC Current"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "dc_power": {
+        "name": "DC Power"
+      },
+      "dc_voltage": {
+        "name": "DC Voltage"
+      },
+      "dc_current": {
+        "name": "DC Current"
+      },
+      "battery_power": {
+        "name": "Battery Power"
+      },
+      "battery_voltage": {
+        "name": "Battery Voltage"
+      },
+      "battery_current": {
+        "name": "Battery Current"
+      },
+      "state_of_charge": {
+        "name": "State of Charge"
+      },
+      "state_of_health": {
+        "name": "State of Health"
+      },
+      "total_energy": {
+        "name": "Total Energy"
+      },
+      "daily_energy": {
+        "name": "Daily Energy"
+      },
+      "monthly_energy": {
+        "name": "Monthly Energy"
+      },
+      "yearly_energy": {
+        "name": "Yearly Energy"
+      },
+      "internal_temperature": {
+        "name": "Internal Temperature"
+      },
+      "radiator1_temperature": {
+        "name": "Radiator 1 Temperature"
+      },
+      "radiator2_temperature": {
+        "name": "Radiator 2 Temperature"
+      },
+      "bt_temperature": {
+        "name": "BT Temperature"
+      },
+      "status_code": {
+        "name": "Status Code"
+      },
+      "status_text": {
+        "name": "Status"
+      },
+      "grid_power": {
+        "name": "Grid Power"
+      },
+      "load_power": {
+        "name": "Load Power"
+      },
+      "pv_total_power": {
+        "name": "PV Total Power"
+      },
+      "pv1_power": {
+        "name": "PV1 Power"
+      },
+      "pv2_power": {
+        "name": "PV2 Power"
+      },
+      "pv3_power": {
+        "name": "PV3 Power"
+      },
+      "cell_voltage_max": {
+        "name": "Maximum Cell Voltage"
+      },
+      "cell_voltage_min": {
+        "name": "Minimum Cell Voltage"
+      },
+      "cell_voltage_delta": {
+        "name": "Cell Voltage Delta"
+      },
+      "cycle_count": {
+        "name": "Cycle Count"
+      },
+      "firmware_version": {
+        "name": "Firmware Version"
+      },
+      "grid_voltage_r": {
+        "name": "Grid Voltage R"
+      },
+      "grid_voltage_s": {
+        "name": "Grid Voltage S"
+      },
+      "grid_voltage_t": {
+        "name": "Grid Voltage T"
+      },
+      "grid_frequency": {
+        "name": "Grid Frequency"
+      },
+      "eps_voltage_r": {
+        "name": "EPS Voltage R"
+      },
+      "eps_voltage_s": {
+        "name": "EPS Voltage S"
+      },
+      "eps_voltage_t": {
+        "name": "EPS Voltage T"
+      },
+      "eps_frequency": {
+        "name": "EPS Frequency"
+      },
+      "eps_power": {
+        "name": "EPS Power"
+      },
+      "eps_power_l1": {
+        "name": "EPS Power L1"
+      },
+      "eps_power_l2": {
+        "name": "EPS Power L2"
+      },
+      "power_output": {
+        "name": "Power Output"
+      },
+      "rectifier_power": {
+        "name": "Rectifier Power"
+      },
+      "ac_couple_power": {
+        "name": "AC Couple Power"
+      },
+      "bus1_voltage": {
+        "name": "Bus 1 Voltage"
+      },
+      "bus2_voltage": {
+        "name": "Bus 2 Voltage"
+      },
+      "total_load_power": {
+        "name": "Total Load Power"
+      },
       "smart_port1_status": {
         "name": "Smart Port 1 Status",
         "state": {
@@ -490,12 +590,15 @@
           "ac_couple": "AC Couple"
         }
       },
-      "battery_bank_charge_rate": {"name": "Battery Bank Charge Rate"},
-      "battery_bank_discharge_rate": {"name": "Battery Bank Discharge Rate"},
-      "battery_charge_rate": {"name": "Charge Rate"},
-      "battery_discharge_rate": {"name": "Discharge Rate"},
-      "parallel_battery_charge_rate": {"name": "Battery Charge Rate"},
-      "parallel_battery_discharge_rate": {"name": "Battery Discharge Rate"}
+      "battery_bank_charge_rate": {
+        "name": "Battery Bank Charge Rate"
+      },
+      "battery_charge_rate": {
+        "name": "Charge Rate"
+      },
+      "parallel_battery_charge_rate": {
+        "name": "Battery Charge Rate"
+      }
     },
     "switch": {
       "quick_charge": {

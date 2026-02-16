@@ -46,6 +46,23 @@ OTHER_PLATFORMS: list[Platform] = [
 ]
 PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
 
+# Sensor keys removed in the charge/discharge consolidation refactor.
+# Existing installations may have entity registry entries for these;
+# they are cleaned up once during async_setup_entry().
+_DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "_battery_charge_power",
+        "_battery_discharge_power",
+        "_battery_bank_charge_power",
+        "_battery_bank_discharge_power",
+        "_parallel_battery_charge_power",
+        "_parallel_battery_discharge_power",
+        "_battery_discharge_rate",
+        "_battery_bank_discharge_rate",
+        "_parallel_battery_discharge_rate",
+    }
+)
+
 SERVICE_REFRESH_DATA = "refresh_data"
 SERVICE_RECONCILE_HISTORY = "reconcile_history"
 
@@ -404,6 +421,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                             "Removed stale parallel group device: %s",
                             stale_id,
                         )
+
+    # One-time cleanup: remove deprecated charge/discharge split sensors
+    # Consolidated into signed net sensors (battery_power, battery_bank_power, etc.)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        if any(
+            entity.unique_id.endswith(suffix)
+            for suffix in _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES
+        ):
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

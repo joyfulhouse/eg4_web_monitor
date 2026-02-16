@@ -39,8 +39,8 @@ from .coordinator_mappings import (
     _build_battery_bank_sensor_mapping,
     _energy_balance,
     _safe_float,
-    _write_rounded_rates,
-    compute_bank_charge_rates,
+    _write_charge_rate,
+    compute_bank_charge_rate,
 )
 from .utils import clean_battery_display_name
 
@@ -629,7 +629,7 @@ class DeviceProcessingMixin(_MixinBase):
         # At this point sensors dict has battery_bank_current (from battery
         # bank data) and max_charge_current / max_discharge_current (from
         # _map_device_properties).
-        compute_bank_charge_rates(processed["sensors"])
+        compute_bank_charge_rate(processed["sensors"])
 
         # Fetch quick charge and battery backup status with 30s throttle
         # These are cloud API calls that should not run every update cycle
@@ -729,8 +729,6 @@ class DeviceProcessingMixin(_MixinBase):
             "pv2_power": "pv2_power",
             "pv3_power": "pv3_power",
             "battery_power": "battery_power",
-            "battery_charge_power": "battery_charge_power",
-            "battery_discharge_power": "battery_discharge_power",
             "consumption_power": "consumption_power",
             "inverter_power": "ac_power",
             "rectifier_power": "rectifier_power",
@@ -874,12 +872,11 @@ class DeviceProcessingMixin(_MixinBase):
         sensors = _map_device_properties(battery, property_map)
         self._calculate_battery_derived_sensors(sensors)
 
-        # Compute charge/discharge C-rate as percentage of capacity per hour.
+        # Compute signed C-rate as percentage of capacity per hour.
         # Use _safe_float() to handle non-numeric values from mock objects.
-        _write_rounded_rates(
+        _write_charge_rate(
             sensors,
             "battery_charge_rate",
-            "battery_discharge_rate",
             _safe_float(sensors.get("battery_real_current")),
             _safe_float(sensors.get("battery_full_capacity")),
         )
@@ -990,9 +987,10 @@ class DeviceProcessingMixin(_MixinBase):
 
         # Calculate battery_bank_power if not available from API (batPower is optional)
         # Formula: charge_power - discharge_power (positive = charging, negative = discharging)
+        # charge/discharge are intermediate values (prefixed with _) not exposed as sensors
         battery_power = sensors.get("battery_bank_power")
-        charge = sensors.get("battery_bank_charge_power")
-        discharge = sensors.get("battery_bank_discharge_power")
+        charge = sensors.pop("_battery_bank_charge_power", None)
+        discharge = sensors.pop("_battery_bank_discharge_power", None)
 
         if battery_power is not None:
             _LOGGER.debug(
@@ -1034,8 +1032,8 @@ class DeviceProcessingMixin(_MixinBase):
             "voltage": "battery_bank_voltage",
             "current": "battery_bank_current",
             "soc": "battery_bank_soc",
-            "charge_power": "battery_bank_charge_power",
-            "discharge_power": "battery_bank_discharge_power",
+            "charge_power": "_battery_bank_charge_power",
+            "discharge_power": "_battery_bank_discharge_power",
             "battery_power": "battery_bank_power",
             # Capacity metrics
             "max_capacity": "battery_bank_max_capacity",
@@ -1123,8 +1121,6 @@ class DeviceProcessingMixin(_MixinBase):
             "total_import": "grid_import_lifetime",
             "total_usage": "consumption_lifetime",
             # Aggregate battery properties (calculated from all inverters)
-            "battery_charge_power": "parallel_battery_charge_power",
-            "battery_discharge_power": "parallel_battery_discharge_power",
             "battery_power": "parallel_battery_power",
             "battery_soc": "parallel_battery_soc",
             "battery_max_capacity": "parallel_battery_max_capacity",

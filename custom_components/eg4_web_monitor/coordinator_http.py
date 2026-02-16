@@ -38,7 +38,7 @@ from .const import (
 from .coordinator_mappings import (
     _build_individual_battery_mapping,
     _get_transport_label,
-    compute_parallel_group_charge_rates,
+    compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
     _MixinBase,
@@ -612,7 +612,7 @@ class HTTPUpdateMixin(_MixinBase):
                         pg_sensors["parallel_battery_current"] = total_current
 
                     # Compute parallel group charge/discharge C-rates (%/h)
-                    compute_parallel_group_charge_rates(pg_sensors)
+                    compute_parallel_group_charge_rate(pg_sensors)
 
                     if hasattr(group, "mid_device") and group.mid_device:
                         try:

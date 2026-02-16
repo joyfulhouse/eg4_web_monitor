@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "배터리 뱅크 충전율"
       },
-      "battery_bank_discharge_rate": {
-        "name": "배터리 뱅크 방전율"
-      },
       "battery_charge_rate": {
         "name": "충전율"
       },
-      "battery_discharge_rate": {
-        "name": "방전율"
-      },
       "parallel_battery_charge_rate": {
         "name": "배터리 충전율"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "배터리 방전율"
       }
     },
     "switch": {

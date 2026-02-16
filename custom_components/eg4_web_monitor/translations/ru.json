@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Скорость заряда аккумуляторного блока"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Скорость разряда аккумуляторного блока"
-      },
       "battery_charge_rate": {
         "name": "Скорость заряда"
       },
-      "battery_discharge_rate": {
-        "name": "Скорость разряда"
-      },
       "parallel_battery_charge_rate": {
         "name": "Скорость заряда батареи"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Скорость разряда батареи"
       }
     },
     "switch": {

@@ -55,8 +55,8 @@ from .coordinator_mappings import (
     _features_from_family,
     _get_transport_label,
     _parse_inverter_family,
-    compute_bank_charge_rates,
-    compute_parallel_group_charge_rates,
+    compute_bank_charge_rate,
+    compute_parallel_group_charge_rate,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -274,7 +274,7 @@ class LocalTransportMixin(_MixinBase):
                 _build_battery_bank_sensor_mapping(battery_data)
             )
             # Compute battery bank charge/discharge rate from merged sensor data
-            compute_bank_charge_rates(device_data["sensors"])
+            compute_bank_charge_rate(device_data["sensors"])
 
         device_data["sensors"]["firmware_version"] = firmware_version
         device_data["sensors"]["connection_transport"] = _get_transport_label(
@@ -884,7 +884,7 @@ class LocalTransportMixin(_MixinBase):
                         _build_battery_bank_sensor_mapping(battery_data)
                     )
                     # Compute battery bank charge/discharge rate from merged sensor data
-                    compute_bank_charge_rates(device_data["sensors"])
+                    compute_bank_charge_rate(device_data["sensors"])
 
                     if hasattr(battery_data, "batteries") and battery_data.batteries:
                         for batt in battery_data.batteries:
@@ -1535,8 +1535,7 @@ class LocalTransportMixin(_MixinBase):
                 "grid_export_power",
                 "consumption_power",
                 "eps_power",
-                "battery_charge_power",
-                "battery_discharge_power",
+                "battery_power",
                 "ac_power",  # Inverter output power (matches HTTP mode)
                 "output_power",  # Split-phase total output
             ]
@@ -1597,33 +1596,25 @@ class LocalTransportMixin(_MixinBase):
 
                 _LOGGER.debug(
                     "LOCAL: Parallel group %s member %s: "
-                    "charge=%s, discharge=%s, pv=%s, soc=%s",
+                    "battery_power=%s, pv=%s, soc=%s",
                     group_name,
                     serial,
-                    device_sensors.get("battery_charge_power"),
-                    device_sensors.get("battery_discharge_power"),
+                    device_sensors.get("battery_power"),
                     device_sensors.get("pv_total_power"),
                     device_sensors.get("state_of_charge"),
                 )
 
-            # Remap battery sensors to parallel_battery_* keys for consistency
+            # Remap summed battery_power to parallel_battery_power for consistency
             # with cloud mode (which uses _process_parallel_group_object).
-            # This ensures the same entity IDs regardless of connection mode.
-            charge = group_sensors.pop("battery_charge_power", 0.0)
-            discharge = group_sensors.pop("battery_discharge_power", 0.0)
-            group_sensors["parallel_battery_charge_power"] = charge
-            group_sensors["parallel_battery_discharge_power"] = discharge
-            # Battery power: positive = charging, negative = discharging
-            # Matches HTTP path (ParallelGroup.battery_power) and per-inverter convention
-            group_sensors["parallel_battery_power"] = charge - discharge
+            # battery_power: positive = charging, negative = discharging
+            net_power = group_sensors.pop("battery_power", 0.0)
+            group_sensors["parallel_battery_power"] = net_power
 
             _LOGGER.debug(
                 "LOCAL: Parallel group %s battery aggregation: "
-                "charge=%.1f, discharge=%.1f, net=%.1f (positive=charging)",
+                "net=%.1f (positive=charging)",
                 group_name,
-                charge,
-                discharge,
-                charge - discharge,
+                net_power,
             )
 
             if soc_count > 0:
@@ -1674,7 +1665,7 @@ class LocalTransportMixin(_MixinBase):
                 group_sensors["parallel_battery_current_capacity"] = total_cur_cap
 
             # Compute parallel group charge/discharge C-rates (%/h)
-            compute_parallel_group_charge_rates(group_sensors)
+            compute_parallel_group_charge_rate(group_sensors)
 
             # Override grid/load power, energy, and voltage with MID device
             # (GridBOSS) data if available.  The MID device has grid CTs and is
@@ -1696,18 +1687,14 @@ class LocalTransportMixin(_MixinBase):
                 #
                 # Formula: consumption = pv + battery_net + grid_power
                 #   pv_total_power  — from inverters (they know their own PV)
-                #   battery_net     — discharge - charge (from inverters)
+                #   battery_net     — negative of parallel_battery_power
+                #     (parallel_battery_power: positive=charging, so negate for consumption)
                 #   grid_power      — from MID overlay (positive = importing)
                 pv = float(group_sensors.get("pv_total_power", 0.0))
-                bat_discharge = float(
-                    group_sensors.get("parallel_battery_discharge_power", 0.0)
-                )
-                bat_charge = float(
-                    group_sensors.get("parallel_battery_charge_power", 0.0)
-                )
+                bat_power = float(group_sensors.get("parallel_battery_power", 0.0))
                 # grid_power already replaced by overlay above
                 grid = float(group_sensors.get("grid_power", 0.0))
-                battery_net = bat_discharge - bat_charge
+                battery_net = -bat_power
                 consumption = max(0.0, pv + battery_net + grid)
                 group_sensors["consumption_power"] = consumption
                 _LOGGER.debug(

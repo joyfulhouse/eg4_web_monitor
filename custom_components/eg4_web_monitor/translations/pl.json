@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Szybkość ładowania banku baterii"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Szybkość rozładowania banku baterii"
-      },
       "battery_charge_rate": {
         "name": "Szybkość ładowania"
       },
-      "battery_discharge_rate": {
-        "name": "Szybkość rozładowania"
-      },
       "parallel_battery_charge_rate": {
         "name": "Szybkość ładowania baterii"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Szybkość rozładowania baterii"
       }
     },
     "switch": {

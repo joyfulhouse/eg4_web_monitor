@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "Taux de charge du banc de batteries"
       },
-      "battery_bank_discharge_rate": {
-        "name": "Taux de décharge du banc de batteries"
-      },
       "battery_charge_rate": {
         "name": "Taux de charge"
       },
-      "battery_discharge_rate": {
-        "name": "Taux de décharge"
-      },
       "parallel_battery_charge_rate": {
         "name": "Taux de charge batterie"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "Taux de décharge batterie"
       }
     },
     "switch": {

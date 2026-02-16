@@ -593,20 +593,11 @@
       "battery_bank_charge_rate": {
         "name": "電池組充電速率"
       },
-      "battery_bank_discharge_rate": {
-        "name": "電池組放電速率"
-      },
       "battery_charge_rate": {
         "name": "充電速率"
       },
-      "battery_discharge_rate": {
-        "name": "放電速率"
-      },
       "parallel_battery_charge_rate": {
         "name": "電池充電速率"
-      },
-      "parallel_battery_discharge_rate": {
-        "name": "電池放電速率"
       }
     },
     "switch": {
