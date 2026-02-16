@@ -455,6 +455,23 @@
       "power_output": {"name": "Power Output"},
       "rectifier_power": {"name": "Rectifier Power"},
       "ac_couple_power": {"name": "AC Couple Power"},
+      "ac_coupling_flow": {
+        "name": "AC Coupling Flow",
+        "state": {
+          "no_flow": "No Flow",
+          "flow_active": "Flow Active"
+        }
+      },
+      "ac_coupling_enabled": {
+        "name": "AC Coupling Enabled",
+        "state": {
+          "disabled": "Disabled",
+          "enabled": "Enabled"
+        }
+      },
+      "ac_input_type_flags": {"name": "AC Input Type Flags"},
+      "l1_utilization": {"name": "L1 Utilization"},
+      "l2_utilization": {"name": "L2 Utilization"},
       "bus1_voltage": {"name": "Bus 1 Voltage"},
       "bus2_voltage": {"name": "Bus 2 Voltage"},
       "total_load_power": {"name": "Total Load Power"},
@@ -506,6 +523,9 @@
       },
       "off_grid_mode": {
         "name": "Off Grid Mode"
+      },
+      "eco_mode": {
+        "name": "ECO Mode"
       }
     },
     "number": {
@@ -523,6 +543,18 @@
       },
       "soc_cutoff": {
         "name": "SOC Cut-Off"
+      },
+      "ac_coupling_start_soc": {
+        "name": "AC Coupling Start SOC"
+      },
+      "ac_coupling_end_soc": {
+        "name": "AC Coupling End SOC"
+      },
+      "ac_coupling_start_voltage": {
+        "name": "AC Coupling Start Voltage"
+      },
+      "ac_coupling_end_voltage": {
+        "name": "AC Coupling End Voltage"
       }
     },
     "button": {

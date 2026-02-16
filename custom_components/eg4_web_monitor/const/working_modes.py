@@ -49,6 +49,13 @@ WORKING_MODES = {
         "icon": "mdi:home-battery",
         "entity_category": EntityCategory.CONFIG,
     },
+    "eco_mode": {
+        "name": "ECO Mode",
+        "param": "FUNC_ECO_MODE",
+        "description": "Enable ECO operation mode",
+        "icon": "mdi:leaf",
+        "entity_category": EntityCategory.CONFIG,
+    },
 }
 
 # =============================================================================
@@ -63,4 +70,5 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_FORCED_CHG_EN": "FUNC_FORCED_CHG_EN",
     "FUNC_FORCED_DISCHG_EN": "FUNC_FORCED_DISCHG_EN",
     "FUNC_SET_TO_STANDBY": "FUNC_SET_TO_STANDBY",
+    "FUNC_ECO_MODE": "FUNC_ECO_MODE",
 }

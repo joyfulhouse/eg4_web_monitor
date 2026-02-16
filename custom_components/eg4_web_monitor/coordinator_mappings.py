@@ -170,6 +170,12 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "grid_current_l3",
         "max_charge_current",
         "max_discharge_current",
+        "ac_couple_power",
+        "ac_input_type_flags",
+        "ac_coupling_flow",
+        "ac_coupling_enabled",
+        "l1_utilization",
+        "l2_utilization",
     }
 )
 
@@ -410,6 +416,13 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
     Returns:
         Dictionary mapping sensor keys to values.
     """
+    ac_input_type_flags = getattr(runtime_data, "ac_input_type_flags", None)
+    ac_coupling_flow = None
+    ac_coupling_enabled = None
+    if isinstance(ac_input_type_flags, int):
+        ac_coupling_flow = "flow_active" if ((ac_input_type_flags >> 1) & 1) else "no_flow"
+        ac_coupling_enabled = "enabled" if ((ac_input_type_flags >> 2) & 1) else "disabled"
+
     return {
         # PV/Solar input
         "pv1_voltage": runtime_data.pv1_voltage,
@@ -458,6 +471,14 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "generator_voltage": runtime_data.generator_voltage,
         "generator_frequency": runtime_data.generator_frequency,
         "generator_power": runtime_data.generator_power,
+        # AC coupling / AC input type flags (12000XP family)
+        "ac_couple_power": getattr(runtime_data, "ac_couple_power", None),
+        "ac_input_type_flags": ac_input_type_flags,
+        "ac_coupling_flow": ac_coupling_flow,
+        "ac_coupling_enabled": ac_coupling_enabled,
+        # Split-phase utilization
+        "l1_utilization": getattr(runtime_data, "l1_utilization", None),
+        "l2_utilization": getattr(runtime_data, "l2_utilization", None),
         # Bus voltages
         "bus1_voltage": runtime_data.bus_voltage_1,
         "bus2_voltage": runtime_data.bus_voltage_2,

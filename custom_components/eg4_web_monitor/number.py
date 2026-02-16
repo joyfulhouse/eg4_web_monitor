@@ -22,6 +22,15 @@ from .const import (
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
     AC_CHARGE_POWER_STEP,
+    AC_COUPLING_END_VOLT_MAX,
+    AC_COUPLING_END_VOLT_MIN,
+    AC_COUPLING_END_VOLT_STEP,
+    AC_COUPLING_SOC_MAX,
+    AC_COUPLING_SOC_MIN,
+    AC_COUPLING_SOC_STEP,
+    AC_COUPLING_START_VOLT_MAX,
+    AC_COUPLING_START_VOLT_MIN,
+    AC_COUPLING_START_VOLT_STEP,
     BATTERY_CURRENT_MAX,
     BATTERY_CURRENT_MIN,
     BATTERY_CURRENT_STEP,
@@ -30,6 +39,10 @@ from .const import (
     GRID_PEAK_SHAVING_POWER_STEP,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+    PARAM_HOLD_AC_COUPLE_END_SOC,
+    PARAM_HOLD_AC_COUPLE_END_VOLT,
+    PARAM_HOLD_AC_COUPLE_START_SOC,
+    PARAM_HOLD_AC_COUPLE_START_VOLT,
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
@@ -288,6 +301,10 @@ async def async_setup_entry(
                         ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
+                        ACCouplingStartSOCNumber(coordinator, serial),
+                        ACCouplingEndSOCNumber(coordinator, serial),
+                        ACCouplingStartVoltageNumber(coordinator, serial),
+                        ACCouplingEndVoltageNumber(coordinator, serial),
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         GridPeakShavingPowerNumber(coordinator, serial),
@@ -693,6 +710,178 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
             cloud_method="set_battery_soc_limits",
             cloud_kwargs={"off_grid_limit": int_value},
             label=f"off-grid SOC cutoff to {int_value}%",
+        )
+
+
+class ACCouplingStartSOCNumber(EG4BaseNumberEntity):
+    """Number entity for AC Coupling Start SOC control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Coupling Start SOC"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_coupling_start_soc"
+        self._attr_native_min_value = AC_COUPLING_SOC_MIN
+        self._attr_native_max_value = AC_COUPLING_SOC_MAX
+        self._attr_native_step = AC_COUPLING_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-sync"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCouplingStartSOCNumber, ACCouplingEndSOCNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_COUPLE_START_SOC,
+            value_min=AC_COUPLING_SOC_MIN,
+            value_max=AC_COUPLING_SOC_MAX,
+            inverter_attr="ac_coupling_start_soc",
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        int_value = int(value)
+        if int_value < AC_COUPLING_SOC_MIN or int_value > AC_COUPLING_SOC_MAX:
+            raise HomeAssistantError(
+                f"AC coupling start SOC must be between {AC_COUPLING_SOC_MIN}-{AC_COUPLING_SOC_MAX}%, got {int_value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_COUPLE_START_SOC,
+            cloud_method="set_ac_coupling_start_soc",
+            cloud_kwargs={"soc_percent": int_value},
+            label=f"AC coupling start SOC to {int_value}%",
+        )
+
+
+class ACCouplingEndSOCNumber(EG4BaseNumberEntity):
+    """Number entity for AC Coupling End SOC control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Coupling End SOC"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_coupling_end_soc"
+        self._attr_native_min_value = AC_COUPLING_SOC_MIN
+        self._attr_native_max_value = AC_COUPLING_SOC_MAX
+        self._attr_native_step = AC_COUPLING_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-sync-outline"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCouplingStartSOCNumber, ACCouplingEndSOCNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_COUPLE_END_SOC,
+            value_min=AC_COUPLING_SOC_MIN,
+            value_max=AC_COUPLING_SOC_MAX,
+            inverter_attr="ac_coupling_end_soc",
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        int_value = int(value)
+        if int_value < AC_COUPLING_SOC_MIN or int_value > AC_COUPLING_SOC_MAX:
+            raise HomeAssistantError(
+                f"AC coupling end SOC must be between {AC_COUPLING_SOC_MIN}-{AC_COUPLING_SOC_MAX}%, got {int_value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_COUPLE_END_SOC,
+            cloud_method="set_ac_coupling_end_soc",
+            cloud_kwargs={"soc_percent": int_value},
+            label=f"AC coupling end SOC to {int_value}%",
+        )
+
+
+class ACCouplingStartVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for AC Coupling Start Voltage control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Coupling Start Voltage"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_coupling_start_voltage"
+        )
+        self._attr_native_min_value = AC_COUPLING_START_VOLT_MIN
+        self._attr_native_max_value = AC_COUPLING_START_VOLT_MAX
+        self._attr_native_step = AC_COUPLING_START_VOLT_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:current-ac"
+        self._attr_native_precision = 1
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCouplingStartVoltageNumber, ACCouplingEndVoltageNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_COUPLE_START_VOLT,
+            value_min=AC_COUPLING_START_VOLT_MIN,
+            value_max=AC_COUPLING_START_VOLT_MAX,
+            inverter_attr="ac_coupling_start_voltage",
+            as_float=True,
+            precision=1,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        if value < AC_COUPLING_START_VOLT_MIN or value > AC_COUPLING_START_VOLT_MAX:
+            raise HomeAssistantError(
+                f"AC coupling start voltage must be between {AC_COUPLING_START_VOLT_MIN:.1f}-{AC_COUPLING_START_VOLT_MAX:.1f}V, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_COUPLE_START_VOLT,
+            local_value=round(value, 1),
+            cloud_method="set_ac_coupling_start_voltage",
+            cloud_kwargs={"voltage": round(value, 1)},
+            label=f"AC coupling start voltage to {value:.1f}V",
+        )
+
+
+class ACCouplingEndVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for AC Coupling End Voltage control."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Coupling End Voltage"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_coupling_end_voltage"
+        )
+        self._attr_native_min_value = AC_COUPLING_END_VOLT_MIN
+        self._attr_native_max_value = AC_COUPLING_END_VOLT_MAX
+        self._attr_native_step = AC_COUPLING_END_VOLT_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:current-ac"
+        self._attr_native_precision = 1
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCouplingStartVoltageNumber, ACCouplingEndVoltageNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_COUPLE_END_VOLT,
+            value_min=AC_COUPLING_END_VOLT_MIN,
+            value_max=AC_COUPLING_END_VOLT_MAX,
+            inverter_attr="ac_coupling_end_voltage",
+            as_float=True,
+            precision=1,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        if value < AC_COUPLING_END_VOLT_MIN or value > AC_COUPLING_END_VOLT_MAX:
+            raise HomeAssistantError(
+                f"AC coupling end voltage must be between {AC_COUPLING_END_VOLT_MIN:.1f}-{AC_COUPLING_END_VOLT_MAX:.1f}V, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_COUPLE_END_VOLT,
+            local_value=round(value, 1),
+            cloud_method="set_ac_coupling_end_voltage",
+            cloud_kwargs={"voltage": round(value, 1)},
+            label=f"AC coupling end voltage to {value:.1f}V",
         )
 
 

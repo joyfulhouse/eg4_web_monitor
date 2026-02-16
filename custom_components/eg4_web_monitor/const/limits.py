@@ -53,3 +53,19 @@ SOC_LIMIT_STEP = 1
 SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
 SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
+
+# =============================================================================
+# AC Coupling controls (12000XP)
+# =============================================================================
+
+AC_COUPLING_SOC_MIN = 0
+AC_COUPLING_SOC_MAX = 100
+AC_COUPLING_SOC_STEP = 1
+
+AC_COUPLING_START_VOLT_MIN = 40.0
+AC_COUPLING_START_VOLT_MAX = 59.5
+AC_COUPLING_START_VOLT_STEP = 0.1
+
+AC_COUPLING_END_VOLT_MIN = 42.0
+AC_COUPLING_END_VOLT_MAX = 80.0
+AC_COUPLING_END_VOLT_STEP = 0.1

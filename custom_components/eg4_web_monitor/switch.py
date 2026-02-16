@@ -29,6 +29,7 @@ from .const import (
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
+    PARAM_FUNC_ECO_MODE,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     SUPPORTED_INVERTER_MODELS,
@@ -427,6 +428,7 @@ _WORKING_MODE_METHODS = {
         "enable_battery_backup_ctrl",
         "disable_battery_backup_ctrl",
     ),
+    "FUNC_ECO_MODE": ("enable_eco_mode", "disable_eco_mode"),
 }
 
 # Mapping of working mode function names to named-parameter constants used by
@@ -438,6 +440,7 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # Extended function registers (verified via Modbus probe 2026-02-13)
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
+    "FUNC_ECO_MODE": PARAM_FUNC_ECO_MODE,
 }
 
 

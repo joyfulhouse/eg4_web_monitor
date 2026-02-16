@@ -215,10 +215,11 @@ class TestSwitchPlatformSetup:
     async def test_local_only_includes_all_modbus_working_modes(self, hass):
         """LOCAL-only mode creates switches for all Modbus-backed working modes.
 
-        All five working modes have holding register bit field mappings:
+        All six working modes have holding register bit field mappings:
         - FUNC_AC_CHARGE (reg 21 bit 7), FUNC_FORCED_CHG_EN (reg 21 bit 11),
           FUNC_FORCED_DISCHG_EN (reg 21 bit 10), FUNC_GRID_PEAK_SHAVING
-          (reg 179 bit 7), FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1).
+          (reg 179 bit 7), FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1),
+          FUNC_ECO_MODE.
         Regression test for issue #153.
         """
         coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
@@ -239,6 +240,7 @@ class TestSwitchPlatformSetup:
         assert "FUNC_FORCED_DISCHG_EN" in working_mode_params  # Register 21, bit 10
         assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params  # Register 179, bit 7
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params  # Register 233, bit 1
+        assert "FUNC_ECO_MODE" in working_mode_params
 
     @pytest.mark.asyncio
     async def test_cloud_mode_includes_all_working_modes(self, hass):
@@ -259,6 +261,7 @@ class TestSwitchPlatformSetup:
         assert "FUNC_AC_CHARGE" in working_mode_params
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params
         assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
+        assert "FUNC_ECO_MODE" in working_mode_params
 
 
 # ── QuickChargeSwitch ────────────────────────────────────────────────
