@@ -55,6 +55,7 @@ from .coordinator_mappings import (
     _features_from_family,
     _get_transport_label,
     _parse_inverter_family,
+    alias_common_voltage_sensors,
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
@@ -313,6 +314,7 @@ class LocalTransportMixin(_MixinBase):
                 serial,
                 features,
             )
+            alias_common_voltage_sensors(device_data["sensors"], features)
 
         return device_data
 

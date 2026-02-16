@@ -108,6 +108,27 @@ def compute_parallel_group_charge_rate(
     )
 
 
+def alias_common_voltage_sensors(
+    sensors: dict[str, Any], features: dict[str, Any]
+) -> None:
+    """Alias R-phase voltage readings to phase-neutral names for non-three-phase.
+
+    For single-phase and split-phase configurations, copies grid_voltage_r
+    and eps_voltage_r to grid_voltage and eps_voltage respectively. Three-phase
+    configurations use the R/S/T naming convention and skip this aliasing.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+        features: Feature flags dict (must contain "supports_three_phase").
+    """
+    if features.get("supports_three_phase", False):
+        return
+    if (v := sensors.get("grid_voltage_r")) is not None:
+        sensors["grid_voltage"] = v
+    if (v := sensors.get("eps_voltage_r")) is not None:
+        sensors["eps_voltage"] = v
+
+
 # ---------------------------------------------------------------------------
 # Static sensor key sets — extracted from the mapping function dicts below.
 # Used by _build_static_local_data() for immediate entity creation during
@@ -214,6 +235,8 @@ INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
         "grid_import_power",
         "eps_power_l1",
         "eps_power_l2",
+        "grid_voltage",
+        "eps_voltage",
     }
 )
 

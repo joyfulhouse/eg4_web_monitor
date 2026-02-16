@@ -40,6 +40,7 @@ from .coordinator_mappings import (
     _energy_balance,
     _safe_float,
     _write_charge_rate,
+    alias_common_voltage_sensors,
     compute_bank_charge_rate,
 )
 from .utils import clean_battery_display_name
@@ -554,6 +555,8 @@ class DeviceProcessingMixin(_MixinBase):
                 processed["sensors"]["device_type_code"] = features["device_type_code"]
             if "grid_type" in features:
                 processed["sensors"]["grid_type"] = features["grid_type"]
+            # Alias R-phase voltages to common names for non-three-phase configs
+            alias_common_voltage_sensors(processed["sensors"], features)
 
         # Calculate net grid power
         if hasattr(inverter, "power_to_user") and hasattr(inverter, "power_to_grid"):
