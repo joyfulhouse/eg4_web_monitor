@@ -192,6 +192,14 @@ SENSOR_TYPES = {
         "icon": "mdi:transmission-tower",
         "suggested_display_precision": 1,
     },
+    "grid_voltage": {
+        "name": "Grid Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower",
+        "suggested_display_precision": 1,
+    },
     "grid_voltage_s": {
         "name": "Grid Voltage S",
         "unit": UnitOfElectricPotential.VOLT,
@@ -219,6 +227,14 @@ SENSOR_TYPES = {
     # EPS (Emergency Power Supply) voltage sensors
     "eps_voltage_r": {
         "name": "EPS Voltage R",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug",
+        "suggested_display_precision": 1,
+    },
+    "eps_voltage": {
+        "name": "EPS Voltage",
         "unit": UnitOfElectricPotential.VOLT,
         "device_class": "voltage",
         "state_class": "measurement",

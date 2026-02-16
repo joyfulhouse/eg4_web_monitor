@@ -22,6 +22,7 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    NON_THREE_PHASE_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
@@ -58,6 +59,10 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
     # Check three-phase sensors (only for EG4_HYBRID, LXP)
     if sensor_key in THREE_PHASE_ONLY_SENSORS:
         return bool(features.get("supports_three_phase", True))
+
+    # Check common voltage sensors (only for single/split-phase, not three-phase)
+    if sensor_key in NON_THREE_PHASE_SENSORS:
+        return not bool(features.get("supports_three_phase", False))
 
     # Check discharge recovery sensors (only for EG4_OFFGRID series)
     if sensor_key in DISCHARGE_RECOVERY_SENSORS:

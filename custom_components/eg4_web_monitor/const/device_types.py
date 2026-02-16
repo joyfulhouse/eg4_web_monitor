@@ -127,6 +127,16 @@ THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Common voltage sensors for single-phase and split-phase configurations.
+# These alias register 12 (grid_voltage_r) and register 20 (eps_voltage_r)
+# with phase-neutral names. Not created for three-phase (R/S/T sensors used instead).
+NON_THREE_PHASE_SENSORS: frozenset[str] = frozenset(
+    {
+        "grid_voltage",
+        "eps_voltage",
+    }
+)
+
 # Sensors related to discharge recovery hysteresis (EG4_OFFGRID series only)
 # These parameters prevent oscillation when SOC is near the cutoff threshold
 DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
