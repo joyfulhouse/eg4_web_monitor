@@ -769,7 +769,9 @@ class TestGridBOSSFirmwareCache:
 
         mock_transport = MagicMock()
         mock_transport.is_connected = True
-        mock_transport.read_firmware_version = AsyncMock(return_value="SHOULD-NOT-BE-CALLED")
+        mock_transport.read_firmware_version = AsyncMock(
+            return_value="SHOULD-NOT-BE-CALLED"
+        )
 
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport

@@ -228,9 +228,7 @@ class TestSwitchPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        working_modes = [
-            e for e in entities if isinstance(e, EG4WorkingModeSwitch)
-        ]
+        working_modes = [e for e in entities if isinstance(e, EG4WorkingModeSwitch)]
         working_mode_params = {e._mode_config["param"] for e in working_modes}
 
         # All five have Modbus register support
@@ -243,7 +241,9 @@ class TestSwitchPlatformSetup:
     @pytest.mark.asyncio
     async def test_cloud_mode_includes_all_working_modes(self, hass):
         """Cloud mode should create ALL working mode switches."""
-        coordinator = _mock_coordinator(has_http=True, has_local=False, local_only=False)
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=False, local_only=False
+        )
         entry = MagicMock()
         entry.runtime_data = coordinator
 

@@ -5,6 +5,28 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.34] - 2026-02-18
+
+### Fixed
+
+- **WiFi dongle cross-request response validation** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): pylxpweb 0.9.7 validates response serial number, function code, and start register against the request — catches misrouted cloud responses through the WiFi dongle that caused battery_count=5421 and current=2996A spikes
+- **Battery canary checks** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): pylxpweb 0.9.7 adds `battery_count > 20` and `abs(current) > 500A` canary bounds to `BatteryBankData.is_corrupt()` to reject garbage readings
+- **Always-on energy monotonicity** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): Lifetime energy counter validation now runs unconditionally (previously gated by `validate_data` toggle)
+- **WARNING-level canary logging** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): All data corruption canary log messages promoted from DEBUG to WARNING for better diagnostic visibility
+
+### Added
+
+- **Common voltage sensors** ([#159](https://github.com/joyfulhouse/eg4_web_monitor/issues/159)): `grid_voltage` and `eps_voltage` aliases for single/split-phase inverters (maps to `_r` variant)
+- **Signed net sensors**: Consolidated charge/discharge sensor pairs into signed net sensors
+
+### Removed
+
+- **Grid type mismatch detection**: Removed `_check_grid_type_mismatch()` — config-stored grid type is now treated as authoritative
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.7` (cross-request response validation, battery canaries, always-on energy monotonicity)
+
 ## [3.2.0-beta.32] - 2026-02-13
 
 ### Fixed
