@@ -1090,6 +1090,32 @@ class DeviceProcessingMixin(_MixinBase):
         processed["sensors"] = _map_device_properties(group, property_map)
         processed["sensors"]["parallel_group_last_polled"] = dt_util.utcnow()
 
+        # Override consumption with energy balance when inverters have local
+        # transport.  pylxpweb's _compute_energy_from_inverters() historically
+        # summed load_energy_today (AC charge rectifier energy, reg 32) instead
+        # of household consumption.  Energy balance is the correct formula.
+        # This mirrors the individual inverter override at line ~507.
+        # See: eg4_web_monitor issue #163
+        if any(
+            getattr(inv, "_transport_energy", None) is not None
+            for inv in getattr(group, "inverters", [])
+        ):
+            sensors = processed["sensors"]
+            sensors["consumption"] = _energy_balance(
+                sensors.get("yield"),
+                sensors.get("discharging"),
+                sensors.get("grid_import"),
+                sensors.get("charging"),
+                sensors.get("grid_export"),
+            )
+            sensors["consumption_lifetime"] = _energy_balance(
+                sensors.get("yield_lifetime"),
+                sensors.get("discharging_lifetime"),
+                sensors.get("grid_import_lifetime"),
+                sensors.get("charging_lifetime"),
+                sensors.get("grid_export_lifetime"),
+            )
+
         return processed
 
     @staticmethod

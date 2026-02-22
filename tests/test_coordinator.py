@@ -4192,6 +4192,150 @@ class TestParallelGroupGridPowerKeys:
         assert "grid_export_power" in PARALLEL_GROUP_SENSOR_KEYS
 
 
+class TestParallelGroupConsumptionEnergyBalance:
+    """Test PG consumption override with energy balance when transport attached.
+
+    Issue #163: In hybrid mode without GridBOSS, _compute_energy_from_inverters()
+    sums load_energy_today (actually AC charge energy reg 32), producing wrong
+    consumption values.  The coordinator overrides PG consumption with energy
+    balance: yield + discharge + import - charge - export.
+    """
+
+    @pytest.fixture
+    def hybrid_entry(self, hass):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Hybrid PG Test",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_PLANT_ID: "888",
+                CONF_PLANT_NAME: "PG Test",
+                CONF_BASE_URL: "https://test.example.com",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+                CONF_VERIFY_SSL: True,
+                CONF_HTTP_POLLING_INTERVAL: DEFAULT_HTTP_POLLING_INTERVAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            entry_id="pg_consumption_test",
+        )
+        entry.add_to_hass(hass)
+        return entry
+
+    @pytest.mark.asyncio
+    async def test_pg_consumption_overridden_when_transport_attached(
+        self, hass, hybrid_entry
+    ):
+        """PG consumption uses energy balance when inverters have local transport."""
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_entry)
+
+        mock_group = MagicMock()
+        mock_group.name = "A"
+        mock_group.inverters = [MagicMock(serial_number="INV001")]
+        mock_group.mid_device = None
+
+        # Simulate _has_local_energy() = True  →  wrong consumption from pylxpweb
+        mock_group.today_usage = 5.0  # Wrong: AC charge energy
+        mock_group.total_usage = 500.0  # Wrong: AC charge energy lifetime
+
+        # Correct energy values from pylxpweb properties
+        mock_group.today_yielding = 30.0
+        mock_group.today_charging = 5.0
+        mock_group.today_discharging = 10.0
+        mock_group.today_import = 20.0
+        mock_group.today_export = 8.0
+
+        mock_group.total_yielding = 3000.0
+        mock_group.total_charging = 500.0
+        mock_group.total_discharging = 1000.0
+        mock_group.total_import = 2000.0
+        mock_group.total_export = 800.0
+
+        # Other properties the property map expects
+        mock_group.pv_total_power = 4500
+        mock_group.inverter_power = 3800
+        mock_group.grid_power = -200
+        mock_group.grid_import_power = 0
+        mock_group.grid_export_power = 200
+        mock_group.consumption_power = 3600
+        mock_group.eps_power = 0
+        mock_group.battery_power = -500
+        mock_group.battery_soc = 75
+        mock_group.battery_max_capacity = 560
+        mock_group.battery_current_capacity = 420.0
+        mock_group.battery_voltage = 53.2
+        mock_group.battery_count = 6
+        mock_group.first_device_serial = "INV001"
+
+        # Mark inverters as having local transport
+        for inv in mock_group.inverters:
+            inv._transport_energy = MagicMock()
+
+        result = await coordinator._process_parallel_group_object(mock_group)
+        sensors = result["sensors"]
+
+        # Energy balance: 30+10+20-5-8 = 47.0 kWh
+        assert sensors["consumption"] == pytest.approx(47.0)
+        # Lifetime: 3000+1000+2000-500-800 = 4700.0 kWh
+        assert sensors["consumption_lifetime"] == pytest.approx(4700.0)
+
+    @pytest.mark.asyncio
+    async def test_pg_consumption_not_overridden_without_transport(
+        self, hass, hybrid_entry
+    ):
+        """PG consumption unchanged when no transport (cloud-only path)."""
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_entry)
+
+        mock_group = MagicMock()
+        mock_group.name = "A"
+        mock_group.inverters = [MagicMock(serial_number="INV001")]
+        mock_group.mid_device = None
+
+        # Cloud API provides correct consumption
+        mock_group.today_usage = 45.0  # Correct from cloud
+        mock_group.total_usage = 4500.0
+
+        mock_group.today_yielding = 30.0
+        mock_group.today_charging = 5.0
+        mock_group.today_discharging = 10.0
+        mock_group.today_import = 20.0
+        mock_group.today_export = 8.0
+
+        mock_group.total_yielding = 3000.0
+        mock_group.total_charging = 500.0
+        mock_group.total_discharging = 1000.0
+        mock_group.total_import = 2000.0
+        mock_group.total_export = 800.0
+
+        mock_group.pv_total_power = 4500
+        mock_group.inverter_power = 3800
+        mock_group.grid_power = -200
+        mock_group.grid_import_power = 0
+        mock_group.grid_export_power = 200
+        mock_group.consumption_power = 3600
+        mock_group.eps_power = 0
+        mock_group.battery_power = -500
+        mock_group.battery_soc = 75
+        mock_group.battery_max_capacity = 560
+        mock_group.battery_current_capacity = 420.0
+        mock_group.battery_voltage = 53.2
+        mock_group.battery_count = 6
+        mock_group.first_device_serial = "INV001"
+
+        # No transport attached
+        for inv in mock_group.inverters:
+            inv._transport_energy = None
+
+        result = await coordinator._process_parallel_group_object(mock_group)
+        sensors = result["sensors"]
+
+        # Cloud values should pass through unchanged
+        assert sensors["consumption"] == pytest.approx(45.0)
+        assert sensors["consumption_lifetime"] == pytest.approx(4500.0)
+
+
 class TestDataValidationFlag:
     """Test _data_validation_enabled flag from CONF_DATA_VALIDATION option."""
 
