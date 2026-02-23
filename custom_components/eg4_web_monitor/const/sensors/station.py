@@ -35,15 +35,17 @@ STATION_SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
     # -------------------------------------------------------------------------
-    # Last Polled Diagnostic Sensor
+    # Last Polled Diagnostic Sensor (disabled by default)
     # Shows when station data was last fetched, not when it last changed.
-    # Helps users understand if the integration is actively polling.
+    # Disabled by default because it updates every polling cycle and creates
+    # noisy state history. Users can enable it via the entity registry.
     # -------------------------------------------------------------------------
     "station_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     # -------------------------------------------------------------------------
     # API Monitoring Sensors — track cloud API usage for rate limit compliance.

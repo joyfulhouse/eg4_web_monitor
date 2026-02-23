@@ -491,6 +491,10 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
         if uom := sensor_config.get("unit_of_measurement"):
             self._attr_native_unit_of_measurement = uom
 
+        # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
+        if sensor_config.get("enabled_default") is False:
+            self._attr_entity_registry_enabled_default = False
+
         # Build unique ID
         self._attr_unique_id = f"station_{coordinator.plant_id}_{sensor_key}"
 

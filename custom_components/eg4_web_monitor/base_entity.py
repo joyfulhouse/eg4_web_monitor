@@ -307,6 +307,10 @@ def _apply_sensor_config(
             else EntityCategory.DIAGNOSTIC
         )
 
+    # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
+    if sensor_config.get("enabled_default") is False:
+        entity._attr_entity_registry_enabled_default = False
+
     return sensor_config
 
 

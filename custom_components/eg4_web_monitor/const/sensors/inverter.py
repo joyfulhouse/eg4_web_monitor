@@ -1718,44 +1718,51 @@ SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
     # -------------------------------------------------------------------------
-    # Last Polled Diagnostic Sensors
+    # Last Polled Diagnostic Sensors (disabled by default)
     # These sensors show when data was last fetched, not when it last changed.
-    # Helps users understand if their device is being actively polled.
+    # Disabled by default because they update every polling cycle and create
+    # noisy state history. Users can enable them via the entity registry.
     # -------------------------------------------------------------------------
     "last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     "battery_bank_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     "battery_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     "parallel_group_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     "station_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
     "midbox_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
     },
 }
