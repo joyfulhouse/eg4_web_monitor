@@ -733,3 +733,22 @@ class TestEG4StationSensor:
         """Unknown sensor key raises KeyError during init."""
         with pytest.raises(KeyError):
             self._make_sensor("nonexistent_key", {"name": "Test"})
+
+
+class TestCellVoltageDeltaPrecision:
+    """Display precision for cell voltage delta sensors (issue #166).
+
+    Cell voltage deltas are millivolt-level values (e.g. 0.005V).
+    Without suggested_display_precision=3, HA's default voltage
+    precision (1 decimal) rounds them to 0.0V.
+    """
+
+    def test_battery_bank_cell_voltage_delta_max_has_precision_3(self):
+        """battery_bank_cell_voltage_delta_max must have suggested_display_precision=3."""
+        config = SENSOR_TYPES["battery_bank_cell_voltage_delta_max"]
+        assert config["suggested_display_precision"] == 3
+
+    def test_battery_cell_voltage_delta_has_precision_3(self):
+        """battery_cell_voltage_delta (individual battery) has suggested_display_precision=3."""
+        config = SENSOR_TYPES["battery_cell_voltage_delta"]
+        assert config["suggested_display_precision"] == 3
