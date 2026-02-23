@@ -10,6 +10,57 @@
 
 **Design Doc:** `docs/plans/2026-02-22-cloud-emulator-design.md`
 
+**Status:** BLOCKED — awaiting traffic capture and analysis (Task 0)
+
+**Feature Gating:**
+- **pylxpweb:** Explicit opt-in via `inverter.enable_cloud_reporting(dongle_serial=...)`
+- **HA:** Hybrid mode only, options flow toggle (default disabled), dongle must be pre-registered
+
+---
+
+## Task 0: Traffic Capture and Protocol Validation (BLOCKING)
+
+**ALL subsequent tasks are blocked until this is complete.**
+
+Capture real dongle-to-cloud TCP traffic to validate protocol assumptions from firmware decompilation. This is a manual/semi-automated task.
+
+**Deliverables:**
+- `scratchpad/firmware/dongle_capture.pcap` — raw packet capture
+- `scratchpad/firmware/TRAFFIC_ANALYSIS.md` — decoded frame analysis
+- `scripts/decode_cloud_frames.py` — pcap decoder script
+
+**Step 1: Capture traffic**
+
+```bash
+# On router or HA host with network visibility to dongle traffic
+sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w scratchpad/firmware/dongle_capture.pcap -v
+# Let it run for 10-15 minutes to capture multiple poll cycles
+```
+
+**Step 2: Write pcap decoder**
+
+Python script that reads the pcap and decodes 0xA1/0x1A frames:
+- Parse TCP stream reassembly
+- Decode each frame: func code, serial, payload
+- For 0xC2: decode Modbus RTU (func, start reg, count, register values)
+- For 0xC1: verify heartbeat format (19 bytes, status=0x05)
+- Log server→dongle direction frames (commands, acks, unknown)
+- Calculate timing between poll cycles
+
+**Step 3: Analyze and document**
+
+Write `TRAFFIC_ANALYSIS.md` covering:
+- Exact frame sequences per poll cycle
+- Register groups sent (group 0 vs 1 vs 2)
+- Cloud server responses (any? or fire-and-forget?)
+- Heartbeat timing confirmation
+- Any unexpected traffic (TLS upgrade, additional handshakes)
+- serverId-to-hostname mapping (query API, compare with traffic)
+
+**Step 4: Update design doc**
+
+Correct any protocol assumptions that traffic capture contradicts.
+
 ---
 
 ## Task 1: Cloud Protocol Module (`protocol.py`)
@@ -1474,50 +1525,70 @@ git commit -m "feat(cloud): export CloudEmitter from public API"
 
 ---
 
-## Task 6: HA Integration — Config Flow Changes
+## Task 6: HA Integration — Config Flow Changes (Hybrid Mode Only)
 
-Auto-detect dongle serial from cloud API and store in config entry.
+Auto-detect dongle serial map from cloud API; add cloud reporting toggle gated to hybrid mode.
 
 **Files:**
-- Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/const.py` (add CONF_DONGLE_SERIAL, CONF_CLOUD_REPORTING)
-- Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/config_flow/__init__.py` (auto-detect serial)
+- Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/const.py` (add CONF_DONGLE_SERIAL_MAP, CONF_CLOUD_REPORTING)
+- Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/config_flow/__init__.py` (auto-detect serial map)
 - Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/config_flow/options.py` (add toggle)
+- Modify: `eg4_web_monitor/custom_components/eg4_web_monitor/strings.json` (warning text)
 - Test: `eg4_web_monitor/tests/test_config_flow.py` (new test for dongle serial auto-detect)
 
 **Context:**
 - `InverterInfo.datalogSn` provides the dongle serial (from cloud API `get_inverter_list`)
 - Already fetched during config flow in the plant selection step
-- New config keys: `CONF_DONGLE_SERIAL`, `CONF_CLOUD_REPORTING`
-- Options flow toggle: "Enable cloud data reporting" (only shown for local/hybrid with dongle serial)
+- New config keys: `CONF_DONGLE_SERIAL_MAP` (dict: inverter_serial → datalogSn), `CONF_CLOUD_REPORTING` (bool)
+- **Hybrid mode ONLY** — toggle not shown in local-only or cloud-only modes
+- User must have registered their physical dongle first (warning text in options flow)
 
-**Note:** This task requires careful reading of the existing config flow before modifying. The exact integration points depend on the current flow structure. Read `config_flow/__init__.py` and `config_flow/options.py` first.
+**Feature gating rules:**
+1. Config flow: Only populate `CONF_DONGLE_SERIAL_MAP` when `connection_type == "hybrid"`
+2. Options flow: Only show toggle when `connection_type == "hybrid"` AND `CONF_DONGLE_SERIAL_MAP` is present and non-empty
+3. Toggle includes i18n warning: "Your WiFi dongle must be registered with EG4 before enabling this feature."
+
+**Note:** This task requires careful reading of the existing config flow before modifying. Read `config_flow/__init__.py` and `config_flow/options.py` first.
 
 **Step 1: Add constants**
 
 Add to `const.py`:
 ```python
-CONF_DONGLE_SERIAL = "dongle_serial"
+CONF_DONGLE_SERIAL_MAP = "dongle_serial_map"  # dict: inverter_serial -> datalogSn
 CONF_CLOUD_REPORTING = "cloud_reporting"
 ```
 
-**Step 2: Auto-detect dongle serial in config flow**
+**Step 2: Auto-detect dongle serial map in config flow**
 
-In the config flow, after station/plant selection succeeds (where `InverterInfo` is already fetched), extract `datalogSn` from the first inverter's info and store it in the flow data. The exact location depends on reading the current code.
+In the hybrid config flow, after station/plant selection succeeds (where `InverterInfo` is already fetched), build a mapping of inverter serial → `datalogSn` and store it in config entry data.
 
-**Step 3: Add options flow toggle**
+**Step 3: Add options flow toggle (hybrid mode only)**
 
-In `options.py`, add a boolean toggle for cloud reporting. Only show it when `CONF_DONGLE_SERIAL` is present in config entry data.
+In `options.py`, add a boolean toggle for cloud reporting:
+- Only shown when `connection_type == "hybrid"` AND `CONF_DONGLE_SERIAL_MAP` exists
+- Default: disabled
+- Warning text about dongle registration prerequisite
 
-**Step 4: Write tests for the new config entries**
+**Step 4: Add i18n strings**
 
-**Step 5: Run tests, lint, commit**
+In `strings.json`, add options flow description with prerequisite warning.
+
+**Step 5: Write tests for the new config entries**
+
+Test that:
+- Dongle serial map is populated during hybrid setup
+- Dongle serial map is NOT populated during local-only or cloud-only setup
+- Options toggle only appears in hybrid mode
+- Options toggle hidden when no dongle serial map
+
+**Step 6: Run tests, lint, commit**
 
 ```bash
 cd /Users/bryanli/Projects/joyfulhouse/homeassistant-dev/eg4_web_monitor
 uv run pytest tests/test_config_flow.py tests/test_options_flow.py -v
 uv run ruff check custom_components/ --fix && uv run ruff format custom_components/
 git add custom_components/ tests/
-git commit -m "feat(config): auto-detect dongle serial, add cloud reporting toggle"
+git commit -m "feat(config): auto-detect dongle serial map, add hybrid-only cloud reporting toggle"
 ```
 
 ---

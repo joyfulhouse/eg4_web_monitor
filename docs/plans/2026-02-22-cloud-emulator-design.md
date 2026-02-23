@@ -1,8 +1,8 @@
 # Cloud Emulator (CloudEmitter) Design
 
-**Date**: 2026-02-22
-**Status**: Approved
-**Scope**: pylxpweb library + minimal HA config flow changes
+**Date**: 2026-02-22 (updated 2026-02-23)
+**Status**: Design approved, pending traffic capture validation
+**Scope**: pylxpweb library + HA config flow changes (hybrid mode only)
 
 ## Problem
 
@@ -252,48 +252,139 @@ async def _handle_set_param(self, frame):
         self._inverter._parameters_cache_time = None
 ```
 
+## Pre-Implementation: Traffic Capture Phase
+
+**BLOCKING**: Implementation MUST NOT begin until traffic capture is complete and analyzed.
+
+The firmware decompilation gives us the protocol spec, but we need to observe real
+dongle-to-cloud traffic to confirm:
+- Exact byte sequences for each frame type
+- Ordering and timing of data frames within a poll cycle
+- Cloud server responses (if any) to data frames
+- Any handshake or session negotiation we may have missed
+- Register group selection (group 0 vs 1 vs 2)
+- serverId-to-hostname mapping
+
+### Capture Method: Packet Capture (tcpdump/Wireshark)
+
+```
+Dongle ──WiFi──> Router ──> us2.solarcloudsystem.com:4346
+                   │
+                   └── tcpdump/Wireshark captures TCP stream
+                       Filter: host us2.solarcloudsystem.com and port 4346
+```
+
+### Capture Script
+
+```bash
+# On a host that can see dongle traffic (router, mirror port, or HA host)
+sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w dongle_capture.pcap -v
+
+# Or filter by dongle IP if known:
+sudo tcpdump -i any host 192.168.1.XXX and port 4346 -w dongle_capture.pcap -v
+```
+
+### Analysis Script
+
+Write a Python script to parse the pcap and decode 0xA1/0x1A frames:
+- Decode each frame (func code, serial, payload)
+- For 0xC2 frames: decode Modbus RTU payload (func, start reg, register values)
+- For 0xC1 frames: verify heartbeat format and timing
+- Log any server→dongle frames (commands, acks, etc.)
+- Calculate actual data_period timing between poll cycles
+- Identify which register groups are sent
+
+### Deliverables
+
+- `scratchpad/firmware/dongle_capture.pcap` — raw packet capture
+- `scratchpad/firmware/TRAFFIC_ANALYSIS.md` — decoded frame analysis
+- Confirmation/correction of protocol assumptions from decompilation
+
+## Feature Gating
+
+### pylxpweb Level
+
+CloudEmitter is an **explicit opt-in** API. It never auto-starts.
+
+```python
+# Enable cloud reporting on an inverter
+inverter.enable_cloud_reporting(dongle_serial="BA12345678")
+
+# Disable
+await inverter.disable_cloud_reporting()
+
+# Check status
+inverter.cloud_reporting_enabled  # bool
+inverter.cloud_emitter  # CloudEmitter | None
+```
+
+**Requirements to enable:**
+- Local transport attached (`inverter._transport is not None`)
+- Valid 10-digit `dongle_serial`
+- If either is missing → raises `ValueError`
+
+### HA Level — Hybrid Mode Only
+
+Cloud reporting is ONLY available in **hybrid mode** because it requires both:
+- **Cloud credentials** — to fetch `InverterInfo.datalogSn` and verify dongle ownership
+- **Local transport** — to read registers for forwarding
+
+Pure local mode has no cloud credentials → cannot verify dongle ownership.
+Pure cloud mode has no local transport → no registers to forward.
+
+### Prerequisites
+
+1. User MUST first register their physical dongle via the EG4 app (serial + check code)
+2. User configures HA in hybrid mode (cloud creds + local Modbus/dongle)
+3. During config flow, `InverterInfo.datalogSn` is auto-fetched and mapped to the correct inverter
+4. Options flow shows "Enable cloud data reporting" toggle (disabled by default)
+5. Toggle includes a warning: "Your WiFi dongle must be registered with EG4 before enabling"
+
 ## HA Integration Changes
 
 ### Config Flow
 
-Minimal changes to `config_flow/`:
+During hybrid mode setup:
 
-1. When cloud credentials are available AND local transport is configured
-2. Auto-fetch `InverterInfo.datalogSn` for the inverter
-3. Store as `CONF_DONGLE_SERIAL` in config entry data
-4. No user-facing input field for serial (auto-populated)
+1. After station/plant selection, fetch `InverterInfo` list for the selected station
+2. For each inverter, extract `datalogSn` from `InverterInfo`
+3. Store mapping `{inverter_serial: datalogSn}` as `CONF_DONGLE_SERIAL_MAP` in config entry data
+4. No user-facing input — auto-populated from cloud API
 
 ### Options Flow
 
 Add toggle in options flow:
 
-- "Enable cloud data reporting" (default: disabled)
-- Only shown when connection type is `local` or `hybrid` AND `CONF_DONGLE_SERIAL` is available
+- "Enable cloud data reporting" (default: **disabled**)
+- **Only shown when `connection_type == "hybrid"` AND `CONF_DONGLE_SERIAL_MAP` is present**
+- Includes i18n warning text about dongle registration prerequisite
 
 ### Coordinator
 
 When cloud reporting is enabled:
 
 ```python
-# In coordinator setup:
-if self._data_validation_enabled and self._dongle_serial:
-    emitter = CloudEmitter(
-        dongle_serial=self._dongle_serial,
-        transport=inverter._transport,
-    )
-    await emitter.start()
-    # Store for cleanup
-    self._cloud_emitter = emitter
+# In coordinator setup (after first successful poll):
+if self._cloud_reporting_enabled and self._dongle_serial_map:
+    for inverter in self._inverters.values():
+        dongle_sn = self._dongle_serial_map.get(inverter.serial_number)
+        if dongle_sn and inverter._transport is not None:
+            inverter.enable_cloud_reporting(dongle_serial=dongle_sn)
 ```
 
-On unload: `await self._cloud_emitter.stop()`
+On unload:
+```python
+for inverter in self._inverters.values():
+    await inverter.disable_cloud_reporting()
+```
 
 ## Security Model
 
-1. **Auto-detect only** — dongle serial comes from cloud API, not user input
-2. **Cloud API authentication** — only returns serials the user owns
-3. **No PIN needed** — TCP ingestion uses serial-only authentication
+1. **Hybrid mode only** — requires cloud credentials proving account ownership
+2. **Auto-detect only** — dongle serial from cloud API `InverterInfo.datalogSn`, not user input
+3. **Registration prerequisite** — physical dongle must be registered first (serial + check code)
 4. **No fabrication possible** — user cannot enter arbitrary serial
+5. **No PIN in transit** — TCP ingestion uses serial-only (PIN is for one-time registration)
 
 ## Testing Plan
 
@@ -305,11 +396,13 @@ On unload: `await self._cloud_emitter.stop()`
 - Register snapshot: verify stashing during reads
 - Command parsing: verify 0xC3/0xC4 frame parsing
 - Connection lifecycle: connect, heartbeat, data, reconnect on failure
+- Feature gating: enable/disable API, ValueError when prerequisites missing
 
 ### Integration Tests (HA)
 
-- Config flow: auto-detection of dongle serial
-- Options flow: cloud reporting toggle
+- Config flow: auto-detection of dongle serial map (hybrid mode)
+- Config flow: toggle NOT shown in local-only or cloud-only modes
+- Options flow: cloud reporting toggle with prerequisite check
 - Coordinator: emitter start/stop lifecycle
 - Coordinator: emitter stop on unload
 
@@ -322,6 +415,8 @@ On unload: `await self._cloud_emitter.stop()`
 
 ## Open Questions
 
-1. **serverId mapping**: `DatalogListItem.serverId` likely maps to TCP server hostname (e.g., `us{id}.solarcloudsystem.com`). Need to verify with real API data.
-2. **Register group selection**: The firmware selects group 0 vs 1 based on inverter register 26 bits 4:1. Need to determine which group applies to EG4 inverters.
-3. **SSL/TLS**: `dongle_ssl.solarcloudsystem.com:4348` exists for TLS connections. Should we prefer TLS over plain TCP?
+1. **serverId mapping**: `DatalogListItem.serverId` likely maps to TCP server hostname (e.g., `us{id}.solarcloudsystem.com`). Traffic capture should confirm.
+2. **Register group selection**: The firmware selects group 0 vs 1 based on inverter register 26 bits 4:1. Traffic capture should confirm which group EG4 inverters use.
+3. **SSL/TLS**: `dongle_ssl.solarcloudsystem.com:4348` exists. Should we prefer TLS?
+4. **Cloud server responses**: Does the cloud send anything back for 0xC2 data frames, or is it fire-and-forget? Traffic capture will answer.
+5. **Multi-inverter mapping**: With parallel groups, does each inverter have its own dongle, or does one dongle serve the whole plant? Need to verify `datalogSn` cardinality.
