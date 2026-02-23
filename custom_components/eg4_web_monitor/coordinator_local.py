@@ -118,8 +118,7 @@ class LocalTransportMixin(_MixinBase):
                 fallback_key = f"{inverter_serial}-{batt.battery_index + 1:02d}"
                 cache[fallback_key] = _build_individual_battery_mapping(batt)
                 _LOGGER.debug(
-                    "RR [%s] slot %d: no serial, fallback key %s "
-                    "(V=%.1f SoC=%s)",
+                    "RR [%s] slot %d: no serial, fallback key %s (V=%.1f SoC=%s)",
                     inverter_serial,
                     getattr(batt, "battery_index", -1),
                     fallback_key,
@@ -140,8 +139,7 @@ class LocalTransportMixin(_MixinBase):
             battery_key = key_map[bat_serial]
             cache[battery_key] = _build_individual_battery_mapping(batt)
             _LOGGER.debug(
-                "RR [%s] slot %d: serial=%s → key=%s "
-                "(V=%.1f SoC=%d%%)",
+                "RR [%s] slot %d: serial=%s → key=%s (V=%.1f SoC=%d%%)",
                 inverter_serial,
                 getattr(batt, "battery_index", -1),
                 bat_serial,
@@ -885,10 +883,8 @@ class LocalTransportMixin(_MixinBase):
                         # physical batteries appear in the fixed register
                         # slots.  Accumulate by battery serial so all
                         # batteries eventually appear as entities.
-                        device_data["batteries"] = (
-                            self._merge_round_robin_batteries(
-                                serial, list(battery_data.batteries)
-                            )
+                        device_data["batteries"] = self._merge_round_robin_batteries(
+                            serial, list(battery_data.batteries)
                         )
                         _LOGGER.debug(
                             "LOCAL: %d individual batteries for %s "
