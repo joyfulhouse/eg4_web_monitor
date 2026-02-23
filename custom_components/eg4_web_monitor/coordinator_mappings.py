@@ -647,13 +647,14 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
 
 
 def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
-    """Build sensor mapping from individual BatteryData object (LOCAL mode).
+    """Build sensor mapping from a BatteryData or Battery object.
 
-    Maps pylxpweb transport's BatteryData fields to sensor keys that match
-    the expected format used by HTTP mode (from Battery objects).
+    Works with both pylxpweb transport BatteryData (LOCAL/HYBRID overlay)
+    and Battery device objects (HYBRID cloud baseline) via shared attribute
+    names defined on both classes.
 
     Args:
-        battery: BatteryData object from pylxpweb transport.
+        battery: BatteryData (transport) or Battery (device) object.
 
     Returns:
         Dictionary mapping sensor keys to values.
