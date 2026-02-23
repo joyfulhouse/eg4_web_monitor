@@ -263,6 +263,18 @@ class EG4DataUpdateCoordinator(
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 
+        # Round-robin battery cache for LOCAL/HYBRID Modbus.
+        # Some inverter firmware rotates which physical batteries appear in the
+        # fixed register slots (5002+) on each CAN bus poll.  We accumulate
+        # readings keyed by battery serial so that all batteries eventually
+        # appear as entities regardless of which slot they occupied.
+        # Outer key = inverter serial, inner key = battery serial.
+        self._battery_rr_cache: dict[str, dict[str, dict[str, Any]]] = {}
+        # Stable battery_key assignment: battery serial → "inverter-NN" key.
+        self._battery_serial_to_key: dict[str, dict[str, str]] = {}
+        # Next available index per inverter for stable key assignment.
+        self._battery_next_index: dict[str, int] = {}
+
         # Track whether local parameters have been loaded (deferred from first refresh
         # to avoid Modbus traffic overload during HA setup timeout window)
         self._local_parameters_loaded: bool = False

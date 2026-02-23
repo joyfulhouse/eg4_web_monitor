@@ -926,12 +926,14 @@ class TestBatteryExtraction:
         mock_batt.voltage = 52.0
         mock_batt.current = 10.0
         mock_batt.soc = 85
+        mock_batt.serial_number = "BAT_SN_001"
         mock_transport_battery.batteries = [mock_batt]
         inv._transport_battery = mock_transport_battery
 
         coordinator.station = _mock_station([inv])
         coordinator._inverter_cache = {"INV001": inv}
 
+        mock_mapping = {"battery_voltage": 52.0, "battery_soc": 85}
         with (
             patch.object(
                 coordinator,
@@ -947,7 +949,11 @@ class TestBatteryExtraction:
             ),
             patch(
                 "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
-                return_value={"battery_voltage": 52.0, "battery_soc": 85},
+                return_value=mock_mapping,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_individual_battery_mapping",
+                return_value=mock_mapping,
             ),
         ):
             result = await coordinator._process_station_data()

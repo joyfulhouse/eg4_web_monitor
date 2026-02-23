@@ -691,68 +691,79 @@ class HTTPUpdateMixin(_MixinBase):
             # HYBRID MODE: Merge cloud metadata with transport real-time data
             # Cloud provides: model, serial_number, bms_model, battery_type_text
             # Transport provides: fresh voltage, current, SOC, cell voltages, temps
+            #
+            # Transport battery slots use round-robin: firmware rotates which
+            # physical batteries appear in the fixed register slots each poll.
+            # Match transport → cloud by serial number (not slot index).
             if transport_batteries and cloud_batteries:
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
 
-                # Build lookup of cloud batteries by index for merging
-                cloud_by_index: dict[int, Any] = {}
+                # Build lookup of cloud batteries by serial for merging
+                cloud_by_serial: dict[str, tuple[int, Any]] = {}
                 for cloud_batt in cloud_batteries:
-                    idx = getattr(cloud_batt, "battery_index", None)
-                    if idx is not None:
-                        cloud_by_index[idx] = cloud_batt
+                    c_sn = getattr(cloud_batt, "battery_sn", "") or ""
+                    c_idx = getattr(cloud_batt, "battery_index", None)
+                    if c_sn and c_idx is not None:
+                        cloud_by_serial[c_sn] = (c_idx, cloud_batt)
 
+                # First, populate all cloud batteries as baseline
+                for cloud_batt in cloud_batteries:
+                    c_idx = getattr(cloud_batt, "battery_index", None)
+                    if c_idx is None:
+                        continue
+                    battery_key = f"{serial}-{c_idx + 1:02d}"
+                    device_data["batteries"][battery_key] = (
+                        _build_individual_battery_mapping(cloud_batt)
+                    )
+
+                # Overlay transport real-time data matched by serial
+                transport_matched = 0
                 for batt in transport_batteries:
-                    # Skip batteries with no CAN bus data (5002+ reg failure)
                     if batt.voltage is None and batt.soc is None:
                         continue
-                    battery_key = f"{serial}-{batt.battery_index + 1:02d}"
-                    # Start with transport data (real-time values)
+                    bat_serial: str = getattr(batt, "serial_number", "") or ""
+                    if not bat_serial or bat_serial not in cloud_by_serial:
+                        continue
+                    cloud_idx, cloud_batt = cloud_by_serial[bat_serial]
+                    battery_key = f"{serial}-{cloud_idx + 1:02d}"
+                    # Transport data overwrites cloud for real-time values
                     battery_sensors = _build_individual_battery_mapping(batt)
-
-                    # Merge cloud-only metadata if available (no API call - already cached)
-                    cloud_batt = cloud_by_index.get(batt.battery_index)
-                    if cloud_batt:
-                        # Cloud-only fields that transport doesn't have
-                        if hasattr(cloud_batt, "battery_sn") and cloud_batt.battery_sn:
-                            battery_sensors["battery_serial_number"] = (
-                                cloud_batt.battery_sn
-                            )
-                        if hasattr(cloud_batt, "model") and cloud_batt.model:
-                            battery_sensors["battery_model"] = cloud_batt.model
-                        if hasattr(cloud_batt, "bms_model") and cloud_batt.bms_model:
-                            battery_sensors["battery_bms_model"] = cloud_batt.bms_model
-                        if (
-                            hasattr(cloud_batt, "battery_type_text")
-                            and cloud_batt.battery_type_text
-                        ):
-                            battery_sensors["battery_type_text"] = (
-                                cloud_batt.battery_type_text
-                            )
-
+                    # Preserve cloud-only metadata
+                    if hasattr(cloud_batt, "battery_sn") and cloud_batt.battery_sn:
+                        battery_sensors["battery_serial_number"] = (
+                            cloud_batt.battery_sn
+                        )
+                    if hasattr(cloud_batt, "model") and cloud_batt.model:
+                        battery_sensors["battery_model"] = cloud_batt.model
+                    if hasattr(cloud_batt, "bms_model") and cloud_batt.bms_model:
+                        battery_sensors["battery_bms_model"] = cloud_batt.bms_model
+                    if (
+                        hasattr(cloud_batt, "battery_type_text")
+                        and cloud_batt.battery_type_text
+                    ):
+                        battery_sensors["battery_type_text"] = (
+                            cloud_batt.battery_type_text
+                        )
                     device_data["batteries"][battery_key] = battery_sensors
+                    transport_matched += 1
 
                 _LOGGER.debug(
-                    "HYBRID: Merged %d batteries (transport + cloud metadata) for %s",
+                    "HYBRID: %d batteries for %s (%d with live transport data)",
                     len(device_data.get("batteries", {})),
                     serial,
+                    transport_matched,
                 )
                 continue
 
-            # LOCAL-ONLY: Use transport battery data without cloud metadata
+            # LOCAL-ONLY: Use transport battery data without cloud metadata.
+            # Round-robin merge: accumulate by battery serial across polls.
             if transport_batteries:
-                if "batteries" not in device_data:
-                    device_data["batteries"] = {}
-                for batt in transport_batteries:
-                    # Skip batteries with no CAN bus data (5002+ reg failure)
-                    if batt.voltage is None and batt.soc is None:
-                        continue
-                    battery_key = f"{serial}-{batt.battery_index + 1:02d}"
-                    device_data["batteries"][battery_key] = (
-                        _build_individual_battery_mapping(batt)
-                    )
+                device_data["batteries"] = self._merge_round_robin_batteries(
+                    serial, list(transport_batteries)
+                )
                 _LOGGER.debug(
-                    "LOCAL: Added %d individual batteries for %s",
+                    "LOCAL: %d individual batteries for %s (round-robin cache)",
                     len(device_data.get("batteries", {})),
                     serial,
                 )

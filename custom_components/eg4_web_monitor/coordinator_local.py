@@ -66,6 +66,58 @@ _COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
 class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
 
+    def _merge_round_robin_batteries(
+        self,
+        inverter_serial: str,
+        transport_batteries: list[Any],
+    ) -> dict[str, dict[str, Any]]:
+        """Merge transport battery slot data into the round-robin cache.
+
+        Some inverter firmware rotates which physical batteries appear in the
+        fixed Modbus register slots (5002+) on each CAN bus poll.  This method
+        accumulates readings keyed by battery serial so that all batteries
+        eventually appear as HA entities.
+
+        Args:
+            inverter_serial: Parent inverter serial number.
+            transport_batteries: List of BatteryData from current poll.
+
+        Returns:
+            Full battery dict for device_data["batteries"], containing all
+            batteries seen so far (not just this poll cycle).
+        """
+        if inverter_serial not in self._battery_rr_cache:
+            self._battery_rr_cache[inverter_serial] = {}
+            self._battery_serial_to_key[inverter_serial] = {}
+            self._battery_next_index[inverter_serial] = 1
+
+        cache = self._battery_rr_cache[inverter_serial]
+        key_map = self._battery_serial_to_key[inverter_serial]
+
+        for batt in transport_batteries:
+            # Skip batteries with no CAN bus data
+            if batt.voltage is None and batt.soc is None:
+                continue
+
+            bat_serial: str = getattr(batt, "serial_number", "") or ""
+            if not bat_serial:
+                # No serial → fall back to slot-index keying (pre-round-robin
+                # firmware or battery without CAN serial).
+                fallback_key = f"{inverter_serial}-{batt.battery_index + 1:02d}"
+                cache[fallback_key] = _build_individual_battery_mapping(batt)
+                continue
+
+            # Assign a stable battery_key on first encounter
+            if bat_serial not in key_map:
+                idx = self._battery_next_index[inverter_serial]
+                key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
+                self._battery_next_index[inverter_serial] = idx + 1
+
+            battery_key = key_map[bat_serial]
+            cache[battery_key] = _build_individual_battery_mapping(batt)
+
+        return dict(cache)
+
     async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
         """Read configuration parameters using library's named parameter mapping.
 
@@ -782,21 +834,22 @@ class LocalTransportMixin(_MixinBase):
                     compute_bank_charge_rate(device_data["sensors"])
 
                     if hasattr(battery_data, "batteries") and battery_data.batteries:
-                        for batt in battery_data.batteries:
-                            # Skip batteries with no CAN bus data (Modbus
-                            # exception on 5002+ registers).  BMS aggregate
-                            # data (regs 80-112) is always reliable via
-                            # battery_bank sensors.
-                            if batt.voltage is None and batt.soc is None:
-                                continue
-                            battery_key = f"{serial}-{batt.battery_index + 1:02d}"
-                            device_data["batteries"][battery_key] = (
-                                _build_individual_battery_mapping(batt)
+                        # Round-robin merge: some firmware rotates which
+                        # physical batteries appear in the fixed register
+                        # slots.  Accumulate by battery serial so all
+                        # batteries eventually appear as entities.
+                        device_data["batteries"] = (
+                            self._merge_round_robin_batteries(
+                                serial, list(battery_data.batteries)
                             )
+                        )
                         _LOGGER.debug(
-                            "LOCAL: Added %d individual batteries for %s",
+                            "LOCAL: %d individual batteries for %s "
+                            "(%d this poll, %d cached)",
                             len(device_data["batteries"]),
                             serial,
+                            len(battery_data.batteries),
+                            len(self._battery_rr_cache.get(serial, {})),
                         )
 
                 device_data["sensors"]["firmware_version"] = firmware_version
