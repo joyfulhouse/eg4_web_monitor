@@ -2,7 +2,6 @@
   "domain": "eg4_web_monitor",
   "name": "EG4 Web Monitor",
   "after_dependencies": ["network", "recorder"],
-  "homeassistant": "2026.2.0",
   "codeowners": ["@joyfulhouse"],
   "config_flow": true,
   "documentation": "https://github.com/joyfulhouse/eg4_web_monitor",
