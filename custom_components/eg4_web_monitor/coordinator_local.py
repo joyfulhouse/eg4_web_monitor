@@ -94,9 +94,21 @@ class LocalTransportMixin(_MixinBase):
         cache = self._battery_rr_cache[inverter_serial]
         key_map = self._battery_serial_to_key[inverter_serial]
 
+        poll_serials: list[str] = []
+        poll_slots_skipped = 0
+        new_serials: list[str] = []
+
         for batt in transport_batteries:
             # Skip batteries with no CAN bus data
             if batt.voltage is None and batt.soc is None:
+                poll_slots_skipped += 1
+                _LOGGER.debug(
+                    "RR [%s] slot %d: skipped (no CAN data, voltage=%s soc=%s)",
+                    inverter_serial,
+                    getattr(batt, "battery_index", -1),
+                    batt.voltage,
+                    batt.soc,
+                )
                 continue
 
             bat_serial: str = getattr(batt, "serial_number", "") or ""
@@ -105,16 +117,51 @@ class LocalTransportMixin(_MixinBase):
                 # firmware or battery without CAN serial).
                 fallback_key = f"{inverter_serial}-{batt.battery_index + 1:02d}"
                 cache[fallback_key] = _build_individual_battery_mapping(batt)
+                _LOGGER.debug(
+                    "RR [%s] slot %d: no serial, fallback key %s "
+                    "(V=%.1f SoC=%s)",
+                    inverter_serial,
+                    getattr(batt, "battery_index", -1),
+                    fallback_key,
+                    batt.voltage or 0.0,
+                    batt.soc,
+                )
                 continue
+
+            poll_serials.append(bat_serial)
 
             # Assign a stable battery_key on first encounter
             if bat_serial not in key_map:
                 idx = self._battery_next_index[inverter_serial]
                 key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
                 self._battery_next_index[inverter_serial] = idx + 1
+                new_serials.append(bat_serial)
 
             battery_key = key_map[bat_serial]
             cache[battery_key] = _build_individual_battery_mapping(batt)
+            _LOGGER.debug(
+                "RR [%s] slot %d: serial=%s → key=%s "
+                "(V=%.1f SoC=%d%%)",
+                inverter_serial,
+                getattr(batt, "battery_index", -1),
+                bat_serial,
+                battery_key,
+                batt.voltage or 0.0,
+                batt.soc or 0,
+            )
+
+        _LOGGER.debug(
+            "RR [%s] poll summary: %d responded, %d skipped, "
+            "%d new serials, %d total cached | "
+            "this_poll=%s | all_known=%s",
+            inverter_serial,
+            len(poll_serials),
+            poll_slots_skipped,
+            len(new_serials),
+            len(cache),
+            poll_serials,
+            list(key_map.keys()),
+        )
 
         return dict(cache)
 
