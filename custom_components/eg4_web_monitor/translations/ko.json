@@ -519,7 +519,6 @@
       "grid_voltage": {
         "name": "계통 전압"
       },
-
       "grid_frequency": {
         "name": "계통 주파수"
       },
@@ -535,7 +534,6 @@
       "eps_voltage": {
         "name": "EPS 전압"
       },
-
       "eps_frequency": {
         "name": "EPS 주파수"
       },
@@ -629,6 +627,9 @@
       "pv_charge_power": {
         "name": "PV 충전 전력"
       },
+      "pv_start_voltage": {
+        "name": "PV Start Voltage"
+      },
       "ac_charge_soc_limit": {
         "name": "AC 충전 SOC 제한"
       },
@@ -647,6 +648,19 @@
         "state": {
           "normal": "정상",
           "standby": "대기"
+        }
+      },
+      "pv_input_mode": {
+        "name": "PV Input Mode",
+        "state": {
+          "no_pv": "NO PV",
+          "pv1": "PV1",
+          "pv2": "PV2",
+          "pv3": "PV3",
+          "pv1_pv2": "PV1 & PV2",
+          "pv1_pv3": "PV1 & PV3",
+          "pv2_pv3": "PV2 & PV3",
+          "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
       }
     }

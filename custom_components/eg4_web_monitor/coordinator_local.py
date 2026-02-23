@@ -84,7 +84,10 @@ class LocalTransportMixin(_MixinBase):
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
             register_ranges = [
-                (21, 1),  # Function enable register (bit fields)
+                (
+                    20,
+                    3,
+                ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 (64, 16),  # Power settings + AC charge/discharge (64-79)
                 (101, 2),  # Charge/discharge current limits (101-102)
                 (105, 2),  # On-grid SOC cutoff (105-106)

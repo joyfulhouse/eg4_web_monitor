@@ -519,7 +519,6 @@
       "grid_voltage": {
         "name": "Tensione Rete"
       },
-
       "grid_frequency": {
         "name": "Frequenza Rete"
       },
@@ -535,7 +534,6 @@
       "eps_voltage": {
         "name": "Tensione EPS"
       },
-
       "eps_frequency": {
         "name": "Frequenza EPS"
       },
@@ -629,6 +627,9 @@
       "pv_charge_power": {
         "name": "Potenza Carica PV"
       },
+      "pv_start_voltage": {
+        "name": "PV Start Voltage"
+      },
       "ac_charge_soc_limit": {
         "name": "Limite SOC Carica AC"
       },
@@ -647,6 +648,19 @@
         "state": {
           "normal": "Normale",
           "standby": "Standby"
+        }
+      },
+      "pv_input_mode": {
+        "name": "PV Input Mode",
+        "state": {
+          "no_pv": "NO PV",
+          "pv1": "PV1",
+          "pv2": "PV2",
+          "pv3": "PV3",
+          "pv1_pv2": "PV1 & PV2",
+          "pv1_pv3": "PV1 & PV3",
+          "pv2_pv3": "PV2 & PV3",
+          "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
       }
     }

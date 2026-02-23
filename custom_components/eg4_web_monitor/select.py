@@ -18,7 +18,7 @@ else:
     )
 
 from . import EG4ConfigEntry
-from .const import SUPPORTED_INVERTER_MODELS
+from .const import PARAM_HOLD_PV_INPUT_MODE, SUPPORTED_INVERTER_MODELS
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,
@@ -37,6 +37,22 @@ OPERATING_MODE_MAPPING = {
     "Normal": True,  # True = normal mode (FUNC_SET_TO_STANDBY = true means Normal)
     "Standby": False,  # False = standby mode (FUNC_SET_TO_STANDBY = false means Standby)
 }
+
+# PV Input Mode options (register 20, HOLD_PV_INPUT_MODE)
+# Maps display label -> raw register value
+PV_INPUT_MODE_OPTIONS = [
+    "NO PV",
+    "PV1",
+    "PV2",
+    "PV3",
+    "PV1 & PV2",
+    "PV1 & PV3",
+    "PV2 & PV3",
+    "PV1 & PV2 & PV3",
+]
+# Bidirectional mapping: label <-> register value
+PV_INPUT_MODE_TO_VALUE = {label: idx for idx, label in enumerate(PV_INPUT_MODE_OPTIONS)}
+PV_INPUT_VALUE_TO_MODE = {idx: label for idx, label in enumerate(PV_INPUT_MODE_OPTIONS)}
 
 
 async def async_setup_entry(
@@ -75,8 +91,10 @@ async def async_setup_entry(
                 entities.append(
                     EG4OperatingModeSelect(coordinator, serial, device_data)
                 )
+                # Add PV input mode select
+                entities.append(EG4PVInputModeSelect(coordinator, serial, device_data))
                 _LOGGER.debug(
-                    "Added operating mode select for device %s (%s)",
+                    "Added operating mode + PV input mode selects for device %s (%s)",
                     serial,
                     model,
                 )
@@ -238,6 +256,137 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         except Exception as e:
             _LOGGER.error(
                 "Failed to set operating mode to %s for device %s: %s",
+                option,
+                self._serial,
+                e,
+            )
+            # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
+    """Select to control PV Input Mode (which MPPT channels are active).
+
+    Controls holding register 20 (HOLD_PV_INPUT_MODE), values 0-7.
+    Model-dependent — not all inverters have 3 MPPT channels.
+    Supports both local Modbus and cloud API write paths.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        device_data: dict[str, Any],
+    ) -> None:
+        """Initialize the PV input mode select."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+
+        self._serial = serial
+        self._device_data = device_data
+
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: str | None = None
+
+        # Get device info from coordinator data
+        self._model = (
+            (coordinator.data or {})
+            .get("devices", {})
+            .get(serial, {})
+            .get("model", "Unknown")
+        )
+
+        # Create unique identifiers using consolidated utilities
+        self._attr_unique_id = generate_unique_id(serial, "pv_input_mode")
+        self._attr_entity_id = generate_entity_id(
+            "select", self._model, serial, "pv_input_mode"
+        )
+
+        # Set device attributes
+        self._attr_has_entity_name = True
+        self._attr_name = "PV Input Mode"
+        self._attr_icon = "mdi:solar-panel"
+        self._attr_options = list(PV_INPUT_MODE_OPTIONS)
+
+        # Device info for grouping using consolidated utility
+        self._attr_device_info = create_device_info(serial, self._model)
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current PV input mode."""
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            device_params = self.coordinator.data["parameters"].get(self._serial, {})
+            mode_value = device_params.get(PARAM_HOLD_PV_INPUT_MODE)
+            if mode_value is not None:
+                return PV_INPUT_VALUE_TO_MODE.get(int(mode_value))
+
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            return bool(device_data.get("type") == "inverter")
+        return False
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the PV input mode via local Modbus or cloud API."""
+        if option not in PV_INPUT_MODE_TO_VALUE:
+            raise HomeAssistantError(f"Invalid PV input mode: {option}")
+
+        int_value = PV_INPUT_MODE_TO_VALUE[option]
+
+        try:
+            _LOGGER.info(
+                "Setting PV input mode to %s (%d) for device %s",
+                option,
+                int_value,
+                self._serial,
+            )
+
+            # Set optimistic state immediately for UI responsiveness
+            self._optimistic_state = option
+            self.async_write_ha_state()
+
+            if self.coordinator.has_local_transport(self._serial):
+                # Local Modbus: write register value directly
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_PV_INPUT_MODE, int_value, serial=self._serial
+                )
+            elif self.coordinator.client is not None:
+                # Cloud API: write via generic parameter write
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self._serial, "HOLD_PV_INPUT_MODE", str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(f"Failed to set PV input mode to {option}")
+                inverter = self.coordinator.get_inverter_object(self._serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+
+            _LOGGER.info(
+                "Successfully set PV input mode to %s for device %s",
+                option,
+                self._serial,
+            )
+
+            # Clear optimistic state and refresh parameters
+            self._optimistic_state = None
+            await self.coordinator.async_refresh_device_parameters(self._serial)
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set PV input mode to %s for device %s: %s",
                 option,
                 self._serial,
                 e,

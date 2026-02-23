@@ -88,7 +88,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 9 number entities."""
+        """FlexBOSS inverter creates 10 number entities."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -96,10 +96,11 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 9
+        assert len(entities) == 10
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
+        assert "PVStartVoltageNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):

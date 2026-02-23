@@ -35,6 +35,7 @@ from .const import (
     PARAM_HOLD_DISCHARGE_CURRENT,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
+    PARAM_HOLD_START_PV_VOLT,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
@@ -42,6 +43,9 @@ from .const import (
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
+    PV_START_VOLTAGE_MAX,
+    PV_START_VOLTAGE_MIN,
+    PV_START_VOLTAGE_STEP,
     SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
@@ -285,6 +289,7 @@ async def async_setup_entry(
                         SystemChargeSOCLimitNumber(coordinator, serial),
                         ACChargePowerNumber(coordinator, serial),
                         PVChargePowerNumber(coordinator, serial),
+                        PVStartVoltageNumber(coordinator, serial),
                         ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
@@ -495,6 +500,85 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             cloud_kwargs={"power_kw": int_value},
             label=f"PV charge power to {int_value} kW",
         )
+
+
+class PVStartVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for PV Start Voltage control (register 22).
+
+    Controls the minimum PV voltage at which the MPPT tracker activates.
+    Lowering this value (e.g. to 140V) keeps the MPPT engaged across a wider
+    voltage range, reducing connect/disconnect cycling that can cause internal
+    DC bus voltage spikes (vbus out of range / E019 faults).
+
+    Register stores decivolts (raw 1400 = 140.0V).
+    Cloud API accepts human-readable volts (valueText=140).
+    Firmware rejects values below 140V (error code 3).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "PV Start Voltage"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_pv_start_voltage"
+        self._attr_native_min_value = PV_START_VOLTAGE_MIN
+        self._attr_native_max_value = PV_START_VOLTAGE_MAX
+        self._attr_native_step = PV_START_VOLTAGE_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:solar-power-variant"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (PVStartVoltageNumber,)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current PV start voltage (raw decivolts / 10 -> V)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_START_PV_VOLT,
+            value_min=90,
+            value_max=500,
+            as_float=False,
+            param_transform=lambda v: float(v) / 10.0,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the PV start voltage."""
+        int_value = int(value)
+        if int_value < PV_START_VOLTAGE_MIN or int_value > PV_START_VOLTAGE_MAX:
+            raise HomeAssistantError(
+                f"PV start voltage must be between "
+                f"{PV_START_VOLTAGE_MIN}-{PV_START_VOLTAGE_MAX} V, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"PV start voltage must be an integer value, got {value}"
+            )
+
+        _LOGGER.info("Setting PV start voltage for %s to %d V", self.serial, int_value)
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                # Local Modbus: write raw decivolts (140V -> 1400)
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_START_PV_VOLT, int_value * 10, serial=self.serial
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                # Cloud API: write human-readable volts
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial, "HOLD_START_PV_VOLT", str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set PV start voltage to {int_value} V"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
 
 
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):

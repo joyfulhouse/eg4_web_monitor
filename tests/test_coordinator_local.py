@@ -134,7 +134,7 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 10 register ranges: 21, 64-79, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
+        # 10 register ranges: 20-22, 64-79, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
         assert mock_transport.read_named_parameters.call_count == 10
         assert "PARAM_A" in result
 
@@ -148,8 +148,8 @@ class TestReadModbusParameters:
         async def mock_read(start: int, count: int) -> dict[str, Any]:
             nonlocal call_count
             call_count += 1
-            if start == 21:
-                raise RuntimeError("range 21 failed")
+            if start == 20:
+                raise RuntimeError("range 20 failed")
             return {f"param_{start}": start}
 
         mock_transport = MagicMock()

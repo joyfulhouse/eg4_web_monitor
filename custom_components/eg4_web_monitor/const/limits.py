@@ -7,6 +7,15 @@ inverter parameters like charge power, current limits, and SOC thresholds.
 from __future__ import annotations
 
 # =============================================================================
+# PV Start Voltage (V)
+# =============================================================================
+# Firmware rejects <140V (error code 3) despite API claiming 90V min.
+
+PV_START_VOLTAGE_MIN = 140
+PV_START_VOLTAGE_MAX = 500
+PV_START_VOLTAGE_STEP = 1
+
+# =============================================================================
 # AC Charge Power (kW)
 # =============================================================================
 
