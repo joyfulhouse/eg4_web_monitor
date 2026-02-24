@@ -365,16 +365,33 @@ The second heartbeat condition (`_DAT_ram_3fc99b60 == 0`) relates to the aging/f
 
 ### Data Period Interpretation
 
-The `data_period` NVS parameter (key 0, default 1) has different interpretations:
+The `data_period` NVS parameter (key 0, default 1) controls the RS485 poll timer:
 
 - **RS485 poll timer**: `data_period * 1000` ms (line 457: `local_50 * 1000`)
-- **Heartbeat timer alternative**: `data_period * 100000 / 1000` ms = `data_period * 100` seconds
 
-With default `data_period = 1`:
-- RS485 polls every **1 second** (1 * 1000 = 1000ms)
-- Alternative heartbeat triggers every **100 seconds** (1 * 100 = 100s)
+With factory default `data_period = 1`:
+- RS485 polls every **1 second** (1 * 1000 = 1000ms) — this is the pre-configuration state
 
-**For CloudEmitter**: The cloud data push interval should be **100 seconds** (`data_period * 100`), matching the heartbeat timer alternative path. The 1-second RS485 poll is internal dongle timing.
+**But the cloud reconfigures it**: SET_PARAM code=0 (from `SetParam_ForwardToRS485` at 0x4200a064) accepts a value in range **20-300** (validated: `value - 0x14 < 0x119`, i.e., 20 ≤ value ≤ 300). This is stored to NVS key 0.
+
+After cloud configuration:
+- `data_period=60`: polls every **60 seconds**
+- `data_period=100`: polls every **100 seconds**
+- `data_period=300`: polls every **5 minutes** (maximum)
+
+The alternative heartbeat condition (`data_period * 100000 / 1000 = data_period * 100` seconds) in the HeartbeatTimer is **only for aging/factory test mode** (`_DAT_ram_3fc99b60 == 0`). Under normal operation, only the 18-second silence heartbeat applies.
+
+### No Buffering — Immediate Forwarding
+
+The dongle does **NOT buffer** register data. Each RS485 response is immediately wrapped in a 0xC2 frame and sent to the cloud TCP socket. The DataProcess send buffer is only 1024 bytes — there's no room for aggregation.
+
+Per poll cycle, 4-5 frames are sent to the cloud in a **burst** (back-to-back within ~400ms, as RS485 responses arrive at ~100ms each), then silence until the next poll timer fires.
+
+**For CloudEmitter**: We must:
+1. Send data in bursts (4-5 frames back-to-back), not spread over time
+2. Default to whatever `data_period` the traffic capture reveals
+3. Handle SET_PARAM code=0 from the cloud to update our interval
+4. The initial `data_period=1` factory default is irrelevant — the cloud will reconfigure us
 
 ---
 
