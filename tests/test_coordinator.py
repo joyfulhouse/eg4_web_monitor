@@ -5179,3 +5179,134 @@ class TestTotalIncreasingKeysConstant:
         assert "frequency" not in _TOTAL_INCREASING_KEYS
         assert "battery_soc" not in _TOTAL_INCREASING_KEYS
         assert "battery_voltage" not in _TOTAL_INCREASING_KEYS
+
+
+class TestRoundRobinTruncatedSerialGuard:
+    """Test that truncated battery serials are skipped entirely.
+
+    Firmware CAN bus register reads can return incomplete serial data
+    (e.g. "Batter" instead of "Battery_ID_03") due to partial register
+    transfers mid-rotation.  Truncated serials (< 10 chars) are skipped;
+    the real battery will appear with its full serial on a future cycle.
+    (#165)
+    """
+
+    @staticmethod
+    def _make_battery(
+        serial: str,
+        voltage: float = 53.0,
+        soc: int = 96,
+        index: int = 0,
+    ) -> MagicMock:
+        """Build a mock BatteryData with all attributes for mapping."""
+        batt = MagicMock()
+        batt.serial_number = serial
+        batt.voltage = voltage
+        batt.soc = soc
+        batt.battery_index = index
+        batt.current = -5.0
+        batt.power = -260.0
+        batt.soh = 100
+        batt.max_cell_temperature = 26.0
+        batt.min_cell_temperature = 24.0
+        batt.max_cell_num_temp = 1
+        batt.min_cell_num_temp = 3
+        batt.max_cell_voltage = 3.35
+        batt.min_cell_voltage = 3.30
+        batt.max_cell_num_voltage = 2
+        batt.min_cell_num_voltage = 8
+        batt.cell_voltage_delta = 0.05
+        batt.cell_temp_delta = 2.0
+        batt.remaining_capacity = 96.0
+        batt.max_capacity = 100.0
+        batt.capacity_percent = 96.0
+        batt.charge_current_limit = 50.0
+        batt.charge_voltage_ref = 56.0
+        batt.cycle_count = 50
+        batt.firmware_version = "1.0"
+        batt.battery_type = None
+        batt.battery_type_text = None
+        batt.model = "EG4-LL"
+        return batt
+
+    async def test_truncated_serial_skipped(self, hass, mock_config_entry):
+        """A truncated serial is skipped, not cached as a phantom entry."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        serial = "INV001"
+
+        # First poll: full serial
+        batteries_1 = [self._make_battery("Battery_ID_05", index=0)]
+        result_1 = coordinator._merge_round_robin_batteries(serial, batteries_1)
+        assert len(result_1) == 1
+
+        # Second poll: truncated serial "Batter" — should be skipped
+        batteries_2 = [self._make_battery("Batter", index=0)]
+        result_2 = coordinator._merge_round_robin_batteries(serial, batteries_2)
+
+        # Still 1 battery (truncated was skipped, cached entry preserved)
+        assert len(result_2) == 1
+        key_map = coordinator._battery_serial_to_key[serial]
+        assert "Batter" not in key_map
+        assert "Battery_ID_05" in key_map
+
+    async def test_truncated_serial_before_full_also_skipped(
+        self, hass, mock_config_entry
+    ):
+        """A truncated serial arriving before any full serial is still skipped."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        serial = "INV001"
+
+        # First poll: only truncated serial
+        batteries = [self._make_battery("Batter", index=0)]
+        result = coordinator._merge_round_robin_batteries(serial, batteries)
+
+        # Skipped — no entries created
+        assert len(result) == 0
+        key_map = coordinator._battery_serial_to_key[serial]
+        assert "Batter" not in key_map
+
+    async def test_fragment_serial_also_skipped(self, hass, mock_config_entry):
+        """A mid-string fragment like 'y_ID_03' is also skipped."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        serial = "INV001"
+
+        batteries = [self._make_battery("y_ID_03", index=2)]
+        result = coordinator._merge_round_robin_batteries(serial, batteries)
+
+        assert len(result) == 0
+        key_map = coordinator._battery_serial_to_key[serial]
+        assert "y_ID_03" not in key_map
+
+    async def test_full_length_serial_not_affected(self, hass, mock_config_entry):
+        """Serials >= _MIN_SERIAL_LENGTH are always cached normally."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        serial = "INV001"
+
+        batteries = [
+            self._make_battery("Battery_ID_05", index=0),
+            self._make_battery("Battery_ID_10", index=1),
+        ]
+        result = coordinator._merge_round_robin_batteries(serial, batteries)
+        assert len(result) == 2
+
+    async def test_repeated_truncated_never_accumulates(
+        self, hass, mock_config_entry
+    ):
+        """Repeated truncated reads never create phantom entries."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        serial = "INV001"
+
+        # Discover one real battery
+        batteries_1 = [self._make_battery("Battery_ID_05", index=0)]
+        coordinator._merge_round_robin_batteries(serial, batteries_1)
+
+        # Three polls with truncated versions — all skipped
+        for _ in range(3):
+            batteries = [self._make_battery("Batter", index=0)]
+            result = coordinator._merge_round_robin_batteries(serial, batteries)
+            assert len(result) == 1  # only the original real battery

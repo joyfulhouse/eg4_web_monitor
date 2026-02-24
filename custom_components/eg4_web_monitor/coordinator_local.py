@@ -62,6 +62,11 @@ _LOGGER = logging.getLogger(__name__)
 # total_increasing warnings.
 _COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
 
+# Minimum battery serial length to consider valid.  Shorter serials are
+# likely truncated register reads from incomplete CAN bus transfers and
+# are skipped to avoid creating phantom battery entities.
+_MIN_SERIAL_LENGTH = 10
+
 
 class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
@@ -124,6 +129,22 @@ class LocalTransportMixin(_MixinBase):
                     fallback_key,
                     batt.voltage or 0.0,
                     batt.soc,
+                )
+                continue
+
+            # Skip truncated serials from incomplete register reads.
+            # e.g. "Batter" or "y_ID_03" instead of "Battery_ID_03".
+            # The real battery will appear with its full serial on a
+            # future rotation cycle.
+            if len(bat_serial) < _MIN_SERIAL_LENGTH:
+                poll_slots_skipped += 1
+                _LOGGER.debug(
+                    "RR [%s] slot %d: skipping truncated serial %r (len=%d < %d)",
+                    inverter_serial,
+                    getattr(batt, "battery_index", -1),
+                    bat_serial,
+                    len(bat_serial),
+                    _MIN_SERIAL_LENGTH,
                 )
                 continue
 
