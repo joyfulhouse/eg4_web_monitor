@@ -28,8 +28,10 @@ class SensorConfig(TypedDict, total=False):
 
     name: str
     unit: str | None
+    unit_of_measurement: str | None
     device_class: str | None
     state_class: str | None
     icon: str
     entity_category: EntityCategory | None
     suggested_display_precision: int
+    enabled_default: bool

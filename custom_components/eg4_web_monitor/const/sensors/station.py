@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from homeassistant.const import EntityCategory
 
+from .types import SensorConfig
+
 # Station sensor types - read-only display sensors
-STATION_SENSOR_TYPES = {
+STATION_SENSOR_TYPES: dict[str, SensorConfig] = {
     "station_name": {
         "name": "Station Name",
         "icon": "mdi:home-lightning-bolt-outline",

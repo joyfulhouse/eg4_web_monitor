@@ -289,8 +289,19 @@ if TYPE_CHECKING:
             self, inverter: Any, transport_type: str
         ) -> None: ...
 
+        # ── LocalTransportMixin attributes ──
+        _battery_rr_cache: dict[str, dict[str, dict[str, Any]]]
+        _battery_serial_to_key: dict[str, dict[str, str]]
+        _battery_next_index: dict[str, int]
+        _shared_battery_logged: set[str]
+
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
+        def _merge_round_robin_batteries(
+            self,
+            inverter_serial: str,
+            transport_batteries: list[Any],
+        ) -> dict[str, dict[str, Any]]: ...
 
 else:
     _MixinBase = object
