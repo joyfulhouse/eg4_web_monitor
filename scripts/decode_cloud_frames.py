@@ -129,14 +129,121 @@ def decode_frame(
         if payload:
             details_parts.append(f"status=0x{payload[0]:02X}")
     elif func == 0xC2 and len(payload) >= 2:
-        # 0xC2 has a 2-byte LE length prefix before Modbus RTU data
+        # 0xC2 payload structure (from firmware decompilation + pcap validation):
+        # [0:2] = modbus_data_length (uint16 LE)
+        # [2:]  = extended Modbus frame (NOT standard Modbus RTU)
+        #
+        # Extended Modbus format (shared by requests and responses):
+        # [0]=slave_addr [1]=func_code [2:12]=inverter_serial (10 ASCII bytes)
+        # [12:14]=start_register (uint16 LE)
+        #
+        # REQUEST (18 bytes total, modbus_len=18):
+        #   For READ (0x03/0x04): [14:16]=register_count (uint16 LE)
+        #   For WRITE_SINGLE (0x06): [14:16]=value (uint16 BE)
+        #   [16:18]=CRC-16/Modbus
+        #
+        # RESPONSE (variable, modbus_len=271 for full block):
+        #   For READ: [14]=byte_count [15:15+byte_count]=register_data [last 2]=CRC
+        #   For WRITE_SINGLE: [14:16]=value (uint16 BE) [16:18]=CRC (echo of request)
+        #   For EXCEPTION (0x83): [14]=exception_code [15:17]=CRC
         modbus_len = int.from_bytes(payload[0:2], "little")
         details_parts.append(f"modbus_len={modbus_len}")
+
         modbus_data = payload[2:]
-        if len(modbus_data) >= 3:
-            details_parts.extend(_decode_modbus_rtu(modbus_data))
-        elif modbus_data:
-            details_parts.append(f"modbus_data={modbus_data.hex()}")
+        if len(modbus_data) >= 15:
+            slave = modbus_data[0]
+            modbus_func = modbus_data[1]
+            inv_serial = modbus_data[2:12].decode("ascii", errors="replace").rstrip("\x00")
+            start_reg = int.from_bytes(modbus_data[12:14], "little")
+            is_request = modbus_len == 18
+
+            if modbus_func == 0x83:
+                # Exception response: [14]=exception_code
+                exception_code = modbus_data[14]
+                details_parts.append(
+                    f"slave={slave} inv={inv_serial} EXCEPTION"
+                    f" reg={start_reg} code={exception_code}"
+                )
+                # CRC check on exception frame
+                if len(modbus_data) >= 17:
+                    crc_data = modbus_data[:15]
+                    crc_actual = int.from_bytes(modbus_data[15:17], "little")
+                    crc_expected = compute_crc16(crc_data)
+                    details_parts.append(
+                        "CRC OK" if crc_actual == crc_expected
+                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
+                    )
+
+            elif modbus_func == 0x06:
+                # WRITE_SINGLE: [14:16]=value (little-endian, like all extended Modbus fields)
+                value = int.from_bytes(modbus_data[14:16], "little")
+                details_parts.append(
+                    f"slave={slave} inv={inv_serial} WRITE_SINGLE"
+                    f" reg={start_reg} value={value} (0x{value:04X})"
+                )
+                if len(modbus_data) >= 18:
+                    crc_data = modbus_data[:16]
+                    crc_actual = int.from_bytes(modbus_data[16:18], "little")
+                    crc_expected = compute_crc16(crc_data)
+                    details_parts.append(
+                        "CRC OK" if crc_actual == crc_expected
+                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
+                    )
+
+            elif is_request and modbus_func in (0x03, 0x04):
+                # READ request: [14:16]=register_count (uint16 LE)
+                reg_count = int.from_bytes(modbus_data[14:16], "little")
+                end_reg = start_reg + reg_count - 1
+                func_name_inner = MODBUS_FUNC_NAMES.get(modbus_func, f"0x{modbus_func:02X}")
+                details_parts.append(
+                    f"slave={slave} inv={inv_serial} {func_name_inner}"
+                    f" READ regs {start_reg}-{end_reg} ({reg_count} regs)"
+                )
+                if len(modbus_data) >= 18:
+                    crc_data = modbus_data[:16]
+                    crc_actual = int.from_bytes(modbus_data[16:18], "little")
+                    crc_expected = compute_crc16(crc_data)
+                    details_parts.append(
+                        "CRC OK" if crc_actual == crc_expected
+                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
+                    )
+
+            else:
+                # READ response: [14]=byte_count [15:]=register_data
+                byte_count = modbus_data[14]
+                data_start = 15
+                data_end = 15 + byte_count
+                reg_count = byte_count // 2
+                end_reg = start_reg + reg_count - 1
+                func_name_inner = MODBUS_FUNC_NAMES.get(modbus_func, f"0x{modbus_func:02X}")
+                details_parts.append(
+                    f"slave={slave} inv={inv_serial} {func_name_inner}"
+                    f" regs {start_reg}-{end_reg} ({reg_count} regs)"
+                )
+
+                # Verify Modbus CRC within extended response
+                if len(modbus_data) >= data_end + 2:
+                    crc_data = modbus_data[:data_end]
+                    crc_actual = int.from_bytes(
+                        modbus_data[data_end : data_end + 2], "little"
+                    )
+                    crc_expected = compute_crc16(crc_data)
+                    details_parts.append(
+                        "CRC OK" if crc_actual == crc_expected
+                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
+                    )
+
+                # Extract a few sample register values (little-endian in extended Modbus)
+                if len(modbus_data) >= data_start + 10:
+                    sample_values = []
+                    for j in range(0, min(byte_count, 10), 2):
+                        val = int.from_bytes(
+                            modbus_data[data_start + j : data_start + j + 2], "little"
+                        )
+                        sample_values.append(str(val))
+                    details_parts.append(f"first_regs=[{', '.join(sample_values)}]")
+        elif len(modbus_data) > 0:
+            details_parts.append(f"raw={modbus_data.hex()}")
     elif func == 0xC3 and len(payload) >= 4:
         start = int.from_bytes(payload[0:2], "little")
         end = int.from_bytes(payload[2:4], "little")
@@ -162,7 +269,11 @@ def decode_frame(
 
 
 def _decode_modbus_rtu(payload: bytes) -> list[str]:
-    """Decode Modbus RTU response embedded in 0xC2 payload."""
+    """Decode standard Modbus RTU response (unused — kept for reference).
+
+    Note: EG4 inverters use EXTENDED Modbus (with 10-byte serial), not standard RTU.
+    The main decode_frame() function handles the extended format directly.
+    """
     parts = []
     if len(payload) < 3:
         return ["(truncated Modbus RTU)"]
@@ -205,51 +316,95 @@ def _decode_modbus_rtu(payload: bytes) -> list[str]:
     return parts
 
 
+def _extract_ip_from_buf(buf: bytes, link_type: int) -> dpkt.ip.IP | None:
+    """Extract IP packet from a raw pcap buffer, handling different link types.
+
+    Link types:
+    - 1 (EN10MB): Standard Ethernet
+    - 113 (LINUX_SLL): Linux cooked capture (tcpdump -i any)
+    - 276 (LINUX_SLL2): Linux cooked capture v2
+    """
+    try:
+        if link_type == 1:  # Ethernet
+            eth = dpkt.ethernet.Ethernet(buf)
+            if isinstance(eth.data, dpkt.ip.IP):
+                return eth.data
+        elif link_type == 113:  # Linux cooked capture (SLL)
+            # SLL header: 16 bytes [pkt_type(2) arphrd(2) ll_addr_len(2) ll_addr(8) proto(2)]
+            if len(buf) < 16:
+                return None
+            proto = int.from_bytes(buf[14:16], "big")
+            if proto == 0x0800:  # IPv4
+                return dpkt.ip.IP(buf[16:])
+        elif link_type == 276:  # Linux cooked capture v2 (SLL2)
+            # SLL2 header: 20 bytes [proto(2) reserved(2) iface_idx(4) arphrd(2) pkt_type(1) ll_addr_len(1) ll_addr(8)]
+            if len(buf) < 20:
+                return None
+            proto = int.from_bytes(buf[0:2], "big")
+            if proto == 0x0800:  # IPv4
+                return dpkt.ip.IP(buf[20:])
+        else:
+            # Unknown link type — try Ethernet as fallback
+            eth = dpkt.ethernet.Ethernet(buf)
+            if isinstance(eth.data, dpkt.ip.IP):
+                return eth.data
+    except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError):
+        pass
+    return None
+
+
 def process_pcap(pcap_path: str) -> list[DecodedFrame]:
     """Process a pcap file and extract all cloud protocol frames."""
     frames: list[DecodedFrame] = []
-    streams: dict[tuple, StreamState] = {}
+    seen: set[tuple[float, str, int]] = set()  # Dedup (timestamp, direction, size)
 
-    with open(pcap_path, "rb") as f:
+    f = open(pcap_path, "rb")  # noqa: SIM115 — kept open for lazy pcap iteration
+    try:
         try:
             pcap = dpkt.pcap.Reader(f)
         except ValueError:
-            # Try pcapng format
             f.seek(0)
             pcap = dpkt.pcapng.Reader(f)
 
-    cloud_port = 4346
+        link_type = pcap.datalink()
+        cloud_port = 4346
 
-    for timestamp, buf in pcap:
-        try:
-            eth = dpkt.ethernet.Ethernet(buf)
-        except dpkt.dpkt.NeedData:
-            continue
+        for timestamp, buf in pcap:
+            ip = _extract_ip_from_buf(buf, link_type)
+            if ip is None:
+                continue
 
-        if not isinstance(eth.data, dpkt.ip.IP):
-            continue
-        ip = eth.data
+            if not isinstance(ip.data, dpkt.tcp.TCP):
+                continue
+            tcp = ip.data
 
-        if not isinstance(ip.data, dpkt.tcp.TCP):
-            continue
-        tcp = ip.data
+            if not tcp.data:
+                continue
 
-        if not tcp.data:
-            continue
+            # Determine direction
+            if tcp.dport == cloud_port:
+                direction = "dongle->cloud"
+            elif tcp.sport == cloud_port:
+                direction = "cloud->dongle"
+            else:
+                continue
 
-        # Determine direction
-        if tcp.dport == cloud_port:
-            direction = "dongle->cloud"
-        elif tcp.sport == cloud_port:
-            direction = "cloud->dongle"
-        else:
-            continue
+            # Dedup: -i any captures each packet twice (ingress + egress).
+            # Use direction + TCP seq + payload length. The NAT changes IP src
+            # between ingress/egress, so we can't use IP addresses.
+            seg_key = (direction, tcp.seq, len(tcp.data))
+            if seg_key in seen:
+                continue
+            seen.add(seg_key)
 
-        # Find frames in TCP payload
-        for _offset, frame_bytes in find_frames(tcp.data):
-            decoded = decode_frame(frame_bytes, timestamp, direction)
-            if decoded:
-                frames.append(decoded)
+            # Find frames in TCP payload
+            for _offset, frame_bytes in find_frames(tcp.data):
+
+                decoded = decode_frame(frame_bytes, timestamp, direction)
+                if decoded:
+                    frames.append(decoded)
+    finally:
+        f.close()
 
     return frames
 

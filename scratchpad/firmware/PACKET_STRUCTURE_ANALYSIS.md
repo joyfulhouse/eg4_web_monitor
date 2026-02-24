@@ -41,21 +41,53 @@ It queues a Modbus request (built by `BuildPacket`/FUN_ram_4200de8c). The RS485 
 
 The callback `LAB_ram_4200aaec` is **not a standalone function** — it's a jump label within the `RS485App_MainHandler` function at offset 0x4200aaec. Ghidra couldn't decompile it as a separate function because it's mid-function. However, from the state machine analysis, we know:
 
-1. The callback receives the raw Modbus RTU response bytes
-2. It wraps them in a 0xA1/0x1A frame with function code 0xC2
-3. It sends via `DataProcess_Send` (FUN_ram_42009c02)
-4. `DataProcess_Send` calls the transport-specific send callback (stored at offset 0x00 in the DataProcess context object)
+1. The callback receives the raw extended Modbus response bytes (271 bytes for 127 regs)
+2. It forwards verbatim to 3 transports (cloud, local TCP, BLE) via `FUN_ram_42009df6`
+3. `FUN_ram_42009df6` wraps in 0xC2 frame: `FramePreambleBuilder(0xC2)` + 2-byte LE length + raw data
+4. Calls `DataProcess_Send` (FUN_ram_42009c02) which invokes the transport-specific send callback
 5. For cloud TCP, that callback is `TCPClient_SendData` (FUN_ram_4200db40)
 
-### How 0xC2 Frames Are Built
+### How 0xC2 Frames Are Built (UPDATED 2026-02-24)
 
-The dongle does NOT build 0xC2 frames from scratch. Instead:
+**Key Discovery**: The inverters use a **proprietary extended Modbus protocol**, NOT standard
+Modbus RTU. Both request and response embed a 10-byte inverter serial.
 
-1. **RS485 reads** produce raw Modbus RTU responses (slave_addr + func + byte_count + data + CRC16)
-2. The response bytes are **wrapped verbatim** in a 0xA1/0x1A frame with func=0xC2
-3. The frame is sent to ALL active transports (cloud TCP, local TCP, BLE)
+1. **RS485 reads** produce extended Modbus responses (271 bytes for 127 input regs):
+   `[slave 0x01][func][serial 10B][start_reg 2B LE][byte_count][data...][CRC16 2B]`
+2. `RS485_DataReadyCallback` (0x4200aaec, 48 bytes) is pure forwarding — NO transformation
+3. It calls `FUN_ram_42009df6` on each transport handle with the raw response data
+4. `FUN_ram_42009df6` (62 bytes) wraps in 0xC2 frame: 18-byte preamble + 2-byte LE modbus_len + raw data
+5. Frame is sent to ALL active transports (cloud TCP, local TCP, BLE)
 
-This is confirmed by the `DataProcessRecv_Generic` (0x4200b422) function, which shows the **receive** side: when a 0xC2 frame arrives from any source, `parse_DATA_TRANSMISSION` extracts the payload, then `RS485_SendToInverter` (FUN_ram_4200adaa) forwards it to RS485. The exact same data flows in reverse for the **send** path.
+**Decompiled RS485_DataReadyCallback** (from GhidraForceDecompile.java):
+```c
+void RS485_DataReadyCallback(undefined4 param_1, undefined4 param_2, int param_3) {
+    if (param_3 != 0) {
+        FUN_ram_4200a8a2(param_2, param_3);  // Cloud (if state==2)
+        FUN_ram_4200b6ee(param_2, param_3);  // Local TCP (if client exists)
+        FUN_ram_4200935a(param_2, param_3);  // BLE (always)
+    }
+}
+```
+
+**Transport Forward Functions** (from GhidraTransportForward.java):
+- Cloud (0x4200a8a2, 42B): Gates on `_DAT_ram_3fc96b1c == 2` (connected)
+- Local (0x4200b6ee, 38B): Gates on `_DAT_ram_3fc96b58 != 0` (client exists)
+- BLE (0x4200935a, 28B): Always forwards (no gate)
+
+All three call `FUN_ram_42009df6(transport_handle, data_ptr, data_len)`.
+
+**rs485_service_task Response Validation** (0x4200c4cc, 1252 bytes):
+```c
+if (iVar2 == 0x10f) {            // Response == 271 bytes
+    if (pcVar3[1] == '\x04') {   // func == READ_INPUT
+        if (pcVar3[0xe] == -2) { // byte_count == 0xFE (254)
+            cVar8 = pcVar3[0xc]; // start_reg_lo
+            // Dispatch based on start register range:
+            // 0x0000 = input 0-126 (extracts battery_count)
+            // 0x00FE = input 254+
+            // 0x1388 = battery 5000+
+```
 
 ---
 
@@ -115,31 +147,44 @@ DataProcess_Send passes this 19 directly to TCPClient_SendData → send(). No CR
 This was confirmed by `parse_DATA_TRANSMISSION` (0x4200c402) which reads `modbus_len` at
 `payload + 0x12` (offset 18 from frame start) and validates `modbus_len + 0x14 == frame_len`.
 
-**Modbus RTU response payload** (inside the 0xC2 frame):
+**Extended Modbus response payload** (inside the 0xC2 frame):
+
+**IMPORTANT**: LuxPower/EG4 inverters use a proprietary EXTENDED Modbus format, NOT standard
+Modbus RTU. The extended format embeds a 10-byte inverter serial in both request and response.
+
+**Extended Modbus Request** (18 bytes, built by BuildPacket at 0x4200de8c):
 ```
-[slave_addr=01] [func_code] [byte_count] [register_data...] [modbus_CRC_lo modbus_CRC_hi]
+[slave=01] [func] [serial x10] [start_reg 2B LE] [count 2B LE] [CRC16 2B]
+    1        1        10             2                 2             2     = 18 bytes
 ```
 
-Note: The Modbus RTU payload includes its own CRC-16. This is the inverter communication
-CRC, NOT a cloud frame CRC.
+**Extended Modbus Response** (271 bytes for 127 input regs):
+```
+[slave=01] [func] [serial x10] [start_reg 2B LE] [byte_count] [data...] [CRC16 2B]
+    1        1        10             2               1          254          2     = 271 bytes
+```
 
 For a READ_HOLDING (func=0x03) response with 80 registers (160 bytes):
 ```
-[01] [03] [A0] [reg0_hi reg0_lo ... reg79_hi reg79_lo] [CRC_lo CRC_hi]
-  1    1    1              160 bytes                          2
-Total Modbus RTU: 165 bytes
+[01] [03] [serial x10] [start_reg 2B LE] [A0] [reg_data x160] [CRC_lo CRC_hi]
+  1    1      10              2              1       160               2
+Total extended Modbus: 177 bytes
 ```
 
-Total frame = 18 (preamble) + 2 (modbus_len) + 165 (Modbus RTU) = **185 bytes**
+Total 0xC2 frame = 18 (preamble) + 2 (modbus_len) + 177 = **197 bytes**
 
 For a READ_INPUT (func=0x04) response with 127 registers (254 bytes):
 ```
-[01] [04] [FE] [reg0_hi reg0_lo ... reg126_hi reg126_lo] [CRC_lo CRC_hi]
-  1    1    1              254 bytes                            2
-Total Modbus RTU: 259 bytes
+[01] [04] [serial x10] [start_reg 2B LE] [FE] [reg_data x254] [CRC_lo CRC_hi]
+  1    1      10              2              1       254               2
+Total extended Modbus: 271 bytes (0x10F)
 ```
 
-Total frame = 18 + 2 + 259 = **279 bytes**
+Total 0xC2 frame = 18 + 2 + 271 = **291 bytes**
+
+Note: The CRC-16/Modbus within the extended response is computed over the entire extended
+frame (slave + func + serial + start_reg + byte_count + data = 269 bytes for input regs),
+NOT just the standard Modbus fields.
 
 ---
 
@@ -220,15 +265,26 @@ After input reads complete, flags are set:
 
 For groups 0/1, each poll cycle sends to cloud:
 
-| # | Direction | Function | Modbus Func | Register Range | Payload Size |
-|---|-----------|----------|-------------|----------------|-------------|
-| 1 | dongle→cloud | 0xC2 | 0x03 READ_HOLDING | 0-79 (80 regs) | 165 bytes |
-| 2 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 0-126 (127 regs) | 259 bytes |
-| 3 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 127-253 (127 regs) | 259 bytes |
-| 4 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 254-380 (127 regs) | 259 bytes |
-| 5* | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 5000-5126 (127 regs) | 259 bytes |
+**Holding registers (cloud-initiated reads):**
 
-*Frame 5 is conditional — only sent when battery cycle counter changes
+| # | Direction | Function | Modbus Func | Register Range | Extended Response | 0xC2 Frame |
+|---|-----------|----------|-------------|----------------|-------------------|------------|
+| 1 | cloud→dongle | 0xC2 | 0x03 READ_HOLDING | 0-126 (127 regs) | 18 bytes (request) | 38 bytes |
+| 2 | cloud→dongle | 0xC2 | 0x03 READ_HOLDING | 127-253 (127 regs) | 18 bytes (request) | 38 bytes |
+| 3 | cloud→dongle | 0xC2 | 0x03 READ_HOLDING | 240-366 (127 regs) | 18 bytes (request) | 38 bytes |
+
+Each request generates a 291-byte response (271-byte extended Modbus response).
+
+**Input registers (dongle-initiated autonomous push):**
+
+| # | Direction | Function | Modbus Func | Register Range | Extended Response | 0xC2 Frame |
+|---|-----------|----------|-------------|----------------|-------------------|------------|
+| 1 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 0-126 (127 regs) | 271 bytes | 291 bytes |
+| 2 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 127-253 (127 regs) | 271 bytes | 291 bytes |
+| 3 | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 254-380 (127 regs) | 271 bytes | 291 bytes |
+| 4* | dongle→cloud | 0xC2 | 0x04 READ_INPUT | 5000-5126 (127 regs) | 271 bytes | 291 bytes |
+
+*Frame 4 is conditional — only sent when battery cycle counter changes
 
 ---
 
@@ -383,7 +439,11 @@ When the cloud server sends frames to the dongle:
 - After 8+ heartbeats AND 8+ data cycles (`DAT_ram_3fc99bcf`), set `_DAT_ram_3fc99b60 = 1` (aging complete)
 - This aging flag is saved to NVS key 10
 
-**Key: Cloud does NOT echo heartbeats.** The dongle sends heartbeats unilaterally on a timer. The cloud may send its own heartbeats, but the dongle just counts them.
+**UPDATED (pcap 2026-02-24): Cloud DOES echo heartbeats.** The dongle sends heartbeats,
+and the cloud echoes them back with the same status byte (~20ms later). The firmware
+code only counts received heartbeats (no special echo handling), so this echo serves
+as a keepalive confirmation. The dongle uses receipt of ANY frame to reset its 18s
+heartbeat timer.
 
 ---
 
@@ -415,12 +475,15 @@ When the cloud server sends frames to the dongle:
 
 ### What We Must Match Exactly
 
-1. **Frame format**: 0xA1 0x1A prefix, version [01 00], correct frame_length, addr=1, CRC-16/Modbus
+1. **Frame format**: 0xA1 0x1A prefix, version [01 00], correct frame_length, addr=1, NO trailing CRC
 2. **Heartbeat**: func=0xC1, status byte=0x05, correct serial, send on connect and every <18s
-3. **Data frames**: func=0xC2, payload = verbatim Modbus RTU response (slave_addr + func + byte_count + data + modbus_CRC)
+3. **Data frames**: func=0xC2, payload = `[modbus_len 2B LE][extended_modbus_response...]`
+   - Extended response includes 10-byte inverter serial embedded at offset 2-11
+   - CRC-16/Modbus is part of the extended response (NOT on the 0xA1 frame wrapper)
 4. **Register ranges**: Match the group table exactly (holding 0-79, input 0-126, 127-253, 254-380)
 5. **Battery data**: Input registers 5000-5126 when available
 6. **Timing**: ~100 seconds between poll cycles, heartbeats within 18s of silence
+7. **Extended Modbus format**: 271-byte responses (not standard 259-byte Modbus RTU)
 
 ### What We DON'T Need to Match
 
@@ -1022,36 +1085,109 @@ heartbeats (not 21), the no-CRC finding is confirmed.
 
 ---
 
-## 12. Open Questions (for traffic capture validation)
+## 12. Extended Modbus Protocol (BREAKTHROUGH — 2026-02-24)
 
-1. ~~**CRC placement**~~ → **RESOLVED**: No CRC on TCP cloud frames. Verify via capture: heartbeat should be exactly 19 bytes.
+### Discovery
 
-2. **Frame ordering**: Are all 4-5 data frames sent back-to-back, or is there a delay between them? The RS485 reads are sequential (wait for response before next read), so there's inherent delay.
+From decompiling `RS485_DataReadyCallback` (GhidraForceDecompile.java) and
+`TransportForward_Cloud/Local/BLE` (GhidraTransportForward.java), we proved that
+the LuxPower/EG4 inverters use a **proprietary extended Modbus protocol** — not
+standard Modbus RTU.
 
-3. **Battery data frequency**: Is battery data sent every cycle or only periodically? The cycle counter mechanism suggests it may skip some cycles.
+### Evidence
 
-4. **Cloud acknowledgment**: Does the cloud send anything back after receiving data frames? If so, what?
+1. **BuildPacket** (0x4200de8c) builds 18-byte requests with embedded serial:
+   ```
+   buf[0] = slave_addr     // param_3
+   buf[1] = func_code      // param_4
+   memcpy(buf+2, serial, 10)  // param_5 (inverter serial)
+   buf[12:14] = start_reg  // param_6 (uint16 LE)
+   buf[14:16] = count      // param_7 (uint16 LE)
+   buf[16:18] = CRC16      // computed over buf[0:16]
+   ```
 
-5. **Version field**: Is it always [01 00] or does it change between firmware versions?
+2. **rs485_service_task** (0x4200c4cc, 1252 bytes) validates 271-byte responses:
+   - `pcVar3[0]` = slave_addr
+   - `pcVar3[1]` = func_code (checked against 0x04, 0x21-0x23)
+   - `pcVar3[2:12]` = inverter serial (10 bytes)
+   - `pcVar3[12:14]` = start_register (uint16 LE) — used for dispatch
+   - `pcVar3[14]` = byte_count (0xFE=254 for 127 regs)
+   - `pcVar3[15:269]` = register data (254 bytes)
+   - `pcVar3[269:271]` = CRC-16/Modbus (validated by `FUN_ram_4200de42`)
 
-6. **Holding register read gating**: `DAT_ram_3fc99ba4` controls whether holding registers are read in the poll cycle. When is this flag set/cleared? First iteration only?
+3. **RS485_DataReadyCallback** (0x4200aaec, 48 bytes) is pure forwarding:
+   - Receives (context, raw_data_ptr, raw_data_len) from rs485_service_task
+   - Calls 3 transport forwards with the SAME raw data — no transformation
 
-7. **0xC2 length prefix**: Confirmed from parser — 0xC2 payload has a 2-byte LE length prefix before Modbus RTU data. Traffic capture should validate this.
+4. **Transport forwards** call `FUN_ram_42009df6(transport_handle, data, len)`:
+   - 62-byte function that wraps raw data in 0xC2 frame
+   - Uses FramePreambleBuilder + 2-byte LE length prefix + memcpy
 
-8. **Cloud→dongle 0xC2 forwarding**: Does the cloud ever send 0xC2 frames (Modbus writes) outside of firmware update procedures? How frequently?
+### CRC Scope
 
-9. **SET_PARAM response timing**: Does the dongle send ACK before or after executing the command? For code 6 (change server), the ACK is presumably sent BEFORE reinitializing the TCP connection.
+CRC-16/Modbus is computed over the full 269-byte extended request (16 bytes) or response
+(269 bytes for 127 input regs). It is NOT computed over just the standard Modbus fields.
 
-10. **SET_PARAM for register writes**: Are inverter register writes done via 0xC4 SET_PARAM or 0xC2 DATA_TRANSMISSION? The firmware only shows dongle-internal SET_PARAM codes. Register writes likely use 0xC2 with Modbus WRITE_SINGLE (0x06).
+The dongle validates CRC on received RS485 responses:
+```c
+uVar5 = FUN_ram_4200de42(pcVar3, iVar2 - 2U & 0xffff);  // CRC over all but last 2 bytes
+if (uVar5 == *(ushort *)(pcVar3 + iVar2 + -2)) {          // Compare with last 2 bytes
+```
 
-1. **Exact CRC placement**: Is CRC appended to the frame before or after frame_length is set? The builder functions return size WITHOUT CRC, but the send path must add it. Traffic capture will show the exact wire format.
+### Implications for CloudEmitter
 
-2. **Frame ordering**: Are all 4-5 data frames sent back-to-back, or is there a delay between them? The RS485 reads are sequential (wait for response before next read), so there's inherent delay.
+To build a valid 0xC2 frame, the CloudEmitter must:
+1. Read register data from the inverter via local Modbus transport
+2. **Reconstruct** the 271-byte extended response format (adding serial + start_reg)
+3. Compute CRC-16/Modbus over the 269-byte body
+4. Wrap in 0xC2 frame: `[preamble 18B][modbus_len 2B LE][extended_response 271B]`
 
-3. **Battery data frequency**: Is battery data sent every cycle or only periodically? The cycle counter mechanism suggests it may skip some cycles.
+The CloudEmitter **cannot** send standard Modbus RTU responses — the cloud server
+expects the extended format with embedded serial.
 
-4. **Cloud acknowledgment**: Does the cloud send anything back after receiving data frames? If so, what?
+---
 
-5. **Version field**: Is it always [01 00] or does it change between firmware versions?
+## 13. Open Questions (for traffic capture validation)
 
-6. **Holding register read gating**: `DAT_ram_3fc99ba4` controls whether holding registers are read in the poll cycle. When is this flag set/cleared? First iteration only?
+### Resolved (2026-02-24)
+
+1. ~~**CRC placement**~~ → **RESOLVED**: No CRC on TCP cloud frames.
+2. ~~**0xC2 payload format**~~ → **RESOLVED**: `[modbus_len 2B LE][extended_modbus_response]`.
+   Extended response includes 10-byte serial. NOT standard Modbus RTU.
+3. ~~**Data transformation**~~ → **RESOLVED**: None. RS485_DataReadyCallback is pure forwarding.
+   Raw 271-byte extended response from inverter → 0xC2 frame → cloud.
+4. ~~**SET_PARAM for register writes**~~ → **RESOLVED**: All SET_PARAM codes are dongle-internal.
+   Inverter register writes use 0xC2 DATA_TRANSMISSION with Modbus WRITE_SINGLE (0x06).
+
+### Resolved by pcap (2026-02-24 capture)
+
+5. ~~**Holding register polling**~~ → **RESOLVED**: Cloud INITIATES all holding register
+   reads. Dongle only pushes input registers autonomously. Dual polling model.
+6. ~~**Cloud→dongle 0xC2 frequency**~~ → **RESOLVED**: Cloud sends READ_HOLDING requests
+   continuously, plus WRITE_SINGLE for parameter changes. Not just firmware updates.
+7. ~~**Register value endianness**~~ → **RESOLVED**: ALL fields in extended Modbus are
+   little-endian, including register values. Confirmed by comparing READ response
+   values with WRITE values and known register semantics (GridBOSS reg 20 = 2).
+8. ~~**Extended Modbus CRC scope**~~ → **RESOLVED**: CRC covers all bytes before the last 2.
+   All 74 frames in capture show CRC OK.
+9. ~~**Cloud heartbeat echo**~~ → **RESOLVED**: Cloud DOES echo heartbeats back (same status
+   byte). This contradicts firmware analysis which said "NO echo". The dongle counts
+   received heartbeats but the cloud sends them too.
+10. ~~**Register 2032 (0x7F0)**~~ → **RESOLVED**: Cloud probes reg 2032 on all devices.
+    Inverters return exception 0x83 code=3. GridBOSS returns 127 regs (first=0x1C02).
+    Likely firmware update or capability detection.
+
+### Still Open
+
+1. **Version field**: Is it always [01 00] or does firmware version affect it?
+2. **Frame ordering/timing**: Input reg pushes are back-to-back (~1.2s between chunks).
+   Holding reg reads are cloud-paced (~1.5s between request-response pairs).
+3. **Autonomous push interval**: Only one input push seen per device in 41.7s
+   capture. Second capture (firmware check, ~60s) also showed input pushes.
+   Likely ~60-100s between push cycles. Need longer capture to confirm.
+4. **Heartbeat status byte meaning**: DJ43404815 (GridBOSS) = 0x05, BC34000380 = 0x01.
+   What do these values indicate?
+5. **Initial data_period**: No SET_PARAM observed in capture. Need connection
+   establishment capture to see initial configuration.
+6. **GridBOSS input push** — RESOLVED: GridBOSS DOES push input registers
+   (confirmed in second capture). All device types push autonomously.

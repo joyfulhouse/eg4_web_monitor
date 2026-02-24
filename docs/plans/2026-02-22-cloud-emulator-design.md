@@ -1,7 +1,7 @@
 # Cloud Emulator (CloudEmitter) Design
 
-**Date**: 2026-02-22 (updated 2026-02-23)
-**Status**: Design approved, pending traffic capture validation
+**Date**: 2026-02-22 (updated 2026-02-24, pcap-validated)
+**Status**: Design approved, traffic capture validates protocol
 **Scope**: pylxpweb library + HA config flow changes (hybrid mode only)
 
 ## Problem
@@ -67,22 +67,59 @@ Inverter ──RS485──> Waveshare ──Modbus TCP──> pylxpweb (HA)
 ```
 
 - Sent on connect (first packet) and every 18 seconds of silence
-- Status byte = 0x05
-- Cloud does NOT echo heartbeats (unlike local/BLE)
+- Status byte = 0x01 for inverters, 0x05 for GridBOSS (pcap-confirmed)
+- Cloud DOES echo heartbeats back (same status byte, ~20ms later)
 
 ### Data Transmission (0xC2)
 
-Payload = verbatim Modbus RTU response bytes:
+**IMPORTANT UPDATE (2026-02-24)**: LuxPower/EG4 inverters use a **proprietary extended
+Modbus format**, NOT standard Modbus RTU. Both request and response embed a 10-byte
+inverter serial. The dongle forwards these verbatim — no transformation.
 
+Payload structure:
 ```
-[slave_addr=1] [func_code] [byte_count] [register_data...] [CRC16]
+[modbus_len_lo modbus_len_hi] [extended_modbus_response...]
+        2 bytes (LE)               modbus_len bytes
 ```
 
-Per poll cycle, the CloudEmitter sends:
-1. Holding registers 0-79 (func=0x03, 1 frame)
-2. Input registers 0-126 (func=0x04, frame 1 of 3)
-3. Input registers 127-253 (func=0x04, frame 2 of 3)
-4. Input registers 254-380 (func=0x04, frame 3 of 3)
+Extended Modbus response format (271 bytes for 127 input regs):
+```
+[slave=01] [func] [inverter_serial x10] [start_reg 2B LE] [byte_count] [data...] [CRC16 2B]
+    1        1          10                     2              1          254          2
+```
+
+**CRITICAL UPDATE (pcap 2026-02-24): Dual polling model confirmed.**
+
+**Holding registers — Cloud-initiated (reactive):**
+The cloud sends READ_HOLDING requests; the emitter must RESPOND to them.
+
+| # | Direction | Func | Start Reg | Count | Request | Response |
+|---|-----------|------|-----------|-------|---------|----------|
+| 1 | cloud→emitter | 0x03 | 0 | 127 | 38 bytes | 291 bytes |
+| 2 | cloud→emitter | 0x03 | 127 | 127 | 38 bytes | 291 bytes |
+| 3 | cloud→emitter | 0x03 | 240 | 127 | 38 bytes | 291 bytes |
+
+**Input registers — Emitter-initiated (proactive push):**
+
+| # | Direction | Func | Start Reg | Count | 0xC2 Frame |
+|---|-----------|------|-----------|-------|------------|
+| 1 | emitter→cloud | 0x04 | 0 | 127 | 291 bytes |
+| 2 | emitter→cloud | 0x04 | 127 | 127 | 291 bytes |
+| 3 | emitter→cloud | 0x04 | 254 | 127 | 291 bytes |
+| 4* | emitter→cloud | 0x04 | 5000 | 127 | 291 bytes |
+
+*Battery data is conditional (sent when battery cycle counter changes)
+
+**Write operations (cloud→emitter→inverter):**
+Cloud sends WRITE_SINGLE (0x06) as a 0xC2 frame. Pattern: read-then-write.
+Emitter must forward to inverter and echo the WRITE back to cloud.
+
+**Register 2032 probes:**
+Cloud probes reg 2032 on all devices. Return exception code 3 for inverters.
+
+The CloudEmitter must **reconstruct** the extended Modbus response format from
+cached register values, embedding the inverter serial and computing CRC-16/Modbus
+over the full extended frame. **All values are little-endian** (not big-endian).
 
 ### Cloud Commands (0xC3/0xC4)
 
@@ -122,6 +159,8 @@ return values
 ```
 
 The snapshot is a `dict[str, dict[int, int]]` mapping register type to address-value pairs. The CloudEmitter reads this snapshot to build 0xC2 frames without triggering additional Modbus reads.
+
+**Additional requirement (2026-02-24)**: The CloudEmitter also needs the **inverter serial** (10 ASCII digits) to embed in the extended Modbus response frames. This is already available from `inverter.serial_number` in pylxpweb.
 
 DongleTransport needs the same stashing in `_read_input_registers` and `_read_holding_registers`.
 
@@ -175,55 +214,171 @@ async def _run_loop(self):
             await asyncio.sleep(5)           # Reconnect backoff
 
 async def _data_and_command_loop(self):
-    last_data_send = time.monotonic()
+    last_input_push = time.monotonic()
     while self._connected:
         now = time.monotonic()
 
-        # Send data if period elapsed
-        if now - last_data_send >= self._data_period:
-            await self._emit_data()
-            last_data_send = now
+        # Push input registers autonomously (all device types — pcap-confirmed)
+        if now - last_input_push >= self._data_period:
+            await self._push_input_registers()
+            last_input_push = now
 
         # Send heartbeat if silent too long
         if now - self._last_send_time >= 18.0:
             await self._send_heartbeat()
 
-        # Check for incoming commands (non-blocking, 1s timeout)
-        await self._receive_commands(timeout=1.0)
+        # Receive and handle cloud commands (READ requests, WRITE, etc.)
+        # Cloud-initiated holding register reads are handled here
+        await self._receive_and_dispatch(timeout=1.0)
 ```
 
-### Data Emission (0xC2)
+### Autonomous Input Push (0xC2, all device types)
 
 ```python
-async def _emit_data(self):
+async def _push_input_registers(self):
+    """Push input register data to cloud (autonomous, all devices).
+    Second pcap capture confirmed GridBOSS also pushes input registers."""
     snapshot = self._transport._register_snapshot
     input_regs = snapshot.get("input", {})
-    holding_regs = snapshot.get("holding", {})
+    if not input_regs:
+        return
 
-    if not input_regs and not holding_regs:
-        return  # No data yet (HA hasn't polled)
-
-    # Build and send holding register frame (0-79)
-    if holding_regs:
-        frame = self._build_data_frame(
-            func_code=0x03,
-            start_reg=0,
-            registers=holding_regs,
-            max_reg=79,
+    for chunk_start in (0, 127, 254):
+        frame = self._build_extended_modbus_frame(
+            func_code=0x04, start_reg=chunk_start, count=127,
+            registers=input_regs,
         )
-        await self._send_frame(frame)
+        await self._send_c2_frame(frame)
 
-    # Build and send input register frames (0-380 in chunks of 127)
-    if input_regs:
-        for chunk_start in range(0, 381, 127):
-            chunk_end = min(chunk_start + 126, 380)
-            frame = self._build_data_frame(
-                func_code=0x04,
-                start_reg=chunk_start,
-                registers=input_regs,
-                max_reg=chunk_end,
-            )
-            await self._send_frame(frame)
+    # Battery data (conditional, inverters only — GridBOSS has no batteries)
+    if not self._is_gridboss and self._has_battery_data:
+        frame = self._build_extended_modbus_frame(
+            func_code=0x04, start_reg=5000, count=127,
+            registers=input_regs,
+        )
+        await self._send_c2_frame(frame)
+
+### Cloud-Initiated Read Handler
+
+async def _handle_cloud_read(self, request_frame):
+    """Respond to cloud READ_HOLDING/READ_INPUT request.
+    Cloud sends 18-byte extended Modbus request, we respond with data."""
+    func_code = request_frame.modbus_func
+    start_reg = request_frame.start_reg
+    # Always respond with 127 registers (firmware behavior)
+    count = 127
+    reg_type = "holding" if func_code == 0x03 else "input"
+    snapshot = self._transport._register_snapshot.get(reg_type, {})
+
+    # Special case: register 2032 → exception code 3
+    if start_reg == 2032 and not self._is_gridboss:
+        await self._send_exception(func_code, start_reg, exception_code=3)
+        return
+
+    frame = self._build_extended_modbus_frame(
+        func_code=func_code, start_reg=start_reg, count=count,
+        registers=snapshot,
+    )
+    await self._send_c2_frame(frame)
+
+### Cloud-Initiated Write Handler (with safety guardrails)
+
+# Whitelist of registers safe to forward WRITE_SINGLE to inverter.
+# ONLY registers observed in pcap captures or documented in CLAUDE.md
+# register map are included. All other writes are BLOCKED.
+_WRITABLE_REGISTERS: frozenset[int] = frozenset({
+    20,   # GridBOSS smart port status (bit-packed)
+    21,   # Control bits (EPS, AC charge, forced charge/discharge)
+    64,   # PV charge power (0-100%)
+    65,   # Discharge power (0-100%)
+    66,   # AC charge power (0-100%)
+    67,   # AC charge SOC limit (0-100%)
+    74,   # Parameter (observed write in pcap)
+    101,  # Charge current (amps)
+    102,  # Discharge current (amps)
+    105,  # On-grid SOC cutoff (10-90%)
+    106,  # Off-grid SOC cutoff (0-100%)
+    110,  # Green/off-grid mode bit field
+})
+
+async def _handle_cloud_write(self, request_frame):
+    """Forward WRITE_SINGLE from cloud to inverter, with safety checks.
+
+    CRITICAL: Only whitelisted registers are forwarded. Unknown registers
+    and non-WRITE_SINGLE function codes are rejected with an exception.
+    Firmware upgrade writes are NOT yet documented and MUST be blocked.
+    """
+    reg = request_frame.register
+
+    # Block non-WRITE_SINGLE function codes (e.g., WRITE_MULTI 0x10)
+    if request_frame.func_code != 0x06:
+        _LOGGER.warning(
+            "CloudEmitter: BLOCKED unknown write — func=0x%02X reg=%d "
+            "value=0x%04X (%d) serial=%s slave=%d. "
+            "If this is a legitimate cloud operation, please report at "
+            "https://github.com/joyfulhouse/eg4_web_monitor/issues "
+            "with this log line so we can add support.",
+            request_frame.func_code, reg, request_frame.value,
+            request_frame.value, request_frame.inverter_serial,
+            request_frame.slave_addr,
+        )
+        await self._send_exception(request_frame.func_code, reg, exception_code=1)
+        return
+
+    # Block writes to unwhitelisted registers
+    if reg not in self._WRITABLE_REGISTERS:
+        _LOGGER.warning(
+            "CloudEmitter: BLOCKED write to unknown register — func=0x%02X "
+            "reg=%d value=0x%04X (%d) serial=%s slave=%d. "
+            "If this is a legitimate cloud operation, please report at "
+            "https://github.com/joyfulhouse/eg4_web_monitor/issues "
+            "with this log line so we can add support.",
+            request_frame.func_code, reg, request_frame.value,
+            request_frame.value, request_frame.inverter_serial,
+            request_frame.slave_addr,
+        )
+        await self._send_exception(request_frame.func_code, reg, exception_code=1)
+        return
+
+    # Forward to inverter via transport
+    await self._transport.write_register(reg, request_frame.value)
+    # Echo the write frame back to cloud (confirmation)
+    await self._send_frame(request_frame.raw_bytes)
+
+def _build_extended_modbus_frame(
+    self,
+    func_code: int,
+    inverter_serial: str,
+    start_reg: int,
+    registers: dict[int, int],
+    max_reg: int,
+) -> bytes:
+    """Build extended Modbus response frame.
+
+    Format: [slave][func][serial 10B][start_reg 2B LE]
+            [byte_count][data LE...][CRC16 LE]
+    ALL fields are little-endian (confirmed by pcap 2026-02-24).
+    """
+    count = max_reg - start_reg + 1
+    byte_count = count * 2
+
+    body = bytearray()
+    body.append(self._slave_addr)  # slave_addr (0 for inverters, 1 for GridBOSS)
+    body.append(func_code)         # function code
+    body.extend(inverter_serial.encode("ascii").ljust(10, b"\x00"))
+    body.extend(start_reg.to_bytes(2, "little"))
+    body.append(byte_count)
+
+    # Register data (little-endian — NOT standard Modbus big-endian)
+    for reg in range(start_reg, start_reg + count):
+        val = registers.get(reg, 0)
+        body.extend(val.to_bytes(2, "little"))
+
+    # CRC-16/Modbus over entire extended body
+    crc = compute_crc16(bytes(body))
+    body.extend(crc.to_bytes(2, "little"))
+
+    return bytes(body)
 ```
 
 ### Command Handling (0xC3/0xC4)
@@ -387,13 +542,25 @@ for inverter in self._inverters.values():
 4. **No fabrication possible** — user cannot enter arbitrary serial
 5. **No PIN in transit** — TCP ingestion uses serial-only (PIN is for one-time registration)
 
+### Write Safety (CRITICAL)
+
+6. **Whitelist-only writes** — Only WRITE_SINGLE (0x06) to known, documented registers
+   is forwarded to the inverter. All other writes are rejected with Modbus exception.
+7. **No WRITE_MULTI** — Bulk writes (func 0x10) are blocked until documented and tested.
+8. **No firmware writes** — Firmware upgrade protocol is not yet documented.
+   Any writes to unrecognized registers (especially 2032+) are blocked.
+9. **Logging** — All blocked writes are logged at WARNING level for audit trail.
+10. **Expandable whitelist** — New registers can be added to `_WRITABLE_REGISTERS`
+    after pcap verification and documentation in TRAFFIC_ANALYSIS.md.
+
 ## Testing Plan
 
 ### Unit Tests (pylxpweb)
 
-- Frame building: verify 0xA1/0x1A prefix, CRC-16, field positions
+- Frame building: verify 0xA1/0x1A prefix, frame_length, field positions
 - Heartbeat: verify 19-byte format, status byte, serial encoding
-- Data frames: verify 0xC2 payload matches Modbus RTU format
+- Extended Modbus: verify 271-byte format with embedded serial, start_reg, CRC-16
+- Data frames: verify 0xC2 payload = [modbus_len LE][extended_modbus_response]
 - Register snapshot: verify stashing during reads
 - Command parsing: verify 0xC3/0xC4 frame parsing
 - Connection lifecycle: connect, heartbeat, data, reconnect on failure
