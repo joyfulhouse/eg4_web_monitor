@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -307,6 +308,7 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
         # Set device attributes
         self._attr_has_entity_name = True
         self._attr_name = "PV Input Mode"
+        self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:solar-panel"
         self._attr_options = list(PV_INPUT_MODE_OPTIONS)
 
