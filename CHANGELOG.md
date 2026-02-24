@@ -5,6 +5,19 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.37] - 2026-02-24
+
+### Fixed
+
+- **Secondary inverter battery bank suppression** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): In parallel systems, secondary inverters (role ≥ 2) with battery_count=0 no longer create a battery bank device with Unknown/Unavailable sensors — the CAN bus is only wired to the primary inverter
+- **Modbus read errors / missing battery data** ([#165](https://github.com/joyfulhouse/eg4_web_monitor/issues/165)): pylxpweb 0.9.10 adds adaptive battery slot ceiling, truncated serial guard, and partial battery data preservation
+- **All 19 mypy strict-mode errors resolved**: Added missing mixin type stubs and typed `STATION_SENSOR_TYPES`
+- **765 tests** (up from 760)
+
+### Dependencies
+
+- Requires `pylxpweb>=0.9.10` (battery slot ceiling, truncated serial guard, cell voltage canaries)
+
 ## [3.2.0-beta.34] - 2026-02-18
 
 ### Fixed
