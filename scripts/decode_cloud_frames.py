@@ -105,33 +105,38 @@ def find_frames(data: bytes) -> list[tuple[int, bytes]]:
 def decode_frame(
     frame_bytes: bytes, timestamp: float, direction: str
 ) -> DecodedFrame | None:
-    """Decode a single cloud protocol frame."""
-    if len(frame_bytes) < 20:  # Minimum: 18 preamble + 2 CRC
+    """Decode a single cloud protocol frame.
+
+    Cloud TCP frames do NOT have trailing CRC-16. The frame format is:
+    [A1 1A][ver 2B][frame_len 2B LE][addr][func][serial 10B][payload...]
+    Total size = 6 + frame_length = 18 + payload_len
+    """
+    if len(frame_bytes) < 19:  # Minimum: 18 preamble + 1 payload (heartbeat)
         return None
 
     func = frame_bytes[7]
     serial = frame_bytes[8:18].decode("ascii", errors="replace").rstrip("\x00")
 
-    # Verify CRC
-    inner = frame_bytes[6:-2]
-    crc_received = int.from_bytes(frame_bytes[-2:], "little")
-    crc_computed = compute_crc16(inner)
-    crc_ok = crc_received == crc_computed
+    # No CRC on TCP cloud frames (confirmed via firmware decompilation).
+    # CRC-16/Modbus is only used on RS485 Modbus RTU frames within 0xC2 payloads.
+    payload = frame_bytes[18:]
 
-    payload = frame_bytes[18:-2]
-
-    details_parts = []
-    if not crc_ok:
-        details_parts.append(f"BAD CRC (got 0x{crc_received:04X}, expected 0x{crc_computed:04X})")
-
+    details_parts: list[str] = []
     func_name = FUNC_NAMES.get(func, f"UNKNOWN(0x{func:02X})")
 
     # Decode payload based on function
     if func == 0xC1:
         if payload:
             details_parts.append(f"status=0x{payload[0]:02X}")
-    elif func == 0xC2 and len(payload) >= 3:
-        details_parts.extend(_decode_modbus_rtu(payload))
+    elif func == 0xC2 and len(payload) >= 2:
+        # 0xC2 has a 2-byte LE length prefix before Modbus RTU data
+        modbus_len = int.from_bytes(payload[0:2], "little")
+        details_parts.append(f"modbus_len={modbus_len}")
+        modbus_data = payload[2:]
+        if len(modbus_data) >= 3:
+            details_parts.extend(_decode_modbus_rtu(modbus_data))
+        elif modbus_data:
+            details_parts.append(f"modbus_data={modbus_data.hex()}")
     elif func == 0xC3 and len(payload) >= 4:
         start = int.from_bytes(payload[0:2], "little")
         end = int.from_bytes(payload[2:4], "little")

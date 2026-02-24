@@ -61,7 +61,9 @@ This is confirmed by the `DataProcessRecv_Generic` (0x4200b422) function, which 
 
 ## 2. Exact Frame Format
 
-### 0xA1/0x1A Frame Structure
+### 0xA1/0x1A Frame Structure (TCP Cloud Transport)
+
+**IMPORTANT**: CRC-16 is NOT used on TCP cloud frames. See Section 11 for full evidence.
 
 ```
 Offset  Size  Field              Value/Notes
@@ -73,85 +75,53 @@ Offset  Size  Field              Value/Notes
 7       1     Function           [C1|C2|C3|C4]
 8       10    Serial             10 ASCII digits, zero-padded
 18+     var   Payload            (depends on function)
-last-2  2     CRC-16/Modbus      Over bytes [6..last-3] (addr through payload)
+                                 *** NO TRAILING CRC ***
 ```
 
-**Frame length field**: Counts bytes from offset 6 to end, inclusive.
-So `frame_length = 1 (addr) + 1 (func) + 10 (serial) + payload_len + 2 (CRC) = payload_len + 14`
+**Frame length field**: Counts bytes from offset 6 to end of payload, inclusive.
+So `frame_length = 1 (addr) + 1 (func) + 10 (serial) + payload_len = payload_len + 12`
+And `total_size = 6 + frame_length = 18 + payload_len`
 
-**CRC scope**: Computed over `frame[6:-2]` (address byte through end of payload, excluding CRC itself).
-
-### Heartbeat (0xC1) — 21 bytes total
+### Heartbeat (0xC1) — 19 bytes total
 
 ```
-[A1 1A] [01 00] [0D 00] [01] [C1] [serial x10] [05] [CRC_lo CRC_hi]
-  0-1     2-3     4-5     6    7     8-17         18      19-20
+[A1 1A] [01 00] [0D 00] [01] [C1] [serial x10] [05]
+  0-1     2-3     4-5     6    7     8-17         18
 ```
 
-- `frame_length` = 0x000D (13) → total = 6 + 13 = 19 bytes for inner + 2 CRC = 21 total
-- Wait — let me re-verify from HeartbeatBuilder (FUN_ram_4200c3b8):
+- `frame_length` = 0x000D (13) → total = 6 + 13 = **19 bytes**
+- From HeartbeatBuilder (FUN_ram_4200c3b8):
 
 ```c
-iVar1 = FUN_ram_4200c216(param_1, 0xc1);  // Returns 0x12 (18)
+iVar1 = FUN_ram_4200c216(param_1, 0xc1);  // Returns 0x12 (18) — preamble
 *(param_1 + iVar1) = 5;                    // Status byte at offset 18
-*(param_1 + 4) = (char)((iVar1 - 5) * 0x10000 >> 0x10);  // frame_len low
-*(param_1 + 5) = (char)((iVar1 - 5) >> 8);                // frame_len high
-return iVar1 + 1;  // Returns 19
+*(param_1 + 4) = (char)((iVar1 - 5) * 0x10000 >> 0x10);  // frame_len low = 13
+*(param_1 + 5) = (char)((iVar1 - 5) >> 8);                // frame_len high = 0
+return iVar1 + 1;  // Returns 19 — this IS the final send size
 ```
 
-So: `iVar1 = 18` (preamble size), `frame_len = 18 - 5 = 13 = 0x0D`, total returned = 19.
-But wait — CRC is NOT added by HeartbeatBuilder. CRC must be added by the caller or DataProcess_Send.
+DataProcess_Send passes this 19 directly to TCPClient_SendData → send(). No CRC added.
 
-**CRC addition**: The DataProcess_Send function (FUN_ram_42009c02) calls the send callback with `(param_1, param_1 + 0x427, param_2)` where param_2 is the size. CRC must be added by an intermediate function — likely `FramePreambleBuilder` adds a placeholder, and CRC is computed/appended before TCP send. Looking at `Heartbeat_Send` (0x42009dc0):
-
-```c
-FUN_ram_4200c3b8(param_1 + 0x427, 0x400);  // Build heartbeat in send buffer
-FUN_ram_42009c02(param_1, result);          // Send via DataProcess_Send
-```
-
-The heartbeat is built in the DataProcess send buffer (offset 0x427, size 0x400=1024). CRC must be appended by the TCP send path.
-
-**Corrected heartbeat**: 19 bytes from builder + 2 CRC = **21 bytes total** (not 19 as previously stated in FINDINGS.md — the 19 was the builder return value before CRC).
-
-Actually — re-reading HeartbeatBuilder more carefully: `frame_len = iVar1 - 5 = 13`. Frame length field at [4:6] = 0x000D. Total frame = 6 + 13 = 19 bytes. The status byte IS included in frame_len. But CRC... The frame_len likely INCLUDES the CRC bytes. Let me reconsider.
-
-Looking at `FramePreambleBuilder`:
-```c
-return 0x12;  // 18 = magic(2) + version(2) + length(2) + addr(1) + func(1) + serial(10)
-```
-
-And HeartbeatBuilder adds status byte: total before CRC = 19 bytes.
-`frame_len = 19 - 6 = 13` → stored at [4:6].
-CRC added after = 21 bytes total.
-`frame_len_with_crc = 21 - 6 = 15` → but that doesn't match 0x0D=13.
-
-**Resolution**: Looking at how `DataProcess_ResponseBuilder` sets frame_length:
-```c
-iVar1 = FUN_ram_4200c216(param_1, 0xc3);  // Returns 18
-// ... adds payload ...
-param_6 = payload_len + iVar1 + 4;        // Total including payload header
-iVar1 = param_6 - 6;                       // frame_length = total - 6
-*(param_1 + 4) = low_byte(iVar1);
-*(param_1 + 5) = high_byte(iVar1);
-return param_6;                             // Return total (WITHOUT CRC)
-```
-
-So `frame_length` = bytes from offset 6 to end of payload (BEFORE CRC). CRC is appended later. This means:
-
-**Heartbeat**: frame_length = 13, total before CRC = 19, **total with CRC = 21 bytes**
-**But the wire format needs confirmation via traffic capture.**
+**Traffic capture should confirm: heartbeat = exactly 19 bytes (no trailing CRC).**
 
 ### Data Transmission (0xC2) — Variable size
 
 ```
-[A1 1A] [01 00] [frame_len LE] [01] [C2] [serial x10] [Modbus RTU response...] [CRC_lo CRC_hi]
-  0-1     2-3       4-5          6    7     8-17          18+                       last 2
+[A1 1A] [01 00] [frame_len LE] [01] [C2] [serial x10] [modbus_len LE] [Modbus RTU response...]
+  0-1     2-3       4-5          6    7     8-17           18-19          20+
 ```
 
-**Modbus RTU response payload**:
+**Note**: 0xC2 has a 2-byte LE length prefix at offset 18-19 before the Modbus RTU data.
+This was confirmed by `parse_DATA_TRANSMISSION` (0x4200c402) which reads `modbus_len` at
+`payload + 0x12` (offset 18 from frame start) and validates `modbus_len + 0x14 == frame_len`.
+
+**Modbus RTU response payload** (inside the 0xC2 frame):
 ```
 [slave_addr=01] [func_code] [byte_count] [register_data...] [modbus_CRC_lo modbus_CRC_hi]
 ```
+
+Note: The Modbus RTU payload includes its own CRC-16. This is the inverter communication
+CRC, NOT a cloud frame CRC.
 
 For a READ_HOLDING (func=0x03) response with 80 registers (160 bytes):
 ```
@@ -160,7 +130,7 @@ For a READ_HOLDING (func=0x03) response with 80 registers (160 bytes):
 Total Modbus RTU: 165 bytes
 ```
 
-Total frame = 18 (preamble) + 165 (Modbus RTU) + 2 (cloud CRC) = **185 bytes**
+Total frame = 18 (preamble) + 2 (modbus_len) + 165 (Modbus RTU) = **185 bytes**
 
 For a READ_INPUT (func=0x04) response with 127 registers (254 bytes):
 ```
@@ -169,7 +139,7 @@ For a READ_INPUT (func=0x04) response with 127 registers (254 bytes):
 Total Modbus RTU: 259 bytes
 ```
 
-Total frame = 18 + 259 + 2 = **279 bytes**
+Total frame = 18 + 2 + 259 = **279 bytes**
 
 ---
 
@@ -476,7 +446,603 @@ When the cloud server sends frames to the dongle:
 
 ---
 
-## 9. Open Questions (for traffic capture validation)
+## 9. Receive-Side Behavior (Cloud → Dongle)
+
+### TCP Client Architecture
+
+The TCP client runs as an FreeRTOS task spawned by `TCPClient_Start` (0x4200dd3e). The main loop
+lives in `FUN_ram_4200d67c` (1182 bytes) and follows a standard BSD socket pattern:
+
+```
+TCPClient_Start
+  └── xTaskCreate(FUN_ram_4200d67c, "tcp_client", stack=0x1000, priority=5)
+
+FUN_ram_4200d67c (main loop — runs forever):
+  do {
+    1. Wait for WiFi STA connected (poll callback every 1000ms)
+    2. DNS resolution: getaddrinfo(host, port_str)
+    3. socket(AF_INET, SOCK_STREAM, 0)
+    4. setsockopt: TCP_NODELAY=1, SO_KEEPIDLE=60, SO_KEEPINTVL=5, SO_KEEPCNT=3
+    5. connect(socket, addr)
+    6. On success:
+       - Set state: connected=1, alive=1
+       - Call OnConnect callback (sends initial heartbeat)
+       - Allocate recv buffer: malloc(max_recv_size + 1)
+       - Enter recv loop:
+         while (connected) {
+           select(socket, timeout=100ms)
+           if (readable) {
+             bytes = recv(socket, buffer, max_recv_size)
+             if (bytes <= 0) → break (disconnect)
+             Log: "Recv: " + hex dump
+             Call recv_callback(tcp_client, buffer, bytes)  // → frame parser
+           }
+           // Check if host/port changed → reconnect if so
+         }
+       - Free recv buffer
+    7. On failure:
+       - Sleep: connect_timeout * 100 / 1000 ms
+    8. Close socket, loop back to step 1
+  } while (true);
+```
+
+### Socket Configuration (from line 5746-5753)
+
+```c
+// TCP_NODELAY = 1 (disable Nagle algorithm)
+setsockopt(socket, IPPROTO_TCP/*0xfff*/, TCP_NODELAY/*8*/, &one, 4);
+// SO_KEEPIDLE = 60 seconds (idle before first keepalive)
+setsockopt(socket, SOL_SOCKET/*6*/, SO_KEEPIDLE/*3*/, &sixty, 4);
+// SO_KEEPINTVL = 5 seconds (between keepalives)
+setsockopt(socket, SOL_SOCKET/*6*/, SO_KEEPINTVL/*4*/, &five, 4);
+// SO_KEEPCNT = 3 (keepalive probes before disconnect)
+setsockopt(socket, SOL_SOCKET/*6*/, SO_KEEPCNT/*5*/, &three, 4);
+```
+
+**CloudEmitter implication**: We should set the same socket options, especially TCP_NODELAY.
+
+### Receive Callback Chain
+
+```
+Raw TCP recv(buffer, len)
+  └── param_1[0] callback = FUN_ram_4200a66a (30 bytes, registered via PTR_FUN_ram_4200a66a)
+        └── Frame parser (extracts 0xA1/0x1A frames from TCP stream)
+              └── DataProcessRecv_TCPClient (FUN_ram_4200a688)
+                    ├── 0xC1: Count heartbeat, check aging, NO echo
+                    ├── 0xC2: parse_DATA_TRANSMISSION → RS485_SendToInverter
+                    ├── 0xC3: parse_GET_PARAM → GetParam_ForwardToRS485
+                    └── 0xC4: parse_SET_PARAM → SetParam_ForwardToRS485
+```
+
+**Key observation**: The TCP recv gives raw bytes to a registered callback. This callback
+(`FUN_ram_4200a66a`, 30 bytes — confirmed thin wrapper in decompiled_missing.c) gets the
+DataProcess context from `TCPClient_GetState()` at offset 0x0C, then calls
+`DataProcess_FrameParser` (FUN_ram_42009c16, 426 bytes). The frame parser is a byte-by-byte
+streaming state machine with 5 states and a 500ms idle timeout (see Section 10). It does
+**NOT validate CRC** — it dispatches frames purely based on the frame_length field.
+On frame completion, it calls `DataProcessRecv_TCPClient` via the callback at offset 0x04
+of the DataProcess context, with `(dp_ctx, func_code, buffer_ptr)`.
+
+### Frame Reception State Machine
+
+The `DataProcessRecv_TCPClient` (0x4200a688, 508 bytes) is the cloud TCP dispatch function.
+On EVERY received frame:
+
+```c
+void DataProcessRecv_TCPClient(dp_ctx, func_code, payload_ptr, payload_len) {
+    piVar1 = get_connection_state();
+
+    // 1. Force state to CONNECTED on any received frame
+    if (*piVar1 != 2) { *piVar1 = 2; }
+
+    // 2. Reset heartbeat pending flag
+    piVar1[1] = 0;
+
+    // 3. Stamp last-receive time (used by HeartbeatTimer for timeout)
+    piVar1[4] = get_tick_count();
+
+    // 4. Dispatch by function code
+    switch (func_code) { ... }
+}
+```
+
+**Critical for CloudEmitter**: ANY received frame resets the heartbeat timer. This means:
+- If the cloud sends us frames (commands, heartbeats), we don't need to send heartbeats
+- The 18-second heartbeat trigger is relative to `piVar1[4]` (last receive time)
+- The 19-second timeout is also relative to `piVar1[4]`
+- If the cloud goes silent for >19s, the dongle disconnects and reconnects
+
+### OnConnect Callback (0x4200a884)
+
+```c
+void TCPClient_OnConnect(tcp_client, buffer, len) {
+    dp_ctx = get_dataprocess_context();
+    // Send pre-built data from dp_ctx offset 0x08
+    TCPClient_SendData(*(dp_ctx + 8), buffer, len);
+}
+```
+
+This is only 30 bytes. It calls `TCPClient_SendData` with data from the DataProcess context at
+offset 0x08. This appears to be a pending buffer — the HeartbeatTimer likely pre-builds the
+heartbeat into this buffer, so OnConnect sends whatever is already queued.
+
+**Alternative interpretation**: Looking at `DataProcess_Create` (0x4200a494):
+```c
+memcpy(dp_ctx, callbacks, 8);  // Copy OnConnect + OnRecv function pointers
+```
+
+Offset 0x08 would then be a "pending send" field, set by `HeartbeatTimer` before connect.
+The OnConnect sends the initial heartbeat that was pre-built.
+
+### 0xC1 Heartbeat Receive (Cloud → Dongle)
+
+```c
+case 0xC1:
+    if (DAT_ram_3fc99b9d != 0xFF) {
+        DAT_ram_3fc99b9d++;  // Increment heartbeat counter (caps at 255)
+    }
+    // Aging logic: after 8+ heartbeats AND 8+ data cycles, mark aging complete
+    if (_DAT_ram_3fc99b60 == 0      // Not yet marked
+        && DAT_ram_3fc99b9d > 8     // >8 heartbeats received
+        && DAT_ram_3fc99bcf > 8)    // >8 data cycles completed
+    {
+        _DAT_ram_3fc99b60 = 1;
+        NVS_SetParam(10, &_DAT_ram_3fc99b60, 4);  // Save aging result
+    }
+    // Log only — NO echo, NO response
+```
+
+**CloudEmitter implication**: We don't need to respond to cloud heartbeats. Just count them
+for completeness. The aging logic is for factory QC only.
+
+### 0xC2 Data Receive (Cloud → Dongle → Inverter)
+
+```c
+case 0xC2:
+    iVar2 = parse_DATA_TRANSMISSION(payload_ptr, payload_len, &modbus_data, &modbus_len);
+    if (iVar2 == 0) {
+        RS485_SendToInverter(modbus_data, modbus_len, &LAB_ram_4200a4ec, dp_ctx);
+    }
+```
+
+The cloud can send 0xC2 frames **to the dongle**, which forwards the Modbus RTU data to the
+inverter via RS485. The callback `LAB_ram_4200a4ec` (a jump label within HeartbeatTimer)
+presumably handles the RS485 response — likely forwarding it back to the cloud as another 0xC2.
+
+**CloudEmitter implication**: If the cloud sends us a 0xC2, we need to:
+1. Extract the Modbus RTU payload
+2. Forward it to the inverter via our transport
+3. Send the response back as a 0xC2 frame to the cloud
+
+This is used for **firmware updates** — the cloud pushes firmware data to the inverter through
+the dongle as Modbus writes. This is the cloud-orchestrated inverter firmware update path.
+
+### 0xC3 GET_PARAM Receive (Cloud → Dongle)
+
+#### Payload Parser (parse_GET_PARAM, 0x4200c468, 58 bytes)
+
+```c
+int parse_GET_PARAM(payload, payload_len, *start_param, *end_param) {
+    if (payload == NULL || start_param == NULL || end_param == NULL) return -1;
+    if (payload_len < 0x14) return -1;  // Need at least 20 bytes
+
+    *start_param = *(uint16_t*)(payload + 0x12);  // offset 18: start param code (LE)
+    if (payload_len > 0x15) {  // If at least 22 bytes
+        *end_param = *(uint16_t*)(payload + 0x14);  // offset 20: end param code (LE)
+    } else {
+        *end_param = *start_param;  // Single param = start
+    }
+    return 0;
+}
+```
+
+**Frame layout for GET_PARAM request from cloud**:
+```
+Offset in payload  Field
+0x12 (18)          start_param_code (uint16 LE)
+0x14 (20)          end_param_code (uint16 LE, optional — defaults to start)
+```
+
+Wait — those offsets are from the FRAME start, not the payload start. The parse functions receive
+`param_3, param_4` which are the frame data pointer and frame data length from the dispatch.
+Looking at the dispatch code: `FUN_ram_4200c468(param_3, param_4, &uStack_28, &uStack_24)`
+where param_3/param_4 come from the frame parser. So offset 0x12 from the frame data start
+means offset 18 = right after the preamble. The param codes are at the start of the payload.
+
+**Corrected GET_PARAM payload** (after the 18-byte preamble):
+```
+Offset  Field
+0       start_param_code (uint16 LE)
+2       end_param_code (uint16 LE, optional)
+```
+
+#### Response Handler (GetParam_ForwardToRS485, 0x42009e34, 560 bytes)
+
+This function iterates from `start_param` to `end_param`, building a response for each param code:
+
+```c
+void GetParam_ForwardToRS485(dp_ctx, start_param, end_param) {
+    if (dp_ctx == 0) return -1;
+
+    do {
+        if (end_param < start_param) return 0;  // Done
+
+        log("GetParam ParamCode=%u", start_param);
+
+        switch (start_param) {
+            case 0:   // data_period → read NVS key 0, return 2 bytes
+            case 1:   // serial → read NVS key 9, return 10 bytes
+            case 4:   // WiFi SSID+password → read NVS 5+6, format as CSV
+            case 5:   // WiFi scan results → call FUN_ram_4200763c
+            case 6:   // Cloud server → read NVS 7+8, format as CSV
+            case 7:   // Firmware version → return "V2.10"
+            case 8:   // OTA status → return DAT_ram_3fc99bd6 (1 byte)
+            case 0x0B: // Aging status → return 5 (constant)
+            case 0x0E: // WiFi password → read NVS key 2
+            case 0x0F: // DHCP flag → read NVS key 4
+            case 0x10: // IP config → call FUN_ram_42007774 (format IP info)
+            case 0x14: // SoftAP flag → read NVS key 0x10
+            default:   // Unknown → skip, increment start_param
+        }
+
+        // Build response frame:
+        frame_size = DataProcess_ResponseBuilder(
+            dp_ctx + 0x427,    // send buffer
+            0x400,             // buffer size
+            dp_ctx + 0x1C,     // serial
+            start_param,       // param code
+            response_data,     // data
+            response_len       // length
+        );
+        DataProcess_Send(dp_ctx, frame_size);
+
+        start_param++;
+    } while (true);
+}
+```
+
+**CloudEmitter implication**: When the cloud sends GET_PARAM, we need to respond with:
+- Param 0: our configured data_period
+- Param 1: our dongle serial
+- Param 7: firmware version string (e.g., "V2.10")
+- Param 8: OTA status (0 = idle)
+- Other params: return sensible defaults or skip
+
+The response uses `DataProcess_ResponseBuilder` (0x4200c260) which builds a 0xC3 response frame:
+
+```
+[A1 1A] [ver] [frame_len] [01] [C3] [serial x10] [param_code LE] [data_len LE] [data...] [CRC16]
+```
+
+### 0xC4 SET_PARAM Receive (Cloud → Dongle)
+
+#### Payload Parser (parse_SET_PARAM, 0x4200c42a, 62 bytes)
+
+```c
+int parse_SET_PARAM(payload, payload_len, *param_code, *data_ptr, *data_len) {
+    if (payload == NULL || data_ptr == NULL || data_len == NULL) return -1;
+    if (payload_len < 0x16) return -1;  // Need at least 22 bytes
+
+    *param_code = *(uint16_t*)(payload + 0x12);  // Param code (uint16 LE)
+    data_length = *(uint16_t*)(payload + 0x14);   // Data length (uint16 LE)
+    *data_len = data_length;
+
+    if (data_length + 0x16 != payload_len) return -1;  // Length mismatch
+    *data_ptr = payload + 0x16;  // Data starts at offset 22
+    return 0;
+}
+```
+
+**SET_PARAM payload** (after 18-byte preamble):
+```
+Offset  Field
+0       param_code (uint16 LE)
+2       data_length (uint16 LE)
+4+      data bytes (data_length bytes)
+```
+
+#### Response (ACK/NACK)
+
+After processing SET_PARAM, the handler calls `FUN_ram_4200c2e2` (96 bytes, not decompiled)
+which builds a SET_PARAM response frame:
+
+```c
+// From SetParam_ForwardToRS485 (0x4200a064), at the END of each code handler:
+// On success: uVar7 = 0
+// On param error: uVar7 = 1
+// On unknown code: uVar7 = 4
+// On NVS write error: uVar7 = 3
+
+LAB_ram_4200a094:
+    frame_size = FUN_ram_4200c2e2(
+        dp_ctx + 0x427,  // send buffer
+        0x400,           // buffer size
+        dp_ctx + 0x1C,   // serial
+        param_code,      // echo back the param code
+        result_code      // 0=success, 1=param error, 3=NVS error, 4=unknown code
+    );
+    if (frame_size > 0) {
+        DataProcess_Send(dp_ctx, frame_size);
+    }
+```
+
+**SET_PARAM response** (0xC4 frame with result code):
+```
+[A1 1A] [ver] [frame_len] [01] [C4] [serial x10] [param_code LE] [result_code] [CRC16]
+```
+
+Result codes:
+- `0x00` = success
+- `0x01` = parameter validation error
+- `0x03` = NVS write failure
+- `0x04` = unknown/unsupported param code
+
+#### Complete SET_PARAM Code Table with Response Behavior
+
+| Code | Purpose | Response | Notes |
+|------|---------|----------|-------|
+| 0 | Set data poll period | ACK(0) on success | Range 20-300, saved to NVS key 0 |
+| 1 | Set dongle serial | ACK(0) on success | 10 bytes, [0-9A-Z], saved to NVS key 9 |
+| 3 | Factory reset | ACK(0) | Requires byte = 0xA5, calls NVS_InitDefaults |
+| 4 | Set WiFi SSID/password | ACK(0) on success | CSV: "ssid,password", saved to NVS 5+6 |
+| 6 | Set cloud server | ACK(0) on success | CSV: "host,port", saved to NVS 7+8, reinit TCP |
+| 9 | Dongle OTA URL | ACK(0) | Up to 200 bytes URL, triggers esp_https_ota |
+| 0x0C | Set WiFi channel+pass | ACK(0) on success | CSV: "channel,password", saved to NVS 4+2 |
+| 0x0D | Reboot | (no response — reboots) | Requires byte = 0xA5, calls esp_restart() |
+| 0x11 | Set static IP | ACK(0) on success | CSV: "ip,gateway,mask", saves NVS 11-14 |
+| 0x12 | Enable DHCP | ACK(0) on success | Requires byte = 0xA5, sets NVS key 14 |
+| 0x14 | Set SoftAP flag | ACK(0) on success | 0=AP on, else=AP off, saved to NVS key 16 |
+| Other | Unknown | ACK(4) | Returns "unsupported" result code |
+
+**CloudEmitter implication**: We must:
+1. Always send an ACK response for SET_PARAM (except code 0x0D reboot which doesn't respond)
+2. For dongle-internal codes (0, 1, 3, 4, 6, 9, 0x0C, 0x0D, 0x11, 0x12, 0x14): ACK without action
+3. For codes that ARE inverter register writes (any code not in the list above): forward to inverter
+4. The response frame is func=0xC4 with param_code echoed back + result byte
+
+**Wait — there's a subtle issue**: ALL documented SET_PARAM codes are dongle-internal. The
+firmware doesn't show any code that forwards SET_PARAM to the inverter. Register writes
+from the cloud to the inverter are done via 0xC2 (DATA_TRANSMISSION) which carries Modbus
+write commands (func 0x06 WRITE_SINGLE or 0x10 WRITE_MULTI).
+
+### 0xC2 for Cloud→Inverter Writes
+
+When the cloud wants to write a register on the inverter, it sends a 0xC2 frame containing
+a Modbus write command:
+
+```
+Cloud→Dongle 0xC2:
+  payload = [01] [06] [reg_hi reg_lo] [value_hi value_lo] [CRC_lo CRC_hi]
+            slave  WRITE_SINGLE   register        value       modbus CRC
+```
+
+The dongle forwards this verbatim to RS485 via `RS485_SendToInverter` (0x4200adaa):
+
+```c
+void RS485_SendToInverter(modbus_data, modbus_len, callback, dp_ctx) {
+    rs485_handle = _DAT_ram_3fc96b30;
+    if (rs485_handle == 0) return -1;
+
+    // Allocate callback struct: [callback_func, dp_ctx, data..., data_len]
+    cb_struct = malloc(modbus_len + 0x0C);
+    cb_struct[0] = callback;     // LAB_ram_4200a4ec
+    cb_struct[1] = dp_ctx;       // For sending response back
+    memcpy(cb_struct + 3, modbus_data, modbus_len);
+    cb_struct[2] = modbus_len;
+
+    RS485Service_SendMessage(rs485_handle, cb_struct);
+    free(cb_struct);
+}
+```
+
+The callback `LAB_ram_4200a4ec` receives the RS485 response and presumably wraps it in a
+0xC2 frame to send back to the cloud as confirmation.
+
+**CloudEmitter implication**: If the cloud sends a 0xC2 containing a Modbus write:
+1. Extract the Modbus RTU command from the payload
+2. Execute it on the inverter via our transport
+3. Wrap the response in a 0xC2 frame and send back to the cloud
+
+---
+
+## 10. Frame Parser Details
+
+### parse_DATA_TRANSMISSION (0x4200c402, 40 bytes)
+
+```c
+int parse_DATA_TRANSMISSION(frame_data, frame_len, *payload_ptr, *payload_len) {
+    if (frame_data == 0 || frame_len <= 0x12) return -1;
+
+    // Read payload length from frame offset 0x12 (within frame data)
+    modbus_len = *(uint16_t*)(frame_data + 0x12);
+    *payload_len = modbus_len;
+
+    // Verify: modbus_len + 0x14 == frame_len (payload starts at 0x14)
+    if (modbus_len + 0x14 != frame_len) return -1;
+
+    *payload_ptr = frame_data + 0x14;  // Modbus RTU data starts at offset 20
+    return 0;
+}
+```
+
+**0xC2 payload structure** (within the frame data passed to parser):
+```
+Offset  Field
+0x12    modbus_data_length (uint16 LE)
+0x14+   modbus_rtu_data (modbus_data_length bytes)
+```
+
+This means the 0xC2 frame payload is:
+```
+[modbus_len_lo modbus_len_hi] [modbus_rtu_bytes...]
+```
+
+NOT just raw Modbus RTU bytes — there's a 2-byte length prefix!
+
+**This is a critical correction from our earlier understanding**. The design doc assumed
+the 0xC2 payload was verbatim Modbus RTU. But there's actually a 2-byte little-endian
+length field prefixed to the Modbus RTU data.
+
+### DataProcess_FrameParser (0x42009c16, 426 bytes) — Decompiled
+
+Streaming byte-by-byte parser. Context structure at `param_1`:
+- `offset 0x00`: send callback function pointer
+- `offset 0x04`: dispatch callback function pointer
+- `offset 0x08`: parser state (0-4)
+- `offset 0x0A`: version / field at state 2 position 3
+- `offset 0x0C`: frame_length (stored at state 3)
+- `offset 0x0E`: buffer position (uint16)
+- `offset 0x10`: last-activity timestamp (for 500ms stale timeout)
+- `offset 0x14`: transport context pointer
+- `offset 0x18`: mutex
+- `offset 0x1C`: serial (10 bytes)
+- `offset 0x27`: receive buffer (1024 bytes, 0x400)
+- `offset 0x2E`: func code byte position within buffer
+
+**State machine**:
+```
+State 0: Wait for 0xA1 → transition to state 1
+State 1: Wait for 0x1A → transition to state 2 (any other byte → back to state 0)
+State 2: Collect version bytes
+         At buffer position 3: store low byte at offset 0x0A
+         At buffer position 4: combine into version at offset 0x0A → transition to state 3
+State 3: Collect frame_length bytes
+         At buffer position 5: store low byte at offset 0x0C
+         At buffer position 6: combine into frame_length at offset 0x0C → transition to state 4
+State 4: Collect payload bytes
+         When buffer_pos > frame_length + 5:
+           Extract func_code from buffer[0x2E - 0x27] = offset 7 within buffer
+           Dispatch: callback(dp_ctx, func_code, buffer)
+           Reset to state 0
+```
+
+500ms stale timeout: If current_time - last_activity > 499ms, reset buffer_pos and state to 0.
+Internal buffer: 1024 bytes (0x400) at offset 0x27. No CRC validation.
+
+### parse_SET_PARAM (0x4200c42a, 62 bytes)
+
+Already documented above in section 9.
+
+### parse_GET_PARAM (0x4200c468, 58 bytes)
+
+Already documented above in section 9.
+
+---
+
+## 11. CRC-16 on Cloud TCP Frames — RESOLVED: NOT USED
+
+### Definitive Finding
+
+**CRC-16/Modbus is NOT appended to 0xA1/0x1A frames on the TCP cloud transport.**
+
+This was determined by tracing every function in the send path:
+
+#### Evidence Chain
+
+1. **Frame builders do NOT add CRC**:
+   - `HeartbeatBuilder` (0x4200c3b8): Returns 19 bytes, no CRC call
+   - `DataProcess_ResponseBuilder` (0x4200c260): Returns total without CRC
+   - `SetParam_ResponseBuilder` (0x4200c2e2): Returns 21 bytes, no CRC call
+   - `FramePreambleBuilder` (0x4200c216): Returns 18 bytes, no CRC call
+
+2. **DataProcess_Send (0x42009c02, 20 bytes) passes builder's size directly**:
+   ```c
+   void DataProcess_Send(dp_ctx, frame_size) {
+       if (dp_ctx->send_callback != NULL) {
+           dp_ctx->send_callback(dp_ctx, dp_ctx->send_buffer, frame_size);
+       }
+   }
+   ```
+   No CRC computation between builder and send callback.
+
+3. **TCPClient_SendData (0x4200db40, 152 bytes) sends raw buffer**:
+   ```c
+   void TCPClient_SendData(tcp_obj, buffer, length) {
+       if (tcp_obj->socket >= 0 && tcp_obj->state == 1) {
+           int result = send(tcp_obj->socket, buffer, length, 0);
+           if (result < 0) { log_error(); }
+           else { DataProcess_LogPacket("Send: ", buffer, length); }
+       }
+   }
+   ```
+   No CRC added before `send()`.
+
+4. **TCPServer_MainHandler (0x4200d3ec) — local TCP server — also no CRC**:
+   Direct `send()` call without CRC computation.
+
+5. **ComputeCRC16 (0x4200de42) is ONLY called from BuildPacket (0x4200de8c)**:
+   `BuildPacket` builds Modbus RTU frames for RS485 UART. It is never called
+   from any cloud frame code. Grep across all decompiled code confirms exactly
+   one call site.
+
+6. **DataProcess_FrameParser (0x42009c16) does NOT validate CRC on receive**:
+   The streaming parser dispatches frames when `buffer_pos > frame_length + 5`.
+   No CRC verification anywhere in the 426-byte function.
+
+#### Where CRC IS Used
+
+CRC-16/Modbus IS present in two places:
+- **Modbus RTU payloads** inside 0xC2 DATA_TRANSMISSION frames (this is the standard
+  Modbus CRC on the inverter communication, not the cloud frame wrapper)
+- **RS485 Modbus requests** built by `BuildPacket` for dongle→inverter UART communication
+
+#### Corrected Frame Format
+
+```
+Offset  Size  Field              Value/Notes
+------  ----  -----              -----------
+0       2     Magic              [A1 1A] (always)
+2       2     Version            [01 00] (version 1, little-endian)
+4       2     Frame Length        total_size - 6 (little-endian)
+6       1     Address            [01] (always 1)
+7       1     Function           [C1|C2|C3|C4]
+8       10    Serial             10 ASCII digits, zero-padded
+18+     var   Payload            (depends on function)
+                                 *** NO TRAILING CRC ***
+```
+
+`frame_length` = addr(1) + func(1) + serial(10) + payload_len = payload_len + 12
+`total_size` = 6 + frame_length = 18 + payload_len
+
+#### Corrected Heartbeat (0xC1) — 19 bytes total (NOT 21)
+
+```
+[A1 1A] [01 00] [0D 00] [01] [C1] [serial x10] [05]
+  0-1     2-3     4-5     6    7     8-17         18
+```
+frame_length = 13 (0x0D), total = 19 bytes.
+
+#### Impact on CloudEmitter Implementation
+
+The CloudEmitter MUST NOT append CRC-16 to cloud TCP frames. The `decode_cloud_frames.py`
+pcap analysis script must be updated to NOT expect trailing CRC bytes.
+
+**Traffic capture will provide final confirmation** — if frames are exactly 19 bytes for
+heartbeats (not 21), the no-CRC finding is confirmed.
+
+---
+
+## 12. Open Questions (for traffic capture validation)
+
+1. ~~**CRC placement**~~ → **RESOLVED**: No CRC on TCP cloud frames. Verify via capture: heartbeat should be exactly 19 bytes.
+
+2. **Frame ordering**: Are all 4-5 data frames sent back-to-back, or is there a delay between them? The RS485 reads are sequential (wait for response before next read), so there's inherent delay.
+
+3. **Battery data frequency**: Is battery data sent every cycle or only periodically? The cycle counter mechanism suggests it may skip some cycles.
+
+4. **Cloud acknowledgment**: Does the cloud send anything back after receiving data frames? If so, what?
+
+5. **Version field**: Is it always [01 00] or does it change between firmware versions?
+
+6. **Holding register read gating**: `DAT_ram_3fc99ba4` controls whether holding registers are read in the poll cycle. When is this flag set/cleared? First iteration only?
+
+7. **0xC2 length prefix**: Confirmed from parser — 0xC2 payload has a 2-byte LE length prefix before Modbus RTU data. Traffic capture should validate this.
+
+8. **Cloud→dongle 0xC2 forwarding**: Does the cloud ever send 0xC2 frames (Modbus writes) outside of firmware update procedures? How frequently?
+
+9. **SET_PARAM response timing**: Does the dongle send ACK before or after executing the command? For code 6 (change server), the ACK is presumably sent BEFORE reinitializing the TCP connection.
+
+10. **SET_PARAM for register writes**: Are inverter register writes done via 0xC4 SET_PARAM or 0xC2 DATA_TRANSMISSION? The firmware only shows dongle-internal SET_PARAM codes. Register writes likely use 0xC2 with Modbus WRITE_SINGLE (0x06).
 
 1. **Exact CRC placement**: Is CRC appended to the frame before or after frame_length is set? The builder functions return size WITHOUT CRC, but the send path must add it. Traffic capture will show the exact wire format.
 

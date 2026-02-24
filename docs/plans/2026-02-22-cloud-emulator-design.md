@@ -47,17 +47,18 @@ Inverter ──RS485──> Waveshare ──Modbus TCP──> pylxpweb (HA)
 
 ## Protocol Details
 
-### Frame Format (all transports share this)
+### Frame Format (TCP Cloud Transport)
 
 ```
-[A1 1A] [ver_lo ver_hi] [frame_len_lo frame_len_hi] [addr] [func] [serial x10] [payload...] [CRC16]
+[A1 1A] [ver_lo ver_hi] [frame_len_lo frame_len_hi] [addr] [func] [serial x10] [payload...]
   0-1       2-3                  4-5                   6      7       8-17          18+
 ```
 
 - `frame_length` = total_size - 6
 - `addr` = always 1
 - `func` = 0xC1 (heartbeat), 0xC2 (data), 0xC3 (get param), 0xC4 (set param)
-- CRC-16/Modbus (init=0xFFFF, poly=0xA001)
+- **No trailing CRC-16** on TCP cloud frames (confirmed via firmware decompilation)
+- CRC-16/Modbus only exists within Modbus RTU payloads inside 0xC2 frames
 
 ### Heartbeat (0xC1) — 19 bytes
 
