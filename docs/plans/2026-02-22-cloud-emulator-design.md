@@ -293,12 +293,15 @@ _WRITABLE_REGISTERS: frozenset[int] = frozenset({
     65,   # Discharge power (0-100%)
     66,   # AC charge power (0-100%)
     67,   # AC charge SOC limit (0-100%)
+    72,   # Quick charge start time (packed)
+    73,   # Quick charge end time (packed)
     74,   # Parameter (observed write in pcap)
     101,  # Charge current (amps)
     102,  # Discharge current (amps)
     105,  # On-grid SOC cutoff (10-90%)
     106,  # Off-grid SOC cutoff (0-100%)
     110,  # Green/off-grid mode bit field
+    159,  # Charge current limit (18kPV)
 })
 
 async def _handle_cloud_write(self, request_frame):
