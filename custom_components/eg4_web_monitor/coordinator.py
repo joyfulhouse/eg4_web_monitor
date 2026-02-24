@@ -275,6 +275,12 @@ class EG4DataUpdateCoordinator(
         # Next available index per inverter for stable key assignment.
         self._battery_next_index: dict[str, int] = {}
 
+        # Shared-battery secondary inverters: in parallel systems the CAN bus
+        # connects only to the primary.  Secondaries (role >= 2) with
+        # battery_count=0 get their battery bank device suppressed.
+        # This set tracks serials we've already logged about (one-shot info).
+        self._shared_battery_logged: set[str] = set()
+
         # Track whether local parameters have been loaded (deferred from first refresh
         # to avoid Modbus traffic overload during HA setup timeout window)
         self._local_parameters_loaded: bool = False

@@ -37,6 +37,7 @@ from .coordinator_mixins import (
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
+    BATTERY_BANK_KEYS,
     GRIDBOSS_SENSOR_KEYS,
     GRIDBOSS_SMART_PORT_POWER_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
@@ -893,28 +894,57 @@ class LocalTransportMixin(_MixinBase):
 
                 battery_data = inverter._transport_battery
                 if battery_data:
-                    device_data["sensors"].update(
-                        _build_battery_bank_sensor_mapping(battery_data)
+                    # Shared battery detection: in a parallel system the
+                    # secondary inverter (role >= 2) has battery_count=0 at
+                    # reg 96 because the CAN bus is wired only to the
+                    # primary.  The battery bank device belongs to the
+                    # primary; creating one on the secondary would show
+                    # misleading zeros for BMS-derived sensors.  Per-inverter
+                    # sensors (battery_voltage, battery_current, state_of_charge)
+                    # from runtime registers still report accurate values.
+                    is_shared_battery_secondary = (
+                        parallel_master_slave >= 2 and not battery_data.battery_count
                     )
-                    # Compute battery bank charge/discharge rate from merged sensor data
-                    compute_bank_charge_rate(device_data["sensors"])
 
-                    if hasattr(battery_data, "batteries") and battery_data.batteries:
-                        # Round-robin merge: some firmware rotates which
-                        # physical batteries appear in the fixed register
-                        # slots.  Accumulate by battery serial so all
-                        # batteries eventually appear as entities.
-                        device_data["batteries"] = self._merge_round_robin_batteries(
-                            serial, list(battery_data.batteries)
+                    if is_shared_battery_secondary:
+                        if serial not in self._shared_battery_logged:
+                            _LOGGER.info(
+                                "LOCAL: Shared battery detected for %s "
+                                "(parallel role=%d, battery_count=0) — "
+                                "battery bank owned by primary inverter, "
+                                "suppressing battery bank device",
+                                serial,
+                                parallel_master_slave,
+                            )
+                            self._shared_battery_logged.add(serial)
+                    else:
+                        device_data["sensors"].update(
+                            _build_battery_bank_sensor_mapping(battery_data)
                         )
-                        _LOGGER.debug(
-                            "LOCAL: %d individual batteries for %s "
-                            "(%d this poll, %d cached)",
-                            len(device_data["batteries"]),
-                            serial,
-                            len(battery_data.batteries),
-                            len(self._battery_rr_cache.get(serial, {})),
-                        )
+                        # Compute battery bank charge/discharge rate
+                        compute_bank_charge_rate(device_data["sensors"])
+
+                        if (
+                            hasattr(battery_data, "batteries")
+                            and battery_data.batteries
+                        ):
+                            # Round-robin merge: some firmware rotates which
+                            # physical batteries appear in the fixed register
+                            # slots.  Accumulate by battery serial so all
+                            # batteries eventually appear as entities.
+                            device_data["batteries"] = (
+                                self._merge_round_robin_batteries(
+                                    serial, list(battery_data.batteries)
+                                )
+                            )
+                            _LOGGER.debug(
+                                "LOCAL: %d individual batteries for %s "
+                                "(%d this poll, %d cached)",
+                                len(device_data["batteries"]),
+                                serial,
+                                len(battery_data.batteries),
+                                len(self._battery_rr_cache.get(serial, {})),
+                            )
 
                 device_data["sensors"]["firmware_version"] = firmware_version
                 device_data["sensors"]["connection_transport"] = _get_transport_label(
@@ -1124,6 +1154,11 @@ class LocalTransportMixin(_MixinBase):
                 device_type = "gridboss"
             else:
                 sensor_keys = ALL_INVERTER_SENSOR_KEYS
+                # Shared-battery secondary: suppress battery bank keys in static
+                # phase to prevent HA from creating battery bank device/entities.
+                pms = config.get("parallel_master_slave", 0)
+                if pms >= 2:
+                    sensor_keys = sensor_keys - BATTERY_BANK_KEYS
                 device_type = "inverter"
 
             # Pre-populate sensors: keys present (for entity creation), values None
