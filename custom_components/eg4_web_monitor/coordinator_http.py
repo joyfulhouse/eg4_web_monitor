@@ -731,9 +731,7 @@ class HTTPUpdateMixin(_MixinBase):
                     battery_sensors = _build_individual_battery_mapping(batt)
                     # Preserve cloud-only metadata
                     if hasattr(cloud_batt, "battery_sn") and cloud_batt.battery_sn:
-                        battery_sensors["battery_serial_number"] = (
-                            cloud_batt.battery_sn
-                        )
+                        battery_sensors["battery_serial_number"] = cloud_batt.battery_sn
                     if hasattr(cloud_batt, "model") and cloud_batt.model:
                         battery_sensors["battery_model"] = cloud_batt.model
                     if hasattr(cloud_batt, "bms_model") and cloud_batt.bms_model:

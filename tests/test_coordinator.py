@@ -374,6 +374,83 @@ class TestCoordinatorCleanup:
         assert hasattr(coordinator.client, "close")
         assert callable(coordinator.client.close)
 
+    async def test_async_shutdown_calls_super(self, hass, mock_config_entry):
+        """Test async_shutdown sets _shutdown_requested via super().
+
+        HA core's DataUpdateCoordinator.async_shutdown() sets
+        _shutdown_requested = True and unsubscribes the refresh timer.
+        Our override must call super() so the base class cleanup runs.
+        Without this, in-flight refresh tasks are never notified of
+        shutdown, causing unload timeouts (stuck in Initialising).
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        # Before shutdown, flag should be False
+        assert not coordinator._shutdown_requested
+
+        await coordinator.async_shutdown()
+
+        # After shutdown, base class must have set the flag
+        assert coordinator._shutdown_requested
+
+    async def test_async_shutdown_disconnects_cached_transports(
+        self, hass, mock_config_entry
+    ):
+        """Test async_shutdown disconnects transports on cached inverters/MID devices.
+
+        In LOCAL/HYBRID mode, transports are attached to inverter objects
+        in _inverter_cache and MID devices in _mid_device_cache.  These
+        must be disconnected during shutdown so that any in-flight
+        asyncio.gather() on transport I/O unblocks quickly.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        # Simulate cached inverter with an open transport
+        mock_transport_1 = MagicMock()
+        mock_transport_1.is_connected = True
+        mock_transport_1.disconnect = AsyncMock()
+        mock_inv = MagicMock()
+        mock_inv._transport = mock_transport_1
+        coordinator._inverter_cache["INV001"] = mock_inv
+
+        # Simulate cached MID device with an open transport
+        mock_transport_2 = MagicMock()
+        mock_transport_2.is_connected = True
+        mock_transport_2.disconnect = AsyncMock()
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport_2
+        coordinator._mid_device_cache["MID001"] = mock_mid
+
+        await coordinator.async_shutdown()
+
+        mock_transport_1.disconnect.assert_awaited_once()
+        mock_transport_2.disconnect.assert_awaited_once()
+
+    async def test_async_shutdown_disconnects_legacy_transports(
+        self, hass, mock_config_entry
+    ):
+        """Test async_shutdown disconnects legacy _modbus_transport/_dongle_transport.
+
+        Old single-device config entries store transports on the coordinator
+        directly.  These must also be disconnected during shutdown.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        mock_modbus = MagicMock()
+        mock_modbus.is_connected = True
+        mock_modbus.disconnect = AsyncMock()
+        coordinator._modbus_transport = mock_modbus
+
+        mock_dongle = MagicMock()
+        mock_dongle.is_connected = True
+        mock_dongle.disconnect = AsyncMock()
+        coordinator._dongle_transport = mock_dongle
+
+        await coordinator.async_shutdown()
+
+        mock_modbus.disconnect.assert_awaited_once()
+        mock_dongle.disconnect.assert_awaited_once()
+
 
 class TestDeviceInfo:
     """Test device info generation methods."""

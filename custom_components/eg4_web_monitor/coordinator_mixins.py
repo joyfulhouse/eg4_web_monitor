@@ -1971,6 +1971,8 @@ class BackgroundTaskMixin(_MixinBase):
         # Mark removal function as used - the one-time listener auto-removes itself
         self._shutdown_listener_remove = None
 
+        await self._disconnect_all_transports()
+
         if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
             self._debounced_refresh.async_cancel()
             await asyncio.sleep(0)
@@ -1980,7 +1982,18 @@ class BackgroundTaskMixin(_MixinBase):
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
-        """Clean up background tasks and event listeners on shutdown."""
+        """Clean up transports, background tasks, and event listeners on shutdown.
+
+        Transport disconnection happens FIRST so that any in-flight
+        asyncio.gather() waiting on Modbus/dongle I/O unblocks immediately
+        (closed socket raises an exception instead of waiting for timeout).
+        Without this, options-change reloads time out because the
+        DataUpdateCoordinator's refresh task can't complete.
+        """
+        # 1. Disconnect all transports to unblock in-flight I/O
+        await self._disconnect_all_transports()
+
+        # 2. Remove our homeassistant_stop event listener
         # Only try to remove listener if:
         # - It exists (not None)
         # - The shutdown event hasn't fired (which auto-removes the one-time listener)
@@ -1998,8 +2011,61 @@ class BackgroundTaskMixin(_MixinBase):
                 # Mark as removed to prevent double-removal attempts
                 self._shutdown_listener_remove = None
 
+        # 3. Cancel our background tasks (parameter loads, DST sync, etc.)
         await self._cancel_background_tasks()
+
+        # 4. Call base class shutdown to set _shutdown_requested, unsub
+        #    the refresh timer, and shut down the debounced refresh.
+        await super().async_shutdown()  # type: ignore[misc]
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")
+
+    async def _disconnect_all_transports(self) -> None:
+        """Disconnect all active transports (legacy and cached).
+
+        Covers three transport sources:
+        1. Legacy single-device _modbus_transport / _dongle_transport
+        2. Inverters in _inverter_cache (LOCAL/HYBRID mode)
+        3. MID devices in _mid_device_cache (LOCAL/HYBRID mode)
+        """
+        # Legacy transports (old single-device config format)
+        for attr in ("_modbus_transport", "_dongle_transport"):
+            transport = getattr(self, attr, None)
+            if transport is not None and getattr(transport, "is_connected", False):
+                try:
+                    await transport.disconnect()
+                    _LOGGER.debug("Disconnected legacy transport %s", attr)
+                except Exception:
+                    _LOGGER.debug(
+                        "Error disconnecting %s (ignored)", attr, exc_info=True
+                    )
+
+        # Cached inverter transports (LOCAL/HYBRID with local_transports config)
+        for serial, inverter in self._inverter_cache.items():
+            transport = getattr(inverter, "_transport", None)
+            if transport is not None and getattr(transport, "is_connected", False):
+                try:
+                    await transport.disconnect()
+                    _LOGGER.debug("Disconnected transport for inverter %s", serial)
+                except Exception:
+                    _LOGGER.debug(
+                        "Error disconnecting inverter %s transport (ignored)",
+                        serial,
+                        exc_info=True,
+                    )
+
+        # Cached MID device transports (GridBOSS in LOCAL/HYBRID mode)
+        for serial, mid_device in self._mid_device_cache.items():
+            transport = getattr(mid_device, "_transport", None)
+            if transport is not None and getattr(transport, "is_connected", False):
+                try:
+                    await transport.disconnect()
+                    _LOGGER.debug("Disconnected transport for MID device %s", serial)
+                except Exception:
+                    _LOGGER.debug(
+                        "Error disconnecting MID %s transport (ignored)",
+                        serial,
+                        exc_info=True,
+                    )
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""

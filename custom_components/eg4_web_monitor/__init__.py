@@ -504,26 +504,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     if unload_ok:
         coordinator = entry.runtime_data
 
-        # Clean up coordinator background tasks
+        # Shutdown disconnects all transports (unblocking in-flight I/O),
+        # cancels background tasks, and notifies the base class.
         await coordinator.async_shutdown()
 
-        # Clean up HTTP client if present
+        # Clean up HTTP client if present (not a transport, separate lifecycle)
         if coordinator.client is not None:
             await coordinator.client.close()
-
-        # Clean up Modbus transport if present
-        if (
-            hasattr(coordinator, "_modbus_transport")
-            and coordinator._modbus_transport is not None
-        ):
-            await coordinator._modbus_transport.disconnect()
-
-        # Clean up Dongle transport if present
-        if (
-            hasattr(coordinator, "_dongle_transport")
-            and coordinator._dongle_transport is not None
-        ):
-            await coordinator._dongle_transport.disconnect()
 
     return bool(unload_ok)
 
