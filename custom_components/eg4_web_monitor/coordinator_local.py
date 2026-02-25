@@ -1154,11 +1154,6 @@ class LocalTransportMixin(_MixinBase):
                 device_type = "gridboss"
             else:
                 sensor_keys = ALL_INVERTER_SENSOR_KEYS
-                # Shared-battery secondary: suppress battery bank keys in static
-                # phase to prevent HA from creating battery bank device/entities.
-                pms = config.get("parallel_master_slave", 0)
-                if pms >= 2:
-                    sensor_keys = sensor_keys - BATTERY_BANK_KEYS
                 device_type = "inverter"
 
             # Pre-populate sensors: keys present (for entity creation), values None

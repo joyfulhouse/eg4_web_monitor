@@ -855,10 +855,15 @@ class TestSharedBatterySecondary:
         entry.add_to_hass(hass)
         return entry
 
-    async def test_static_phase_excludes_battery_bank_keys_for_secondary(
+    async def test_static_phase_includes_battery_bank_keys_for_all_inverters(
         self, hass, parallel_config_entry
     ):
-        """Static phase should not include battery_bank_* keys for role >= 2."""
+        """Static phase includes battery_bank keys for all inverters.
+
+        We cannot know at static-phase time whether a secondary truly
+        lacks batteries (shared CAN bus) or has its own bank.  Suppression
+        happens at runtime when we have actual battery_count data.
+        """
         from custom_components.eg4_web_monitor.coordinator_mappings import (
             BATTERY_BANK_KEYS,
         )
@@ -869,19 +874,14 @@ class TestSharedBatterySecondary:
         primary_sensors = result["devices"]["PRIMARY001"]["sensors"]
         secondary_sensors = result["devices"]["SECONDARY01"]["sensors"]
 
-        # Primary (role=1) should have battery bank keys
+        # Both primary and secondary should have battery bank keys
         assert any(
             k in primary_sensors for k in BATTERY_BANK_KEYS
         ), "Primary should have battery bank keys in static phase"
 
-        # Secondary (role=2) should NOT have battery bank keys
-        secondary_bank_keys = [
-            k for k in secondary_sensors if k in BATTERY_BANK_KEYS
-        ]
-        assert secondary_bank_keys == [], (
-            f"Secondary should not have battery bank keys in static phase, "
-            f"found: {secondary_bank_keys}"
-        )
+        assert any(
+            k in secondary_sensors for k in BATTERY_BANK_KEYS
+        ), "Secondary should have battery bank keys in static phase"
 
     async def test_runtime_suppresses_battery_bank_for_shared_battery_secondary(
         self, hass, parallel_config_entry
