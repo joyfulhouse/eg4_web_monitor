@@ -643,7 +643,7 @@ Definitions: `pylxpweb/registers/battery.py`
 |--------|----------------|-------|------|---------------|
 | 1 | `battery_full_capacity` | 1 | Ah | `battery_full_capacity` |
 | 2 | `battery_charge_voltage_ref` | ÷10 | V | `battery_charge_voltage_ref` |
-| 3 | `battery_charge_current_limit` | ÷100 | A | `battery_max_charge_current` |
+| 3 | `battery_charge_current_limit` | ÷10 | A | `battery_max_charge_current` |
 | 6 | `battery_voltage` | ÷100 | V | `battery_real_voltage` |
 | 7 | `battery_current` | ÷10 | A | `battery_real_current` |
 | 8 (low) | `battery_soc` | 1 | % | `battery_rsoc` |
