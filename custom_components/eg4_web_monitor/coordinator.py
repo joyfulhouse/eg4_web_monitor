@@ -277,8 +277,8 @@ class EG4DataUpdateCoordinator(
 
         # Shared-battery secondary inverters: in parallel systems the CAN bus
         # connects only to the primary.  Secondaries (role >= 2) with
-        # battery_count=0 get their battery bank device suppressed.
-        # This set tracks serials we've already logged about (one-shot info).
+        # battery_count=0 get their battery bank sensors mirrored from the
+        # primary.  This set tracks serials we've already logged about (one-shot).
         self._shared_battery_logged: set[str] = set()
 
         # Track whether local parameters have been loaded (deferred from first refresh

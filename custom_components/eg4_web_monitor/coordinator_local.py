@@ -37,7 +37,6 @@ from .coordinator_mixins import (
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
-    BATTERY_BANK_KEYS,
     GRIDBOSS_SENSOR_KEYS,
     GRIDBOSS_SMART_PORT_POWER_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
@@ -897,22 +896,36 @@ class LocalTransportMixin(_MixinBase):
                     # Shared battery detection: in a parallel system the
                     # secondary inverter (role >= 2) has battery_count=0 at
                     # reg 96 because the CAN bus is wired only to the
-                    # primary.  The battery bank device belongs to the
-                    # primary; creating one on the secondary would show
-                    # misleading zeros for BMS-derived sensors.  Per-inverter
+                    # primary.  Instead of suppressing, we mark it for
+                    # mirroring so the master's battery_bank_* values are
+                    # copied in a post-processing pass.  Per-inverter
                     # sensors (battery_voltage, battery_current, state_of_charge)
                     # from runtime registers still report accurate values.
-                    is_shared_battery_secondary = (
-                        parallel_master_slave >= 2 and not battery_data.battery_count
-                    )
+
+                    # Tier 1: FUNC_BAT_SHARED param (register 110 bit 3)
+                    device_params = processed["parameters"].get(serial, {})
+                    func_bat_shared = device_params.get("FUNC_BAT_SHARED")
+
+                    if func_bat_shared is not None:
+                        is_shared_battery_secondary = (
+                            bool(func_bat_shared) and not battery_data.battery_count
+                        )
+                    else:
+                        # Tier 2: heuristic fallback (params not loaded yet)
+                        is_shared_battery_secondary = (
+                            parallel_master_slave >= 2
+                            and not battery_data.battery_count
+                        )
 
                     if is_shared_battery_secondary:
+                        # Mark for mirror pass — battery_bank_* sensors will
+                        # be copied from the primary after all devices process.
+                        device_data["_shared_battery_source"] = None
                         if serial not in self._shared_battery_logged:
                             _LOGGER.info(
                                 "LOCAL: Shared battery detected for %s "
                                 "(parallel role=%d, battery_count=0) — "
-                                "battery bank owned by primary inverter, "
-                                "suppressing battery bank device",
+                                "mirroring battery bank from primary",
                                 serial,
                                 parallel_master_slave,
                             )
@@ -1456,6 +1469,10 @@ class LocalTransportMixin(_MixinBase):
                 total_devices,
             )
 
+        # Mirror battery bank sensors from primary to shared-battery secondaries
+        # before parallel group aggregation to ensure device-level entities exist.
+        self._mirror_shared_battery_banks(processed)
+
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
 
@@ -1481,6 +1498,62 @@ class LocalTransportMixin(_MixinBase):
             task.add_done_callback(self._log_task_exception)
 
         return processed
+
+    def _mirror_shared_battery_banks(self, processed: dict[str, Any]) -> None:
+        """Copy battery_bank_* sensors from primary to shared-battery secondaries.
+
+        In parallel systems with shared batteries, the secondary inverter
+        cannot read BMS data (battery_count=0 at reg 96) because the CAN bus
+        is wired only to the primary.  This post-processing pass copies the
+        primary's aggregate battery bank sensors to each secondary that was
+        marked with ``_shared_battery_source = None`` during device processing.
+
+        Individual battery entities are NOT mirrored — they remain on the
+        primary only.
+        """
+        devices = processed.get("devices", {})
+        if not devices:
+            return
+
+        # Group inverters by parallel_number
+        groups: dict[int, list[tuple[str, dict[str, Any]]]] = {}
+        for serial, dd in devices.items():
+            if dd.get("type") != "inverter":
+                continue
+            pg = dd.get("parallel_number", 0)
+            if pg > 0:
+                groups.setdefault(pg, []).append((serial, dd))
+
+        for pg_num, members in groups.items():
+            # Find master: role=1 with battery_bank_count > 0
+            master_sensors: dict[str, Any] | None = None
+            master_serial: str | None = None
+            for serial, dd in members:
+                if dd.get("parallel_master_slave") == 1 and dd.get("sensors", {}).get(
+                    "battery_bank_count"
+                ):
+                    master_sensors = dd["sensors"]
+                    master_serial = serial
+                    break
+
+            if master_sensors is None or master_serial is None:
+                continue
+
+            # Copy battery_bank_* keys to each secondary with the marker
+            for serial, dd in members:
+                if "_shared_battery_source" not in dd:
+                    continue
+                for key, value in master_sensors.items():
+                    if key.startswith("battery_bank_"):
+                        dd["sensors"][key] = value
+                dd["_shared_battery_source"] = master_serial
+                _LOGGER.debug(
+                    "LOCAL: Mirrored battery bank sensors from %s to %s "
+                    "(parallel group %d)",
+                    master_serial,
+                    serial,
+                    pg_num,
+                )
 
     async def _process_local_parallel_groups(self, processed: dict[str, Any]) -> None:
         """Create local parallel groups from devices sharing the same parallel_number.
@@ -1648,10 +1721,14 @@ class LocalTransportMixin(_MixinBase):
                     total_battery_voltage / voltage_count, 1
                 )
 
-            # Aggregate battery_bank_current from member inverters
+            # Aggregate battery_bank_current from member inverters.
+            # Skip mirrored secondaries — their values are copies of the
+            # master and would double-count.
             total_battery_current = 0.0
             has_battery_current = False
             for _, dd in group_devices:
+                if "_shared_battery_source" in dd:
+                    continue
                 bat_current = dd.get("sensors", {}).get("battery_bank_current")
                 if bat_current is not None:
                     total_battery_current += float(bat_current)
@@ -1659,22 +1736,28 @@ class LocalTransportMixin(_MixinBase):
             if has_battery_current:
                 group_sensors["parallel_battery_current"] = total_battery_current
 
-            # Sum battery_bank_count from all member devices
+            # Sum battery_bank_count from all member devices.
+            # Skip mirrored secondaries to avoid double-counting.
             # Use battery_bank_count from sensors (from Modbus register 96 or cloud batParallelNum)
             # rather than counting batteries dict entries, which may be empty if CAN bus
             # communication with battery BMS isn't established (common with LXP-EU devices)
             total_batteries = 0
             for _, dd in group_devices:
+                if "_shared_battery_source" in dd:
+                    continue
                 ds = dd.get("sensors", {})
                 bat_count = ds.get("battery_bank_count")
                 if bat_count is not None and bat_count > 0:
                     total_batteries += bat_count
             group_sensors["parallel_battery_count"] = total_batteries
 
-            # Sum max/current capacity from inverter battery bank sensors
+            # Sum max/current capacity from inverter battery bank sensors.
+            # Skip mirrored secondaries to avoid double-counting.
             total_max_cap = 0.0
             total_cur_cap = 0.0
             for _, dd in group_devices:
+                if "_shared_battery_source" in dd:
+                    continue
                 ds = dd.get("sensors", {})
                 max_cap = ds.get("battery_bank_max_capacity")
                 if max_cap is not None:

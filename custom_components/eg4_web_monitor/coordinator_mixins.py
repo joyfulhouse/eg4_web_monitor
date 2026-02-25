@@ -302,6 +302,7 @@ if TYPE_CHECKING:
             inverter_serial: str,
             transport_batteries: list[Any],
         ) -> dict[str, dict[str, Any]]: ...
+        def _mirror_shared_battery_banks(self, processed: dict[str, Any]) -> None: ...
 
 else:
     _MixinBase = object
