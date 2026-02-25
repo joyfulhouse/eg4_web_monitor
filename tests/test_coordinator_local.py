@@ -875,13 +875,13 @@ class TestSharedBatterySecondary:
         secondary_sensors = result["devices"]["SECONDARY01"]["sensors"]
 
         # Both primary and secondary should have battery bank keys
-        assert any(
-            k in primary_sensors for k in BATTERY_BANK_KEYS
-        ), "Primary should have battery bank keys in static phase"
+        assert any(k in primary_sensors for k in BATTERY_BANK_KEYS), (
+            "Primary should have battery bank keys in static phase"
+        )
 
-        assert any(
-            k in secondary_sensors for k in BATTERY_BANK_KEYS
-        ), "Secondary should have battery bank keys in static phase"
+        assert any(k in secondary_sensors for k in BATTERY_BANK_KEYS), (
+            "Secondary should have battery bank keys in static phase"
+        )
 
     async def test_runtime_marks_shared_battery_secondary_for_mirroring(
         self, hass, parallel_config_entry
@@ -1048,23 +1048,12 @@ class TestSharedBatterySecondary:
         # Simulate: serial already logged
         coordinator._shared_battery_logged.add("SECONDARY01")
 
-        import logging
-
-        with patch.object(
-            logging.getLogger("custom_components.eg4_web_monitor.coordinator_local"),
-            "info",
-        ) as mock_log:
-            # The detection logic runs during _process_single_local_device,
-            # but we can test the set directly
-            assert "SECONDARY01" in coordinator._shared_battery_logged
-            # A second invocation should not log again
-            # (we verify the set prevents re-logging)
-
-        # Set should contain the serial
+        # The set prevents re-logging on subsequent invocations
         assert "SECONDARY01" in coordinator._shared_battery_logged
 
     async def test_non_parallel_inverter_with_zero_battery_count_keeps_bank(
-        self, hass,
+        self,
+        hass,
     ):
         """Standalone inverter (no parallel) with battery_count=0 keeps battery bank.
 
@@ -1171,6 +1160,24 @@ class TestSharedBatterySecondary:
 class TestMirrorSharedBatteryBanks:
     """Tests for _mirror_shared_battery_banks post-processing pass."""
 
+    @pytest.fixture
+    def mirror_entry(self, hass):
+        """Minimal LOCAL config entry for mirror tests."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Mirror Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            options={},
+            entry_id="mirror_test",
+        )
+        entry.add_to_hass(hass)
+        return entry
+
     def _make_processed(
         self,
         *,
@@ -1232,22 +1239,72 @@ class TestMirrorSharedBatteryBanks:
             "parameters": {},
         }
 
-    async def test_mirror_copies_all_battery_bank_sensors(self, hass):
-        """Mirror pass copies all battery_bank_* sensors from master to secondary."""
+    @staticmethod
+    def _make_detection_entry(hass: Any, serial: str, entry_id: str) -> MockConfigEntry:
+        """Build a LOCAL config entry with one secondary inverter for detection tests."""
         entry = MockConfigEntry(
             domain=DOMAIN,
-            title="EG4 - Mirror Test",
+            title="EG4 - Detection Test",
             data={
                 CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
                 CONF_DST_SYNC: False,
                 CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": serial,
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                        "parallel_number": 2,
+                        "parallel_master_slave": 2,
+                    },
+                ],
             },
             options={},
-            entry_id="mirror_test",
+            entry_id=entry_id,
         )
         entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        return entry
+
+    @staticmethod
+    def _make_mock_inverter(*, battery_count: int | None = None) -> MagicMock:
+        """Build a mock inverter with shared-battery secondary defaults.
+
+        MagicMock auto-creates attributes on access, so we only need to
+        explicitly set the ones the code reads with falsy-sensitive checks.
+        """
+        mock_runtime = MagicMock()
+        mock_runtime.parallel_number = 2
+        mock_runtime.parallel_master_slave = 2
+        mock_runtime.parallel_phase = 0
+
+        mock_battery_data = MagicMock()
+        mock_battery_data.battery_count = battery_count
+        mock_battery_data.batteries = []
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter._transport_runtime = mock_runtime
+        mock_inverter._transport_energy = None
+        mock_inverter._transport_battery = mock_battery_data
+        mock_inverter._transport = MagicMock()
+        mock_inverter._transport.is_connected = True
+        mock_inverter._transport.host = "192.168.1.100"
+        mock_inverter._transport.disconnect = AsyncMock()
+        mock_inverter.consumption_power = None
+        mock_inverter.total_load_power = None
+        mock_inverter.battery_power = None
+        mock_inverter.rectifier_power = None
+        mock_inverter.power_to_user = None
+        mock_inverter.eps_power_l1 = None
+        mock_inverter.eps_power_l2 = None
+        return mock_inverter
+
+    async def test_mirror_copies_all_battery_bank_sensors(self, hass, mirror_entry):
+        """Mirror pass copies all battery_bank_* sensors from master to secondary."""
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed()
         coordinator._mirror_shared_battery_banks(processed)
@@ -1263,22 +1320,9 @@ class TestMirrorSharedBatteryBanks:
         assert secondary["sensors"]["battery_bank_charge_rate"] == 5.75
         assert secondary["sensors"]["battery_bank_status"] == "Charging"
 
-    async def test_mirror_sets_source_serial(self, hass):
+    async def test_mirror_sets_source_serial(self, hass, mirror_entry):
         """Mirror pass sets _shared_battery_source to master serial."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed()
         coordinator._mirror_shared_battery_banks(processed)
@@ -1286,22 +1330,9 @@ class TestMirrorSharedBatteryBanks:
         secondary = processed["devices"]["SECONDARY01"]
         assert secondary["_shared_battery_source"] == "PRIMARY001"
 
-    async def test_mirror_does_not_copy_individual_batteries(self, hass):
+    async def test_mirror_does_not_copy_individual_batteries(self, hass, mirror_entry):
         """Mirror pass does NOT copy individual batteries to secondary."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed(
             master_batteries={"bat1": {"soc": 93}, "bat2": {"soc": 91}}
@@ -1311,76 +1342,34 @@ class TestMirrorSharedBatteryBanks:
         secondary = processed["devices"]["SECONDARY01"]
         assert secondary["batteries"] == {}
 
-    async def test_mirror_preserves_secondary_runtime_sensors(self, hass):
+    async def test_mirror_preserves_secondary_runtime_sensors(self, hass, mirror_entry):
         """Mirror pass preserves the secondary's own runtime sensors."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed()
         coordinator._mirror_shared_battery_banks(processed)
 
         secondary = processed["devices"]["SECONDARY01"]
-        # These are the secondary's OWN input register readings
         assert secondary["sensors"]["state_of_charge"] == 93
         assert secondary["sensors"]["battery_voltage"] == 53.7
         assert secondary["sensors"]["battery_current"] == 15.0
 
-    async def test_mirror_skips_devices_without_marker(self, hass):
+    async def test_mirror_skips_devices_without_marker(self, hass, mirror_entry):
         """Devices without _shared_battery_source marker are not modified."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed(secondary_marked=False)
         coordinator._mirror_shared_battery_banks(processed)
 
         secondary = processed["devices"]["SECONDARY01"]
         assert "_shared_battery_source" not in secondary
-        # Should NOT have battery_bank sensors (not marked, not mirrored)
         bank_keys = [k for k in secondary["sensors"] if k.startswith("battery_bank_")]
         assert bank_keys == []
 
-    async def test_mirror_no_crash_when_master_missing(self, hass):
+    async def test_mirror_no_crash_when_master_missing(self, hass, mirror_entry):
         """If master didn't poll successfully, secondaries stay without battery data."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
-        # Only secondary in devices (master failed to poll)
         processed: dict[str, Any] = {
             "devices": {
                 "SECONDARY01": {
@@ -1398,32 +1387,18 @@ class TestMirrorSharedBatteryBanks:
             "parameters": {},
         }
 
-        # Should not raise
         coordinator._mirror_shared_battery_banks(processed)
 
         secondary = processed["devices"]["SECONDARY01"]
-        # Marker stays None (no master found)
         assert secondary["_shared_battery_source"] is None
-        # No battery_bank_* sensors added
         bank_keys = [k for k in secondary["sensors"] if k.startswith("battery_bank_")]
         assert bank_keys == []
 
-    async def test_mirror_no_crash_when_master_has_zero_battery_count(self, hass):
+    async def test_mirror_no_crash_when_master_has_zero_battery_count(
+        self, hass, mirror_entry
+    ):
         """If master has battery_bank_count=0 (e.g., BMS offline), skip mirroring."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed = self._make_processed(
             master_sensors={
@@ -1435,7 +1410,6 @@ class TestMirrorSharedBatteryBanks:
         coordinator._mirror_shared_battery_banks(processed)
 
         secondary = processed["devices"]["SECONDARY01"]
-        # Master has battery_bank_count=0 → doesn't qualify as master
         assert secondary["_shared_battery_source"] is None
 
     async def test_parallel_group_skips_mirrored_for_battery_count(self, hass):
@@ -1476,13 +1450,16 @@ class TestMirrorSharedBatteryBanks:
         entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
 
-        # Build processed with mirrored secondary
         processed = self._make_processed()
         # Simulate mirror pass already applied
         processed["devices"]["SECONDARY01"]["sensors"]["battery_bank_count"] = 4
         processed["devices"]["SECONDARY01"]["sensors"]["battery_bank_current"] = 30.0
-        processed["devices"]["SECONDARY01"]["sensors"]["battery_bank_max_capacity"] = 280.0
-        processed["devices"]["SECONDARY01"]["sensors"]["battery_bank_current_capacity"] = 260.0
+        processed["devices"]["SECONDARY01"]["sensors"]["battery_bank_max_capacity"] = (
+            280.0
+        )
+        processed["devices"]["SECONDARY01"]["sensors"][
+            "battery_bank_current_capacity"
+        ] = 260.0
         processed["devices"]["SECONDARY01"]["_shared_battery_source"] = "PRIMARY001"
 
         await coordinator._process_local_parallel_groups(processed)
@@ -1492,286 +1469,98 @@ class TestMirrorSharedBatteryBanks:
 
         # Should be 4 (from master only), NOT 8 (double-counted)
         assert pg_sensors.get("parallel_battery_count") == 4
-        # Current: 30.0 from master only, NOT 60.0
         assert pg_sensors.get("parallel_battery_current") == 30.0
-        # Capacity: from master only
         assert pg_sensors.get("parallel_battery_max_capacity") == 280.0
         assert pg_sensors.get("parallel_battery_current_capacity") == 260.0
 
     async def test_detection_uses_func_bat_shared_param(self, hass):
         """Detection uses FUNC_BAT_SHARED parameter when available (tier 1)."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Param Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INVPARAM01",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                        "parallel_number": 2,
-                        "parallel_master_slave": 2,
-                    },
-                ],
-            },
-            options={},
-            entry_id="param_test",
-        )
-        entry.add_to_hass(hass)
+        serial = "INVPARAM01"
+        entry = self._make_detection_entry(hass, serial, "param_test")
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
 
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 2
-        mock_runtime.parallel_phase = 0
-
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = None
-        mock_battery_data.batteries = []
-
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
-
-        coordinator._inverter_cache["INVPARAM01"] = mock_inverter
-        coordinator._firmware_cache["INVPARAM01"] = "FAAB-2525"
+        mock_inverter = self._make_mock_inverter()
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={"state_of_charge": 50},
         ):
-            # FUNC_BAT_SHARED=1 in parameters → should detect as shared
             processed: dict[str, Any] = {
                 "devices": {},
                 "parallel_groups": {},
-                "parameters": {"INVPARAM01": {"FUNC_BAT_SHARED": 1}},
+                "parameters": {serial: {"FUNC_BAT_SHARED": 1}},
             }
-            device_availability: dict[str, bool] = {}
             await coordinator._process_single_local_device(
                 config=entry.data[CONF_LOCAL_TRANSPORTS][0],
                 processed=processed,
-                device_availability=device_availability,
+                device_availability={},
             )
 
-        device = processed["devices"]["INVPARAM01"]
-        assert "_shared_battery_source" in device
+        assert "_shared_battery_source" in processed["devices"][serial]
 
     async def test_detection_func_bat_shared_zero_overrides_heuristic(self, hass):
         """FUNC_BAT_SHARED=0 prevents shared detection even with role>=2 + battery_count=0."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Override Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INVOVER01",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                        "parallel_number": 2,
-                        "parallel_master_slave": 2,
-                    },
-                ],
-            },
-            options={},
-            entry_id="override_test",
-        )
-        entry.add_to_hass(hass)
+        serial = "INVOVER01"
+        entry = self._make_detection_entry(hass, serial, "override_test")
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
 
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 2
-        mock_runtime.parallel_phase = 0
-
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = None  # battery_count=0
-        mock_battery_data.voltage = 53.7
-        mock_battery_data.current = 0.0
-        mock_battery_data.soc = 50
-        mock_battery_data.charge_power = 0
-        mock_battery_data.discharge_power = 0
-        mock_battery_data.battery_power = 0
-        mock_battery_data.max_capacity = None
-        mock_battery_data.current_capacity = None
-        mock_battery_data.remain_capacity = None
-        mock_battery_data.full_capacity = None
-        mock_battery_data.capacity_percent = None
-        mock_battery_data.status = "Idle"
-        mock_battery_data.min_soh = None
-        mock_battery_data.max_cell_temp = None
-        mock_battery_data.temp_delta = None
-        mock_battery_data.cell_voltage_delta_max = None
-        mock_battery_data.soc_delta = None
-        mock_battery_data.soh_delta = None
-        mock_battery_data.voltage_delta = None
-        mock_battery_data.cycle_count_delta = None
-        mock_battery_data.batteries = []
-
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
-
-        coordinator._inverter_cache["INVOVER01"] = mock_inverter
-        coordinator._firmware_cache["INVOVER01"] = "FAAB-2525"
+        mock_inverter = self._make_mock_inverter()
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={"state_of_charge": 50},
         ):
-            # FUNC_BAT_SHARED=0 → should NOT detect as shared despite heuristic
             processed: dict[str, Any] = {
                 "devices": {},
                 "parallel_groups": {},
-                "parameters": {"INVOVER01": {"FUNC_BAT_SHARED": 0}},
+                "parameters": {serial: {"FUNC_BAT_SHARED": 0}},
             }
-            device_availability: dict[str, bool] = {}
             await coordinator._process_single_local_device(
                 config=entry.data[CONF_LOCAL_TRANSPORTS][0],
                 processed=processed,
-                device_availability=device_availability,
+                device_availability={},
             )
 
-        device = processed["devices"]["INVOVER01"]
-        # FUNC_BAT_SHARED=0 overrides heuristic → no marker
-        assert "_shared_battery_source" not in device
+        assert "_shared_battery_source" not in processed["devices"][serial]
 
     async def test_detection_heuristic_fallback_without_params(self, hass):
         """Without FUNC_BAT_SHARED param, falls back to role>=2 + battery_count=0 heuristic."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Fallback Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INVFALL01",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                        "parallel_number": 2,
-                        "parallel_master_slave": 2,
-                    },
-                ],
-            },
-            options={},
-            entry_id="fallback_test",
-        )
-        entry.add_to_hass(hass)
+        serial = "INVFALL01"
+        entry = self._make_detection_entry(hass, serial, "fallback_test")
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
 
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 2
-        mock_runtime.parallel_phase = 0
-
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = None
-        mock_battery_data.batteries = []
-
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
-
-        coordinator._inverter_cache["INVFALL01"] = mock_inverter
-        coordinator._firmware_cache["INVFALL01"] = "FAAB-2525"
+        mock_inverter = self._make_mock_inverter()
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={"state_of_charge": 50},
         ):
-            # No FUNC_BAT_SHARED in params → heuristic kicks in
             processed: dict[str, Any] = {
                 "devices": {},
                 "parallel_groups": {},
                 "parameters": {},
             }
-            device_availability: dict[str, bool] = {}
             await coordinator._process_single_local_device(
                 config=entry.data[CONF_LOCAL_TRANSPORTS][0],
                 processed=processed,
-                device_availability=device_availability,
+                device_availability={},
             )
 
-        device = processed["devices"]["INVFALL01"]
-        # Heuristic: role=2 + battery_count=0 → marked
-        assert "_shared_battery_source" in device
+        assert "_shared_battery_source" in processed["devices"][serial]
 
-    async def test_standalone_inverter_never_shared(self, hass):
+    async def test_standalone_inverter_never_shared(self, hass, mirror_entry):
         """Standalone inverter (parallel_number=0) never treated as shared secondary."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Standalone",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="standalone_mirror_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
-        # Standalone inverter with parallel_number=0 — no group
         processed: dict[str, Any] = {
             "devices": {
                 "STANDALONE1": {
@@ -1791,26 +1580,12 @@ class TestMirrorSharedBatteryBanks:
 
         coordinator._mirror_shared_battery_banks(processed)
 
-        # parallel_number=0 → never grouped → no mirroring
         device = processed["devices"]["STANDALONE1"]
         assert device["_shared_battery_source"] is None
 
-    async def test_mirror_ignores_gridboss_devices(self, hass):
+    async def test_mirror_ignores_gridboss_devices(self, hass, mirror_entry):
         """Mirror pass only considers inverter devices, not GridBOSS."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Mirror Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            options={},
-            entry_id="mirror_gb_test",
-        )
-        entry.add_to_hass(hass)
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator = EG4DataUpdateCoordinator(hass, mirror_entry)
 
         processed: dict[str, Any] = {
             "devices": {

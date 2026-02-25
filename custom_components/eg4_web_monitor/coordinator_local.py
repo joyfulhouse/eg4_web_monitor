@@ -1526,18 +1526,18 @@ class LocalTransportMixin(_MixinBase):
 
         for pg_num, members in groups.items():
             # Find master: role=1 with battery_bank_count > 0
-            master_sensors: dict[str, Any] | None = None
-            master_serial: str | None = None
+            master: tuple[str, dict[str, Any]] | None = None
             for serial, dd in members:
                 if dd.get("parallel_master_slave") == 1 and dd.get("sensors", {}).get(
                     "battery_bank_count"
                 ):
-                    master_sensors = dd["sensors"]
-                    master_serial = serial
+                    master = (serial, dd["sensors"])
                     break
 
-            if master_sensors is None or master_serial is None:
+            if master is None:
                 continue
+
+            master_serial, master_sensors = master
 
             # Copy battery_bank_* keys to each secondary with the marker
             for serial, dd in members:
@@ -1721,14 +1721,16 @@ class LocalTransportMixin(_MixinBase):
                     total_battery_voltage / voltage_count, 1
                 )
 
-            # Aggregate battery_bank_current from member inverters.
-            # Skip mirrored secondaries — their values are copies of the
-            # master and would double-count.
+            # Filter out mirrored secondaries for battery_bank_* aggregation.
+            # Their values are copies of the master and would double-count.
+            non_mirrored = [
+                (s, dd) for s, dd in group_devices if "_shared_battery_source" not in dd
+            ]
+
+            # Aggregate battery_bank_current from member inverters
             total_battery_current = 0.0
             has_battery_current = False
-            for _, dd in group_devices:
-                if "_shared_battery_source" in dd:
-                    continue
+            for _, dd in non_mirrored:
                 bat_current = dd.get("sensors", {}).get("battery_bank_current")
                 if bat_current is not None:
                     total_battery_current += float(bat_current)
@@ -1737,27 +1739,21 @@ class LocalTransportMixin(_MixinBase):
                 group_sensors["parallel_battery_current"] = total_battery_current
 
             # Sum battery_bank_count from all member devices.
-            # Skip mirrored secondaries to avoid double-counting.
             # Use battery_bank_count from sensors (from Modbus register 96 or cloud batParallelNum)
             # rather than counting batteries dict entries, which may be empty if CAN bus
             # communication with battery BMS isn't established (common with LXP-EU devices)
             total_batteries = 0
-            for _, dd in group_devices:
-                if "_shared_battery_source" in dd:
-                    continue
+            for _, dd in non_mirrored:
                 ds = dd.get("sensors", {})
                 bat_count = ds.get("battery_bank_count")
                 if bat_count is not None and bat_count > 0:
                     total_batteries += bat_count
             group_sensors["parallel_battery_count"] = total_batteries
 
-            # Sum max/current capacity from inverter battery bank sensors.
-            # Skip mirrored secondaries to avoid double-counting.
+            # Sum max/current capacity from inverter battery bank sensors
             total_max_cap = 0.0
             total_cur_cap = 0.0
-            for _, dd in group_devices:
-                if "_shared_battery_source" in dd:
-                    continue
+            for _, dd in non_mirrored:
                 ds = dd.get("sensors", {})
                 max_cap = ds.get("battery_bank_max_capacity")
                 if max_cap is not None:
