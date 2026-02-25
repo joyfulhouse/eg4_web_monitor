@@ -543,6 +543,16 @@ class EG4ConfigFlow(
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # When called from network scan, user_input has host/port only.
+            # Show the form pre-filled so the user can enter serials.
+            if CONF_DONGLE_SERIAL not in user_input:
+                return self.async_show_form(
+                    step_id="local_dongle",
+                    data_schema=build_dongle_schema(defaults=user_input),
+                    errors=errors,
+                    description_placeholders={"brand_name": BRAND_NAME},
+                )
+
             host = user_input[CONF_DONGLE_HOST]
             port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
             dongle_serial = user_input[CONF_DONGLE_SERIAL]
@@ -1141,6 +1151,16 @@ class EG4ConfigFlow(
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # When called from network scan, user_input has host/port only.
+            # Show the form pre-filled so the user can enter serials.
+            if CONF_DONGLE_SERIAL not in user_input:
+                return self.async_show_form(
+                    step_id="reconfigure_add_dongle",
+                    data_schema=build_dongle_schema(defaults=user_input),
+                    errors=errors,
+                    description_placeholders={"brand_name": BRAND_NAME},
+                )
+
             host = user_input[CONF_DONGLE_HOST]
             port = user_input.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT)
             dongle_serial = user_input[CONF_DONGLE_SERIAL]
@@ -1428,7 +1448,9 @@ class EG4ConfigFlow(
         """Create a new config entry from current flow state."""
         unique_id = self._build_unique_id()
         await self.async_set_unique_id(unique_id)
-        self._abort_if_unique_id_configured()
+        self._abort_if_unique_id_configured(
+            description_placeholders={"brand_name": BRAND_NAME},
+        )
 
         # Auto-enable data validation when a WiFi dongle is configured.
         # Dongle transports share a Modbus bus with the coordinator, so

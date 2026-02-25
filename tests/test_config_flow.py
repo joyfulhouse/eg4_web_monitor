@@ -1160,6 +1160,59 @@ class TestLocalDongleFlow:
         assert result["step_id"] == "local_dongle"
         assert result["errors"] == {}
 
+    async def test_dongle_prefill_from_network_scan(self, hass: HomeAssistant):
+        """Test dongle form is pre-filled when navigated from network scan.
+
+        Regression test: network scan provides only host/port (no serials),
+        which previously caused a KeyError on CONF_DONGLE_SERIAL.
+        The network scan passes partial user_input (host+port only) to
+        async_step_local_dongle, which must show the form instead of crashing.
+        """
+        from pylxpweb.scanner.types import DeviceType, ScanResult
+
+        device = _make_discovered_device(serial="9876543210")
+
+        result = await _init_and_select_local(hass)
+
+        # Get the flow object and inject scan results with a dongle candidate
+        flow = hass.config_entries.flow._progress[result["flow_id"]]
+        flow._scan_results = [
+            ScanResult(
+                ip="192.168.9.145",
+                port=8000,
+                device_type=DeviceType.DONGLE_CANDIDATE,
+            ),
+        ]
+
+        # Simulate what network_scan_results does: select device → call
+        # async_step_local_dongle with partial input (host+port, no serials).
+        # Before the fix, this raised KeyError: 'dongle_serial'.
+        result = await flow.async_step_network_scan_results(
+            {"device": "192.168.9.145"}
+        )
+
+        # Should show dongle form pre-filled with host/port (no crash)
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "local_dongle"
+        assert result["errors"] == {}
+
+        # Now submit the full form with serials
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(return_value=device),
+        ):
+            result = await flow.async_step_local_dongle(
+                {
+                    "dongle_host": "192.168.9.145",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ12345678",
+                    "inverter_serial": "9876543210",
+                },
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "local_device_confirmed"
+
 
 # =====================================================
 # async_step_local_device_confirmed & local_finish
