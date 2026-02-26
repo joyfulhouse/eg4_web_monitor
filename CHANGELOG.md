@@ -5,18 +5,28 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0-beta.38] - 2026-02-24
+## [3.2.0-beta.38] - 2026-02-26
+
+### Added
+
+- **Battery last seen sensor** ([#170](https://github.com/joyfulhouse/eg4_web_monitor/issues/170)): Per-battery `battery_last_seen` diagnostic timestamp showing when each battery's data was last physically read from the inverter. Particularly useful for >4 battery systems where round-robin rotation means some batteries may have stale data. Disabled by default.
+- **Mirror shared battery bank sensors** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): In parallel systems with shared batteries (CAN bus to primary only), the LOCAL path now mirrors the primary's battery_bank_* sensor values to secondary inverters — matching cloud API behavior. Detection uses FUNC_BAT_SHARED param (register 110 bit 3) with role+count fallback.
 
 ### Fixed
 
-- **Secondary inverter battery bank suppression** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): In parallel systems, secondary inverters (role ≥ 2) with battery_count=0 no longer create a battery bank device with Unknown/Unavailable sensors — the CAN bus is only wired to the primary inverter. Suppression now deferred to runtime (not static phase) to avoid false positives on LXP-EU systems where both inverters have independent batteries
-- **Modbus read errors / missing battery data** ([#165](https://github.com/joyfulhouse/eg4_web_monitor/issues/165)): pylxpweb 0.9.10 adds adaptive battery slot ceiling, truncated serial guard, and partial battery data preservation
-- **All 19 mypy strict-mode errors resolved**: Added missing mixin type stubs and typed `STATION_SENSOR_TYPES`
-- **765 tests** (up from 760)
+- **Secondary inverter battery bank suppression** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): Suppression deferred to runtime (not static phase) to avoid false positives on LXP-EU systems where both inverters have independent batteries
+- **Network scan dongle prefill crash** ([#172](https://github.com/joyfulhouse/eg4_web_monitor/issues/172)): Prevent KeyError when network scan passes partial user_input (host+port only) to dongle config steps
+- **PV Input Mode entity category**: Moved to Configuration category
+- **Battery charge_current_limit scaling** ([#172](https://github.com/joyfulhouse/eg4_web_monitor/issues/172)): Documentation updated to match pylxpweb fix — individual battery register offset 3 uses 0.1A units (÷10), not 0.01A (÷100)
+- **779 tests** (up from 765)
+
+### Changed
+
+- **Simplified battery mirror code**: Extracted non_mirrored pre-filter, consolidated master lookup, deduplicated test helpers (-229 lines)
 
 ### Dependencies
 
-- Requires `pylxpweb>=0.9.10` (battery slot ceiling, truncated serial guard, cell voltage canaries)
+- Requires `pylxpweb>=0.9.17` (battery round-robin accumulator, last_seen timestamps, GridBOSS CT ghost voltage fix)
 
 ## [3.2.0-beta.34] - 2026-02-18
 
