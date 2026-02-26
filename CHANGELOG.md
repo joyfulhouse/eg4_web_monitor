@@ -5,6 +5,18 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.41] - 2026-02-26
+
+### Added
+
+- **Battery bank cycle count sensor**: New `battery_bank_cycle_count` diagnostic sensor sourced from BMS register 106 (always available, no CAN bus needed)
+
+### Fixed
+
+- **Battery bank diagnostic sensors permanently Unavailable**: Split `BATTERY_BANK_KEYS` into `BATTERY_BANK_CORE_KEYS` (BMS registers 80-107, always available) and `BATTERY_BANK_CAN_DIAGNOSTIC_KEYS` (registers 5002+, intermittent). Static entity creation now only pre-creates CORE keys, preventing permanently Unavailable entities for CAN-dependent cross-battery sensors (`soc_delta`, `soh_delta`, `voltage_delta`, `cycle_count_delta`)
+- **Battery bank min_soh fallback**: `min_soh` now falls back to bank-level SOH from input register 5 when individual battery CAN data is unavailable
+- **776 tests** (up from 770)
+
 ## [3.2.0-beta.39] - 2026-02-26
 
 ### Fixed
