@@ -656,6 +656,12 @@ SENSOR_TYPES = {
         "entity_category": "diagnostic",
         "suggested_display_precision": 3,
     },
+    "battery_bank_cycle_count": {
+        "name": "Battery Bank Cycle Count",
+        "state_class": "total_increasing",
+        "icon": "mdi:counter",
+        "entity_category": "diagnostic",
+    },
     "battery_bank_cycle_count_delta": {
         "name": "Battery Bank Cycle Count Delta",
         "state_class": "measurement",

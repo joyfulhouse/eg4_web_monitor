@@ -39,6 +39,8 @@ from custom_components.eg4_web_monitor.coordinator import (
 )
 from custom_components.eg4_web_monitor.coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
+    BATTERY_BANK_CAN_DIAGNOSTIC_KEYS,
+    BATTERY_BANK_CORE_KEYS,
     BATTERY_BANK_KEYS,
     GRIDBOSS_SENSOR_KEYS,
     GRIDBOSS_SMART_PORT_POWER_KEYS,
@@ -4215,11 +4217,11 @@ class TestBatteryBankCurrentKey:
         assert prop_map["current"] == "battery_bank_current"
 
 
-class TestBatteryBankBMSFallback:
-    """Test BMS fallback sensors appear in mapping when batteries=[]."""
+class TestBatteryBankBMSCoreKeys:
+    """Test BMS CORE keys always present in mapping from bank-level registers."""
 
-    def test_build_mapping_includes_fallback_sensors(self):
-        """3 diagnostic keys present via bank-level BMS fallback."""
+    def test_build_mapping_includes_bms_core_sensors(self):
+        """BMS CORE keys present in mapping even without CAN bus data."""
         mock_battery = MagicMock()
         mock_battery.soc = 85
         mock_battery.voltage = 52.0
@@ -4234,27 +4236,144 @@ class TestBatteryBankBMSFallback:
         mock_battery.capacity_percent = 85
         mock_battery.battery_count = 4
         mock_battery.status = "charging"
-        # Unfixable diagnostics return None (need individual batteries)
+        # CAN-dependent diagnostics return None (need individual batteries)
         mock_battery.soc_delta = None
-        mock_battery.min_soh = None
         mock_battery.soh_delta = None
         mock_battery.voltage_delta = None
         mock_battery.cycle_count_delta = None
-        # BMS fallback diagnostics return values (bank-level registers)
+        # Bank-level BMS registers (always available, CORE keys)
+        mock_battery.min_soh = 100
         mock_battery.max_cell_temp = 35.0
         mock_battery.temp_delta = 5.5
         mock_battery.cell_voltage_delta_max = 0.050
+        mock_battery.cycle_count = 53
 
         result = _build_battery_bank_sensor_mapping(mock_battery)
+        # BMS CORE keys always present
+        assert "battery_bank_min_soh" in result
+        assert result["battery_bank_min_soh"] == 100
         assert "battery_bank_max_cell_temp" in result
         assert result["battery_bank_max_cell_temp"] == 35.0
         assert "battery_bank_temp_delta" in result
         assert result["battery_bank_temp_delta"] == 5.5
         assert "battery_bank_cell_voltage_delta_max" in result
         assert result["battery_bank_cell_voltage_delta_max"] == 0.050
-        # Unfixable diagnostics should NOT be present (None filtered)
+        assert "battery_bank_cycle_count" in result
+        assert result["battery_bank_cycle_count"] == 53
+        # CAN-dependent diagnostics should NOT be present (None filtered)
         assert "battery_bank_soc_delta" not in result
-        assert "battery_bank_min_soh" not in result
+        assert "battery_bank_soh_delta" not in result
+        assert "battery_bank_voltage_delta" not in result
+        assert "battery_bank_cycle_count_delta" not in result
+
+
+class TestBatteryBankCANDiagnosticSuppression:
+    """CAN-dependent diagnostic sensors excluded from static entity creation.
+
+    Sensors like soc_delta, soh_delta, voltage_delta, and
+    cycle_count_delta require individual battery data from CAN bus
+    registers (5002+).  They must NOT be in ALL_INVERTER_SENSOR_KEYS
+    so that _build_static_local_data() doesn't pre-create entities
+    that will be permanently Unavailable.
+
+    Bank-level BMS sensors (min_soh, cycle_count, max_cell_temp, etc.)
+    are CORE keys — always available from input registers 80-107.
+    """
+
+    def test_can_diagnostic_keys_not_in_static_set(self):
+        """CAN diagnostic keys must not be in ALL_INVERTER_SENSOR_KEYS."""
+        for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
+            assert key not in ALL_INVERTER_SENSOR_KEYS, (
+                f"{key} should not be in static creation set"
+            )
+
+    def test_core_keys_in_static_set(self):
+        """Core battery bank keys must be in ALL_INVERTER_SENSOR_KEYS."""
+        for key in BATTERY_BANK_CORE_KEYS:
+            assert key in ALL_INVERTER_SENSOR_KEYS, (
+                f"{key} should be in static creation set"
+            )
+
+    def test_full_union_unchanged(self):
+        """BATTERY_BANK_KEYS is still the full union of core + CAN keys."""
+        assert (
+            BATTERY_BANK_KEYS
+            == BATTERY_BANK_CORE_KEYS | BATTERY_BANK_CAN_DIAGNOSTIC_KEYS
+        )
+
+    def test_no_overlap(self):
+        """Core and CAN diagnostic key sets must not overlap."""
+        overlap = BATTERY_BANK_CORE_KEYS & BATTERY_BANK_CAN_DIAGNOSTIC_KEYS
+        assert not overlap, f"Overlapping keys: {overlap}"
+
+    def test_can_keys_added_dynamically_when_data_present(self):
+        """CAN diagnostic keys appear in mapping when individual battery data exists."""
+        mock_battery = MagicMock()
+        mock_battery.soc = 85
+        mock_battery.voltage = 52.0
+        mock_battery.current = 15.5
+        mock_battery.charge_power = 800.0
+        mock_battery.discharge_power = 0.0
+        mock_battery.battery_power = 800.0
+        mock_battery.max_capacity = 200
+        mock_battery.current_capacity = 170
+        mock_battery.remain_capacity = 170
+        mock_battery.full_capacity = 200
+        mock_battery.capacity_percent = 85
+        mock_battery.battery_count = 3
+        mock_battery.status = "charging"
+        # CAN-dependent diagnostics return values
+        mock_battery.soc_delta = 2
+        mock_battery.min_soh = 95
+        mock_battery.soh_delta = 3
+        mock_battery.voltage_delta = 0.15
+        mock_battery.cycle_count_delta = 10
+        # BMS fallbacks also present
+        mock_battery.max_cell_temp = 30.0
+        mock_battery.temp_delta = 2.0
+        mock_battery.cell_voltage_delta_max = 0.03
+
+        result = _build_battery_bank_sensor_mapping(mock_battery)
+        for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
+            assert key in result, f"{key} should be in mapping when CAN data present"
+
+    def test_can_keys_absent_when_no_individual_batteries(self):
+        """CAN diagnostic keys absent from mapping when no CAN bus data."""
+        mock_battery = MagicMock()
+        mock_battery.soc = 85
+        mock_battery.voltage = 52.0
+        mock_battery.current = 15.5
+        mock_battery.charge_power = 800.0
+        mock_battery.discharge_power = 0.0
+        mock_battery.battery_power = 800.0
+        mock_battery.max_capacity = 200
+        mock_battery.current_capacity = 170
+        mock_battery.remain_capacity = 170
+        mock_battery.full_capacity = 200
+        mock_battery.capacity_percent = 85
+        mock_battery.battery_count = 3
+        mock_battery.status = "Idle"
+        # No CAN data — all cross-battery diagnostics return None
+        mock_battery.soc_delta = None
+        mock_battery.soh_delta = None
+        mock_battery.voltage_delta = None
+        mock_battery.cycle_count_delta = None
+        # Bank-level BMS sensors still available (CORE keys)
+        mock_battery.min_soh = 100
+        mock_battery.max_cell_temp = 28.0
+        mock_battery.temp_delta = 1.5
+        mock_battery.cell_voltage_delta_max = 0.01
+        mock_battery.cycle_count = 53
+
+        result = _build_battery_bank_sensor_mapping(mock_battery)
+        for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
+            assert key not in result, f"{key} should NOT be in mapping without CAN data"
+        # Bank-level BMS sensors (CORE keys) should always be present
+        assert "battery_bank_min_soh" in result
+        assert "battery_bank_max_cell_temp" in result
+        assert "battery_bank_temp_delta" in result
+        assert "battery_bank_cell_voltage_delta_max" in result
+        assert "battery_bank_cycle_count" in result
 
 
 class TestParallelGroupGridPowerKeys:

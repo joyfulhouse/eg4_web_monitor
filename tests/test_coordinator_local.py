@@ -858,14 +858,14 @@ class TestSharedBatterySecondary:
     async def test_static_phase_includes_battery_bank_keys_for_all_inverters(
         self, hass, parallel_config_entry
     ):
-        """Static phase includes battery_bank keys for all inverters.
+        """Static phase includes core battery_bank keys for all inverters.
 
         We cannot know at static-phase time whether a secondary truly
         lacks batteries (shared CAN bus) or has its own bank.  Suppression
         happens at runtime when we have actual battery_count data.
         """
         from custom_components.eg4_web_monitor.coordinator_mappings import (
-            BATTERY_BANK_KEYS,
+            BATTERY_BANK_CORE_KEYS,
         )
 
         coordinator = EG4DataUpdateCoordinator(hass, parallel_config_entry)
@@ -874,14 +874,38 @@ class TestSharedBatterySecondary:
         primary_sensors = result["devices"]["PRIMARY001"]["sensors"]
         secondary_sensors = result["devices"]["SECONDARY01"]["sensors"]
 
-        # Both primary and secondary should have battery bank keys
-        assert any(k in primary_sensors for k in BATTERY_BANK_KEYS), (
+        # Both primary and secondary should have core battery bank keys
+        assert any(k in primary_sensors for k in BATTERY_BANK_CORE_KEYS), (
             "Primary should have battery bank keys in static phase"
         )
 
-        assert any(k in secondary_sensors for k in BATTERY_BANK_KEYS), (
+        assert any(k in secondary_sensors for k in BATTERY_BANK_CORE_KEYS), (
             "Secondary should have battery bank keys in static phase"
         )
+
+    async def test_static_phase_excludes_can_diagnostic_keys(
+        self, hass, parallel_config_entry
+    ):
+        """Static phase must NOT include CAN-dependent diagnostic keys.
+
+        CAN bus diagnostic sensors (soc_delta, soh_delta, etc.) require
+        individual battery data from registers 5002+.  Pre-creating them
+        statically would produce permanently Unavailable entities when
+        CAN data is not available.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            BATTERY_BANK_CAN_DIAGNOSTIC_KEYS,
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, parallel_config_entry)
+        result = coordinator._build_static_local_data()
+
+        for serial in result["devices"]:
+            sensors = result["devices"][serial]["sensors"]
+            for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
+                assert key not in sensors, (
+                    f"{key} should not be in static sensors for {serial}"
+                )
 
     async def test_secondary_skips_battery_bank_when_count_zero(
         self, hass, parallel_config_entry

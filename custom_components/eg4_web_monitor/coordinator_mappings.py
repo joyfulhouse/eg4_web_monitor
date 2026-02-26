@@ -199,7 +199,7 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
     }
 )
 
-BATTERY_BANK_KEYS: frozenset[str] = frozenset(
+BATTERY_BANK_CORE_KEYS: frozenset[str] = frozenset(
     {
         "battery_bank_soc",
         "battery_bank_voltage",
@@ -214,16 +214,31 @@ BATTERY_BANK_KEYS: frozenset[str] = frozenset(
         "battery_bank_status",
         "battery_status",
         "battery_bank_last_polled",
-        "battery_bank_min_soh",
-        "battery_bank_max_cell_temp",
-        "battery_bank_temp_delta",
-        "battery_bank_cell_voltage_delta_max",
+        # Bank-level BMS register data (always available, no CAN bus needed):
+        "battery_bank_min_soh",  # reg 5 SOH (fallback when no individual batteries)
+        "battery_bank_cycle_count",  # reg 106
+        "battery_bank_max_cell_temp",  # reg 103
+        "battery_bank_temp_delta",  # reg 103-104
+        "battery_bank_cell_voltage_delta_max",  # reg 101-102
+        "battery_bank_charge_rate",
+    }
+)
+
+BATTERY_BANK_CAN_DIAGNOSTIC_KEYS: frozenset[str] = frozenset(
+    {
+        # Cross-battery diagnostics that require individual battery data from
+        # CAN bus registers (5002+).  These are only added dynamically when
+        # BatteryBankData.batteries contains real data — never pre-created
+        # statically, so entities won't exist when CAN data is unavailable.
         "battery_bank_soc_delta",
         "battery_bank_soh_delta",
         "battery_bank_voltage_delta",
         "battery_bank_cycle_count_delta",
-        "battery_bank_charge_rate",
     }
+)
+
+BATTERY_BANK_KEYS: frozenset[str] = (
+    BATTERY_BANK_CORE_KEYS | BATTERY_BANK_CAN_DIAGNOSTIC_KEYS
 )
 
 INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
@@ -252,7 +267,7 @@ INVERTER_METADATA_KEYS: frozenset[str] = frozenset(
 ALL_INVERTER_SENSOR_KEYS: frozenset[str] = (
     INVERTER_RUNTIME_KEYS
     | INVERTER_ENERGY_KEYS
-    | BATTERY_BANK_KEYS
+    | BATTERY_BANK_CORE_KEYS
     | INVERTER_COMPUTED_KEYS
     | INVERTER_METADATA_KEYS
 )
@@ -627,21 +642,24 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_status": battery_data.status,
         # Last polled timestamp for battery bank device
         "battery_bank_last_polled": dt_util.utcnow(),
-    }
-
-    # Cross-battery diagnostics — computed by BatteryBankData properties.
-    # Properties return None when insufficient data, so only add non-None values.
-    diagnostic_sensors = {
+        # Bank-level BMS register data (always available, no CAN bus needed)
+        "battery_bank_cycle_count": battery_data.cycle_count,
         "battery_bank_min_soh": battery_data.min_soh,
         "battery_bank_max_cell_temp": battery_data.max_cell_temp,
         "battery_bank_temp_delta": battery_data.temp_delta,
         "battery_bank_cell_voltage_delta_max": battery_data.cell_voltage_delta_max,
+    }
+
+    # CAN-dependent cross-battery diagnostics — require individual battery data
+    # from registers 5002+. Properties return None when no CAN data available,
+    # so only add non-None values (these keys are NOT in ALL_INVERTER_SENSOR_KEYS).
+    can_diagnostic_sensors = {
         "battery_bank_soc_delta": battery_data.soc_delta,
         "battery_bank_soh_delta": battery_data.soh_delta,
         "battery_bank_voltage_delta": battery_data.voltage_delta,
         "battery_bank_cycle_count_delta": battery_data.cycle_count_delta,
     }
-    sensors.update({k: v for k, v in diagnostic_sensors.items() if v is not None})
+    sensors.update({k: v for k, v in can_diagnostic_sensors.items() if v is not None})
 
     return sensors
 

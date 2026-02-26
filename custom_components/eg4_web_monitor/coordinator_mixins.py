@@ -1087,6 +1087,8 @@ class DeviceProcessingMixin(_MixinBase):
             # Status and metadata
             "battery_count": "battery_bank_count",
             "status": "battery_bank_status",
+            # Bank-level BMS register data (always available, no CAN bus needed)
+            "cycle_count": "battery_bank_cycle_count",
             # Cross-battery diagnostics (pylxpweb >= 0.6.7)
             "soc_delta": "battery_bank_soc_delta",
             "min_soh": "battery_bank_min_soh",
