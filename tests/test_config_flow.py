@@ -1187,9 +1187,7 @@ class TestLocalDongleFlow:
         # Simulate what network_scan_results does: select device → call
         # async_step_local_dongle with partial input (host+port, no serials).
         # Before the fix, this raised KeyError: 'dongle_serial'.
-        result = await flow.async_step_network_scan_results(
-            {"device": "192.168.9.145"}
-        )
+        result = await flow.async_step_network_scan_results({"device": "192.168.9.145"})
 
         # Should show dongle form pre-filled with host/port (no crash)
         assert result["type"] == data_entry_flow.FlowResultType.FORM

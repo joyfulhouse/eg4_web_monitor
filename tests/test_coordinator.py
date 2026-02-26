@@ -5370,9 +5370,7 @@ class TestRoundRobinTruncatedSerialGuard:
         result = coordinator._merge_round_robin_batteries(serial, batteries)
         assert len(result) == 2
 
-    async def test_repeated_truncated_never_accumulates(
-        self, hass, mock_config_entry
-    ):
+    async def test_repeated_truncated_never_accumulates(self, hass, mock_config_entry):
         """Repeated truncated reads never create phantom entries."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)

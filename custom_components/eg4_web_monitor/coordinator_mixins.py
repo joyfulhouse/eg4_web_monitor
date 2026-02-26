@@ -302,7 +302,6 @@ if TYPE_CHECKING:
             inverter_serial: str,
             transport_batteries: list[Any],
         ) -> dict[str, dict[str, Any]]: ...
-        def _mirror_shared_battery_banks(self, processed: dict[str, Any]) -> None: ...
 
 else:
     _MixinBase = object
@@ -597,41 +596,71 @@ class DeviceProcessingMixin(_MixinBase):
         # Prefer transport battery data (local Modbus) over cloud battery_bank
         # In hybrid mode, _transport_battery is refreshed each cycle while
         # _battery_bank may be stale from initial cloud station load
+        #
+        # Skip battery bank creation when battery_count is 0 or None.
+        # In parallel systems with shared batteries, the secondary inverter
+        # reports battery_count=0 (cloud: totalNumber=0, local: reg 96=0)
+        # because the CAN bus is wired only to the primary.  Creating a
+        # battery bank device with no actual batteries leads to
+        # Unknown/Unavailable entities (issue #169).
         transport_battery = getattr(inverter, "_transport_battery", None)
         if transport_battery:
-            _LOGGER.debug(
-                "Battery bank for %s: using LOCAL transport data (hybrid/local mode)",
-                inverter.serial_number,
-            )
-            try:
-                battery_bank_sensors = _build_battery_bank_sensor_mapping(
-                    transport_battery
-                )
-                processed["sensors"].update(battery_bank_sensors)
-            except Exception as e:
-                _LOGGER.warning(
-                    "Error extracting transport battery bank data for inverter %s: %s",
+            raw_count = getattr(transport_battery, "battery_count", None)
+            bank_count = int(raw_count) if raw_count else 0
+            if bank_count > 0:
+                _LOGGER.debug(
+                    "Battery bank for %s: using LOCAL transport data "
+                    "(hybrid/local mode, battery_count=%d)",
                     inverter.serial_number,
-                    e,
+                    bank_count,
+                )
+                try:
+                    battery_bank_sensors = _build_battery_bank_sensor_mapping(
+                        transport_battery
+                    )
+                    processed["sensors"].update(battery_bank_sensors)
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Error extracting transport battery bank data for inverter %s: %s",
+                        inverter.serial_number,
+                        e,
+                    )
+            else:
+                _LOGGER.debug(
+                    "Battery bank for %s: skipping — transport battery_count=%s "
+                    "(shared battery secondary)",
+                    inverter.serial_number,
+                    bank_count,
                 )
         else:
             # Fall back to cloud battery_bank for cloud-only mode
             battery_bank = getattr(inverter, "_battery_bank", None)
             if battery_bank:
-                _LOGGER.debug(
-                    "Battery bank for %s: using CLOUD data (no local transport attached)",
-                    inverter.serial_number,
-                )
-                try:
-                    battery_bank_sensors = self._extract_battery_bank_from_object(
-                        battery_bank
-                    )
-                    processed["sensors"].update(battery_bank_sensors)
-                except Exception as e:
-                    _LOGGER.warning(
-                        "Error extracting battery bank data for inverter %s: %s",
+                raw_count = getattr(battery_bank, "battery_count", None)
+                bank_count = int(raw_count) if raw_count else 0
+                if bank_count > 0:
+                    _LOGGER.debug(
+                        "Battery bank for %s: using CLOUD data (battery_count=%d)",
                         inverter.serial_number,
-                        e,
+                        bank_count,
+                    )
+                    try:
+                        battery_bank_sensors = self._extract_battery_bank_from_object(
+                            battery_bank
+                        )
+                        processed["sensors"].update(battery_bank_sensors)
+                    except Exception as e:
+                        _LOGGER.warning(
+                            "Error extracting battery bank data for inverter %s: %s",
+                            inverter.serial_number,
+                            e,
+                        )
+                else:
+                    _LOGGER.debug(
+                        "Battery bank for %s: skipping — cloud battery_count=%s "
+                        "(shared battery secondary)",
+                        inverter.serial_number,
+                        bank_count,
                     )
             else:
                 _LOGGER.debug(
@@ -1705,8 +1734,11 @@ class DeviceInfoMixin(_MixinBase):
 
         sensors = device_data.get("sensors", {})
 
-        # Check if any battery_bank sensors exist (not just count > 0)
-        # Aggregate data like soc, voltage can exist even when totalNumber=0
+        # Check if battery bank sensors exist AND battery_count > 0.
+        # In shared-battery parallel systems, the secondary inverter has
+        # battery_count=0 (no batteries directly connected).  We must not
+        # create a battery bank device for it — doing so yields
+        # Unknown/Unavailable entities (issue #169).
         has_battery_bank_data = any(
             key.startswith("battery_bank_") for key in sensors.keys()
         )
@@ -1714,6 +1746,8 @@ class DeviceInfoMixin(_MixinBase):
             return None
 
         battery_count = sensors.get("battery_bank_count") or 0
+        if battery_count == 0:
+            return None
         model = device_data.get("model", "Unknown")
 
         device_info: DeviceInfo = {
