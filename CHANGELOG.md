@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.39] - 2026-02-26
+
+### Fixed
+
+- **PV start voltage write failure**: Require pylxpweb>=0.9.18 which corrects register 22 mapping from incorrect FUNC_LSP_* bit fields to HOLD_START_PV_VOLT scalar. Fixes `number.set_value` failing with "Unknown parameter name: HOLD_START_PV_VOLT" on local Modbus writes.
+
 ## [3.2.0-beta.38] - 2026-02-26
 
 ### Added
