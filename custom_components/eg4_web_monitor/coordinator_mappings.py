@@ -698,6 +698,13 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
         "battery_index": battery.battery_index,
         # Last polled timestamp for individual battery device
         "battery_last_polled": dt_util.utcnow(),
+        # Last seen: when this battery's register data was actually read from
+        # the inverter (round-robin may serve stale cached data for >4 systems)
+        "battery_last_seen": (
+            dt_util.as_utc(last_seen)
+            if (last_seen := getattr(battery, "last_seen", None))
+            else dt_util.utcnow()
+        ),
     }
 
     # Signed C-rate as percentage of capacity per hour

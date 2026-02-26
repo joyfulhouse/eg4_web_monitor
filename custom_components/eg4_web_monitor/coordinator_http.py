@@ -801,6 +801,7 @@ class HTTPUpdateMixin(_MixinBase):
                     )
                     battery_sensors = self._extract_battery_from_object(battery)
                     battery_sensors["battery_last_polled"] = dt_util.utcnow()
+                    battery_sensors["battery_last_seen"] = dt_util.utcnow()
 
                     if "batteries" not in device_data:
                         device_data["batteries"] = {}

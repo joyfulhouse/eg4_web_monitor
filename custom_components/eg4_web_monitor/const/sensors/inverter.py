@@ -1745,6 +1745,13 @@ SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
         "enabled_default": False,
     },
+    "battery_last_seen": {
+        "name": "Last Seen",
+        "device_class": "timestamp",
+        "icon": "mdi:clock-alert-outline",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+        "enabled_default": False,
+    },
     "parallel_group_last_polled": {
         "name": "Last Polled",
         "device_class": "timestamp",
