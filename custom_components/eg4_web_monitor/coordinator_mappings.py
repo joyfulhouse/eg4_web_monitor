@@ -218,8 +218,16 @@ BATTERY_BANK_CORE_KEYS: frozenset[str] = frozenset(
         "battery_bank_min_soh",  # reg 5 SOH (fallback when no individual batteries)
         "battery_bank_cycle_count",  # reg 106
         "battery_bank_max_cell_temp",  # reg 103
+        "battery_bank_min_cell_temp",  # reg 104
         "battery_bank_temp_delta",  # reg 103-104
         "battery_bank_cell_voltage_delta_max",  # reg 101-102
+        "battery_bank_min_cell_voltage",  # reg 102
+        "battery_bank_bms_charge_current_limit",  # reg 81
+        "battery_bank_bms_discharge_current_limit",  # reg 82
+        "battery_bank_bms_charge_voltage_ref",  # reg 83
+        "battery_bank_bms_discharge_cutoff",  # reg 84
+        "battery_bank_bms_battery_type",  # reg 80
+        "battery_bank_voltage_inv_sample",  # reg 107
         "battery_bank_charge_rate",
     }
 )
@@ -646,8 +654,16 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
         "battery_bank_cycle_count": battery_data.cycle_count,
         "battery_bank_min_soh": battery_data.min_soh,
         "battery_bank_max_cell_temp": battery_data.max_cell_temp,
+        "battery_bank_min_cell_temp": battery_data.min_cell_temperature,
         "battery_bank_temp_delta": battery_data.temp_delta,
         "battery_bank_cell_voltage_delta_max": battery_data.cell_voltage_delta_max,
+        "battery_bank_min_cell_voltage": battery_data.min_cell_voltage,
+        "battery_bank_bms_charge_current_limit": battery_data.bms_charge_current_limit,
+        "battery_bank_bms_discharge_current_limit": battery_data.bms_discharge_current_limit,
+        "battery_bank_bms_charge_voltage_ref": battery_data.bms_charge_voltage_ref,
+        "battery_bank_bms_discharge_cutoff": battery_data.bms_discharge_cutoff,
+        "battery_bank_bms_battery_type": battery_data.bms_battery_type,
+        "battery_bank_voltage_inv_sample": battery_data.battery_voltage_inv_sample,
     }
 
     # CAN-dependent cross-battery diagnostics — require individual battery data
