@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.42] - 2026-02-26
+
+### Fixed
+
+- **Battery bank min_soh Unavailable**: Require pylxpweb>=0.9.20 which adds bank-level SOH fallback (input register 5 high byte) when individual battery CAN data is unavailable from registers 5002+
+
 ## [3.2.0-beta.41] - 2026-02-26
 
 ### Added
