@@ -5,7 +5,7 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0-beta.43] - 2026-02-27
+## [3.2.0-rc.1] - 2026-02-27
 
 ### Added
 
