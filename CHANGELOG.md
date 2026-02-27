@@ -5,6 +5,17 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-beta.43] - 2026-02-27
+
+### Added
+
+- **BMS bank-level diagnostic sensors**: New battery bank sensors from BMS input registers (always available, no CAN bus needed):
+  - Min Cell Voltage (reg 102), Min Cell Temperature (reg 104)
+  - BMS Charge/Discharge Current Limit (regs 81-82)
+  - BMS Charge Voltage Ref (reg 83), Discharge Cutoff (reg 84)
+  - Battery Type (reg 80), Voltage Inverter Sample (reg 107)
+- Requires pylxpweb>=0.9.21
+
 ## [3.2.0-beta.42] - 2026-02-26
 
 ### Fixed
