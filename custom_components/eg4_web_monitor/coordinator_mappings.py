@@ -364,6 +364,22 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
         "grid_import_total",
         "load_today",
         "load_total",
+        "ac_couple1_today",
+        "ac_couple1_total",
+        "ac_couple2_today",
+        "ac_couple2_total",
+        "ac_couple3_today",
+        "ac_couple3_total",
+        "ac_couple4_today",
+        "ac_couple4_total",
+        "smart_load1_today",
+        "smart_load1_total",
+        "smart_load2_today",
+        "smart_load2_total",
+        "smart_load3_today",
+        "smart_load3_total",
+        "smart_load4_today",
+        "smart_load4_total",
         "firmware_version",
         "connection_transport",
         "transport_host",
@@ -371,22 +387,18 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# Smart port power keys that should NOT be included in static entity creation.
+# Smart port keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on
 # actual port status, so only active ports get entities.
-# Includes per-port L1/L2 keys AND per-port aggregate keys (computed by
-# _calculate_gridboss_aggregates from L1+L2), plus total aggregates.
-GRIDBOSS_SMART_PORT_POWER_KEYS: frozenset[str] = frozenset(
+# Includes per-port L1/L2 power keys, per-port aggregate power keys (computed by
+# _calculate_gridboss_aggregates from L1+L2), total aggregates, and per-port
+# energy keys (today/total).
+GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
     [
-        f"{prefix}{port}_power_l{phase}"
+        f"{prefix}{port}_{suffix}"
         for prefix in ("smart_load", "ac_couple")
         for port in range(1, 5)
-        for phase in (1, 2)
-    ]
-    + [
-        f"{prefix}{port}_power"
-        for prefix in ("smart_load", "ac_couple")
-        for port in range(1, 5)
+        for suffix in ("power_l1", "power_l2", "power", "today", "total")
     ]
     + ["smart_load_power", "ac_couple_power"]
 )
@@ -890,6 +902,24 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
         "grid_import_total": mid_device.e_to_user_total,
         "load_today": mid_device.e_load_today,
         "load_total": mid_device.e_load_total,
+        # AC Couple energy (all 4 ports)
+        "ac_couple1_today": mid_device.e_ac_couple1_today,
+        "ac_couple1_total": mid_device.e_ac_couple1_total,
+        "ac_couple2_today": mid_device.e_ac_couple2_today,
+        "ac_couple2_total": mid_device.e_ac_couple2_total,
+        "ac_couple3_today": mid_device.e_ac_couple3_today,
+        "ac_couple3_total": mid_device.e_ac_couple3_total,
+        "ac_couple4_today": mid_device.e_ac_couple4_today,
+        "ac_couple4_total": mid_device.e_ac_couple4_total,
+        # Smart Load energy (all 4 ports)
+        "smart_load1_today": mid_device.e_smart_load1_today,
+        "smart_load1_total": mid_device.e_smart_load1_total,
+        "smart_load2_today": mid_device.e_smart_load2_today,
+        "smart_load2_total": mid_device.e_smart_load2_total,
+        "smart_load3_today": mid_device.e_smart_load3_today,
+        "smart_load3_total": mid_device.e_smart_load3_total,
+        "smart_load4_today": mid_device.e_smart_load4_today,
+        "smart_load4_total": mid_device.e_smart_load4_total,
         # Last polled timestamp for midbox/GridBOSS device
         "midbox_last_polled": dt_util.utcnow(),
     }

@@ -38,7 +38,7 @@ from .coordinator_mixins import (
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     GRIDBOSS_SENSOR_KEYS,
-    GRIDBOSS_SMART_PORT_POWER_KEYS,
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
     PARALLEL_GROUP_SENSOR_KEYS,
     _build_battery_bank_sensor_mapping,
@@ -1138,7 +1138,7 @@ class LocalTransportMixin(_MixinBase):
                 # Exclude smart port power keys from static creation — they are
                 # added dynamically by _filter_unused_smart_port_sensors() based
                 # on actual port status so only active ports get entities.
-                sensor_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_POWER_KEYS
+                sensor_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
                 device_type = "gridboss"
             else:
                 sensor_keys = ALL_INVERTER_SENSOR_KEYS

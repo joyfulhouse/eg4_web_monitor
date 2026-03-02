@@ -437,7 +437,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities
     # (determined dynamically by _filter_unused_smart_port_sensors).
-    from .coordinator_mappings import GRIDBOSS_SMART_PORT_POWER_KEYS
+    from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
     active_smart_port_keys: set[str] = set()
     if coordinator.data and "devices" in coordinator.data:
@@ -446,14 +446,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                 active_smart_port_keys.update(
                     k
                     for k in device_data.get("sensors", {})
-                    if k in GRIDBOSS_SMART_PORT_POWER_KEYS
+                    if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
                 )
     for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
         if entity.domain != "sensor":
             continue
         # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
         # Match by checking if any smart port key appears in the unique_id suffix
-        for sp_key in GRIDBOSS_SMART_PORT_POWER_KEYS:
+        for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
             if (
                 entity.unique_id.endswith(f"_{sp_key}")
                 and sp_key not in active_smart_port_keys

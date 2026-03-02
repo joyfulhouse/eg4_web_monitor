@@ -43,7 +43,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     BATTERY_BANK_CORE_KEYS,
     BATTERY_BANK_KEYS,
     GRIDBOSS_SENSOR_KEYS,
-    GRIDBOSS_SMART_PORT_POWER_KEYS,
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     INVERTER_ENERGY_KEYS,
     INVERTER_RUNTIME_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
@@ -1579,15 +1579,15 @@ class TestStaticLocalData:
         result = await coordinator._async_update_local_data()
         sensors = result["devices"]["GB001"]["sensors"]
 
-        # Every key from GRIDBOSS_SENSOR_KEYS except smart port power keys
-        # should be present — smart port power keys are added dynamically
+        # Every key from GRIDBOSS_SENSOR_KEYS except smart port dynamic keys
+        # (power + energy) should be present — they are added dynamically
         # by _filter_unused_smart_port_sensors() based on actual port status.
-        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_POWER_KEYS
+        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
-        for key in GRIDBOSS_SMART_PORT_POWER_KEYS:
+        for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
             assert key not in sensors, (
-                f"Smart port power key should not be in static data: {key}"
+                f"Smart port dynamic key should not be in static data: {key}"
             )
 
         # GridBOSS device should have binary_sensors dict
@@ -1627,9 +1627,9 @@ class TestStaticLocalData:
         assert result["devices"]["INV002"]["type"] == "inverter"
         assert result["devices"]["parallel_group_a"]["type"] == "parallel_group"
 
-        # GridBOSS should use GRIDBOSS_SENSOR_KEYS minus smart port power keys
+        # GridBOSS should use GRIDBOSS_SENSOR_KEYS minus smart port dynamic keys
         gb_keys = set(result["devices"]["GB001"]["sensors"].keys())
-        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_POWER_KEYS
+        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
         assert static_keys.issubset(gb_keys)
 
         # Inverters should use ALL_INVERTER_SENSOR_KEYS

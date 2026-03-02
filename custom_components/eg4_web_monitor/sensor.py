@@ -30,7 +30,7 @@ from .const import (
     VOLT_WATT_SENSORS,
 )
 from .coordinator import EG4DataUpdateCoordinator
-from .coordinator_mappings import GRIDBOSS_SMART_PORT_POWER_KEYS
+from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -250,7 +250,7 @@ async def async_setup_entry(
             known_smart_port_keys[serial] = {
                 k
                 for k in device_data.get("sensors", {})
-                if k in GRIDBOSS_SMART_PORT_POWER_KEYS
+                if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
             }
 
     @callback
@@ -264,7 +264,7 @@ async def async_setup_entry(
                 continue
             known = known_smart_port_keys.setdefault(serial, set())
             for sensor_key in device_data.get("sensors", {}):
-                if sensor_key not in GRIDBOSS_SMART_PORT_POWER_KEYS:
+                if sensor_key not in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
                     continue
                 if sensor_key in known:
                     continue

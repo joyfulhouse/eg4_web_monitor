@@ -848,16 +848,20 @@ For each port (1-4), based on `smart_port{N}_status`:
 - **Wrong-type** sensors: Key set to `None` → entity shows as "Unknown" in HA
 - **Unused** ports: All keys removed → no entities created
 
-### Power Keys Affected
+### Dynamic Keys Affected
 
-The 26 keys in `GRIDBOSS_SMART_PORT_POWER_KEYS`:
+The 42 keys in `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS`:
 ```
-smart_load{1-4}_power_l{1-2}   (L1/L2 per-port)
-ac_couple{1-4}_power_l{1-2}    (L1/L2 per-port)
+smart_load{1-4}_power_l{1-2}   (L1/L2 per-port power)
+ac_couple{1-4}_power_l{1-2}    (L1/L2 per-port power)
 smart_load{1-4}_power           (per-port aggregate, computed by _calculate_gridboss_aggregates)
 ac_couple{1-4}_power            (per-port aggregate, computed by _calculate_gridboss_aggregates)
 smart_load_power                (total across all smart load ports)
 ac_couple_power                 (total across all AC couple ports)
+smart_load{1-4}_today           (per-port energy today)
+smart_load{1-4}_total           (per-port energy lifetime)
+ac_couple{1-4}_today            (per-port energy today)
+ac_couple{1-4}_total            (per-port energy lifetime)
 ```
 
 **Aggregation behavior**: `_calculate_gridboss_aggregates()` runs AFTER the filter.
@@ -989,8 +993,8 @@ available in LOCAL mode.
 | `INVERTER_COMPUTED_KEYS` | 7 | Derived sensors (consumption, battery, EPS split) |
 | `INVERTER_METADATA_KEYS` | 4 | Firmware, transport, host, last_polled |
 | `ALL_INVERTER_SENSOR_KEYS` | 89 | Union of all above |
-| `GRIDBOSS_SENSOR_KEYS` | 65 | All GridBOSS sensor keys (incl. smart port, energy, metadata) |
-| `GRIDBOSS_SMART_PORT_POWER_KEYS` | 26 | Smart load + AC couple power (L1/L2 + aggregates + totals) |
+| `GRIDBOSS_SENSOR_KEYS` | 81 | All GridBOSS sensor keys (incl. smart port, energy, metadata) |
+| `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS` | 42 | Smart load + AC couple power and energy (L1/L2 power, per-port aggregates, per-port energy today/total, total aggregates) |
 | `PARALLEL_GROUP_SENSOR_KEYS` | 32 | PG power, energy, battery aggregates (incl. grid import/export, battery current) |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 
