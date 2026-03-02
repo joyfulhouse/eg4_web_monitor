@@ -25,6 +25,7 @@ from .const import (
     SUPPORTED_INVERTER_MODELS,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .base_entity import _get_model_from_coordinator
 from .utils import (
     create_device_info,
     generate_entity_id,
@@ -32,6 +33,15 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _get_model(
+    coordinator: EG4DataUpdateCoordinator, serial: str, default: str = "Unknown"
+) -> str:
+    """Get device model from coordinator, with custom default."""
+    model = _get_model_from_coordinator(coordinator, serial)
+    return model if model != "Unknown" else default
+
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
@@ -153,18 +163,12 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
-        self._device_data = device_data
 
         # Optimistic state for immediate UI feedback
         self._optimistic_state: str | None = None
 
-        # Get device info from coordinator data
-        self._model = (
-            (coordinator.data or {})
-            .get("devices", {})
-            .get(serial, {})
-            .get("model", "Unknown")
-        )
+        # Get device model using shared utility
+        self._model = _get_model(coordinator, serial)
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "operating_mode")
@@ -308,18 +312,12 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
         self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
-        self._device_data = device_data
 
         # Optimistic state for immediate UI feedback
         self._optimistic_state: str | None = None
 
-        # Get device info from coordinator data
-        self._model = (
-            (coordinator.data or {})
-            .get("devices", {})
-            .get(serial, {})
-            .get("model", "Unknown")
-        )
+        # Get device model using shared utility
+        self._model = _get_model(coordinator, serial)
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "pv_input_mode")
@@ -332,7 +330,7 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
         self._attr_name = "PV Input Mode"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:solar-panel"
-        self._attr_options = list(PV_INPUT_MODE_OPTIONS)
+        self._attr_options = PV_INPUT_MODE_OPTIONS
 
         # Device info for grouping using consolidated utility
         self._attr_device_info = create_device_info(serial, self._model)
@@ -440,18 +438,13 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
         self.coordinator: EG4DataUpdateCoordinator = coordinator
 
         self._serial = serial
-        self._device_data = device_data
         self._port = port
 
         # Optimistic state for immediate UI feedback
         self._optimistic_state: str | None = None
 
-        self._model = (
-            (coordinator.data or {})
-            .get("devices", {})
-            .get(serial, {})
-            .get("model", "GridBOSS")
-        )
+        # Get device model using shared utility
+        self._model = _get_model(coordinator, serial, default="GridBOSS")
 
         self._attr_unique_id = generate_unique_id(serial, f"smart_port{port}_mode")
         self._attr_entity_id = generate_entity_id(
