@@ -1855,23 +1855,35 @@ class LocalTransportMixin(_MixinBase):
             # Configure each inverter with a local transport:
             # 1. Propagate data validation (prevents GridBOSS data spikes)
             # 2. Align cache TTLs with coordinator's user-configured intervals
+            # 3. Schedule background buffer drain (see _drain_modbus_buffers)
             #
-            # NOTE: We intentionally do NOT force an immediate inverter.refresh()
-            # here. asyncio.wait_for() with Python 3.11 does NOT interrupt
-            # in-flight pymodbus reads — it waits for the inner task to finish
-            # before raising TimeoutError. On HA restart, the Waveshare gateway
-            # has stale RS485 responses buffered from the previous session, causing
-            # reads to fail for 3–5 minutes. Forcing a refresh here blocks
-            # async_config_entry_first_refresh() for that entire duration, causing
-            # HA's setup timeout to fire and cancel entity setup (setup_error).
-            # The first regular poll populates _transport_runtime after setup.
+            # NOTE: We intentionally do NOT await inverter.refresh() here.
+            # asyncio.wait_for() with Python 3.11 does NOT interrupt in-flight
+            # pymodbus reads — it waits for the inner task to finish before
+            # raising TimeoutError. On HA restart, the Waveshare gateway has
+            # stale RS485 responses buffered from the previous session, causing
+            # reads to fail for 3–5 minutes. A blocking refresh here hangs
+            # async_config_entry_first_refresh() for that entire duration,
+            # causing HA's setup timeout to fire and cancel entity setup.
+            # Instead, a background task drains the buffer after setup returns.
             validation_enabled = self._data_validation_enabled
+            modbus_inverters: list[Any] = []
             for inverter in self.station.all_inverters:
                 transport = getattr(inverter, "_transport", None)
                 if transport is not None:
                     inverter.validate_data = validation_enabled
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
+                    if tt == "modbus_tcp":
+                        modbus_inverters.append(inverter)
+
+            if modbus_inverters:
+                task = self.hass.async_create_task(
+                    self._drain_modbus_buffers(modbus_inverters)
+                )
+                self._background_tasks.add(task)
+                task.add_done_callback(self._remove_task_from_set)
+                task.add_done_callback(self._log_task_exception)
 
             # Propagate validation to MID devices.  set_max_system_power()
             # cannot be called here because inverter features have not been
@@ -1893,6 +1905,44 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.error("Failed to attach local transports: %s", err)
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
+
+    async def _drain_modbus_buffers(self, inverters: list[Any]) -> None:
+        """Background task: drain stale Waveshare RS485 buffer after HA restart.
+
+        On restart, the Waveshare RS485-to-Ethernet gateway may have buffered
+        stale responses from the previous HA session. These stale responses
+        arrive at pymodbus as mismatched TID/function-code errors, causing
+        read failures until the buffer is consumed.
+
+        asyncio.wait_for() does NOT interrupt in-flight pymodbus reads in
+        Python 3.11, so this cannot block setup. Instead, it runs as a
+        background task that drains the buffer after setup returns — reads
+        fail quickly via pymodbus's own per-read timeout, consuming one
+        stale response per attempt until the buffer is empty.
+
+        The per-read timeout * retries * register groups determines the
+        maximum drain time (typically <60 s for a Waveshare with a few
+        stale frames). Failures are expected and ignored; the regular poll
+        cycle will populate _transport_runtime once reads succeed.
+        """
+        await asyncio.sleep(2)  # Let setup and first static refresh complete
+        for inverter in inverters:
+            try:
+                _LOGGER.debug(
+                    "Draining Modbus buffer for %s after restart",
+                    inverter.serial_number,
+                )
+                await inverter.refresh(force=True)
+                _LOGGER.debug(
+                    "Modbus buffer drained successfully for %s",
+                    inverter.serial_number,
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Modbus buffer drain failed for %s (expected on restart): %s",
+                    inverter.serial_number,
+                    err,
+                )
 
     def get_local_transport(self, serial: str | None = None) -> Any | None:
         """Get the Modbus or Dongle transport for local register operations.
