@@ -62,7 +62,6 @@ PV_INPUT_VALUE_TO_MODE = {idx: label for idx, label in enumerate(PV_INPUT_MODE_O
 # Smart Port mode options (GridBOSS holding register 20, bit-packed 2 bits per port)
 SMART_PORT_MODE_OPTIONS = ["Off", "Smart Load", "AC Couple"]
 SMART_PORT_MODE_TO_VALUE = {"Off": 0, "Smart Load": 1, "AC Couple": 2}
-SMART_PORT_VALUE_TO_MODE = {0: "Off", 1: "Smart Load", 2: "AC Couple"}
 # Sensor status labels → select display labels
 _STATUS_TO_SELECT = {
     "unused": "Off",
@@ -463,7 +462,7 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
         self._attr_name = f"Smart Port {port} Mode"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:electric-switch"
-        self._attr_options = list(SMART_PORT_MODE_OPTIONS)
+        self._attr_options = SMART_PORT_MODE_OPTIONS
 
         self._attr_device_info = create_device_info(serial, self._model)
 
