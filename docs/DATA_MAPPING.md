@@ -347,6 +347,8 @@ Mapping chain: Register → `read_scaled()` → `MidboxRuntimeData` field
 | 5 | `grid_l2_voltage` | `grid_l2_voltage` | `grid_voltage_l2` |
 | 6 | `ups_l1_voltage` | `ups_l1_voltage` | `load_voltage_l1` |
 | 7 | `ups_l2_voltage` | `ups_l2_voltage` | `load_voltage_l2` |
+| 8 | `gen_l1_voltage` | `gen_l1_voltage` | `generator_voltage_l1` |
+| 9 | `gen_l2_voltage` | `gen_l2_voltage` | `generator_voltage_l2` |
 
 ### Current Registers (÷10 → A)
 
@@ -360,6 +362,19 @@ Mapping chain: Register → `read_scaled()` → `MidboxRuntimeData` field
 | 15 | `gen_l2_current` | `gen_l2_current` | `generator_current_l2` |
 | 16 | `ups_l1_current` | `ups_l1_current` | `ups_current_l1` |
 | 17 | `ups_l2_current` | `ups_l2_current` | `ups_current_l2` |
+| 18 | `smart_port1_l1_current` | `smart_port_1_l1_current` | `smart_load1_current_l1` |
+| 19 | `smart_port1_l2_current` | `smart_port_1_l2_current` | `smart_load1_current_l2` |
+| 20 | `smart_port2_l1_current` | `smart_port_2_l1_current` | `smart_load2_current_l1` |
+| 21 | `smart_port2_l2_current` | `smart_port_2_l2_current` | `smart_load2_current_l2` |
+| 22 | `smart_port3_l1_current` | `smart_port_3_l1_current` | `smart_load3_current_l1` |
+| 23 | `smart_port3_l2_current` | `smart_port_3_l2_current` | `smart_load3_current_l2` |
+| 24 | `smart_port4_l1_current` | `smart_port_4_l1_current` | `smart_load4_current_l1` |
+| 25 | `smart_port4_l2_current` | `smart_port_4_l2_current` | `smart_load4_current_l2` |
+
+> **Smart port current:** Like power registers, current registers always contain
+> actual measurements regardless of port mode. When a port is in AC Couple mode
+> (status=2), the coordinator remaps `smart_load{N}_current_l{1,2}` to
+> `ac_couple{N}_current_l{1,2}`. Modbus-only — no cloud API equivalent.
 
 ### Power Registers (signed, W, no scaling)
 
@@ -838,19 +853,21 @@ port entities based on port status from holding register 20 (LOCAL) or API (CLOU
 
 For each port (1-4), based on `smart_port{N}_status`:
 
-| Status | Smart Load Power Keys | AC Couple Power Keys | Energy Keys |
-|--------|----------------------|---------------------|-------------|
-| **0 (Unused)** | Removed | Removed | Removed |
-| **1 (Smart Load)** | `setdefault(key, 0.0)` | `sensors[key] = None` | Only smart_load energy |
-| **2 (AC Couple)** | `sensors[key] = None` | `setdefault(key, 0.0)` | Only ac_couple energy |
+| Status | Smart Load Keys | AC Couple Keys | Current Remap |
+|--------|----------------|----------------|---------------|
+| **0 (Unused)** | All removed | All removed | N/A |
+| **1 (Smart Load)** | Power: `setdefault(0.0)` | All removed | No remap |
+| **2 (AC Couple)** | All removed | Power: `setdefault(0.0)` | `smart_load{N}_current_l{1,2}` → `ac_couple{N}_current_l{1,2}` |
 
-- **Correct-type** sensors: Ensures key exists with real value or 0.0
-- **Wrong-type** sensors: Key set to `None` → entity shows as "Unknown" in HA
+- **Correct-type** power sensors: Ensures key exists with real value or 0.0
 - **Unused** ports: All keys removed → no entities created
+- **AC Couple current remap**: Current register values are always in `smart_load{N}` keys
+  from the mapping function; for AC couple ports, the filter pops the smart_load current
+  value and inserts it under the ac_couple current key
 
 ### Dynamic Keys Affected
 
-The 42 keys in `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS`:
+The 58 keys in `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS`:
 ```
 smart_load{1-4}_power_l{1-2}   (L1/L2 per-port power)
 ac_couple{1-4}_power_l{1-2}    (L1/L2 per-port power)
@@ -858,6 +875,8 @@ smart_load{1-4}_power           (per-port aggregate, computed by _calculate_grid
 ac_couple{1-4}_power            (per-port aggregate, computed by _calculate_gridboss_aggregates)
 smart_load_power                (total across all smart load ports)
 ac_couple_power                 (total across all AC couple ports)
+smart_load{1-4}_current_l{1-2}  (L1/L2 per-port RMS current, Modbus-only)
+ac_couple{1-4}_current_l{1-2}   (L1/L2 per-port RMS current, remapped from smart_load)
 smart_load{1-4}_today           (per-port energy today)
 smart_load{1-4}_total           (per-port energy lifetime)
 ac_couple{1-4}_today            (per-port energy today)
@@ -993,8 +1012,8 @@ available in LOCAL mode.
 | `INVERTER_COMPUTED_KEYS` | 7 | Derived sensors (consumption, battery, EPS split) |
 | `INVERTER_METADATA_KEYS` | 4 | Firmware, transport, host, last_polled |
 | `ALL_INVERTER_SENSOR_KEYS` | 89 | Union of all above |
-| `GRIDBOSS_SENSOR_KEYS` | 81 | All GridBOSS sensor keys (incl. smart port, energy, metadata) |
-| `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS` | 42 | Smart load + AC couple power and energy (L1/L2 power, per-port aggregates, per-port energy today/total, total aggregates) |
+| `GRIDBOSS_SENSOR_KEYS` | 83 | All GridBOSS sensor keys (incl. smart port, energy, metadata) |
+| `GRIDBOSS_SMART_PORT_DYNAMIC_KEYS` | 58 | Smart load + AC couple power, current, and energy (L1/L2 power, L1/L2 current, per-port aggregates, per-port energy today/total, total aggregates) |
 | `PARALLEL_GROUP_SENSOR_KEYS` | 32 | PG power, energy, battery aggregates (incl. grid import/export, battery current) |
 | `PARALLEL_GROUP_GRIDBOSS_KEYS` | 5 | Additional keys from CT overlay |
 
