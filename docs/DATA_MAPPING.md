@@ -437,8 +437,12 @@ based on port status.
 > **Note:** L2 energy registers always read 0 in practice. Aggregate energy
 > sensors (e.g., `ups_today`, `load_today`) are computed by summing L1+L2 in pylxpweb.
 >
-> **Note:** Regs 50-51 are unused/unknown. Smart load daily energy starts at reg 52,
-> not 50. Confirmed by Cloud API ↔ Modbus comparison (issue #146).
+> **Note:** Regs 50-51 are likely generator energy today (L1/L2, ÷10 → kWh), based on
+> the EG4 cloud CSV export which places an `eGenDay` column between `eToUserDay` and
+> `eSmartLoad1Day`. On systems without a generator these registers are always 0, so
+> cloud API ↔ Modbus comparison cannot confirm. Smart load daily block confirmed to
+> start at reg 52 (issue #146). **Community verification needed**: if you have a
+> GridBOSS with an active generator, check whether regs 50-51 accumulate generator kWh.
 
 ### Lifetime Energy Registers (32-bit pairs, ÷10 → kWh)
 
@@ -455,8 +459,11 @@ based on port status.
 | 88-103 | `smart_load{1-4}_energy_total_l{1-2}` | `smart_load{N}_lifetime_l{P}` |
 | 104-118 | `ac_couple{1-4}_energy_total_l{1-2}` | `ac_couple{N}_lifetime_l{P}` |
 
-> **Note:** Regs 84-87 are unused/unknown. Smart load lifetime energy starts at reg 88,
-> not 84. Confirmed by Cloud API ↔ Modbus comparison (issue #146).
+> **Note:** Regs 84-87 are likely generator lifetime energy (two 32-bit pairs, L1/L2,
+> ÷10 → kWh), based on the EG4 cloud CSV export `eGenAll` column. On systems without
+> a generator these registers are always 0. Smart load lifetime confirmed to start at
+> reg 88 (issue #146). **Community verification needed**: check regs 84-85 (32-bit low+high)
+> on a system with accumulated generator kWh.
 >
 > **Warning:** Input registers 105-108 are the HIGH words of 32-bit AC couple
 > lifetime energy, NOT smart port status. See [Section 5](#5-gridboss-holding-register-20-smart-port-status).
