@@ -1744,12 +1744,18 @@ class TestStaticLocalData:
             "transport_host",
         }
 
-        # All mapping keys must be in the constant
-        assert mapping_keys.issubset(GRIDBOSS_SENSOR_KEYS), (
-            f"Mapping has keys not in GRIDBOSS_SENSOR_KEYS: "
-            f"{mapping_keys - GRIDBOSS_SENSOR_KEYS}"
+        # Dynamic smart port keys are conditionally created at runtime
+        # (filtered by _filter_unused_smart_port_sensors), so they live in
+        # GRIDBOSS_SMART_PORT_DYNAMIC_KEYS rather than GRIDBOSS_SENSOR_KEYS.
+        allowed_keys = GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+
+        # All mapping keys must be in the combined set
+        assert mapping_keys.issubset(allowed_keys), (
+            f"Mapping has keys not in GRIDBOSS_SENSOR_KEYS or "
+            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: "
+            f"{mapping_keys - allowed_keys}"
         )
-        # The only extra keys in the constant should be the metadata keys
+        # The only extra keys in the static constant should be the metadata keys
         extra = GRIDBOSS_SENSOR_KEYS - mapping_keys
         assert extra == gridboss_metadata, (
             f"Unexpected extra keys in GRIDBOSS_SENSOR_KEYS: "
@@ -3532,14 +3538,16 @@ class TestMappingKeyConsistency:
     """
 
     def test_gridboss_local_keys_subset_of_static(self):
-        """LOCAL _build_gridboss_sensor_mapping() keys ⊆ GRIDBOSS_SENSOR_KEYS."""
+        """LOCAL _build_gridboss_sensor_mapping() keys ⊆ static + dynamic sets."""
         # Create a mock MID device where every attribute returns a sentinel
         mock_mid = MagicMock()
         sensors = _build_gridboss_sensor_mapping(mock_mid)
         local_keys = set(sensors.keys())
-        unknown = local_keys - GRIDBOSS_SENSOR_KEYS
+        allowed = GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        unknown = local_keys - allowed
         assert not unknown, (
-            f"LOCAL GridBOSS keys not in GRIDBOSS_SENSOR_KEYS: {sorted(unknown)}"
+            f"LOCAL GridBOSS keys not in GRIDBOSS_SENSOR_KEYS or "
+            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: {sorted(unknown)}"
         )
 
     def test_gridboss_http_values_within_known_keys(self):
@@ -3577,10 +3585,14 @@ class TestMappingKeyConsistency:
 
         property_map = DeviceProcessingMixin._get_mid_device_property_map()
         http_keys = set(property_map.values())
-        unknown = http_keys - GRIDBOSS_SENSOR_KEYS - http_only_keys
+        allowed = (
+            GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | http_only_keys
+        )
+        unknown = http_keys - allowed
         assert not unknown, (
-            f"HTTP GridBOSS sensor keys not in GRIDBOSS_SENSOR_KEYS or "
-            f"known HTTP-only set: {sorted(unknown)}"
+            f"HTTP GridBOSS sensor keys not in GRIDBOSS_SENSOR_KEYS, "
+            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS, or known HTTP-only set: "
+            f"{sorted(unknown)}"
         )
 
     def test_gridboss_local_and_http_share_core_keys(self):

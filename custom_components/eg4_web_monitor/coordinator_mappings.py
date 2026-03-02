@@ -398,7 +398,15 @@ GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
         f"{prefix}{port}_{suffix}"
         for prefix in ("smart_load", "ac_couple")
         for port in range(1, 5)
-        for suffix in ("power_l1", "power_l2", "power", "today", "total")
+        for suffix in (
+            "power_l1",
+            "power_l2",
+            "power",
+            "current_l1",
+            "current_l2",
+            "today",
+            "total",
+        )
     ]
     + ["smart_load_power", "ac_couple_power"]
 )
@@ -884,6 +892,17 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
         "smart_load3_power_l2": mid_device.smart_load3_l2_power,
         "smart_load4_power_l1": mid_device.smart_load4_l1_power,
         "smart_load4_power_l2": mid_device.smart_load4_l2_power,
+        # Smart port current (L1/L2) — Modbus only, regs 18-25
+        # Mapped as smart_load by default; _filter_unused_smart_port_sensors()
+        # will remap to ac_couple keys for ports in AC Couple mode.
+        "smart_load1_current_l1": mid_device.smart_port1_l1_current,
+        "smart_load1_current_l2": mid_device.smart_port1_l2_current,
+        "smart_load2_current_l1": mid_device.smart_port2_l1_current,
+        "smart_load2_current_l2": mid_device.smart_port2_l2_current,
+        "smart_load3_current_l1": mid_device.smart_port3_l1_current,
+        "smart_load3_current_l2": mid_device.smart_port3_l2_current,
+        "smart_load4_current_l1": mid_device.smart_port4_l1_current,
+        "smart_load4_current_l2": mid_device.smart_port4_l2_current,
         # AC couple power (L1/L2)
         "ac_couple1_power_l1": mid_device.ac_couple1_l1_power,
         "ac_couple1_power_l2": mid_device.ac_couple1_l2_power,

@@ -1336,6 +1336,16 @@ class DeviceProcessingMixin(_MixinBase):
             "smart_port2_status": "smart_port2_status",
             "smart_port3_status": "smart_port3_status",
             "smart_port4_status": "smart_port4_status",
+            # Smart Port Current sensors (Modbus regs 18-25, local-only)
+            # Mapped as smart_load by default; filter remaps to ac_couple
+            "smart_port1_l1_current": "smart_load1_current_l1",
+            "smart_port1_l2_current": "smart_load1_current_l2",
+            "smart_port2_l1_current": "smart_load2_current_l1",
+            "smart_port2_l2_current": "smart_load2_current_l2",
+            "smart_port3_l1_current": "smart_load3_current_l1",
+            "smart_port3_l2_current": "smart_load3_current_l2",
+            "smart_port4_l1_current": "smart_load4_current_l1",
+            "smart_port4_l2_current": "smart_load4_current_l2",
             # Smart Load Power sensors (runtime data - L1/L2 have valid data)
             # Property names match MIDRuntimePropertiesMixin in pylxpweb 0.5.5+
             "smart_load1_l1_power": "smart_load1_power_l1",
@@ -1493,45 +1503,48 @@ class DeviceProcessingMixin(_MixinBase):
 
         sensors_to_remove: list[str] = []
         for port, status in smart_port_statuses.items():
-            smart_load_power_keys = [
+            # Build per-port key groups for smart_load and ac_couple
+            smart_load_keys = [
                 f"smart_load{port}_power_l1",
                 f"smart_load{port}_power_l2",
                 f"smart_load{port}_power",
-            ]
-            smart_load_energy_keys = [
+                f"smart_load{port}_current_l1",
+                f"smart_load{port}_current_l2",
                 f"smart_load{port}_today",
                 f"smart_load{port}_total",
             ]
-            ac_couple_power_keys = [
+            ac_couple_keys = [
                 f"ac_couple{port}_power_l1",
                 f"ac_couple{port}_power_l2",
                 f"ac_couple{port}_power",
-            ]
-            ac_couple_energy_keys = [
+                f"ac_couple{port}_current_l1",
+                f"ac_couple{port}_current_l2",
                 f"ac_couple{port}_today",
                 f"ac_couple{port}_total",
             ]
 
             if status is None or status not in _SMART_PORT_STATUS_LABELS or status == 0:
                 # Unused or invalid port - remove all sensors
-                sensors_to_remove.extend(smart_load_power_keys)
-                sensors_to_remove.extend(smart_load_energy_keys)
-                sensors_to_remove.extend(ac_couple_power_keys)
-                sensors_to_remove.extend(ac_couple_energy_keys)
+                sensors_to_remove.extend(smart_load_keys)
+                sensors_to_remove.extend(ac_couple_keys)
             elif status == 1:
                 # Smart Load mode: ensure smart_load power keys exist,
-                # remove ac_couple power + energy (wrong type for this port)
-                for key in smart_load_power_keys:
+                # remove ac_couple sensors (wrong type for this port)
+                for key in smart_load_keys[:3]:  # power_l1, power_l2, power
                     sensors.setdefault(key, 0.0)
-                sensors_to_remove.extend(ac_couple_power_keys)
-                sensors_to_remove.extend(ac_couple_energy_keys)
+                sensors_to_remove.extend(ac_couple_keys)
             elif status == 2:
-                # AC Couple mode: ensure ac_couple power keys exist,
-                # remove smart_load power + energy (wrong type for this port)
-                for key in ac_couple_power_keys:
+                # AC Couple mode: remap smart_load current → ac_couple current,
+                # ensure ac_couple power keys exist,
+                # remove smart_load sensors (wrong type for this port)
+                for key in ac_couple_keys[:3]:  # power_l1, power_l2, power
                     sensors.setdefault(key, 0.0)
-                sensors_to_remove.extend(smart_load_power_keys)
-                sensors_to_remove.extend(smart_load_energy_keys)
+                # Remap current values from smart_load to ac_couple
+                for phase in ("l1", "l2"):
+                    val = sensors.pop(f"smart_load{port}_current_{phase}", None)
+                    if val is not None:
+                        sensors[f"ac_couple{port}_current_{phase}"] = val
+                sensors_to_remove.extend(smart_load_keys)
 
         if sensors_to_remove:
             _LOGGER.debug(
