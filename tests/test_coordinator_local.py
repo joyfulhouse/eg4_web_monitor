@@ -504,14 +504,23 @@ class TestAttachLocalTransports:
 
 
 class TestAttachForcedTransportRead:
-    """Test forced transport read after HYBRID attachment."""
+    """Test transport attachment does NOT issue a forced read.
+
+    asyncio.wait_for() with Python 3.11 does not interrupt in-flight pymodbus
+    reads — it waits for the inner task to finish before raising TimeoutError.
+    On HA restart the Waveshare gateway has stale RS485 responses buffered,
+    causing reads to fail for 3–5 minutes. A forced refresh here would block
+    async_config_entry_first_refresh() for the entire duration, causing HA's
+    setup timeout to fire and cancel entity setup (setup_error). Data is
+    populated by the first regular poll instead.
+    """
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
-    async def test_attach_forces_transport_read(
+    async def test_attach_does_not_force_transport_read(
         self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
     ):
-        """refresh(force=True) called for attached inverters after attachment."""
+        """No refresh() call is issued after transport attachment."""
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
@@ -540,14 +549,15 @@ class TestAttachForcedTransportRead:
             await coordinator._attach_local_transports_to_station()
 
         assert coordinator._local_transports_attached is True
-        mock_inverter.refresh.assert_called_once_with(force=True)
+        # No forced read — data will be populated on the first regular poll
+        mock_inverter.refresh.assert_not_called()
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
-    async def test_attach_force_refresh_failure_nonfatal(
+    async def test_attach_completes_when_inverter_has_no_transport(
         self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
     ):
-        """Exception in forced refresh logged but attachment still succeeds."""
+        """Attachment loop handles inverters without a transport gracefully."""
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
@@ -558,10 +568,11 @@ class TestAttachForcedTransportRead:
         mock_result.unmatched_serials = []
         mock_result.failed_serials = []
 
+        # Inverter with no transport attached (e.g. unmatched serial)
         mock_inverter = MagicMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = None
         mock_inverter.serial_number = "1234567890"
-        mock_inverter.refresh = AsyncMock(side_effect=ConnectionError("timeout"))
+        mock_inverter.refresh = AsyncMock()
 
         mock_station = MagicMock()
         mock_station.attach_local_transports = AsyncMock(return_value=mock_result)
@@ -575,8 +586,9 @@ class TestAttachForcedTransportRead:
         ):
             await coordinator._attach_local_transports_to_station()
 
-        # Attachment still succeeds despite force-refresh failure
+        # Attachment still marks as attached; no refresh for transportless inverter
         assert coordinator._local_transports_attached is True
+        mock_inverter.refresh.assert_not_called()
 
 
 # ── _log_transport_error ─────────────────────────────────────────────

@@ -1855,8 +1855,16 @@ class LocalTransportMixin(_MixinBase):
             # Configure each inverter with a local transport:
             # 1. Propagate data validation (prevents GridBOSS data spikes)
             # 2. Align cache TTLs with coordinator's user-configured intervals
-            # 3. Force initial transport read so _transport_runtime is
-            #    populated on the first _process_station_data() call
+            #
+            # NOTE: We intentionally do NOT force an immediate inverter.refresh()
+            # here. asyncio.wait_for() with Python 3.11 does NOT interrupt
+            # in-flight pymodbus reads — it waits for the inner task to finish
+            # before raising TimeoutError. On HA restart, the Waveshare gateway
+            # has stale RS485 responses buffered from the previous session, causing
+            # reads to fail for 3–5 minutes. Forcing a refresh here blocks
+            # async_config_entry_first_refresh() for that entire duration, causing
+            # HA's setup timeout to fire and cancel entity setup (setup_error).
+            # The first regular poll populates _transport_runtime after setup.
             validation_enabled = self._data_validation_enabled
             for inverter in self.station.all_inverters:
                 transport = getattr(inverter, "_transport", None)
@@ -1864,23 +1872,6 @@ class LocalTransportMixin(_MixinBase):
                     inverter.validate_data = validation_enabled
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
-                    try:
-                        # 10-second timeout: Waveshare may have stale RS485
-                        # responses from the previous HA session that arrive
-                        # after pymodbus's per-read timeout fires. Bounding the
-                        # whole refresh prevents a 2–5 minute setup hang when
-                        # several register groups fail in sequence. The first
-                        # regular poll (5 s) completes this read after the bus
-                        # clears.
-                        await asyncio.wait_for(
-                            inverter.refresh(force=True), timeout=10.0
-                        )
-                    except (TimeoutError, Exception):
-                        _LOGGER.warning(
-                            "HYBRID: forced transport read timed out or failed for %s "
-                            "(will complete on first poll)",
-                            inverter.serial_number,
-                        )
 
             # Propagate validation to MID devices.  set_max_system_power()
             # cannot be called here because inverter features have not been
