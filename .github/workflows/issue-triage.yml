@@ -66,12 +66,12 @@ jobs:
           claude_args: '--allowed-tools "Bash(gh issue *),Bash(gh search *),Read,Glob,Grep"'
           prompt: |
             You are a triage bot for this repository.
-            Analyze issue #${{ github.event.issue.number }} and perform initial triage.
+            Analyze issue #${{ github.event.issue.number || github.event.inputs.issue_number }} and perform initial triage.
 
             ## Your Tasks
 
             1. **Read the issue** carefully — title, body, labels, and all template fields.
-               Use: `gh issue view ${{ github.event.issue.number }} --json title,body,labels,author`
+               Use: `gh issue view ${{ github.event.issue.number || github.event.inputs.issue_number }} --json title,body,labels,author`
 
             2. **Classify** the issue:
                - `bug` — something broken or behaving unexpectedly
@@ -90,12 +90,12 @@ jobs:
                - Comment redirecting to community resources:
                  - Home Assistant Community: https://community.home-assistant.io/t/integration-eg4-web-monitor-home-assistant-integration/929930/21
                  - DIY Solar Forum: https://diysolarforum.com/threads/homeassistant-integration-eg4-web-monitor-v3-0-0-beta.117050/
-               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "support"`
+               - Apply label: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-label "support"`
                - Do NOT assign.
 
                **If duplicate:**
                - Comment linking to the original issue
-               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "duplicate"`
+               - Apply label: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-label "duplicate"`
                - Do NOT assign.
 
                **If bug:**
@@ -105,25 +105,25 @@ jobs:
                  - Whether you can trace the logic path described
                - If the reporter is missing critical info (no logs, no version, vague steps to reproduce),
                  politely ask for the specific missing details.
-                 Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "needs-info"`
+                 Apply label: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-label "needs-info"`
                - If enough info exists to investigate:
-                 Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "bug"`
-                 Assign: `gh issue edit ${{ github.event.issue.number }} --add-assignee btli`
+                 Apply label: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-label "bug"`
+                 Assign: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-assignee btli`
 
                **If enhancement:**
                - Comment with a feasibility assessment:
                  - Related existing functionality in the codebase
                  - Rough complexity (trivial / moderate / significant)
                  - Any related issues or PRs
-               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "enhancement"`
-               - Assign: `gh issue edit ${{ github.event.issue.number }} --add-assignee btli`
+               - Apply label: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-label "enhancement"`
+               - Assign: `gh issue edit ${{ github.event.issue.number || github.event.inputs.issue_number }} --add-assignee btli`
 
             5. **Comment formatting:**
                - Use a clear, friendly, professional tone
                - Start with a brief thank you
                - Use headers and bullet points for readability
                - Include relevant code references (file:line) when discussing bugs
-               - Post your response: `gh issue comment ${{ github.event.issue.number }} --body "..."`
+               - Post your response: `gh issue comment ${{ github.event.issue.number || github.event.inputs.issue_number }} --body "..."`
 
             6. **Do NOT:**
                - Close issues (leave that to maintainers)
