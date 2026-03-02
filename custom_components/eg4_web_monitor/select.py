@@ -19,7 +19,11 @@ else:
     )
 
 from . import EG4ConfigEntry
-from .const import PARAM_HOLD_PV_INPUT_MODE, SUPPORTED_INVERTER_MODELS
+from .const import (
+    DEVICE_TYPE_GRIDBOSS,
+    PARAM_HOLD_PV_INPUT_MODE,
+    SUPPORTED_INVERTER_MODELS,
+)
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     create_device_info,
@@ -54,6 +58,17 @@ PV_INPUT_MODE_OPTIONS = [
 # Bidirectional mapping: label <-> register value
 PV_INPUT_MODE_TO_VALUE = {label: idx for idx, label in enumerate(PV_INPUT_MODE_OPTIONS)}
 PV_INPUT_VALUE_TO_MODE = {idx: label for idx, label in enumerate(PV_INPUT_MODE_OPTIONS)}
+
+# Smart Port mode options (GridBOSS holding register 20, bit-packed 2 bits per port)
+SMART_PORT_MODE_OPTIONS = ["Off", "Smart Load", "AC Couple"]
+SMART_PORT_MODE_TO_VALUE = {"Off": 0, "Smart Load": 1, "AC Couple": 2}
+SMART_PORT_VALUE_TO_MODE = {0: "Off", 1: "Smart Load", 2: "AC Couple"}
+# Sensor status labels → select display labels
+_STATUS_TO_SELECT = {
+    "unused": "Off",
+    "smart_load": "Smart Load",
+    "ac_couple": "AC Couple",
+}
 
 
 async def async_setup_entry(
@@ -105,9 +120,17 @@ async def async_setup_entry(
                     serial,
                     model,
                 )
+        elif device_type == DEVICE_TYPE_GRIDBOSS:
+            for port in range(1, 5):
+                entities.append(
+                    EG4SmartPortModeSelect(coordinator, serial, device_data, port)
+                )
+            _LOGGER.debug("Added 4 smart port mode selects for GridBOSS %s", serial)
         else:
             _LOGGER.debug(
-                "Skipping device %s - not an inverter (type: %s)", serial, device_type
+                "Skipping device %s - not an inverter or GridBOSS (type: %s)",
+                serial,
+                device_type,
             )
 
     if entities:
@@ -394,6 +417,138 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
                 e,
             )
             # Revert optimistic state on error
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
+    """Select to control GridBOSS smart port mode (Off/Smart Load/AC Couple).
+
+    Controls holding register 20 (bit-packed, 2 bits per port).
+    Supports both local Modbus and cloud API write paths.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        device_data: dict[str, Any],
+        port: int,
+    ) -> None:
+        """Initialize the smart port mode select."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+
+        self._serial = serial
+        self._device_data = device_data
+        self._port = port
+
+        # Optimistic state for immediate UI feedback
+        self._optimistic_state: str | None = None
+
+        self._model = (
+            (coordinator.data or {})
+            .get("devices", {})
+            .get(serial, {})
+            .get("model", "GridBOSS")
+        )
+
+        self._attr_unique_id = generate_unique_id(serial, f"smart_port{port}_mode")
+        self._attr_entity_id = generate_entity_id(
+            "select", self._model, serial, f"smart_port_{port}_mode"
+        )
+
+        self._attr_has_entity_name = True
+        self._attr_name = f"Smart Port {port} Mode"
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_icon = "mdi:electric-switch"
+        self._attr_options = list(SMART_PORT_MODE_OPTIONS)
+
+        self._attr_device_info = create_device_info(serial, self._model)
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current smart port mode."""
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            sensors = (
+                self.coordinator.data["devices"]
+                .get(self._serial, {})
+                .get("sensors", {})
+            )
+            status_label = sensors.get(f"smart_port{self._port}_status")
+            if status_label is not None:
+                return _STATUS_TO_SELECT.get(str(status_label))
+
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            return bool(device_data.get("type") == DEVICE_TYPE_GRIDBOSS)
+        return False
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the smart port mode via local Modbus or cloud API."""
+        if option not in SMART_PORT_MODE_TO_VALUE:
+            raise HomeAssistantError(f"Invalid smart port mode: {option}")
+
+        int_value = SMART_PORT_MODE_TO_VALUE[option]
+
+        try:
+            _LOGGER.info(
+                "Setting smart port %d mode to %s (%d) for device %s",
+                self._port,
+                option,
+                int_value,
+                self._serial,
+            )
+
+            self._optimistic_state = option
+            self.async_write_ha_state()
+
+            if self.coordinator.has_local_transport(self._serial):
+                await self.coordinator.write_named_parameter(
+                    f"BIT_MIDBOX_SP_MODE_{self._port}",
+                    int_value,
+                    serial=self._serial,
+                )
+            elif self.coordinator.client is not None:
+                result = await self.coordinator.client.api.control.set_smart_port_mode(
+                    self._serial, self._port, int_value
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set smart port {self._port} mode to {option}"
+                    )
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+
+            _LOGGER.info(
+                "Successfully set smart port %d mode to %s for device %s",
+                self._port,
+                option,
+                self._serial,
+            )
+
+            self._optimistic_state = None
+            await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set smart port %d mode to %s for device %s: %s",
+                self._port,
+                option,
+                self._serial,
+                e,
+            )
             self._optimistic_state = None
             self.async_write_ha_state()
             raise

@@ -554,6 +554,22 @@ class DeviceProcessingMixin(_MixinBase):
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 sensors["total_load_power"] = val
 
+        # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
+        # Cloud API does not provide per-leg EPS energy; only available via Modbus.
+        transport_energy = getattr(inverter, "_transport_energy", None)
+        if transport_energy is not None:
+            sensors = processed["sensors"]
+            _ENERGY_OVERLAY = (
+                ("eps_energy_today_l1", "eps_l1_energy_today"),
+                ("eps_energy_today_l2", "eps_l2_energy_today"),
+                ("eps_energy_total_l1", "eps_l1_energy_total"),
+                ("eps_energy_total_l2", "eps_l2_energy_total"),
+            )
+            for sensor_key, energy_attr in _ENERGY_OVERLAY:
+                value = getattr(transport_energy, energy_attr, None)
+                if value is not None:
+                    sensors[sensor_key] = value
+
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version
 
