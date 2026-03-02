@@ -6,3 +6,6 @@ contact_links:
   - name: DIY Solar Forum
     url: https://diysolarforum.com/threads/homeassistant-integration-eg4-web-monitor-v3-0-0-beta.117050/
     about: For inverter, energy, and solar system questions
+  - name: Discord
+    url: https://discord.com/channels/1468938768697266264/1468938888612548766
+    about: For real-time discussion and community support
