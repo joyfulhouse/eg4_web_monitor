@@ -780,6 +780,17 @@ class DeviceProcessingMixin(_MixinBase):
             "eps_power": "eps_power",
             "eps_power_l1": "eps_power_l1",
             "eps_power_l2": "eps_power_l2",
+            "eps_apparent_power_l1": "eps_apparent_power_l1",
+            "eps_apparent_power_l2": "eps_apparent_power_l2",
+            # US split-phase per-leg power
+            "inverter_power_l1": "inverter_power_l1",
+            "inverter_power_l2": "inverter_power_l2",
+            "rectifier_power_l1": "rectifier_power_l1",
+            "rectifier_power_l2": "rectifier_power_l2",
+            "grid_export_power_l1": "grid_export_power_l1",
+            "grid_export_power_l2": "grid_export_power_l2",
+            "grid_import_power_l1": "grid_import_power_l1",
+            "grid_import_power_l2": "grid_import_power_l2",
             # Voltage sensors
             "pv1_voltage": "pv1_voltage",
             "pv2_voltage": "pv2_voltage",
@@ -792,6 +803,8 @@ class DeviceProcessingMixin(_MixinBase):
             "eps_voltage_s": "eps_voltage_s",
             "eps_voltage_t": "eps_voltage_t",
             "generator_voltage": "generator_voltage",
+            "generator_l1_voltage": "generator_voltage_l1",
+            "generator_l2_voltage": "generator_voltage_l2",
             "bus1_voltage": "bus1_voltage",
             "bus2_voltage": "bus2_voltage",
             # Frequency sensors

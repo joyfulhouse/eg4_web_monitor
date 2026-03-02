@@ -311,9 +311,6 @@ class LocalTransportMixin(_MixinBase):
             device_data["sensors"]["rectifier_power"] = val
         if (val := inverter.power_to_user) is not None:
             device_data["sensors"]["grid_import_power"] = val
-        # EPS per-leg power (computed from total EPS + voltage ratio)
-        device_data["sensors"]["eps_power_l1"] = inverter.eps_power_l1
-        device_data["sensors"]["eps_power_l2"] = inverter.eps_power_l2
 
         transport = getattr(inverter, "_transport", None)
         if transport and hasattr(transport, "host"):
@@ -961,9 +958,6 @@ class LocalTransportMixin(_MixinBase):
                     sensors["rectifier_power"] = val
                 if (val := inverter.power_to_user) is not None:
                     sensors["grid_import_power"] = val
-                # EPS per-leg power (computed from total EPS + voltage ratio)
-                sensors["eps_power_l1"] = inverter.eps_power_l1
-                sensors["eps_power_l2"] = inverter.eps_power_l2
 
                 # Add last_polled timestamp so users can see when data was last fetched
                 # (not just when it last changed)

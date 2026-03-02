@@ -179,6 +179,22 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "grid_current_l3",
         "max_charge_current",
         "max_discharge_current",
+        # EPS per-leg (split-phase, regs 129-132)
+        "eps_power_l1",
+        "eps_power_l2",
+        "eps_apparent_power_l1",
+        "eps_apparent_power_l2",
+        # US split-phase per-leg power (regs 195-204)
+        "inverter_power_l1",
+        "inverter_power_l2",
+        "rectifier_power_l1",
+        "rectifier_power_l2",
+        "grid_export_power_l1",
+        "grid_export_power_l2",
+        "grid_import_power_l1",
+        "grid_import_power_l2",
+        "generator_voltage_l1",
+        "generator_voltage_l2",
     }
 )
 
@@ -196,6 +212,11 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "grid_import_lifetime",
         "grid_export_lifetime",
         "consumption_lifetime",
+        # EPS per-leg energy (split-phase, regs 133-138)
+        "eps_energy_today_l1",
+        "eps_energy_today_l2",
+        "eps_energy_total_l1",
+        "eps_energy_total_l2",
     }
 )
 
@@ -256,8 +277,6 @@ INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
         "battery_power",
         "rectifier_power",
         "grid_import_power",
-        "eps_power_l1",
-        "eps_power_l2",
         "grid_voltage",
         "eps_voltage",
     }
@@ -312,6 +331,8 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
         "generator_power_l2",
         "generator_current_l1",
         "generator_current_l2",
+        "generator_voltage_l1",
+        "generator_voltage_l2",
         "hybrid_power",
         "phase_lock_frequency",
         "off_grid",
@@ -476,6 +497,11 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "eps_voltage_l2": runtime_data.eps_l2_voltage,
         "eps_frequency": runtime_data.eps_frequency,
         "eps_power": runtime_data.eps_power,
+        # EPS per-leg power (split-phase, regs 129-132)
+        "eps_power_l1": runtime_data.eps_l1_power,
+        "eps_power_l2": runtime_data.eps_l2_power,
+        "eps_apparent_power_l1": runtime_data.eps_l1_apparent_power,
+        "eps_apparent_power_l2": runtime_data.eps_l2_apparent_power,
         # Note: consumption_power is NOT set here - it's computed by the coordinator
         # using inverter.consumption_power (energy balance calculation from pylxpweb)
         # Output power (split-phase total)
@@ -484,6 +510,17 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "generator_voltage": runtime_data.generator_voltage,
         "generator_frequency": runtime_data.generator_frequency,
         "generator_power": runtime_data.generator_power,
+        # US split-phase per-leg power (regs 195-204)
+        "generator_voltage_l1": runtime_data.generator_l1_voltage,
+        "generator_voltage_l2": runtime_data.generator_l2_voltage,
+        "inverter_power_l1": runtime_data.inverter_power_l1,
+        "inverter_power_l2": runtime_data.inverter_power_l2,
+        "rectifier_power_l1": runtime_data.rectifier_power_l1,
+        "rectifier_power_l2": runtime_data.rectifier_power_l2,
+        "grid_export_power_l1": runtime_data.grid_export_power_l1,
+        "grid_export_power_l2": runtime_data.grid_export_power_l2,
+        "grid_import_power_l1": runtime_data.grid_import_power_l1,
+        "grid_import_power_l2": runtime_data.grid_import_power_l2,
         # Bus voltages
         "bus1_voltage": runtime_data.bus_voltage_1,
         "bus2_voltage": runtime_data.bus_voltage_2,
@@ -587,6 +624,11 @@ def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
             energy_data.charge_energy_total,
             energy_data.grid_export_total,
         ),
+        # EPS per-leg energy (split-phase, regs 133-138)
+        "eps_energy_today_l1": energy_data.eps_l1_energy_today,
+        "eps_energy_today_l2": energy_data.eps_l2_energy_today,
+        "eps_energy_total_l1": energy_data.eps_l1_energy_total,
+        "eps_energy_total_l2": energy_data.eps_l2_energy_total,
     }
 
 
@@ -810,6 +852,8 @@ def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
         "generator_power_l2": mid_device.generator_l2_power,
         "generator_current_l1": mid_device.generator_l1_current,
         "generator_current_l2": mid_device.generator_l2_current,
+        "generator_voltage_l1": mid_device.generator_l1_voltage,
+        "generator_voltage_l2": mid_device.generator_l2_voltage,
         # Other sensors
         "hybrid_power": mid_device.hybrid_power,
         "phase_lock_frequency": mid_device.phase_lock_frequency,

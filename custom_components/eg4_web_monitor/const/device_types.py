@@ -108,6 +108,24 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "grid_voltage_l1",
         "grid_voltage_l2",
         "output_power",
+        # EPS per-leg apparent power and energy
+        "eps_apparent_power_l1",
+        "eps_apparent_power_l2",
+        "eps_energy_today_l1",
+        "eps_energy_today_l2",
+        "eps_energy_total_l1",
+        "eps_energy_total_l2",
+        # Per-leg grid power breakdowns
+        "inverter_power_l1",
+        "inverter_power_l2",
+        "rectifier_power_l1",
+        "rectifier_power_l2",
+        "grid_export_power_l1",
+        "grid_export_power_l2",
+        "grid_import_power_l1",
+        "grid_import_power_l2",
+        "generator_voltage_l1",
+        "generator_voltage_l2",
     }
 )
 

@@ -546,6 +546,54 @@
       "eps_power_l2": {
         "name": "Potenza EPS L2"
       },
+      "eps_apparent_power_l1": {
+        "name": "EPS Apparent Power L1"
+      },
+      "eps_apparent_power_l2": {
+        "name": "EPS Apparent Power L2"
+      },
+      "eps_energy_today_l1": {
+        "name": "EPS Energy Today L1"
+      },
+      "eps_energy_today_l2": {
+        "name": "EPS Energy Today L2"
+      },
+      "eps_energy_total_l1": {
+        "name": "EPS Energy Total L1"
+      },
+      "eps_energy_total_l2": {
+        "name": "EPS Energy Total L2"
+      },
+      "inverter_power_l1": {
+        "name": "Inverter Power L1"
+      },
+      "inverter_power_l2": {
+        "name": "Inverter Power L2"
+      },
+      "rectifier_power_l1": {
+        "name": "Rectifier Power L1"
+      },
+      "rectifier_power_l2": {
+        "name": "Rectifier Power L2"
+      },
+      "grid_export_power_l1": {
+        "name": "Grid Export Power L1"
+      },
+      "grid_export_power_l2": {
+        "name": "Grid Export Power L2"
+      },
+      "grid_import_power_l1": {
+        "name": "Grid Import Power L1"
+      },
+      "grid_import_power_l2": {
+        "name": "Grid Import Power L2"
+      },
+      "generator_voltage_l1": {
+        "name": "Generator Voltage L1"
+      },
+      "generator_voltage_l2": {
+        "name": "Generator Voltage L2"
+      },
       "power_output": {
         "name": "Potenza in Uscita"
       },
