@@ -5,6 +5,33 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0-rc.3] - 2026-03-02
+
+### Fixed
+
+- **HYBRID mode setup hang on HA restart**: Removed forced Modbus read from transport
+  attachment. Python 3.11's `asyncio.wait_for()` does not interrupt in-flight pymodbus
+  reads — it waits for the inner task to finish before raising `TimeoutError`. On HA restart
+  the Waveshare RS485-to-Ethernet gateway has stale RS485 responses buffered from the
+  previous session, causing reads to fail for 3–5 minutes. The forced read blocked
+  `async_config_entry_first_refresh()` for that duration, exhausting HA's setup stage
+  timeout and cancelling entity setup (`setup_error`). First regular poll now populates
+  transport data after the Waveshare bus clears (~5s after setup).
+
+### Added
+
+- **GridBOSS smart port mode select entities**: New `select` entities for configuring
+  each GridBOSS smart port (1–4) between Off, Smart Load, and AC Couple modes. Writes
+  to holding register 20 bit fields.
+
+## [3.2.0-rc.2] - 2026-02-27
+
+### Fixed
+
+- **Register 179/233 mappings**: Corrected two previously unmapped holding registers
+- **Three-phase sensor fix**: Resolved incorrect sensor availability for three-phase inverters
+- **battery_bank_count**: Fixed incorrect battery bank count sensor value
+
 ## [3.2.0-rc.1] - 2026-02-27
 
 ### Added
