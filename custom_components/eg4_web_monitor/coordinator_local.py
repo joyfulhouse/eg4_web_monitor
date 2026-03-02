@@ -1865,10 +1865,20 @@ class LocalTransportMixin(_MixinBase):
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
                     try:
-                        await inverter.refresh(force=True)
-                    except Exception:
+                        # 10-second timeout: Waveshare may have stale RS485
+                        # responses from the previous HA session that arrive
+                        # after pymodbus's per-read timeout fires. Bounding the
+                        # whole refresh prevents a 2–5 minute setup hang when
+                        # several register groups fail in sequence. The first
+                        # regular poll (5 s) completes this read after the bus
+                        # clears.
+                        await asyncio.wait_for(
+                            inverter.refresh(force=True), timeout=10.0
+                        )
+                    except (TimeoutError, Exception):
                         _LOGGER.warning(
-                            "HYBRID: forced transport read failed for %s",
+                            "HYBRID: forced transport read timed out or failed for %s "
+                            "(will complete on first poll)",
                             inverter.serial_number,
                         )
 
