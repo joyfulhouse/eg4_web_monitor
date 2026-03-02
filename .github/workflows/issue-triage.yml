@@ -1,0 +1,126 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  rate-limit-check:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Check issue rate limit
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_USER: ${{ github.event.issue.user.login }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Get timestamp 24 hours ago (Linux and macOS compatible)
+          SINCE=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+              || date -u -v-24H '+%Y-%m-%dT%H:%M:%SZ')
+
+          COUNT=$(gh api "repos/${REPO}/issues?creator=${ISSUE_USER}&since=${SINCE}&state=all&per_page=100" \
+            --jq 'length')
+
+          echo "User ${ISSUE_USER} has opened ${COUNT} issues in the last 24h"
+
+          if [ "$COUNT" -gt 2 ]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            gh issue comment "$ISSUE_NUMBER" \
+              --repo "$REPO" \
+              --body "Thank you for your report. You've opened several issues recently — please allow time for the team to review existing issues before opening new ones. We'll get to this soon."
+          else
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  triage:
+    needs: rate-limit-check
+    if: needs.rate-limit-check.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Triage
+        uses: anthropics/claude-code-action@v1
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowed-tools "Bash(gh issue *),Bash(gh search *),Read,Glob,Grep"'
+          prompt: |
+            You are a triage bot for this repository.
+            Analyze issue #${{ github.event.issue.number }} and perform initial triage.
+
+            ## Your Tasks
+
+            1. **Read the issue** carefully — title, body, labels, and all template fields.
+               Use: `gh issue view ${{ github.event.issue.number }} --json title,body,labels,author`
+
+            2. **Classify** the issue:
+               - `bug` — something broken or behaving unexpectedly
+               - `enhancement` — feature request or improvement
+               - `support` — general question or setup help (redirect to community)
+               - `duplicate` — similar to an existing open issue
+
+            3. **Research the codebase** relevant to the issue:
+               - Search for related files, functions, and recent changes
+               - Check if the described behavior matches the code
+               - Look for related open/closed issues with `gh search issues`
+
+            4. **Take action based on classification:**
+
+               **If support question:**
+               - Comment redirecting to community resources:
+                 - Home Assistant Community: https://community.home-assistant.io/t/integration-eg4-web-monitor-home-assistant-integration/929930/21
+                 - DIY Solar Forum: https://diysolarforum.com/threads/homeassistant-integration-eg4-web-monitor-v3-0-0-beta.117050/
+               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "support"`
+               - Do NOT assign.
+
+               **If duplicate:**
+               - Comment linking to the original issue
+               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "duplicate"`
+               - Do NOT assign.
+
+               **If bug:**
+               - Comment with your analysis:
+                 - What you found in the codebase
+                 - Relevant files and functions
+                 - Whether you can trace the logic path described
+               - If the reporter is missing critical info (no logs, no version, vague steps to reproduce),
+                 politely ask for the specific missing details.
+                 Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "needs-info"`
+               - If enough info exists to investigate:
+                 Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "bug"`
+                 Assign: `gh issue edit ${{ github.event.issue.number }} --add-assignee btli`
+
+               **If enhancement:**
+               - Comment with a feasibility assessment:
+                 - Related existing functionality in the codebase
+                 - Rough complexity (trivial / moderate / significant)
+                 - Any related issues or PRs
+               - Apply label: `gh issue edit ${{ github.event.issue.number }} --add-label "enhancement"`
+               - Assign: `gh issue edit ${{ github.event.issue.number }} --add-assignee btli`
+
+            5. **Comment formatting:**
+               - Use a clear, friendly, professional tone
+               - Start with a brief thank you
+               - Use headers and bullet points for readability
+               - Include relevant code references (file:line) when discussing bugs
+               - Post your response: `gh issue comment ${{ github.event.issue.number }} --body "..."`
+
+            6. **Do NOT:**
+               - Close issues (leave that to maintainers)
+               - Make promises about timelines or releases
+               - Suggest code fixes in the comment (just identify relevant code)
+               - Request information the reporter already provided in the template fields

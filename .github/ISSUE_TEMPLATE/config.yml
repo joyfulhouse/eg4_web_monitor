@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Home Assistant Community
+    url: https://community.home-assistant.io/t/integration-eg4-web-monitor-home-assistant-integration/929930/21
+    about: For setup help, general questions, and Home Assistant support
+  - name: DIY Solar Forum
+    url: https://diysolarforum.com/threads/homeassistant-integration-eg4-web-monitor-v3-0-0-beta.117050/
+    about: For inverter, energy, and solar system questions

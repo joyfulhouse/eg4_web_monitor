@@ -1,0 +1,50 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a feature idea? Tell us about it!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What problem does this solve? What are you trying to accomplish?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this feature work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any workarounds or alternative approaches you've tried?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: device_model
+    attributes:
+      label: Affected Device Model(s)
+      multiple: true
+      options:
+        - FlexBOSS 21
+        - FlexBOSS 18
+        - 18kPV
+        - 12kPV
+        - 6000XP
+        - 12000XP
+        - GridBOSS
+        - All Models
+        - Not Applicable
+    validations:
+      required: true

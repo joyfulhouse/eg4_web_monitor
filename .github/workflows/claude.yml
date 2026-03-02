@@ -5,25 +5,37 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, assigned]
   pull_request_review:
     types: [submitted]
 
 jobs:
   claude:
+    # Contributor gate: only collaborators, members, and owners can invoke @claude.
+    # The `issues: [opened]` trigger has been moved to issue-triage.yml for auto-triage.
+    # Note: author_association values used in `if` conditions are safe (not interpolated
+    # into shell commands). The `contains(body, '@claude')` checks are also safe since
+    # they only appear in expression context, never in `run:` blocks.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+      ) && (
+        github.event.sender.login == github.repository_owner ||
+        github.event.comment.author_association == 'COLLABORATOR' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.review.author_association == 'COLLABORATOR' ||
+        github.event.review.author_association == 'MEMBER' ||
+        github.event.review.author_association == 'OWNER'
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-      issues: read
+      issues: write
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

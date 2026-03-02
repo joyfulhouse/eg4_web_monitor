@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill out all fields so we can investigate quickly.
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration Version
+      description: "Found in Settings > Devices & Services > EG4 Web Monitor"
+      placeholder: "v3.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant Version
+      description: "Found in Settings > About"
+      placeholder: "2025.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection_mode
+    attributes:
+      label: Connection Mode
+      options:
+        - Cloud (HTTP)
+        - Local (Modbus TCP)
+        - Local (WiFi Dongle)
+        - Hybrid (Local + Cloud)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device_model
+    attributes:
+      label: Device Model(s)
+      multiple: true
+      options:
+        - FlexBOSS 21
+        - FlexBOSS 18
+        - 18kPV
+        - 12kPV
+        - 6000XP
+        - 12000XP
+        - GridBOSS
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: Clear description of what happened vs. what you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Numbered steps to reproduce the issue.
+      placeholder: |
+        1. Go to...
+        2. Click on...
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Home Assistant Logs
+      description: |
+        Relevant logs from Settings > System > Logs (filter by "eg4").
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain the problem.
+    validations:
+      required: false
