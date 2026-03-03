@@ -415,6 +415,15 @@ GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
     + ["smart_load_power", "ac_couple_power"]
 )
 
+# Keys used for static GridBOSS entity creation: everything in GRIDBOSS_SENSOR_KEYS
+# except keys that are added dynamically after the first real poll (smart port power /
+# energy) and keys that are coordinator-internal (smart_port*_status).
+GRIDBOSS_STATIC_ENTITY_KEYS: frozenset[str] = (
+    GRIDBOSS_SENSOR_KEYS
+    - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+    - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+)
+
 PARALLEL_GROUP_SENSOR_KEYS: frozenset[str] = frozenset(
     {
         # Power sensors (from inverter summing)

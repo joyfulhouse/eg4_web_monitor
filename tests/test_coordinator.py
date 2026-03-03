@@ -45,6 +45,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     GRIDBOSS_COORDINATOR_INTERNAL_KEYS,
     GRIDBOSS_SENSOR_KEYS,
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    GRIDBOSS_STATIC_ENTITY_KEYS,
     INVERTER_ENERGY_KEYS,
     INVERTER_RUNTIME_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
@@ -1583,11 +1584,7 @@ class TestStaticLocalData:
         # Every key from GRIDBOSS_SENSOR_KEYS except smart port dynamic keys
         # (power + energy) should be present — they are added dynamically
         # by _filter_unused_smart_port_sensors() based on actual port status.
-        static_keys = (
-            GRIDBOSS_SENSOR_KEYS
-            - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-            - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
-        )
+        static_keys = GRIDBOSS_STATIC_ENTITY_KEYS
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
         for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS:
@@ -1634,11 +1631,7 @@ class TestStaticLocalData:
 
         # GridBOSS should use GRIDBOSS_SENSOR_KEYS minus smart port dynamic keys
         gb_keys = set(result["devices"]["GB001"]["sensors"].keys())
-        static_keys = (
-            GRIDBOSS_SENSOR_KEYS
-            - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-            - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
-        )
+        static_keys = GRIDBOSS_STATIC_ENTITY_KEYS
         assert static_keys.issubset(gb_keys)
 
         # Inverters should use ALL_INVERTER_SENSOR_KEYS

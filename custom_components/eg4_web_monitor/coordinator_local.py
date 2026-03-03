@@ -37,9 +37,7 @@ from .coordinator_mixins import (
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
-    GRIDBOSS_COORDINATOR_INTERNAL_KEYS,
-    GRIDBOSS_SENSOR_KEYS,
-    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    GRIDBOSS_STATIC_ENTITY_KEYS,
     PARALLEL_GROUP_GRIDBOSS_KEYS,
     PARALLEL_GROUP_SENSOR_KEYS,
     _build_battery_bank_sensor_mapping,
@@ -1150,13 +1148,7 @@ class LocalTransportMixin(_MixinBase):
             firmware = config.get("firmware_version", "Unknown")
 
             if is_gridboss:
-                # Exclude smart port power keys (dynamic) and coordinator-internal
-                # keys (smart_port*_status — used by select entities, not HA sensors).
-                sensor_keys = (
-                    GRIDBOSS_SENSOR_KEYS
-                    - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-                    - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
-                )
+                sensor_keys = GRIDBOSS_STATIC_ENTITY_KEYS
                 device_type = "gridboss"
             else:
                 sensor_keys = ALL_INVERTER_SENSOR_KEYS
