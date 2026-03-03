@@ -256,13 +256,13 @@ class TestSmartPortModeSelect:
         assert select.current_option == "AC Couple"
 
     def test_current_option_unused(self):
-        """unused status maps to Off."""
+        """unused status maps to Unused."""
         coordinator = _mock_gridboss_coordinator(
             sensors={"smart_port3_status": "unused"}
         )
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=3)
-        assert select.current_option == "Off"
+        assert select.current_option == "Unused"
 
     def test_current_option_missing(self):
         """Missing sensor returns None."""
@@ -368,7 +368,7 @@ class TestSmartPortModeSelect:
         select.async_write_ha_state = MagicMock()
 
         with pytest.raises(HomeAssistantError, match="Failed to set smart port"):
-            await select.async_select_option("Off")
+            await select.async_select_option("Unused")
 
     @pytest.mark.asyncio
     async def test_select_invalid_option(self):

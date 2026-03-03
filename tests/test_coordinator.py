@@ -1061,12 +1061,12 @@ class TestParallelGroupAggregation:
         processed["devices"]["GB001"] = {
             "type": "gridboss",
             "sensors": {
-                "smart_port1_status": 2,  # AC Couple mode
+                "smart_port1_status": "ac_couple",  # AC Couple mode (string label from _filter_unused_smart_port_sensors)
                 "ac_couple1_power_l1": 1500.0,
                 "ac_couple1_power_l2": 1200.0,
-                "smart_port2_status": 0,  # Unused
-                "smart_port3_status": 0,
-                "smart_port4_status": 0,
+                "smart_port2_status": "unused",
+                "smart_port3_status": "unused",
+                "smart_port4_status": "unused",
                 "load_power": 3000.0,
             },
         }

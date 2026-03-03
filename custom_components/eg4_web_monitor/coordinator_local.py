@@ -1746,7 +1746,7 @@ class LocalTransportMixin(_MixinBase):
                     for port_num in range(1, 5):  # Ports 1-4
                         status_key = f"smart_port{port_num}_status"
                         status = gb_sensors.get(status_key)
-                        if status == 2:  # AC Couple mode
+                        if status == "ac_couple":  # AC Couple mode
                             l1_power = (
                                 gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
                             )

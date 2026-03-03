@@ -336,10 +336,6 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
         "hybrid_power",
         "phase_lock_frequency",
         "off_grid",
-        "smart_port1_status",
-        "smart_port2_status",
-        "smart_port3_status",
-        "smart_port4_status",
         "smart_load1_power_l1",
         "smart_load1_power_l2",
         "smart_load2_power_l1",
@@ -390,11 +386,15 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
 # Smart port keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on
 # actual port status, so only active ports get entities.
-# Includes per-port L1/L2 power keys, per-port aggregate power keys (computed by
-# _calculate_gridboss_aggregates from L1+L2), total aggregates, and per-port
-# energy keys (today/total).
+# Includes:
+#   - smart_port*_status: raw string status populated by coordinator, used by
+#     select entities (not exposed as HA sensor entities)
+#   - per-port L1/L2 power keys, per-port aggregate power keys (computed by
+#     _calculate_gridboss_aggregates from L1+L2), total aggregates, and per-port
+#     energy keys (today/total).
 GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
-    [
+    [f"smart_port{port}_status" for port in range(1, 5)]
+    + [
         f"{prefix}{port}_{suffix}"
         for prefix in ("smart_load", "ac_couple")
         for port in range(1, 5)
