@@ -288,6 +288,61 @@ async def async_setup_entry(
         coordinator.async_add_listener(_async_discover_smart_port_sensors)
     )
 
+    # Track known device sensor keys for late registration.
+    # In HYBRID mode, transport-only sensors (per-leg power, overlay sensors)
+    # only appear after local transports are attached — typically on the second
+    # coordinator update cycle.  Entities created during async_setup_entry()
+    # only cover keys present in the first update.  This listener registers
+    # new device sensor entities that appear in subsequent updates.
+    known_device_sensor_keys: dict[str, set[str]] = {}
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        dtype = device_data.get("type", "unknown")
+        if dtype in ("inverter", "gridboss"):
+            known_device_sensor_keys[serial] = {
+                k for k in device_data.get("sensors", {}) if k in SENSOR_TYPES
+            }
+
+    @callback
+    def _async_discover_device_sensors() -> None:
+        """Register device sensors that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            dtype = device_data.get("type", "unknown")
+            if dtype not in ("inverter", "gridboss"):
+                continue
+            features = device_data.get("features")
+            known = known_device_sensor_keys.setdefault(serial, set())
+            for sensor_key in device_data.get("sensors", {}):
+                if sensor_key not in SENSOR_TYPES or sensor_key in known:
+                    continue
+                # Skip battery_bank sensors (handled by their own entity class)
+                if sensor_key.startswith("battery_bank_"):
+                    continue
+                if not _should_create_sensor(sensor_key, features):
+                    continue
+                known.add(sensor_key)
+                new_entities.append(
+                    EG4InverterSensor(
+                        coordinator=coordinator,
+                        serial=serial,
+                        sensor_key=sensor_key,
+                        device_type=dtype,
+                    )
+                )
+        if new_entities:
+            _LOGGER.info(
+                "Late device sensor registration: adding %d entities "
+                "(transport-only sensors now available)",
+                len(new_entities),
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_device_sensors)
+    )
+
 
 def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]

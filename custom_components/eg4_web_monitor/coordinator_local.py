@@ -17,6 +17,7 @@ from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.exceptions import LuxpowerDeviceError
 
 from .const import (
+    CONF_GRID_TYPE,
     CONF_INCLUDE_AC_COUPLE_PV,
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_LOCAL,
@@ -27,6 +28,7 @@ from .const import (
     DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
     DOMAIN,
+    GRID_TYPE_SPLIT_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
     MANUFACTURER,
 )
@@ -695,6 +697,10 @@ class LocalTransportMixin(_MixinBase):
 
                 if not transport.is_connected:
                     await transport.connect()
+
+                # Propagate split-phase config for per-leg power fallback
+                grid_type = config.get(CONF_GRID_TYPE)
+                transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
 
                 if is_gridboss:
                     _LOGGER.debug(
@@ -1882,6 +1888,9 @@ class LocalTransportMixin(_MixinBase):
                 transport = getattr(inverter, "_transport", None)
                 if transport is not None:
                     inverter.validate_data = validation_enabled
+                    # Propagate split-phase config for per-leg power fallback
+                    grid_type = self._get_device_grid_type(inverter.serial_number)
+                    transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
                     if tt == "modbus_tcp":
