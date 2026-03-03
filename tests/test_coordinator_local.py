@@ -1395,3 +1395,159 @@ class TestBatteryBankCountSuppression:
         # Battery count = 4 (primary only, secondary has none)
         assert pg_sensors.get("parallel_battery_count") == 4
         assert pg_sensors.get("parallel_battery_current") == 30.0
+
+
+class TestBatteryRRCacheFallback:
+    """Regression tests for issue #180: individual batteries become unavailable.
+
+    When the WiFi dongle fails to read individual battery registers (5002+),
+    ``_battery_slot_ceiling`` was permanently set to 0, causing all subsequent
+    polls to return ``battery_data.batteries = []``.  The coordinator now falls
+    back to the round-robin cache so entities stay available during transient
+    transport failures.
+    """
+
+    @staticmethod
+    def _make_config_entry(hass: Any, serial: str) -> MockConfigEntry:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Cache Fallback Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": serial,
+                        "host": "192.168.1.100",
+                        "port": 8899,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                        "parallel_number": 0,
+                        "parallel_master_slave": 0,
+                    },
+                ],
+            },
+            options={},
+            entry_id="cache_fallback_test",
+        )
+        entry.add_to_hass(hass)
+        return entry
+
+    @staticmethod
+    def _make_mock_inverter(*, battery_count: int, batteries: list[Any]) -> MagicMock:
+        mock_runtime = MagicMock()
+        mock_runtime.parallel_number = 0
+        mock_runtime.parallel_master_slave = 0
+        mock_runtime.parallel_phase = 0
+
+        mock_battery_data = MagicMock()
+        mock_battery_data.battery_count = battery_count
+        mock_battery_data.batteries = batteries
+
+        mock_inverter = MagicMock()
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter._transport_runtime = mock_runtime
+        mock_inverter._transport_energy = None
+        mock_inverter._transport_battery = mock_battery_data
+        mock_inverter._transport = MagicMock()
+        mock_inverter._transport.is_connected = True
+        mock_inverter._transport.host = "192.168.1.100"
+        mock_inverter._transport.disconnect = AsyncMock()
+        mock_inverter.consumption_power = None
+        mock_inverter.total_load_power = None
+        mock_inverter.battery_power = None
+        mock_inverter.rectifier_power = None
+        mock_inverter.power_to_user = None
+        mock_inverter.eps_power_l1 = None
+        mock_inverter.eps_power_l2 = None
+        return mock_inverter
+
+    async def test_cache_fallback_when_batteries_empty_this_poll(self, hass: Any) -> None:
+        """When battery_data.batteries is empty but cache has data, use cache.
+
+        Regression test for issue #180: after a transient WiFi dongle read
+        failure, individual battery entities must stay available (not go
+        unavailable) by falling back to the round-robin cache.
+        """
+        serial = "DONGLE001"
+        entry = self._make_config_entry(hass, serial)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+
+        # Pre-populate the round-robin cache with 4 batteries (as if a
+        # previous successful poll populated them).
+        coordinator._battery_rr_cache[serial] = {
+            f"{serial}-01": {"soc": 80, "voltage": 52.8},
+            f"{serial}-02": {"soc": 79, "voltage": 52.7},
+            f"{serial}-03": {"soc": 81, "voltage": 52.9},
+            f"{serial}-04": {"soc": 78, "voltage": 52.6},
+        }
+
+        # This poll: battery_data exists (bank sensors work) but batteries=[]
+        # (individual register read failed, _battery_slot_ceiling was set to 0)
+        mock_inverter = self._make_mock_inverter(battery_count=4, batteries=[])
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+            return_value={"state_of_charge": 79},
+        ), patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
+            return_value={"battery_bank_count": 4, "battery_bank_voltage": 52.7},
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability={},
+            )
+
+        device = processed["devices"][serial]
+        # Cache fallback: 4 batteries should be available from the cache
+        assert len(device["batteries"]) == 4, (
+            "Expected 4 batteries from RR cache fallback, "
+            f"got {len(device['batteries'])}: {list(device['batteries'].keys())}"
+        )
+        assert f"{serial}-01" in device["batteries"]
+        assert f"{serial}-04" in device["batteries"]
+
+    async def test_no_fallback_when_cache_empty(self, hass: Any) -> None:
+        """When both poll batteries and cache are empty, batteries dict is empty."""
+        serial = "DONGLE002"
+        entry = self._make_config_entry(hass, serial)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        # No pre-populated cache
+
+        mock_inverter = self._make_mock_inverter(battery_count=4, batteries=[])
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+            return_value={"state_of_charge": 50},
+        ), patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
+            return_value={"battery_bank_count": 4},
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability={},
+            )
+
+        device = processed["devices"][serial]
+        # No fallback possible — batteries stays empty
+        assert device["batteries"] == {}
