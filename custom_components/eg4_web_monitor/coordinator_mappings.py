@@ -383,18 +383,22 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Keys that live in the coordinator sensors dict but must NOT become HA sensor
+# entities.  They are read by select entities and internal coordinator logic,
+# but are excluded from both the static entity-creation path and the
+# late-registration listener in sensor.py.
+GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = frozenset(
+    f"smart_port{port}_status" for port in range(1, 5)
+)
+
 # Smart port keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on
 # actual port status, so only active ports get entities.
-# Includes:
-#   - smart_port*_status: raw string status populated by coordinator, used by
-#     select entities (not exposed as HA sensor entities)
-#   - per-port L1/L2 power keys, per-port aggregate power keys (computed by
-#     _calculate_gridboss_aggregates from L1+L2), total aggregates, and per-port
-#     energy keys (today/total).
+# Includes per-port L1/L2 power keys, per-port aggregate power keys (computed by
+# _calculate_gridboss_aggregates from L1+L2), total aggregates, and per-port
+# energy keys (today/total).
 GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
-    [f"smart_port{port}_status" for port in range(1, 5)]
-    + [
+    [
         f"{prefix}{port}_{suffix}"
         for prefix in ("smart_load", "ac_couple")
         for port in range(1, 5)

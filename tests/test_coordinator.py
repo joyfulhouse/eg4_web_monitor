@@ -42,6 +42,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     BATTERY_BANK_CAN_DIAGNOSTIC_KEYS,
     BATTERY_BANK_CORE_KEYS,
     BATTERY_BANK_KEYS,
+    GRIDBOSS_COORDINATOR_INTERNAL_KEYS,
     GRIDBOSS_SENSOR_KEYS,
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     INVERTER_ENERGY_KEYS,
@@ -1582,12 +1583,16 @@ class TestStaticLocalData:
         # Every key from GRIDBOSS_SENSOR_KEYS except smart port dynamic keys
         # (power + energy) should be present — they are added dynamically
         # by _filter_unused_smart_port_sensors() based on actual port status.
-        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        static_keys = (
+            GRIDBOSS_SENSOR_KEYS
+            - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+            - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        )
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
-        for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
+        for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS:
             assert key not in sensors, (
-                f"Smart port dynamic key should not be in static data: {key}"
+                f"Dynamic/internal key should not be in static data: {key}"
             )
 
         # GridBOSS device should have binary_sensors dict
@@ -1629,7 +1634,11 @@ class TestStaticLocalData:
 
         # GridBOSS should use GRIDBOSS_SENSOR_KEYS minus smart port dynamic keys
         gb_keys = set(result["devices"]["GB001"]["sensors"].keys())
-        static_keys = GRIDBOSS_SENSOR_KEYS - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        static_keys = (
+            GRIDBOSS_SENSOR_KEYS
+            - GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+            - GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        )
         assert static_keys.issubset(gb_keys)
 
         # Inverters should use ALL_INVERTER_SENSOR_KEYS
@@ -1747,12 +1756,17 @@ class TestStaticLocalData:
         # Dynamic smart port keys are conditionally created at runtime
         # (filtered by _filter_unused_smart_port_sensors), so they live in
         # GRIDBOSS_SMART_PORT_DYNAMIC_KEYS rather than GRIDBOSS_SENSOR_KEYS.
-        allowed_keys = GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        # Coordinator-internal keys (smart_port*_status) live in the sensors
+        # dict for select entity state but never become HA sensor entities.
+        allowed_keys = (
+            GRIDBOSS_SENSOR_KEYS
+            | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+            | GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        )
 
         # All mapping keys must be in the combined set
         assert mapping_keys.issubset(allowed_keys), (
-            f"Mapping has keys not in GRIDBOSS_SENSOR_KEYS or "
-            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: "
+            f"Mapping has keys not in any GRIDBOSS key set: "
             f"{mapping_keys - allowed_keys}"
         )
         # The only extra keys in the static constant should be the metadata keys
@@ -3543,11 +3557,14 @@ class TestMappingKeyConsistency:
         mock_mid = MagicMock()
         sensors = _build_gridboss_sensor_mapping(mock_mid)
         local_keys = set(sensors.keys())
-        allowed = GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        allowed = (
+            GRIDBOSS_SENSOR_KEYS
+            | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+            | GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        )
         unknown = local_keys - allowed
         assert not unknown, (
-            f"LOCAL GridBOSS keys not in GRIDBOSS_SENSOR_KEYS or "
-            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: {sorted(unknown)}"
+            f"LOCAL GridBOSS keys not in any GRIDBOSS key set: {sorted(unknown)}"
         )
 
     def test_gridboss_http_values_within_known_keys(self):
@@ -3586,12 +3603,14 @@ class TestMappingKeyConsistency:
         property_map = DeviceProcessingMixin._get_mid_device_property_map()
         http_keys = set(property_map.values())
         allowed = (
-            GRIDBOSS_SENSOR_KEYS | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | http_only_keys
+            GRIDBOSS_SENSOR_KEYS
+            | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+            | GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+            | http_only_keys
         )
         unknown = http_keys - allowed
         assert not unknown, (
-            f"HTTP GridBOSS sensor keys not in GRIDBOSS_SENSOR_KEYS, "
-            f"GRIDBOSS_SMART_PORT_DYNAMIC_KEYS, or known HTTP-only set: "
+            f"HTTP GridBOSS sensor keys not in any GRIDBOSS key set or HTTP-only set: "
             f"{sorted(unknown)}"
         )
 

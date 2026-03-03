@@ -71,7 +71,9 @@ PV_INPUT_VALUE_TO_MODE = {idx: label for idx, label in enumerate(PV_INPUT_MODE_O
 
 # Smart Port mode options (GridBOSS holding register 20, bit-packed 2 bits per port)
 SMART_PORT_MODE_OPTIONS = ["Unused", "Smart Load", "AC Couple"]
-SMART_PORT_MODE_TO_VALUE = {"Unused": 0, "Smart Load": 1, "AC Couple": 2}
+SMART_PORT_MODE_TO_VALUE = {
+    label: idx for idx, label in enumerate(SMART_PORT_MODE_OPTIONS)
+}
 # Sensor status labels → select display labels
 _STATUS_TO_SELECT = {
     "unused": "Unused",
