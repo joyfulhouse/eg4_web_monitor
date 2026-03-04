@@ -384,6 +384,41 @@ class TestTransportAccessors:
         # No deprecated transports set
         assert coordinator.has_local_transport() is False
 
+    def test_get_local_transport_from_mid_device_cache(self, hass, local_config_entry):
+        """LOCAL mode: get_local_transport returns transport from MID device cache."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = MagicMock()
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
+
+        result = coordinator.get_local_transport("GRIDBOSS001")
+        assert result is mock_transport
+
+    def test_has_local_transport_true_for_mid_device(self, hass, local_config_entry):
+        """has_local_transport returns True for GridBOSS serial in MID cache."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_mid = MagicMock()
+        mock_mid._transport = MagicMock()
+        coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
+
+        assert coordinator.has_local_transport("GRIDBOSS001") is True
+
+    def test_get_local_transport_mid_device_no_transport(self, hass, local_config_entry):
+        """MID device without _transport attribute returns None."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_mid = MagicMock(spec=[])  # No attributes
+        coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
+
+        result = coordinator.get_local_transport("GRIDBOSS001")
+        assert result is None
+
     def test_is_local_only_local_mode(self, hass, local_config_entry):
         """LOCAL mode → is_local_only returns True."""
         local_config_entry.add_to_hass(hass)

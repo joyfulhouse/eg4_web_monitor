@@ -1976,14 +1976,23 @@ class LocalTransportMixin(_MixinBase):
         # Check for transport attached to Station device (HYBRID with local_transports)
         if serial and self.station:
             inverter = self.get_inverter_object(serial)
-            if inverter and hasattr(inverter, "_transport") and inverter._transport:
-                return inverter._transport
+            transport = getattr(inverter, "_transport", None) if inverter else None
+            if transport:
+                return transport
 
         # Check LOCAL mode inverter cache
         if serial and self.connection_type == CONNECTION_TYPE_LOCAL:
             inverter = self._inverter_cache.get(serial)
-            if inverter and hasattr(inverter, "_transport"):
-                return inverter._transport
+            transport = getattr(inverter, "_transport", None) if inverter else None
+            if transport:
+                return transport
+
+        # Check MID device cache (GridBOSS devices in LOCAL/HYBRID mode)
+        if serial:
+            mid_device = self._mid_device_cache.get(serial)
+            transport = getattr(mid_device, "_transport", None) if mid_device else None
+            if transport:
+                return transport
 
         # Deprecated single-device modes (MODBUS, DONGLE, old HYBRID format)
         if self._modbus_transport:
