@@ -5,22 +5,34 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0-rc.4] - 2026-03-03
+## [3.2.0-rc.5] - 2026-03-04
 
 ### Fixed
 
+- **HYBRID mode: 38 transport-only sensors permanently unavailable**: In HYBRID mode, the
+  first coordinator update runs before local transports are attached, so transport-only
+  sensor keys (per-leg power, overlay sensors) are missing from the initial data. Entity
+  objects are only created during `async_setup_entry()` for keys present in the first update.
+  Added late registration listener that discovers and creates entity objects for new sensor
+  keys appearing in subsequent updates.
+- **GridBOSS status sensor re-creation on every poll**: Introduced
+  `GRIDBOSS_COORDINATOR_INTERNAL_KEYS` to block coordinator-internal keys from creating
+  duplicate status sensor entities.
+- **Smart port status cleanup**: Fixed smart port status entity labels — renamed 'Unused'
+  to 'Off' for consistency with select entity options.
 - **Individual battery entities becoming unavailable (WiFi dongle, issue #180)**: After
   any transient read failure of the individual battery registers (5002–5121), pylxpweb
   permanently disabled all future battery reads (`_battery_slot_ceiling = 0`) until HA
-  was reloaded. WiFi dongle disconnects, timeouts, and CAN bus congestion all triggered
-  this path. Two complementary fixes: (1) pylxpweb v0.9.24 removes the permanent disable —
-  failed reads now retry on the next poll cycle; (2) the coordinator falls back to the
-  round-robin battery cache when the current poll has no individual battery data, keeping
-  entities available during transient transport failures.
+  was reloaded. Two complementary fixes: (1) pylxpweb v0.9.24+ removes the permanent
+  disable — failed reads now retry on the next poll cycle; (2) the coordinator falls back
+  to the round-robin battery cache when the current poll has no individual battery data.
 
 ### Changed
 
-- **pylxpweb requirement bumped to >=0.9.24** (battery retry-on-failure fix)
+- **Pre-computed `GRIDBOSS_STATIC_ENTITY_KEYS`**: Refactored to module-level frozenset for
+  better performance and clarity.
+- **pylxpweb requirement bumped to >=0.9.26** (split-phase EPS power fallback, battery
+  protocol framework)
 
 ## [3.2.0-rc.3] - 2026-03-02
 
