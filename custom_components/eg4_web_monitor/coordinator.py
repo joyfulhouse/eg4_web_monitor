@@ -289,8 +289,9 @@ class EG4DataUpdateCoordinator(
         # with None values for immediate entity creation (zero Modbus reads).
         self._local_static_phase_done: bool = False
 
-        # Data validation: opt-in corruption detection for local register reads.
-        # When enabled, corrupt Modbus reads are rejected at two levels:
+        # Data validation: corruption detection for all connection types.
+        # Enabled by default; users can opt out via the options flow toggle.
+        # When enabled, corrupt reads are rejected at two levels:
         # 1. Transport: canary-field checks (SoC>100, freq out-of-range) discard bad reads
         # 2. Device: lifetime energy monotonicity checks reject decreasing counters
         #    (validated in pylxpweb device refresh methods, not coordinator)

@@ -62,6 +62,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     compute_bank_charge_rate,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
+    PG_LIFETIME_ENERGY_KEYS,
     apply_gridboss_overlay,
 )
 from pylxpweb.exceptions import (
@@ -5143,10 +5144,6 @@ class TestPGLifetimeEnergyClamping:
 
     def test_pg_lifetime_decrease_clamped(self, coordinator_with_prev_pg):
         """PG lifetime energy decrease is clamped to previous value."""
-        from custom_components.eg4_web_monitor.coordinator_mixins import (
-            PG_LIFETIME_ENERGY_KEYS,
-        )
-
         sensors = {
             "yield_lifetime": 4999.0,
             "charging_lifetime": 3000.5,
@@ -5164,10 +5161,6 @@ class TestPGLifetimeEnergyClamping:
 
     def test_pg_lifetime_increase_passes(self, coordinator_with_prev_pg):
         """PG lifetime energy increase passes unclamped."""
-        from custom_components.eg4_web_monitor.coordinator_mixins import (
-            PG_LIFETIME_ENERGY_KEYS,
-        )
-
         sensors = {
             "yield_lifetime": 5001.0,
             "charging_lifetime": 3001.0,
@@ -5184,10 +5177,6 @@ class TestPGLifetimeEnergyClamping:
 
     def test_pg_keys_superset_of_computed(self):
         """PG lifetime keys contain consumption_lifetime from computed set."""
-        from custom_components.eg4_web_monitor.coordinator_mixins import (
-            PG_LIFETIME_ENERGY_KEYS,
-        )
-
         assert "consumption_lifetime" in PG_LIFETIME_ENERGY_KEYS
         assert len(PG_LIFETIME_ENERGY_KEYS) == 6
 

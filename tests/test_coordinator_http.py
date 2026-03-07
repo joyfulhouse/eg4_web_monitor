@@ -1125,3 +1125,128 @@ class TestMidboxVoltageCanary:
 
         data = MidboxRuntimeData(grid_l1_voltage=None, grid_l2_voltage=None)
         assert data.is_corrupt() is False
+
+
+# ── HTTP flow integration: validate_data propagation & PG clamping ───
+
+
+class TestHTTPFlowValidateDataAndPGClamping:
+    """Verify validate_data propagates to devices and PG clamping fires during HTTP flow."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_validate_data_propagated_to_inverters(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """validate_data is set on all inverters before processing."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = _mock_inverter()
+        inv.validate_data = False  # starts disabled
+        coordinator.station = _mock_station([inv])
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": {},
+                }
+            ),
+        ):
+            await coordinator._async_update_http_data()
+
+        # validate_data should have been set to True (default)
+        assert inv.validate_data is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_validate_data_propagated_to_mid_devices(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """validate_data is set on MID devices before processing."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        mid = MagicMock()
+        mid.validate_data = False
+        station = _mock_station()
+        station.all_mid_devices = [mid]
+        coordinator.station = station
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": {},
+                }
+            ),
+        ):
+            await coordinator._async_update_http_data()
+
+        assert mid.validate_data is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_pg_energy_clamped_in_http_flow(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """PG lifetime energy decrease is clamped during HTTP update flow."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        # Set up a parallel group in station with no inverters
+        # (skips energy fetch tasks, exercises PG processing + clamping)
+        pg = MagicMock()
+        pg.name = "GroupA"
+        pg.inverters = []
+        station = _mock_station()
+        station.parallel_groups = [pg]
+        coordinator.station = station
+
+        # Previous cycle had yield_lifetime=5000
+        coordinator.data = {
+            "devices": {
+                "parallel_group_groupa": {
+                    "sensors": {"yield_lifetime": 5000.0},
+                }
+            }
+        }
+
+        # Mock _process_parallel_group_object to return a decrease
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "FlexBOSS21",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch.object(
+                coordinator,
+                "_process_parallel_group_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "parallel_group",
+                        "sensors": {"yield_lifetime": 4999.0},
+                        "member_serials": [],
+                    }
+                ),
+            ),
+        ):
+            result = await coordinator._async_update_http_data()
+
+        # yield_lifetime should be clamped to 5000 (previous value)
+        pg_sensors = result["devices"]["parallel_group_groupa"]["sensors"]
+        assert pg_sensors["yield_lifetime"] == 5000.0

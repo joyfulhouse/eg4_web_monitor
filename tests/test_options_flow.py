@@ -240,7 +240,13 @@ class TestDataValidationOption:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "conn_type",
-        [CONNECTION_TYPE_MODBUS, CONNECTION_TYPE_DONGLE, CONNECTION_TYPE_HTTP],
+        [
+            CONNECTION_TYPE_MODBUS,
+            CONNECTION_TYPE_DONGLE,
+            CONNECTION_TYPE_HTTP,
+            CONNECTION_TYPE_LOCAL,
+            CONNECTION_TYPE_HYBRID,
+        ],
     )
     async def test_data_validation_shown_for_all_connection_types(self, conn_type):
         """data_validation checkbox shown for all connection types."""

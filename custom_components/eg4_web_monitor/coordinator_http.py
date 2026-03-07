@@ -591,8 +591,7 @@ class HTTPUpdateMixin(_MixinBase):
                     processed["devices"][pg_device_id] = group_data
 
                     # Clamp PG lifetime energy (monotonicity) — mirrors
-                    # LOCAL path which calls _clamp_computed_energy() at
-                    # coordinator_local.py:1817.
+                    # LOCAL path in _process_local_parallel_groups().
                     self._clamp_computed_energy(
                         pg_device_id,
                         group_data.get("sensors", {}),
