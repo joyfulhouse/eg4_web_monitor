@@ -295,7 +295,7 @@ class EG4DataUpdateCoordinator(
         # 2. Device: lifetime energy monotonicity checks reject decreasing counters
         #    (validated in pylxpweb device refresh methods, not coordinator)
         self._data_validation_enabled: bool = entry.options.get(
-            CONF_DATA_VALIDATION, False
+            CONF_DATA_VALIDATION, True
         )
 
         # Semaphore to limit concurrent API calls and prevent rate limiting

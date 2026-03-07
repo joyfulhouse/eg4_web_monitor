@@ -65,6 +65,19 @@ _SMART_PORT_STATUS_LABELS: dict[int, str] = {
     2: "ac_couple",
 }
 
+# All PG lifetime energy keys that should never decrease.  Used by both
+# LOCAL and HTTP paths for PG energy monotonicity clamping.
+PG_LIFETIME_ENERGY_KEYS = frozenset(
+    {
+        "yield_lifetime",
+        "charging_lifetime",
+        "discharging_lifetime",
+        "grid_import_lifetime",
+        "grid_export_lifetime",
+        "consumption_lifetime",
+    }
+)
+
 # GridBOSS sensor → parallel group sensor overlay mapping.
 # GridBOSS CTs are the authoritative measurement point for grid power
 # and energy — inverter registers are internal estimates that diverge
@@ -298,6 +311,12 @@ if TYPE_CHECKING:
 
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
+        def _clamp_computed_energy(
+            self,
+            device_id: str,
+            sensors: dict[str, Any],
+            keys: frozenset[str] = ...,
+        ) -> None: ...
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,

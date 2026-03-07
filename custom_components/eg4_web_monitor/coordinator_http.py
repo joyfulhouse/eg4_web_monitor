@@ -41,6 +41,7 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
+    PG_LIFETIME_ENERGY_KEYS,
     _MixinBase,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
@@ -496,6 +497,13 @@ class HTTPUpdateMixin(_MixinBase):
                         },
                     )
 
+        # Propagate data validation setting to all HTTP-mode devices so
+        # energy monotonicity and canary checks use the user's toggle.
+        for inv in self.station.all_inverters:
+            inv.validate_data = self._data_validation_enabled
+        for mid in self.station.all_mid_devices:
+            mid.validate_data = self._data_validation_enabled
+
         # Process all inverters concurrently (max 3 at a time via semaphore)
         inverter_tasks = [
             process_inverter_with_semaphore(inv) for inv in self.station.all_inverters
@@ -579,8 +587,16 @@ class HTTPUpdateMixin(_MixinBase):
                         group.name,
                         list(group_data.get("sensors", {}).keys()),
                     )
-                    processed["devices"][f"parallel_group_{group.name.lower()}"] = (
-                        group_data
+                    pg_device_id = f"parallel_group_{group.name.lower()}"
+                    processed["devices"][pg_device_id] = group_data
+
+                    # Clamp PG lifetime energy (monotonicity) — mirrors
+                    # LOCAL path which calls _clamp_computed_energy() at
+                    # coordinator_local.py:1817.
+                    self._clamp_computed_energy(
+                        pg_device_id,
+                        group_data.get("sensors", {}),
+                        PG_LIFETIME_ENERGY_KEYS,
                     )
 
                     # Aggregate member inverter battery data for parallel group.

@@ -1587,7 +1587,9 @@ class TestStaticLocalData:
         static_keys = GRIDBOSS_STATIC_ENTITY_KEYS
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
-        for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS:
+        for key in (
+            GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        ):
             assert key not in sensors, (
                 f"Dynamic/internal key should not be in static data: {key}"
             )
@@ -4615,14 +4617,14 @@ class TestDataValidationFlag:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry_with_validation)
         assert coordinator._data_validation_enabled is True
 
-    async def test_validation_disabled_by_default(
+    async def test_validation_enabled_by_default(
         self, hass, local_config_entry_without_validation
     ):
-        """Coordinator defaults _data_validation_enabled=False."""
+        """Coordinator defaults _data_validation_enabled=True."""
         coordinator = EG4DataUpdateCoordinator(
             hass, local_config_entry_without_validation
         )
-        assert coordinator._data_validation_enabled is False
+        assert coordinator._data_validation_enabled is True
 
 
 class TestHybridTransportExclusiveSensors:
@@ -5103,6 +5105,115 @@ class TestComputedEnergyClamp:
         coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
         assert sensors["consumption"] is None
         assert sensors["consumption_lifetime"] is None
+
+
+class TestPGLifetimeEnergyClamping:
+    """Test PG lifetime energy clamping with broader key set."""
+
+    @pytest.fixture
+    def coordinator_with_prev_pg(self, hass):
+        """Coordinator with previous cycle's PG lifetime data."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - PG Clamp Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            entry_id="pg_clamp_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = {
+            "devices": {
+                "parallel_group_a": {
+                    "sensors": {
+                        "yield_lifetime": 5000.0,
+                        "charging_lifetime": 3000.0,
+                        "discharging_lifetime": 2500.0,
+                        "grid_import_lifetime": 4000.0,
+                        "grid_export_lifetime": 3500.0,
+                        "consumption_lifetime": 6000.0,
+                    }
+                },
+            }
+        }
+        return coordinator
+
+    def test_pg_lifetime_decrease_clamped(self, coordinator_with_prev_pg):
+        """PG lifetime energy decrease is clamped to previous value."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            PG_LIFETIME_ENERGY_KEYS,
+        )
+
+        sensors = {
+            "yield_lifetime": 4999.0,
+            "charging_lifetime": 3000.5,
+            "discharging_lifetime": 2500.5,
+            "grid_import_lifetime": 4000.5,
+            "grid_export_lifetime": 3500.5,
+            "consumption_lifetime": 5999.0,
+        }
+        coordinator_with_prev_pg._clamp_computed_energy(
+            "parallel_group_a", sensors, PG_LIFETIME_ENERGY_KEYS
+        )
+        assert sensors["yield_lifetime"] == 5000.0  # clamped
+        assert sensors["charging_lifetime"] == 3000.5  # increased, pass
+        assert sensors["consumption_lifetime"] == 6000.0  # clamped
+
+    def test_pg_lifetime_increase_passes(self, coordinator_with_prev_pg):
+        """PG lifetime energy increase passes unclamped."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            PG_LIFETIME_ENERGY_KEYS,
+        )
+
+        sensors = {
+            "yield_lifetime": 5001.0,
+            "charging_lifetime": 3001.0,
+            "discharging_lifetime": 2501.0,
+            "grid_import_lifetime": 4001.0,
+            "grid_export_lifetime": 3501.0,
+            "consumption_lifetime": 6001.0,
+        }
+        coordinator_with_prev_pg._clamp_computed_energy(
+            "parallel_group_a", sensors, PG_LIFETIME_ENERGY_KEYS
+        )
+        assert sensors["yield_lifetime"] == 5001.0
+        assert sensors["consumption_lifetime"] == 6001.0
+
+    def test_pg_keys_superset_of_computed(self):
+        """PG lifetime keys contain consumption_lifetime from computed set."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            PG_LIFETIME_ENERGY_KEYS,
+        )
+
+        assert "consumption_lifetime" in PG_LIFETIME_ENERGY_KEYS
+        assert len(PG_LIFETIME_ENERGY_KEYS) == 6
+
+
+class TestHTTPValidateDataPropagation:
+    """Test that validate_data is propagated to HTTP-mode devices."""
+
+    async def test_validate_data_defaults_true_on_coordinator(self, hass):
+        """Coordinator defaults _data_validation_enabled to True for all modes."""
+        from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - HTTP Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_USERNAME: "test@test.com",
+                CONF_PASSWORD: "password",
+                "plant_id": "12345",
+            },
+            entry_id="http_val_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        assert coordinator._data_validation_enabled is True
 
 
 class TestChargeRates:

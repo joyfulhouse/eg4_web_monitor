@@ -33,6 +33,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator_mixins import (
+    PG_LIFETIME_ENERGY_KEYS,
     _MixinBase,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
@@ -62,6 +63,7 @@ _LOGGER = logging.getLogger(__name__)
 # timing artifacts (not corruption).  Clamped to prevent HA
 # total_increasing warnings.
 _COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
+
 
 # Minimum battery serial length to consider valid.  Shorter serials are
 # likely truncated register reads from incomplete CAN bus transfers and
@@ -568,12 +570,19 @@ class LocalTransportMixin(_MixinBase):
         self,
         device_id: str,
         sensors: dict[str, Any],
+        keys: frozenset[str] = _COMPUTED_ENERGY_KEYS,
     ) -> None:
-        """Clamp computed energy values so they never decrease.
+        """Clamp energy values so they never decrease.
 
         Small decreases are normal timing artifacts from reading multiple
         registers at different instants.  Clamping prevents HA
         total_increasing state class warnings.
+
+        Args:
+            device_id: Device identifier for log messages.
+            sensors: Current sensor dict (mutated in place).
+            keys: Set of energy keys to clamp.  Defaults to computed
+                energy keys; PG devices pass ``PG_LIFETIME_ENERGY_KEYS``.
         """
         if not self.data:
             return
@@ -583,7 +592,7 @@ class LocalTransportMixin(_MixinBase):
         if not prev_sensors:
             return
 
-        for key in _COMPUTED_ENERGY_KEYS:
+        for key in keys:
             prev = prev_sensors.get(key)
             curr = sensors.get(key)
             if prev is not None and curr is not None and curr < prev:
@@ -1792,9 +1801,11 @@ class LocalTransportMixin(_MixinBase):
                                 group_sensors[vkey] = val
                         break
 
-            # Clamp computed energy values before storing the parallel group.
+            # Clamp all PG lifetime energy values (monotonicity).
             group_device_id = f"parallel_group_{group_name.lower()}"
-            self._clamp_computed_energy(group_device_id, group_sensors)
+            self._clamp_computed_energy(
+                group_device_id, group_sensors, PG_LIFETIME_ENERGY_KEYS
+            )
 
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 

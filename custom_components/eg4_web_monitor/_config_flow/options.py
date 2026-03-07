@@ -248,14 +248,14 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_LIBRARY_DEBUG, default=current_library_debug)
         ] = bool
 
-        # Data validation toggle: only shown when local transports are configured
-        if show_modbus or show_dongle:
-            current_data_validation = self.config_entry.options.get(
-                CONF_DATA_VALIDATION, False
-            )
-            schema_fields[
-                vol.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
-            ] = bool
+        # Data validation toggle: shown for all connection types.
+        # Covers canary checks (local) and energy monotonicity (all modes).
+        current_data_validation = self.config_entry.options.get(
+            CONF_DATA_VALIDATION, True
+        )
+        schema_fields[
+            vol.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
+        ] = bool
 
         # TODO: Re-enable when AC-coupled PV feature is implemented
         # schema_fields[
