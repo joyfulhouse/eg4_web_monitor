@@ -10,9 +10,9 @@ Usage:
 
 Requires: dpkt (uv pip install dpkt)
 """
+
 from __future__ import annotations
 
-import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,14 +133,18 @@ def extract_register_dumps(pcap_path: str) -> list[RegisterDump]:
                 if func != 0xC2:
                     continue
 
-                dongle_serial = frame_bytes[8:18].decode("ascii", errors="replace").rstrip("\x00")
+                dongle_serial = (
+                    frame_bytes[8:18].decode("ascii", errors="replace").rstrip("\x00")
+                )
                 payload = frame_bytes[18:]
 
                 if len(payload) < 17:
                     continue
 
                 group = payload[2]
-                inv_serial = payload[4:14].decode("ascii", errors="replace").rstrip("\x00")
+                inv_serial = (
+                    payload[4:14].decode("ascii", errors="replace").rstrip("\x00")
+                )
                 start_reg = int.from_bytes(payload[14:16], "little")
                 data = payload[17:]  # Register data starts at offset 17
 
@@ -156,13 +160,15 @@ def extract_register_dumps(pcap_path: str) -> list[RegisterDump]:
                     continue
                 seen.add(key)
 
-                dumps.append(RegisterDump(
-                    dongle_serial=dongle_serial,
-                    inv_serial=inv_serial,
-                    group=group,
-                    start_reg=start_reg,
-                    values=values,
-                ))
+                dumps.append(
+                    RegisterDump(
+                        dongle_serial=dongle_serial,
+                        inv_serial=inv_serial,
+                        group=group,
+                        start_reg=start_reg,
+                        values=values,
+                    )
+                )
     finally:
         f.close()
 
@@ -190,8 +196,12 @@ def verify_gridboss(dumps: list[RegisterDump]) -> None:
 
     for dump in gb_dumps:
         print(f"\n  Dongle: {dump.dongle_serial}  Inverter: {dump.inv_serial}")
-        print(f"  Register range: {dump.start_reg}-{dump.start_reg + len(dump.values) - 1}")
-        print(f"  {'Addr':>5} {'Name':<25} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}")
+        print(
+            f"  Register range: {dump.start_reg}-{dump.start_reg + len(dump.values) - 1}"
+        )
+        print(
+            f"  {'Addr':>5} {'Name':<25} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}"
+        )
         print(f"  {'─' * 70}")
 
         for addr, name, scale, unit, lo, hi in GRIDBOSS_REGS:
@@ -209,11 +219,13 @@ def verify_gridboss(dumps: list[RegisterDump]) -> None:
             in_range = lo <= abs(scaled) <= hi or (lo == 0.0 and scaled == 0.0)
             status = "OK" if in_range else f"SUSPECT (expected {lo}-{hi})"
 
-            print(f"  {addr:>5} {name:<25} {raw:>6} {scaled:>10.2f} {unit:>5}  {status}")
+            print(
+                f"  {addr:>5} {name:<25} {raw:>6} {scaled:>10.2f} {unit:>5}  {status}"
+            )
 
         # Show raw hex for first 40 regs for manual inspection
         if dump.start_reg == 0 and len(dump.values) >= 40:
-            print(f"\n  First 40 register values (raw uint16 LE):")
+            print("\n  First 40 register values (raw uint16 LE):")
             for row_start in range(0, 40, 10):
                 vals = dump.values[row_start : row_start + 10]
                 line = " ".join(f"{v:5d}" for v in vals)
@@ -240,8 +252,10 @@ def verify_inverter(dumps: list[RegisterDump]) -> None:
         print(f"  Register count: {len(dump.values)}")
 
         # Try LE interpretation (what we're currently doing)
-        print(f"\n  --- Little-Endian Interpretation ---")
-        print(f"  {'Addr':>5} {'Name':<20} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}")
+        print("\n  --- Little-Endian Interpretation ---")
+        print(
+            f"  {'Addr':>5} {'Name':<20} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}"
+        )
         print(f"  {'─' * 65}")
 
         ok_count_le = 0
@@ -260,11 +274,15 @@ def verify_inverter(dumps: list[RegisterDump]) -> None:
             if in_range:
                 ok_count_le += 1
             status = "OK" if in_range else f"SUSPECT ({lo}-{hi})"
-            print(f"  {addr:>5} {name:<20} {raw:>6} {scaled:>10.2f} {unit:>5}  {status}")
+            print(
+                f"  {addr:>5} {name:<20} {raw:>6} {scaled:>10.2f} {unit:>5}  {status}"
+            )
 
         # Try BE interpretation
-        print(f"\n  --- Big-Endian Interpretation ---")
-        print(f"  {'Addr':>5} {'Name':<20} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}")
+        print("\n  --- Big-Endian Interpretation ---")
+        print(
+            f"  {'Addr':>5} {'Name':<20} {'Raw':>6} {'Scaled':>10} {'Unit':>5}  {'Status'}"
+        )
         print(f"  {'─' * 65}")
 
         ok_count_be = 0
@@ -283,9 +301,13 @@ def verify_inverter(dumps: list[RegisterDump]) -> None:
                 if in_range:
                     ok_count_be += 1
                 status = "OK" if in_range else f"SUSPECT ({lo}-{hi})"
-                print(f"  {addr:>5} {name:<20} {be_val:>6} {scaled:>10.2f} {unit:>5}  {status}")
+                print(
+                    f"  {addr:>5} {name:<20} {be_val:>6} {scaled:>10.2f} {unit:>5}  {status}"
+                )
 
-        print(f"\n  Summary: LE={ok_count_le}/{total_count} OK, BE={ok_count_be}/{total_count} OK")
+        print(
+            f"\n  Summary: LE={ok_count_le}/{total_count} OK, BE={ok_count_be}/{total_count} OK"
+        )
         winner = "LE" if ok_count_le >= ok_count_be else "BE"
         print(f"  Best fit: {winner}")
 
@@ -302,7 +324,7 @@ def verify_inverter(dumps: list[RegisterDump]) -> None:
             print(f"    BE: SOC={soc_be}%, SOH={soh_be}%")
 
         # Raw register dump for first 32 regs
-        print(f"\n  First 32 registers (raw uint16 LE):")
+        print("\n  First 32 registers (raw uint16 LE):")
         for row_start in range(0, min(32, len(dump.values)), 8):
             end = min(row_start + 8, len(dump.values))
             vals = dump.values[row_start:end]
@@ -333,7 +355,7 @@ def verify_frame5000(dumps: list[RegisterDump]) -> None:
         print(f"  Non-zero: {len(non_zero)}, Zero: {zero_count}")
 
         if non_zero:
-            print(f"\n  Non-zero registers:")
+            print("\n  Non-zero registers:")
             print(f"  {'Addr':>6} {'Raw':>6} {'Hex':>8} {'Signed':>8}")
             print(f"  {'─' * 35}")
             for idx, val in non_zero[:50]:  # Limit to first 50
@@ -342,7 +364,7 @@ def verify_frame5000(dumps: list[RegisterDump]) -> None:
                 print(f"  {addr:>6} {val:>6} 0x{val:04X} {signed:>8}")
 
         # Show first 32 raw values
-        print(f"\n  First 32 registers (raw):")
+        print("\n  First 32 registers (raw):")
         for row_start in range(0, min(32, len(dump.values)), 8):
             end = min(row_start + 8, len(dump.values))
             vals = dump.values[row_start:end]

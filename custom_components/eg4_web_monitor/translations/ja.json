@@ -147,22 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Confirm Device",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "title": "デバイスの確認",
+        "description": "**{device_type}**: {device_model}\n**シリアル**: {device_serial}\n**ファミリー**: {device_family}\n**ファームウェア**: {device_firmware}\n**PV電力**: {device_pv_power}W | **バッテリーSOC**: {device_battery_soc}%\n\n電力系統のタイプを選択してください：",
         "data": {
-          "grid_type": "Grid Type"
+          "grid_type": "系統タイプ"
         },
         "data_description": {
-          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+          "grid_type": "スプリットフェーズ（US 120V/240V L1/L2）、単相（ブラジル220VまたはEU 230V）、三相（R/S/Tシステム）"
         }
       },
       "local_device_added": {
-        "title": "Device Added",
-        "description": "Device #{device_count} added successfully. What next?",
+        "title": "デバイス追加完了",
+        "description": "デバイス #{device_count} が正常に追加されました。次の操作を選択してください：",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "別のデバイスを追加",
+          "local_add_cloud": "クラウド認証情報を追加",
+          "local_finish": "セットアップ完了"
         }
       },
       "local_finish": {
@@ -368,8 +368,8 @@
         "description": "{brand_name} Web Monitorインテグレーションのポーリング間隔を設定します。センサー更新はデバイスデータの取得頻度を制御します。パラメーター更新は設定の同期頻度を制御します。",
         "data": {
           "sensor_update_interval": "センサー更新間隔（秒）",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "modbus_update_interval": "Modbus更新間隔（秒）",
+          "dongle_update_interval": "WiFiドングル更新間隔（秒）",
           "http_polling_interval": "HTTP/クラウドポーリング間隔（秒）",
           "parameter_refresh_interval": "パラメーター更新間隔（分）",
           "library_debug": "ライブラリデバッグログ",
@@ -378,8 +378,8 @@
         },
         "data_description": {
           "sensor_update_interval": "センサー更新のポーリング頻度（{min_sensor_interval}～{max_sensor_interval}秒）。低い値はより高速な更新を提供しますが、API負荷が増加します。",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "modbus_update_interval": "Modbus TCP/シリアルデバイスのポーリング頻度（{min_modbus_interval}-{max_modbus_interval}秒）。値が小さいほど更新が速くなりますが、バストラフィックが増加します。",
+          "dongle_update_interval": "WiFiドングルデバイスのポーリング頻度（{min_dongle_interval}-{max_dongle_interval}秒）。WiFi接続は安定性のためにModbusより長い間隔が必要な場合があります。",
           "http_polling_interval": "クラウドAPIのデータ取得頻度（{min_http_interval}〜{max_http_interval}秒）。値が高いほどAPI負荷が軽減されます。ハイブリッドモードでは、クラウドデータのみを制御します。ローカルトランスポートデータはセンサー間隔で更新されます。",
           "parameter_refresh_interval": "SOC制限や充電設定などのインバーターパラメーターの更新頻度（{min_param_interval}～{max_param_interval}分）。",
           "library_debug": "pylxpwebライブラリのDEBUGログを有効にする（APIリクエスト、レスポンス、内部ライブラリ操作を表示）",
@@ -547,52 +547,52 @@
         "name": "EPS電力 L2"
       },
       "eps_apparent_power_l1": {
-        "name": "EPS Apparent Power L1"
+        "name": "EPS皮相電力 L1"
       },
       "eps_apparent_power_l2": {
-        "name": "EPS Apparent Power L2"
+        "name": "EPS皮相電力 L2"
       },
       "eps_energy_today_l1": {
-        "name": "EPS Energy Today L1"
+        "name": "EPS本日のエネルギー L1"
       },
       "eps_energy_today_l2": {
-        "name": "EPS Energy Today L2"
+        "name": "EPS本日のエネルギー L2"
       },
       "eps_energy_total_l1": {
-        "name": "EPS Energy Total L1"
+        "name": "EPS累計エネルギー L1"
       },
       "eps_energy_total_l2": {
-        "name": "EPS Energy Total L2"
+        "name": "EPS累計エネルギー L2"
       },
       "inverter_power_l1": {
-        "name": "Inverter Power L1"
+        "name": "インバーター電力 L1"
       },
       "inverter_power_l2": {
-        "name": "Inverter Power L2"
+        "name": "インバーター電力 L2"
       },
       "rectifier_power_l1": {
-        "name": "Rectifier Power L1"
+        "name": "整流器電力 L1"
       },
       "rectifier_power_l2": {
-        "name": "Rectifier Power L2"
+        "name": "整流器電力 L2"
       },
       "grid_export_power_l1": {
-        "name": "Grid Export Power L1"
+        "name": "系統輸出電力 L1"
       },
       "grid_export_power_l2": {
-        "name": "Grid Export Power L2"
+        "name": "系統輸出電力 L2"
       },
       "grid_import_power_l1": {
-        "name": "Grid Import Power L1"
+        "name": "系統輸入電力 L1"
       },
       "grid_import_power_l2": {
-        "name": "Grid Import Power L2"
+        "name": "系統輸入電力 L2"
       },
       "generator_voltage_l1": {
-        "name": "Generator Voltage L1"
+        "name": "発電機電圧 L1"
       },
       "generator_voltage_l2": {
-        "name": "Generator Voltage L2"
+        "name": "発電機電圧 L2"
       },
       "power_output": {
         "name": "出力電力"
@@ -676,7 +676,7 @@
         "name": "PV充電電力"
       },
       "pv_start_voltage": {
-        "name": "PV Start Voltage"
+        "name": "PV開始電圧"
       },
       "ac_charge_soc_limit": {
         "name": "AC充電SOC制限"
@@ -699,7 +699,7 @@
         }
       },
       "pv_input_mode": {
-        "name": "PV Input Mode",
+        "name": "PV入力モード",
         "state": {
           "no_pv": "NO PV",
           "pv1": "PV1",
@@ -762,14 +762,6 @@
     }
   },
   "issues": {
-    "grid_type_mismatch": {
-      "title": "Grid type mismatch for {serial}",
-      "description": "Inverter **{serial}** ({model}) was configured as **{config_grid_type}** but live detection found **{detected_grid_type}**. This causes {skipped_count} sensors to be missing.\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor** and reconfigure the integration with the correct grid type."
-    },
-    "grid_type_missing": {
-      "title": "Grid type not configured for {model} ({serial})",
-      "description": "This LXP-EU device defaults to three-phase mode. If your system is single-phase, reconfigure the integration and select the correct grid type to avoid extra sensor entities."
-    },
     "dongle_validation_disabled": {
       "title": "WiFi dongle のデータ検証を推奨",
       "description": "WiFi dongle が設定されていますが、**データ検証**が無効になっています。WiFi dongle は Modbus バスを共有しており、同時読み取りによりレジスターデータが破損する可能性があります（例：エネルギースパイク）。\n\n修正するには、**設定 > デバイスとサービス > EG4 Web Monitor > 設定** に移動し、**データ検証**を有効にしてください。"

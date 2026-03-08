@@ -17,9 +17,9 @@ The script reconstructs TCP streams and identifies:
 - 0xC4 SET_PARAM commands (register writes)
 - Server→dongle responses (any direction)
 """
+
 from __future__ import annotations
 
-import struct
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -153,7 +153,9 @@ def decode_frame(
         if len(modbus_data) >= 15:
             slave = modbus_data[0]
             modbus_func = modbus_data[1]
-            inv_serial = modbus_data[2:12].decode("ascii", errors="replace").rstrip("\x00")
+            inv_serial = (
+                modbus_data[2:12].decode("ascii", errors="replace").rstrip("\x00")
+            )
             start_reg = int.from_bytes(modbus_data[12:14], "little")
             is_request = modbus_len == 18
 
@@ -170,7 +172,8 @@ def decode_frame(
                     crc_actual = int.from_bytes(modbus_data[15:17], "little")
                     crc_expected = compute_crc16(crc_data)
                     details_parts.append(
-                        "CRC OK" if crc_actual == crc_expected
+                        "CRC OK"
+                        if crc_actual == crc_expected
                         else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
                     )
 
@@ -186,7 +189,8 @@ def decode_frame(
                     crc_actual = int.from_bytes(modbus_data[16:18], "little")
                     crc_expected = compute_crc16(crc_data)
                     details_parts.append(
-                        "CRC OK" if crc_actual == crc_expected
+                        "CRC OK"
+                        if crc_actual == crc_expected
                         else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
                     )
 
@@ -194,7 +198,9 @@ def decode_frame(
                 # READ request: [14:16]=register_count (uint16 LE)
                 reg_count = int.from_bytes(modbus_data[14:16], "little")
                 end_reg = start_reg + reg_count - 1
-                func_name_inner = MODBUS_FUNC_NAMES.get(modbus_func, f"0x{modbus_func:02X}")
+                func_name_inner = MODBUS_FUNC_NAMES.get(
+                    modbus_func, f"0x{modbus_func:02X}"
+                )
                 details_parts.append(
                     f"slave={slave} inv={inv_serial} {func_name_inner}"
                     f" READ regs {start_reg}-{end_reg} ({reg_count} regs)"
@@ -204,7 +210,8 @@ def decode_frame(
                     crc_actual = int.from_bytes(modbus_data[16:18], "little")
                     crc_expected = compute_crc16(crc_data)
                     details_parts.append(
-                        "CRC OK" if crc_actual == crc_expected
+                        "CRC OK"
+                        if crc_actual == crc_expected
                         else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
                     )
 
@@ -215,7 +222,9 @@ def decode_frame(
                 data_end = 15 + byte_count
                 reg_count = byte_count // 2
                 end_reg = start_reg + reg_count - 1
-                func_name_inner = MODBUS_FUNC_NAMES.get(modbus_func, f"0x{modbus_func:02X}")
+                func_name_inner = MODBUS_FUNC_NAMES.get(
+                    modbus_func, f"0x{modbus_func:02X}"
+                )
                 details_parts.append(
                     f"slave={slave} inv={inv_serial} {func_name_inner}"
                     f" regs {start_reg}-{end_reg} ({reg_count} regs)"
@@ -229,7 +238,8 @@ def decode_frame(
                     )
                     crc_expected = compute_crc16(crc_data)
                     details_parts.append(
-                        "CRC OK" if crc_actual == crc_expected
+                        "CRC OK"
+                        if crc_actual == crc_expected
                         else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
                     )
 
@@ -296,7 +306,11 @@ def _decode_modbus_rtu(payload: bytes) -> list[str]:
                 values.append(val)
             # Show first 5 and last 2 values for brevity
             if len(values) > 7:
-                shown = [str(v) for v in values[:5]] + ["..."] + [str(v) for v in values[-2:]]
+                shown = (
+                    [str(v) for v in values[:5]]
+                    + ["..."]
+                    + [str(v) for v in values[-2:]]
+                )
             else:
                 shown = [str(v) for v in values]
             parts.append(f"values=[{', '.join(shown)}]")
@@ -309,7 +323,9 @@ def _decode_modbus_rtu(payload: bytes) -> list[str]:
             )
             expected_crc = compute_crc16(modbus_data)
             if modbus_crc != expected_crc:
-                parts.append(f"BAD MODBUS CRC (0x{modbus_crc:04X} vs 0x{expected_crc:04X})")
+                parts.append(
+                    f"BAD MODBUS CRC (0x{modbus_crc:04X} vs 0x{expected_crc:04X})"
+                )
     else:
         parts.append(f"payload={payload[2:].hex()}")
 
@@ -399,7 +415,6 @@ def process_pcap(pcap_path: str) -> list[DecodedFrame]:
 
             # Find frames in TCP payload
             for _offset, frame_bytes in find_frames(tcp.data):
-
                 decoded = decode_frame(frame_bytes, timestamp, direction)
                 if decoded:
                     frames.append(decoded)
@@ -416,7 +431,7 @@ def print_analysis(frames: list[DecodedFrame]) -> None:
         return
 
     print(f"\n{'=' * 80}")
-    print(f"EG4 Cloud Protocol Traffic Analysis")
+    print("EG4 Cloud Protocol Traffic Analysis")
     print(f"{'=' * 80}")
     print(f"Total frames: {len(frames)}")
 
@@ -430,7 +445,7 @@ def print_analysis(frames: list[DecodedFrame]) -> None:
     func_counts: dict[str, int] = {}
     for f in frames:
         func_counts[f.func_name] = func_counts.get(f.func_name, 0) + 1
-    print(f"\nFrame types:")
+    print("\nFrame types:")
     for name, count in sorted(func_counts.items()):
         print(f"  {name}: {count}")
 
@@ -439,20 +454,24 @@ def print_analysis(frames: list[DecodedFrame]) -> None:
     print(f"\nDongle serials: {', '.join(sorted(serials))}")
 
     # Heartbeat timing
-    heartbeats = [f for f in frames if f.func == 0xC1 and f.direction == "dongle->cloud"]
+    heartbeats = [
+        f for f in frames if f.func == 0xC1 and f.direction == "dongle->cloud"
+    ]
     if len(heartbeats) >= 2:
         intervals = []
         for i in range(1, len(heartbeats)):
             intervals.append(heartbeats[i].timestamp - heartbeats[i - 1].timestamp)
         avg_interval = sum(intervals) / len(intervals)
-        print(f"\nHeartbeat timing:")
+        print("\nHeartbeat timing:")
         print(f"  Count: {len(heartbeats)}")
         print(f"  Avg interval: {avg_interval:.1f}s")
         print(f"  Min interval: {min(intervals):.1f}s")
         print(f"  Max interval: {max(intervals):.1f}s")
 
     # Data frame timing
-    data_frames = [f for f in frames if f.func == 0xC2 and f.direction == "dongle->cloud"]
+    data_frames = [
+        f for f in frames if f.func == 0xC2 and f.direction == "dongle->cloud"
+    ]
     if len(data_frames) >= 2:
         # Group by poll cycle (frames within 5s of each other = same cycle)
         cycles: list[list[DecodedFrame]] = []
@@ -470,19 +489,23 @@ def print_analysis(frames: list[DecodedFrame]) -> None:
         if len(cycles) >= 2:
             cycle_intervals = []
             for i in range(1, len(cycles)):
-                cycle_intervals.append(cycles[i][0].timestamp - cycles[i - 1][0].timestamp)
+                cycle_intervals.append(
+                    cycles[i][0].timestamp - cycles[i - 1][0].timestamp
+                )
             avg_cycle = sum(cycle_intervals) / len(cycle_intervals)
             print(f"  Avg cycle interval: {avg_cycle:.1f}s")
 
     # Detailed frame log
     print(f"\n{'=' * 80}")
-    print(f"Detailed Frame Log")
+    print("Detailed Frame Log")
     print(f"{'=' * 80}")
 
     t0 = frames[0].timestamp if frames else 0
     for f in frames:
         ts = f.timestamp - t0
-        dt = datetime.fromtimestamp(f.timestamp, tz=timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+        dt = datetime.fromtimestamp(f.timestamp, tz=timezone.utc).strftime(
+            "%H:%M:%S.%f"
+        )[:-3]
         print(
             f"[{ts:8.3f}s] [{dt}] {f.direction:15s} "
             f"{f.func_name:12s} serial={f.serial} "
@@ -493,8 +516,10 @@ def print_analysis(frames: list[DecodedFrame]) -> None:
 def main() -> None:
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <pcap_file>")
-        print(f"\nCapture traffic first:")
-        print(f"  sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w capture.pcap")
+        print("\nCapture traffic first:")
+        print(
+            "  sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w capture.pcap"
+        )
         sys.exit(1)
 
     pcap_path = sys.argv[1]

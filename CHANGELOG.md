@@ -5,376 +5,112 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0-rc.5] - 2026-03-04
+## [3.2.0] - 2026-03-08
 
-### Fixed
-
-- **HYBRID mode: 38 transport-only sensors permanently unavailable**: In HYBRID mode, the
-  first coordinator update runs before local transports are attached, so transport-only
-  sensor keys (per-leg power, overlay sensors) are missing from the initial data. Entity
-  objects are only created during `async_setup_entry()` for keys present in the first update.
-  Added late registration listener that discovers and creates entity objects for new sensor
-  keys appearing in subsequent updates.
-- **GridBOSS status sensor re-creation on every poll**: Introduced
-  `GRIDBOSS_COORDINATOR_INTERNAL_KEYS` to block coordinator-internal keys from creating
-  duplicate status sensor entities.
-- **Smart port status cleanup**: Fixed smart port status entity labels — renamed 'Unused'
-  to 'Off' for consistency with select entity options.
-- **Individual battery entities becoming unavailable (WiFi dongle, issue #180)**: After
-  any transient read failure of the individual battery registers (5002–5121), pylxpweb
-  permanently disabled all future battery reads (`_battery_slot_ceiling = 0`) until HA
-  was reloaded. Two complementary fixes: (1) pylxpweb v0.9.24+ removes the permanent
-  disable — failed reads now retry on the next poll cycle; (2) the coordinator falls back
-  to the round-robin battery cache when the current poll has no individual battery data.
-
-### Changed
-
-- **Pre-computed `GRIDBOSS_STATIC_ENTITY_KEYS`**: Refactored to module-level frozenset for
-  better performance and clarity.
-- **pylxpweb requirement bumped to >=0.9.26** (split-phase EPS power fallback, battery
-  protocol framework)
-
-## [3.2.0-rc.3] - 2026-03-02
-
-### Fixed
-
-- **HYBRID mode setup hang on HA restart**: Removed forced Modbus read from transport
-  attachment. Python 3.11's `asyncio.wait_for()` does not interrupt in-flight pymodbus
-  reads — it waits for the inner task to finish before raising `TimeoutError`. On HA restart
-  the Waveshare RS485-to-Ethernet gateway has stale RS485 responses buffered from the
-  previous session, causing reads to fail for 3–5 minutes. The forced read blocked
-  `async_config_entry_first_refresh()` for that duration, exhausting HA's setup stage
-  timeout and cancelling entity setup (`setup_error`). First regular poll now populates
-  transport data after the Waveshare bus clears (~5s after setup).
-
-### Added
-
-- **GridBOSS smart port mode select entities**: New `select` entities for configuring
-  each GridBOSS smart port (1–4) between Off, Smart Load, and AC Couple modes. Writes
-  to holding register 20 bit fields.
-
-## [3.2.0-rc.2] - 2026-02-27
-
-### Fixed
-
-- **Register 179/233 mappings**: Corrected two previously unmapped holding registers
-- **Three-phase sensor fix**: Resolved incorrect sensor availability for three-phase inverters
-- **battery_bank_count**: Fixed incorrect battery bank count sensor value
-
-## [3.2.0-rc.1] - 2026-02-27
-
-### Added
-
-- **BMS bank-level diagnostic sensors**: New battery bank sensors from BMS input registers (always available, no CAN bus needed):
-  - Min Cell Voltage (reg 102), Min Cell Temperature (reg 104)
-  - BMS Charge/Discharge Current Limit (regs 81-82)
-  - BMS Charge Voltage Ref (reg 83), Discharge Cutoff (reg 84)
-  - Battery Type (reg 80), Voltage Inverter Sample (reg 107)
-- Requires pylxpweb>=0.9.21
-
-## [3.2.0-beta.42] - 2026-02-26
-
-### Fixed
-
-- **Battery bank min_soh Unavailable**: Require pylxpweb>=0.9.20 which adds bank-level SOH fallback (input register 5 high byte) when individual battery CAN data is unavailable from registers 5002+
-
-## [3.2.0-beta.41] - 2026-02-26
-
-### Added
-
-- **Battery bank cycle count sensor**: New `battery_bank_cycle_count` diagnostic sensor sourced from BMS register 106 (always available, no CAN bus needed)
-
-### Fixed
-
-- **Battery bank diagnostic sensors permanently Unavailable**: Split `BATTERY_BANK_KEYS` into `BATTERY_BANK_CORE_KEYS` (BMS registers 80-107, always available) and `BATTERY_BANK_CAN_DIAGNOSTIC_KEYS` (registers 5002+, intermittent). Static entity creation now only pre-creates CORE keys, preventing permanently Unavailable entities for CAN-dependent cross-battery sensors (`soc_delta`, `soh_delta`, `voltage_delta`, `cycle_count_delta`)
-- **Battery bank min_soh fallback**: `min_soh` now falls back to bank-level SOH from input register 5 when individual battery CAN data is unavailable
-- **776 tests** (up from 770)
-
-## [3.2.0-beta.39] - 2026-02-26
-
-### Fixed
-
-- **PV start voltage write failure**: Require pylxpweb>=0.9.18 which corrects register 22 mapping from incorrect FUNC_LSP_* bit fields to HOLD_START_PV_VOLT scalar. Fixes `number.set_value` failing with "Unknown parameter name: HOLD_START_PV_VOLT" on local Modbus writes.
-
-## [3.2.0-beta.38] - 2026-02-26
-
-### Added
-
-- **Battery last seen sensor** ([#170](https://github.com/joyfulhouse/eg4_web_monitor/issues/170)): Per-battery `battery_last_seen` diagnostic timestamp showing when each battery's data was last physically read from the inverter. Particularly useful for >4 battery systems where round-robin rotation means some batteries may have stale data. Disabled by default.
-- **Mirror shared battery bank sensors** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): In parallel systems with shared batteries (CAN bus to primary only), the LOCAL path now mirrors the primary's battery_bank_* sensor values to secondary inverters — matching cloud API behavior. Detection uses FUNC_BAT_SHARED param (register 110 bit 3) with role+count fallback.
-
-### Fixed
-
-- **Secondary inverter battery bank suppression** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): Suppression deferred to runtime (not static phase) to avoid false positives on LXP-EU systems where both inverters have independent batteries
-- **Network scan dongle prefill crash** ([#172](https://github.com/joyfulhouse/eg4_web_monitor/issues/172)): Prevent KeyError when network scan passes partial user_input (host+port only) to dongle config steps
-- **PV Input Mode entity category**: Moved to Configuration category
-- **Battery charge_current_limit scaling** ([#172](https://github.com/joyfulhouse/eg4_web_monitor/issues/172)): Documentation updated to match pylxpweb fix — individual battery register offset 3 uses 0.1A units (÷10), not 0.01A (÷100)
-- **779 tests** (up from 765)
-
-### Changed
-
-- **Simplified battery mirror code**: Extracted non_mirrored pre-filter, consolidated master lookup, deduplicated test helpers (-229 lines)
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.17` (battery round-robin accumulator, last_seen timestamps, GridBOSS CT ghost voltage fix)
-
-## [3.2.0-beta.34] - 2026-02-18
-
-### Fixed
-
-- **WiFi dongle cross-request response validation** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): pylxpweb 0.9.7 validates response serial number, function code, and start register against the request — catches misrouted cloud responses through the WiFi dongle that caused battery_count=5421 and current=2996A spikes
-- **Battery canary checks** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): pylxpweb 0.9.7 adds `battery_count > 20` and `abs(current) > 500A` canary bounds to `BatteryBankData.is_corrupt()` to reject garbage readings
-- **Always-on energy monotonicity** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): Lifetime energy counter validation now runs unconditionally (previously gated by `validate_data` toggle)
-- **WARNING-level canary logging** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): All data corruption canary log messages promoted from DEBUG to WARNING for better diagnostic visibility
-
-### Added
-
-- **Common voltage sensors** ([#159](https://github.com/joyfulhouse/eg4_web_monitor/issues/159)): `grid_voltage` and `eps_voltage` aliases for single/split-phase inverters (maps to `_r` variant)
-- **Signed net sensors**: Consolidated charge/discharge sensor pairs into signed net sensors
-
-### Removed
-
-- **Grid type mismatch detection**: Removed `_check_grid_type_mismatch()` — config-stored grid type is now treated as authoritative
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.7` (cross-request response validation, battery canaries, always-on energy monotonicity)
-
-## [3.2.0-beta.32] - 2026-02-13
-
-### Fixed
-
-- **Three-phase entity registration order** ([#154](https://github.com/joyfulhouse/eg4_web_monitor/issues/154)): Split sensor entity registration from 2 phases into 3 so parallel group devices are registered before inverters/GridBOSS that reference them via `via_device`, preventing warnings on HA 2025.12.0+
-- **battery_bank_count logging crash** ([#155](https://github.com/joyfulhouse/eg4_web_monitor/issues/155)): Fixed `%d` format TypeError when `battery_bank_count` key exists with `None` value during static entity phase — now uses `or 0` instead of `dict.get` default
-- **bt_temperature entity creation** ([#155](https://github.com/joyfulhouse/eg4_web_monitor/issues/155)): Made `bt_temperature` mapping unconditional so the entity is created during static phase; value populates once BMS registers are read
-- **GridBOSS firmware shows "unknown"** ([#156](https://github.com/joyfulhouse/eg4_web_monitor/issues/156)): Read firmware from `transport.read_firmware_version()` + `_firmware_cache` pattern instead of the always-None `mid_device.firmware_version` property
-
-### Changed
-
-- **Deduplicated modbus_supported_params**: `_WORKING_MODE_PARAMETERS` dict is now the single source of truth for which working modes support LOCAL writes, eliminating a redundant parallel list
-- **707 tests** (up from 703)
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.5` (holding register 179/233 bit field mappings for Battery Backup and Grid Peak Shaving switches)
-
-## [3.2.0-beta.29] - 2026-02-13
-
-### Fixed
-
-- **Smart load energy off-by-one** ([#146](https://github.com/joyfulhouse/eg4_web_monitor/issues/146)): Corrected GridBOSS smart load energy register addresses in pylxpweb — daily energy shifted +2 (regs 50→52), lifetime shifted +4 (regs 84→88). Confirmed by Cloud API vs Modbus comparison.
-- **Parallel group grid voltage**: Grid voltage now overlaid from MID device (authoritative GridBOSS CT reading). Falls back to master inverter only when no MID device present. Fixes 0V readings on inverters where firmware doesn't populate regs 193-194.
-- **Parallel group consumption energy**: Now computed as UPS + Load CT energy from MID device instead of using inverter load counters (which double-counted). Fixes consumption energy divergence between LOCAL and CLOUD modes.
-- **Parallel group consumption power**: New energy-balance formula `max(0, pv + battery_net + grid_power)` using MID device grid power overlay. Fixes 0W consumption power in LOCAL mode.
-
-### Changed
-
-- **Dead code removal**: Removed unused `ac_couple_for_consumption` variable and phantom function reference in overlay comments
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.3` (smart load energy register fix)
-
-## [3.2.0-beta.28] - 2026-02-13
-
-### Added
-
-- **Hybrid transport-exclusive sensors**: When local transport is attached in hybrid mode, Modbus-only sensors are now overlaid onto the cloud-derived data: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power` ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149))
-- **Parallel battery current**: New `parallel_battery_current` sensor aggregates battery current across member inverters in parallel groups (both LOCAL and HTTP paths)
-- **Data validation toggle**: New option in Options flow (local/hybrid modes only) to enable/disable pylxpweb transport-level canary checks that reject corrupt Modbus reads ([#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139))
-- **Energy monotonicity validation**: Coordinator-level checks ensure lifetime energy counters never decrease (detects register corruption or rollover)
-- **692 tests** (up from 666): Added 12 tests for hybrid transport overlay, parallel battery current aggregation, individual battery filtering, data validation options flow
-
-### Fixed
-
-- **Parallel battery count override**: When cloud API returns 0 batteries but local transport has BMS data (register 96), the correct count from member inverters is now used
-- **Individual battery filtering**: Batteries with no CAN bus data (5002+ register read failure) are now skipped instead of creating "Unknown" entities in HA. Common on LXP-EU inverters.
-- **Debug log accuracy**: Fixed 3 locations reporting pre-filter battery count instead of post-filter count after individual battery filtering
-- **Parallel battery power sign**: Corrected sign convention in LOCAL mode parallel group aggregation ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149))
-
-### Changed
-
-- **pylxpweb data validation**: Canary checks tuned in pylxpweb v0.9.2 — grid frequency range widened to 30-90 Hz (0 Hz allowed for off-grid/EPS), `ac_input_type` check removed (unreliable), ghost battery cascade skip in `BatteryBankData`
-- **Data validation translations**: All 13 language files updated with data validation toggle strings
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.2` (transport-level data validation with tuned canary checks)
-
-## [3.2.0-beta.27] - 2026-02-10
-
-### Fixed
-
-- **Double MID device refresh** ([#148](https://github.com/joyfulhouse/eg4_web_monitor/issues/148)): Removed redundant `mid_device.refresh()` from `_process_mid_device_object()` — MID device was already refreshed by `station.refresh_all_data()`, causing 14 dongle reads/cycle instead of 7
-- **HYBRID per-transport interval gating** ([#148](https://github.com/joyfulhouse/eg4_web_monitor/issues/148)): HYBRID mode now uses per-transport interval gating (same as LOCAL mode), preventing dongle saturation from polling every coordinator tick. MID device refreshes only when the dongle interval elapses.
-- **LOCAL mode cache TTL adherence**: Removed `force=True` from LOCAL mode `inverter.refresh()` calls that bypassed pylxpweb cache TTLs. Added `_align_inverter_cache_ttls()` to override pylxpweb's hardcoded defaults with user-configured intervals from the options flow.
-- **Smart port wrong-type sensors**: Wrong-type power/energy sensors (e.g., `smart_load1_power` on an AC Couple port) are now completely removed instead of set to `None`, preventing "Unknown" entities in the HA UI
-- **Smart port status display**: Status sensors now use `device_class: enum` with translated state values ("Unused", "Smart Load", "AC Couple") instead of raw integers (0, 1, 2)
-- **Status label on all-zeros early return**: Status sensors are now converted to string labels even when the all-zeros safety guard skips power sensor filtering
-- **Translation completeness**: Synced all 13 translation files with `strings.json` — added missing keys for BT temperature sensor, reconcile_history service, HTTP polling interval option, and invalid date format exception
-- **Proper localization**: All 12 non-English translation files now have properly translated strings instead of English placeholders
-- **Silver tier validation**: Fixed `check_unavailability_logging` to scan split coordinator modules (`coordinator_http.py`, `coordinator_local.py`) instead of only `coordinator.py`
-
-### Changed
-
-- **HYBRID coordinator interval**: HYBRID mode now uses `_get_active_transport_intervals()` (same as LOCAL) to set the coordinator tick rate to the fastest configured transport interval
-- **Smart port aggregate cleanup**: Removed dead `None`-aggregate branches in `_calculate_gridboss_aggregates()` — wrong-type L1/L2 keys no longer exist in the dict, making these branches unreachable
-- **651 tests** (up from 638): Added 7 HYBRID transport gating tests, 4 cache TTL adherence tests, status label mapping and all-zeros early return tests
-
-## [3.2.0-beta.26] - 2026-02-10
-
-### Changed
-
-- **Major coordinator restructuring**: Split monolithic `coordinator.py` (~3000 lines) into focused modules: `coordinator_http.py` (HTTP/cloud), `coordinator_local.py` (Modbus/dongle), `coordinator_mappings.py` (sensor mappings), `coordinator_mixins.py` (shared logic). Coordinator base class is now a thin orchestrator.
-- **Number entity deduplication**: Consolidated 9 repetitive number entity classes into shared `_read_param`/`_write_param` helpers, reducing `number.py` by ~500 lines while preserving all functionality.
-- **Per-transport refresh intervals**: LOCAL mode now supports independent poll intervals for each transport type (Modbus TCP, WiFi dongle, serial), configurable via options flow with sensible defaults.
-- **Static entity creation**: First refresh in LOCAL mode produces zero Modbus reads by returning pre-populated sensor keys from config metadata, ensuring fast HA setup. Real data fills in on second refresh.
-- **Smart port sensor filtering**: Active smart ports (status 1=smart_load, 2=ac_couple) now create both sensor types in all modes. Correct-type sensors show values; wrong-type sensors show as unavailable.
-
-### Fixed
-
-- **Smart port status register**: Smart port status now read from correct register (holding register 20, bit-packed) instead of input registers 105-108. Fixes smart ports incorrectly showing status=0 and missing smart load/AC couple sensors. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139))
-- **Per-transport interval gate bug**: Fixed `_should_poll_transport()` stamping shared timestamp per-device instead of per-type, causing only the first device to be polled when multiple devices share the same transport type. Fixes missing parallel group data and unavailable battery entities in multi-device LOCAL setups. ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [cc8d4e2](https://github.com/joyfulhouse/eg4_web_monitor/commit/cc8d4e2))
-- **Smart port aggregate power**: `_calculate_gridboss_aggregates()` now returns `None` for wrong-type port aggregates instead of including zeroed values that skew totals
-- **Private pylxpweb imports**: Replaced internal module imports (`pylxpweb.transports.data`) with public API equivalents
-
-### Removed
-
-- **Legacy config flow**: Deleted `_config_flow_legacy.py` (~1969 lines) — unified config flow fully replaces the 12-mixin architecture
-- **Dead code**: `CircuitBreaker` class, `utils.py` helpers, `const/brand.py`, `const/modbus.py`, `const/working_modes.py`, `const/diagnostics.py`, `test_config_flow_schemas.py`, `test_utils.py`
-- **Duplicated constants**: Consolidated scattered constant definitions into canonical locations
-
-### Added
-
-- **623 tests** (up from ~350): Comprehensive test suites for sensor entities, coordinator HTTP/local paths, config flow, reconfigure flow, update entities, number/switch/select entities
-- **DATA_MAPPING.md**: Canonical reference documenting all register-to-sensor and Cloud API-to-sensor mappings, smart port decode logic, GridBOSS CT overlay, entity counts, and all calculations
-- **Network scan**: Auto-discover Modbus/dongle devices on local network during config flow
-- **Serial transport**: Modbus RTU via USB-to-RS485 adapter support in config flow
-
-### Dependencies
-
-- Requires `pylxpweb>=0.9.0` (canonical register migration, dual-source MIDDevice, smart port status fix)
-
-## [3.2.0-beta.22] - 2026-02-05
-
-### Fixed
-
-- **Local Parallel Group AC Power**: Added `ac_power` and `output_power` sensors to local mode parallel groups for parity with HTTP/hybrid modes
-- **Shutdown Listener Warnings**: Prevent "Unable to remove unknown job listener" warnings by properly tracking one-time listener state
-- **Smart Port Status Warning Spam**: Only log Smart Port status warning once per device instead of every update cycle
-- **Legacy Inverter Family Names**: Map legacy family names (e.g., `LXP_EU`, `PV_SERIES`) to new names to prevent "Unknown inverter family" warnings
-- **services.yaml YAML Syntax**: Fixed YAML parser error by quoting description containing colon
-
-### Dependencies
-
-- Requires `pylxpweb>=0.8.3`
-
-## [3.2.0-beta.21] - 2026-02-05
-
-### Fixed
-
-- **Automatic Config Entry Migration**: Added `async_migrate_entry()` hook so Home Assistant automatically migrates legacy modbus/dongle config entries to the unified local format on startup. Previously, migration only ran when users manually clicked the reconfigure gear icon, causing broken integrations that required deletion and recreation. ([#83](https://github.com/joyfulhouse/eg4_web_monitor/issues/83))
-
-### Changed
-
-- **Config Flow Version**: Bumped from v1 to v2 to trigger automatic migration for existing entries
-- **AC-Coupled PV Option**: Temporarily disabled in options UI until feature is fully implemented (constants and translations preserved)
-
-## [3.2.0-beta.18] - 2026-02-04
-
-### Changed
-
-- **BREAKING: Inverter family constants renamed** for clarity (aligns with pylxpweb 0.8.0):
-  - `INVERTER_FAMILY_SNA` → `INVERTER_FAMILY_EG4_OFFGRID`
-  - `INVERTER_FAMILY_PV_SERIES` → `INVERTER_FAMILY_EG4_HYBRID`
-  - `INVERTER_FAMILY_LXP_EU` → `INVERTER_FAMILY_LXP`
-  - `INVERTER_FAMILY_LXP_LV` → `INVERTER_FAMILY_LXP`
-  - Old constants emit `DeprecationWarning` but continue to work
-
-### Added
-
-- **Deprecation warnings** for legacy family constants via module-level `__getattr__`
-- **LXP-LB-BR 10kW support** - Brazil model device type for local discovery
-
-### Fixed
-
-- Updated all code comments to use new family names
-
-### Dependencies
-
-- Requires `pylxpweb>=0.8.0`
-
-## [3.2.0-beta.10] - 2026-02-01
-
-### Changed
-
-- **Hybrid Mode Simplification**: Replaced ~430-line manual local-read/merge pipeline with library transport routing. `_async_update_hybrid_data()` now delegates to `_async_update_http_data()` — pylxpweb's `inverter.refresh()` automatically routes runtime/energy through attached local transports with internal TTL caching.
-- **Removed Cloud Refresh Throttling**: The `cloud_refresh_interval` option and associated state (`_last_cloud_refresh`, `_cloud_refresh_interval`, `skip_cloud_refresh`) are removed; library-level cache TTLs handle throttling.
-- **Transport Labels via Introspection**: Hybrid transport labels (`Hybrid (Modbus)`, `Hybrid (Dongle)`) now detected from `inverter._transport` instead of manual tracking.
-
-### Removed
-
-- `_async_update_hybrid_data()` manual pipeline, `_hybrid_legacy_read()`, `_merge_local_data_with_http()`, `_merge_local_into_parallel_groups()`
-- `_hybrid_transport_cache` state and cleanup in `async_unload_entry()`
-- `CONF_CLOUD_REFRESH_INTERVAL`, `DEFAULT_CLOUD_REFRESH_INTERVAL`, `MIN_CLOUD_REFRESH_INTERVAL`, `MAX_CLOUD_REFRESH_INTERVAL` constants
-- Cloud refresh interval from options UI and all 14 translation files
-
-## [3.2.0-beta.7] - 2026-02-01
-
-### Changed
-
-- **Local Transport Concurrency**: Refactored `_async_update_local_data` to group transports by endpoint, enabling concurrent processing of independent connections while keeping sequential access for shared physical links.
-- **Parallel Group Refresh Optimization**: Replaced sequential `group.refresh()` calls with concurrent PG energy-only fetches, eliminating redundant inverter/MID re-refreshes that `refresh_all_data()` already covers.
-
-### Fixed
-
-- **Firmware Version Cache Regression**: Restored `_firmware_cache` lookup in `_process_single_local_device` — firmware was being read from Modbus on every 5-second update cycle instead of cached after first read.
-- **Per-Register Error Handling**: A single failing Modbus register range no longer aborts the entire parameter fetch; each range is read independently with individual error logging.
-
-### Documentation
-
-- Updated README to document Serial Modbus (USB/RS485) transport option.
-- Clarified hybrid mode description (DST auto-sync and quick charge control).
-
-## [3.2.0] - 2026-01-30
+The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.
 
 ### Breaking Changes
 
-- **Config Flow Architecture**: Replaced the 23-file, 12-mixin config flow with a single unified `EG4ConfigFlow` class. The user-facing behavior is similar but uses menu-based navigation instead of separate onboarding paths per connection type.
+- **Config Flow Architecture**: Replaced the 23-file, 12-mixin config flow with a single unified `EG4ConfigFlow` class using menu-based navigation. Existing config entries migrate automatically.
+- **Inverter Family Constants Renamed**: `INVERTER_FAMILY_SNA` → `EG4_OFFGRID`, `PV_SERIES` → `EG4_HYBRID`, `LXP_EU`/`LXP_LV` → `LXP`. Old names emit `DeprecationWarning` but continue to work.
+- **Config Entry Version**: Bumped from v1 to v2. Legacy modbus/dongle entries auto-migrate on startup via `async_migrate_entry()`.
 
 ### Added
 
-- **Menu-Based Config Flow**: New setup starts with a menu offering "Cloud (HTTP)" or "Local Device" entry points. Users can add the other side at any time via reconfigure, and the connection type (http/local/hybrid) is auto-derived.
-- **Unified Reconfigure Flow**: Single reconfigure menu with options to update cloud credentials, add/remove local devices, or detach cloud — replacing 4 separate reconfigure mixins.
-- **Auto-Detection for Local Devices**: Modbus and Dongle setup now auto-detects serial number, device model, inverter family, firmware version, and parallel group configuration.
-- **Translation Validation**: New `validate_translations.py` script and CI job to verify all translation files have complete key coverage.
+#### New Sensors
+- **Split-phase per-leg power sensors** ([#178](https://github.com/joyfulhouse/eg4_web_monitor/issues/178)): Separate L1/L2 sensors for EPS and grid power on split-phase inverters
+- **BMS bank-level diagnostic sensors**: Min cell voltage/temperature, BMS charge/discharge current limits, charge voltage reference, discharge cutoff, battery type, voltage inverter sample — always available from BMS registers, no CAN bus needed
+- **Battery bank cycle count**: From BMS register 106 (always available)
+- **Battery bank current**: Mapped from `battery_data.current` in both LOCAL and HTTP paths
+- **Battery last seen** ([#170](https://github.com/joyfulhouse/eg4_web_monitor/issues/170)): Per-battery diagnostic timestamp showing last physical read — useful for >4 battery round-robin systems
+- **Common voltage aliases** ([#159](https://github.com/joyfulhouse/eg4_web_monitor/issues/159)): `grid_voltage` and `eps_voltage` for single/split-phase inverters
+- **Signed net sensors**: Consolidated charge/discharge pairs into single signed sensors
+- **Charge rate sensors**: New sensors for monitoring charge rates
+- **Parallel battery current**: Aggregates battery current across parallel group members
+- **Hybrid transport-exclusive sensors** ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149)): `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power` overlaid from local transport in hybrid mode
+- **PV Start Voltage number** and **PV Input Mode select** entities
+- **Connection transport** and **transport IP** diagnostic sensors
+- **API monitoring sensors**: Peak rate, hourly, and daily cloud API request counters
 
-### Changed
+#### New Controls
+- **GridBOSS smart port mode select entities**: Configure each smart port (1–4) between Off, Smart Load, and AC Couple modes via holding register 20 bit fields
+- **Battery Backup and Grid Peak Shaving switches** in LOCAL mode ([#153](https://github.com/joyfulhouse/eg4_web_monitor/issues/153))
 
-- **Config Flow Structure**: `config_flow/` directory simplified from 23 files to 5 files:
-  - `__init__.py` — Unified EG4ConfigFlow class (~920 lines)
-  - `discovery.py` — Device auto-discovery via Modbus/Dongle
-  - `schemas.py` — Voluptuous schema builders
-  - `helpers.py` — Utility functions (unique IDs, migration, etc.)
-  - `options.py` — EG4OptionsFlow for interval configuration
-- **Connection Type Derivation**: Connection type is no longer chosen upfront by the user. It's automatically derived: cloud-only → `http`, local-only → `local`, both → `hybrid`.
+#### Config Flow
+- **Menu-based setup**: Cloud (HTTP) or Local Device entry points with auto-derived connection type
+- **Unified reconfigure flow**: Update credentials, add/remove local devices, or detach cloud
+- **Auto-detection for local devices**: Serial number, model, family, firmware, and parallel group configuration detected automatically
+- **Network scan**: Auto-discover Modbus/dongle devices on local network
+- **Serial transport**: Modbus RTU via USB-to-RS485 adapter support
+- **Automatic config migration**: `async_migrate_entry()` migrates v1 entries on startup ([#83](https://github.com/joyfulhouse/eg4_web_monitor/issues/83))
+- **LXP-LB-BR 10kW support**: Brazil model device type for local discovery
+
+#### Data Integrity
+- **WiFi dongle cross-request validation** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): Response serial, function code, and register validated against request — catches misrouted cloud responses causing garbage readings
+- **Data validation toggle**: Options flow setting to enable/disable canary checks on Modbus reads
+- **Energy monotonicity validation**: Lifetime energy counters validated to never decrease
+- **Battery canary checks**: Reject readings with `battery_count > 20` or `abs(current) > 500A`
+
+#### Architecture
+- **Shared battery bank mirroring** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): In parallel systems with shared batteries, LOCAL path mirrors primary's battery_bank_* values to secondary inverters
+- **Static entity creation**: First LOCAL refresh produces zero Modbus reads — entities created from config metadata, real data fills in on second refresh
+- **Round-robin battery cache** ([#165](https://github.com/joyfulhouse/eg4_web_monitor/issues/165)): Serial-based battery tracking across round-robin rotation for >4 battery systems
+- **Per-transport refresh intervals**: Independent poll intervals for Modbus TCP, WiFi dongle, and serial, configurable via options flow
+- **Complete i18n**: 12 language translations (Chinese, Spanish, German, French, Korean, Japanese, Portuguese, Italian, Dutch, Russian, Arabic, Hindi)
+
+#### Testing & Quality
+- **779 tests** (up from ~350 in v3.1.8): Comprehensive suites for all entity types, coordinator paths, config flow, reconfigure flow, and tier validation
+- **DATA_MAPPING.md**: Canonical reference for all register-to-sensor and API-to-sensor mappings
+- **CI**: Automated issue triage with Claude, translation validation, quality tier scripts
 
 ### Fixed
 
-- **BaseInverter Factory Dispatch**: Fixed calls to non-existent `BaseInverter.from_transport()` — now correctly dispatches to `from_modbus_transport()` or `from_dongle_transport()` based on transport type.
-- **Mypy Type Errors**: Fixed nullable type handling in `discovery.py` (runtime data) and `coordinator.py` (config_entry, plant_id).
-- **LuxpowerConnectionError Handling**: Connection errors during config flow now correctly show "cannot_connect" instead of "unknown".
+- **HYBRID mode setup hang on HA restart** ([#180](https://github.com/joyfulhouse/eg4_web_monitor/issues/180)): Removed forced Modbus read from transport attachment — Waveshare RS485 gateway stale buffers caused 3–5 minute blocks on `async_config_entry_first_refresh()`
+- **HYBRID late sensor registration**: Transport-only sensor keys missing from first update are now discovered and registered via coordinator listener
+- **Individual battery entities permanently unavailable** ([#180](https://github.com/joyfulhouse/eg4_web_monitor/issues/180)): pylxpweb no longer permanently disables battery reads after transient WiFi dongle failures; coordinator falls back to round-robin cache
+- **Smart port status register** ([#142](https://github.com/joyfulhouse/eg4_web_monitor/issues/142), [#139](https://github.com/joyfulhouse/eg4_web_monitor/issues/139)): Now reads from correct holding register 20 (bit-packed) instead of input registers 105-108
+- **Smart port wrong-type sensors**: Removed instead of set to `None`, preventing "Unknown" entities
+- **Smart port status display**: Uses `device_class: enum` with translated labels
+- **Smart load energy register addresses** ([#146](https://github.com/joyfulhouse/eg4_web_monitor/issues/146)): Corrected off-by-one in daily and lifetime energy registers
+- **Parallel group consumption** ([#149](https://github.com/joyfulhouse/eg4_web_monitor/issues/149)): Energy-balance formula using MID device grid power overlay; fixes 0W consumption and energy divergence between LOCAL/CLOUD
+- **Parallel group grid voltage**: Overlaid from MID device CT reading; fixes 0V on inverters where firmware doesn't populate regs 193-194
+- **Per-transport interval gate bug**: `_should_poll_transport()` now stamps per-type instead of per-device, fixing multi-device LOCAL setups where only first device was polled
+- **Double MID device refresh** ([#148](https://github.com/joyfulhouse/eg4_web_monitor/issues/148)): Eliminated redundant refresh that doubled dongle reads per cycle (14→7)
+- **Three-phase entity registration order** ([#154](https://github.com/joyfulhouse/eg4_web_monitor/issues/154)): Parallel group devices registered before referencing entities, preventing `via_device` warnings on HA 2025.12.0+
+- **GridBOSS firmware shows "unknown"** ([#156](https://github.com/joyfulhouse/eg4_web_monitor/issues/156)): Read from transport + firmware cache instead of always-None property
+- **Battery bank diagnostic sensors permanently Unavailable**: Split into CORE (BMS, always available) and CAN (intermittent) key sets
+- **Battery bank min_soh**: Falls back to bank-level SOH from input register 5 high byte
+- **Secondary inverter battery bank suppression** ([#169](https://github.com/joyfulhouse/eg4_web_monitor/issues/169)): Deferred to runtime to avoid false positives on LXP-EU dual-battery systems
+- **Cloud API fallback for HYBRID switch writes**: Falls back to HTTP when local transport write fails
+- **LOCAL mode cache TTL adherence**: Removed `force=True` that bypassed pylxpweb cache TTLs
+- **Transport disconnect on shutdown**: Prevents unload timeout from dangling connections
+- **Truncated battery serial handling** ([#165](https://github.com/joyfulhouse/eg4_web_monitor/issues/165)): Skip in round-robin cache instead of crashing
+- **FlexBOSS model detection** ([#152](https://github.com/joyfulhouse/eg4_web_monitor/issues/152)): Corrected during local discovery
+- **Network scan dongle prefill crash** ([#172](https://github.com/joyfulhouse/eg4_web_monitor/issues/172)): Handle partial user_input during discovery
+
+### Changed
+
+- **Major coordinator restructuring**: Split monolithic `coordinator.py` (~3000 lines) into focused modules: `coordinator_http.py`, `coordinator_local.py`, `coordinator_mappings.py`, `coordinator_mixins.py`
+- **Number entity deduplication**: Consolidated 9 classes into shared `_read_param`/`_write_param` helpers (-500 lines)
+- **Hybrid mode simplification**: Replaced ~430-line manual merge pipeline with pylxpweb library transport routing
+- **Config flow**: Simplified from 23 files to 5 files
+- **last_polled sensors disabled by default**: Reduces database noise
+- **GridBOSS CT overlay**: Shared between HTTP and LOCAL paths for consistent energy data
+- **HYBRID coordinator interval**: Uses fastest configured transport interval
 
 ### Removed
 
-- Deleted 18 config flow files: `base.py`, `onboarding/` (5 files), `reconfigure/` (6 files), `transitions/` (5 files)
-- Deleted 5 obsolete test files: `test_main_configflow.py`, `test_onboarding_mixins.py`, `test_reconfigure_mixins.py`, `test_transition_mixin.py`, `test_transitions.py`
-- Removed dead `get_reconfigure_entry()` helper function
+- Legacy config flow (23 files, ~1969 lines)
+- `CircuitBreaker` class, `utils.py` helpers, dead constant modules
+- Cloud refresh interval option (replaced by library-level cache TTLs)
+- Grid type mismatch detection (config is authoritative)
+- 5 obsolete test files
 
 ### Dependencies
 
-- Requires `pylxpweb>=0.6.5`
+- Requires `pylxpweb>=0.9.26`
+- Requires `pymodbus>=3.6.0`
+- Requires `pyserial>=3.5`
 
 ## [3.1.1] - 2025-01-11
 

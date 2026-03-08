@@ -147,22 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Confirm Device",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "title": "Confirmar Dispositivo",
+        "description": "**{device_type}**: {device_model}\n**Serie**: {device_serial}\n**Familia**: {device_family}\n**Firmware**: {device_firmware}\n**Potencia PV**: {device_pv_power}W | **SOC Bateria**: {device_battery_soc}%\n\nSeleccione su tipo de red electrica:",
         "data": {
-          "grid_type": "Grid Type"
+          "grid_type": "Tipo de Red"
         },
         "data_description": {
-          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+          "grid_type": "Split Phase para US 120V/240V (L1/L2), Monofasico para Brasil 220V o EU 230V, Trifasico para sistemas R/S/T"
         }
       },
       "local_device_added": {
-        "title": "Device Added",
-        "description": "Device #{device_count} added successfully. What next?",
+        "title": "Dispositivo Agregado",
+        "description": "Dispositivo #{device_count} agregado exitosamente. Que sigue?",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "Agregar Otro Dispositivo",
+          "local_add_cloud": "Agregar Credenciales de Nube",
+          "local_finish": "Finalizar Configuracion"
         }
       },
       "local_finish": {
@@ -368,8 +368,8 @@
         "description": "Configure los intervalos de sondeo para su integracion de {brand_name} Web Monitor. Las actualizaciones de sensores controlan la frecuencia con que se obtienen los datos del dispositivo. La actualizacion de parametros controla la frecuencia con que se sincronizan los ajustes de configuracion.",
         "data": {
           "sensor_update_interval": "Intervalo de Actualizacion de Sensores (segundos)",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "modbus_update_interval": "Intervalo de Actualizacion Modbus (segundos)",
+          "dongle_update_interval": "Intervalo de Actualizacion WiFi Dongle (segundos)",
           "http_polling_interval": "Intervalo de consulta HTTP/nube (segundos)",
           "parameter_refresh_interval": "Intervalo de Actualizacion de Parametros (minutos)",
           "library_debug": "Registro de Depuracion de Libreria",
@@ -378,8 +378,8 @@
         },
         "data_description": {
           "sensor_update_interval": "Frecuencia de sondeo para actualizaciones de sensores ({min_sensor_interval}-{max_sensor_interval} segundos). Valores mas bajos proporcionan actualizaciones mas rapidas pero aumentan la carga de API.",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "modbus_update_interval": "Frecuencia de sondeo de dispositivos Modbus TCP/Serial ({min_modbus_interval}-{max_modbus_interval} segundos). Valores mas bajos proporcionan actualizaciones mas rapidas pero aumentan el trafico del bus.",
+          "dongle_update_interval": "Frecuencia de sondeo de dispositivos WiFi Dongle ({min_dongle_interval}-{max_dongle_interval} segundos). Las conexiones WiFi pueden necesitar intervalos mas largos que Modbus para estabilidad.",
           "http_polling_interval": "Con qué frecuencia consultar la API en la nube ({min_http_interval}-{max_http_interval} segundos). Valores más altos reducen la carga de la API. En modo híbrido, esto controla solo los datos de la nube; los datos de transporte local se actualizan en el intervalo del sensor.",
           "parameter_refresh_interval": "Frecuencia de actualizacion de parametros del inversor como limites SOC y ajustes de carga ({min_param_interval}-{max_param_interval} minutos).",
           "library_debug": "Habilitar registro DEBUG para la libreria pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la libreria)",
@@ -547,52 +547,52 @@
         "name": "Potencia EPS L2"
       },
       "eps_apparent_power_l1": {
-        "name": "EPS Apparent Power L1"
+        "name": "Potencia Aparente EPS L1"
       },
       "eps_apparent_power_l2": {
-        "name": "EPS Apparent Power L2"
+        "name": "Potencia Aparente EPS L2"
       },
       "eps_energy_today_l1": {
-        "name": "EPS Energy Today L1"
+        "name": "Energia EPS Hoy L1"
       },
       "eps_energy_today_l2": {
-        "name": "EPS Energy Today L2"
+        "name": "Energia EPS Hoy L2"
       },
       "eps_energy_total_l1": {
-        "name": "EPS Energy Total L1"
+        "name": "Energia EPS Total L1"
       },
       "eps_energy_total_l2": {
-        "name": "EPS Energy Total L2"
+        "name": "Energia EPS Total L2"
       },
       "inverter_power_l1": {
-        "name": "Inverter Power L1"
+        "name": "Potencia del Inversor L1"
       },
       "inverter_power_l2": {
-        "name": "Inverter Power L2"
+        "name": "Potencia del Inversor L2"
       },
       "rectifier_power_l1": {
-        "name": "Rectifier Power L1"
+        "name": "Potencia del Rectificador L1"
       },
       "rectifier_power_l2": {
-        "name": "Rectifier Power L2"
+        "name": "Potencia del Rectificador L2"
       },
       "grid_export_power_l1": {
-        "name": "Grid Export Power L1"
+        "name": "Potencia Exportada a Red L1"
       },
       "grid_export_power_l2": {
-        "name": "Grid Export Power L2"
+        "name": "Potencia Exportada a Red L2"
       },
       "grid_import_power_l1": {
-        "name": "Grid Import Power L1"
+        "name": "Potencia Importada de Red L1"
       },
       "grid_import_power_l2": {
-        "name": "Grid Import Power L2"
+        "name": "Potencia Importada de Red L2"
       },
       "generator_voltage_l1": {
-        "name": "Generator Voltage L1"
+        "name": "Voltaje del Generador L1"
       },
       "generator_voltage_l2": {
-        "name": "Generator Voltage L2"
+        "name": "Voltaje del Generador L2"
       },
       "power_output": {
         "name": "Salida de Potencia"
@@ -676,7 +676,7 @@
         "name": "Potencia de Carga PV"
       },
       "pv_start_voltage": {
-        "name": "PV Start Voltage"
+        "name": "Voltaje de Arranque PV"
       },
       "ac_charge_soc_limit": {
         "name": "Limite SOC de Carga AC"
@@ -699,7 +699,7 @@
         }
       },
       "pv_input_mode": {
-        "name": "PV Input Mode",
+        "name": "Modo de Entrada PV",
         "state": {
           "no_pv": "NO PV",
           "pv1": "PV1",

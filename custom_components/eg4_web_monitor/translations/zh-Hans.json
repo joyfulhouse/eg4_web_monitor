@@ -147,22 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Confirm Device",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "title": "确认设备",
+        "description": "**{device_type}**: {device_model}\n**序列号**: {device_serial}\n**系列**: {device_family}\n**固件**: {device_firmware}\n**PV功率**: {device_pv_power}W | **电池SOC**: {device_battery_soc}%\n\n请选择电网类型：",
         "data": {
-          "grid_type": "Grid Type"
+          "grid_type": "电网类型"
         },
         "data_description": {
-          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+          "grid_type": "分相用于美国120V/240V (L1/L2)，单相用于巴西220V或欧盟230V，三相用于R/S/T系统"
         }
       },
       "local_device_added": {
-        "title": "Device Added",
-        "description": "Device #{device_count} added successfully. What next?",
+        "title": "设备已添加",
+        "description": "设备 #{device_count} 已成功添加。下一步操作：",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "添加另一个设备",
+          "local_add_cloud": "添加云端凭据",
+          "local_finish": "完成设置"
         }
       },
       "local_finish": {
@@ -368,8 +368,8 @@
         "description": "配置您的 {brand_name} Web Monitor 集成的轮询间隔。传感器更新控制获取设备数据的频率。参数刷新控制配置设置同步的频率。",
         "data": {
           "sensor_update_interval": "传感器更新间隔（秒）",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "modbus_update_interval": "Modbus更新间隔（秒）",
+          "dongle_update_interval": "WiFi加密狗更新间隔（秒）",
           "http_polling_interval": "HTTP/云端轮询间隔（秒）",
           "parameter_refresh_interval": "参数刷新间隔（分钟）",
           "library_debug": "库调试日志",
@@ -378,8 +378,8 @@
         },
         "data_description": {
           "sensor_update_interval": "轮询传感器更新的频率（{min_sensor_interval}-{max_sensor_interval} 秒）。较低的值提供更快的更新，但会增加 API 负载。",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "modbus_update_interval": "Modbus TCP/串口设备的轮询频率（{min_modbus_interval}-{max_modbus_interval}秒）。较小的值提供更快的更新，但会增加总线流量。",
+          "dongle_update_interval": "WiFi加密狗设备的轮询频率（{min_dongle_interval}-{max_dongle_interval}秒）。WiFi连接可能需要比Modbus更长的间隔以保持稳定。",
           "http_polling_interval": "从云端API获取数据的频率（{min_http_interval}-{max_http_interval}秒）。较高的值可减少API负载。在混合模式下，此设置仅控制云端数据；本地传输数据按传感器间隔更新。",
           "parameter_refresh_interval": "刷新逆变器参数（如 SOC 限制和充电设置）的频率（{min_param_interval}-{max_param_interval} 分钟）。",
           "library_debug": "启用 pylxpweb 库的 DEBUG 日志（显示 API 请求、响应和内部库操作）",
@@ -547,52 +547,52 @@
         "name": "EPS 功率 L2"
       },
       "eps_apparent_power_l1": {
-        "name": "EPS Apparent Power L1"
+        "name": "EPS视在功率 L1"
       },
       "eps_apparent_power_l2": {
-        "name": "EPS Apparent Power L2"
+        "name": "EPS视在功率 L2"
       },
       "eps_energy_today_l1": {
-        "name": "EPS Energy Today L1"
+        "name": "EPS今日电量 L1"
       },
       "eps_energy_today_l2": {
-        "name": "EPS Energy Today L2"
+        "name": "EPS今日电量 L2"
       },
       "eps_energy_total_l1": {
-        "name": "EPS Energy Total L1"
+        "name": "EPS累计电量 L1"
       },
       "eps_energy_total_l2": {
-        "name": "EPS Energy Total L2"
+        "name": "EPS累计电量 L2"
       },
       "inverter_power_l1": {
-        "name": "Inverter Power L1"
+        "name": "逆变器功率 L1"
       },
       "inverter_power_l2": {
-        "name": "Inverter Power L2"
+        "name": "逆变器功率 L2"
       },
       "rectifier_power_l1": {
-        "name": "Rectifier Power L1"
+        "name": "整流器功率 L1"
       },
       "rectifier_power_l2": {
-        "name": "Rectifier Power L2"
+        "name": "整流器功率 L2"
       },
       "grid_export_power_l1": {
-        "name": "Grid Export Power L1"
+        "name": "电网输出功率 L1"
       },
       "grid_export_power_l2": {
-        "name": "Grid Export Power L2"
+        "name": "电网输出功率 L2"
       },
       "grid_import_power_l1": {
-        "name": "Grid Import Power L1"
+        "name": "电网输入功率 L1"
       },
       "grid_import_power_l2": {
-        "name": "Grid Import Power L2"
+        "name": "电网输入功率 L2"
       },
       "generator_voltage_l1": {
-        "name": "Generator Voltage L1"
+        "name": "发电机电压 L1"
       },
       "generator_voltage_l2": {
-        "name": "Generator Voltage L2"
+        "name": "发电机电压 L2"
       },
       "power_output": {
         "name": "输出功率"
@@ -676,7 +676,7 @@
         "name": "PV 充电功率"
       },
       "pv_start_voltage": {
-        "name": "PV Start Voltage"
+        "name": "PV启动电压"
       },
       "ac_charge_soc_limit": {
         "name": "交流充电 SOC 限制"
@@ -699,7 +699,7 @@
         }
       },
       "pv_input_mode": {
-        "name": "PV Input Mode",
+        "name": "PV输入模式",
         "state": {
           "no_pv": "NO PV",
           "pv1": "PV1",

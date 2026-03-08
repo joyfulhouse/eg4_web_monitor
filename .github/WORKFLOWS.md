@@ -10,7 +10,7 @@ This repository uses streamlined GitHub Actions workflows for quality validation
 
 **Triggers:**
 - Push to `main` or `develop` branches
-- Pull requests to `main` or `develop` branches  
+- Pull requests to `main` or `develop` branches
 - Manual workflow dispatch
 
 **Validation Flow:**
@@ -106,7 +106,7 @@ You can run individual validation scripts locally:
 # Bronze tier
 python tests/validate_bronze_tier.py
 
-# Silver tier  
+# Silver tier
 python tests/validate_silver_tier.py
 
 # Gold tier
@@ -144,7 +144,7 @@ Add to README.md:
 - Ensure all required fields in `manifest.json`
 - Verify service documentation in README.md
 
-### Silver Tier Failures  
+### Silver Tier Failures
 - Ensure `ServiceValidationError` is used in services
 - Verify `async_unload_entry` exists in `__init__.py`
 - Check `MAX_PARALLEL_UPDATES` in all platform files
