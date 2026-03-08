@@ -58,7 +58,7 @@ No technical knowledge of solar systems is required - if you can use the EG4 Mon
 - **Battery Tracking**: Round-robin battery cache with per-battery last-seen timestamps for >4 battery systems
 - **Multi-Station Support**: Monitor multiple solar installations from one account
 - **GridBOSS Integration**: Grid management, smart load/AC couple port configuration, current sensors, and generator monitoring
-- **Multi-Language Support**: 12 languages (Chinese, Spanish, German, French, Korean, Japanese, Portuguese, Italian, Dutch, Russian, Arabic, Hindi)
+- **Multi-Language Support**: 12 languages (Chinese Simplified, Chinese Traditional, Dutch, French, German, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish)
 
 ![Integration Screenshot](images/integration.png)
 

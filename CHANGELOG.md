@@ -56,7 +56,7 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 - **Static entity creation**: First LOCAL refresh produces zero Modbus reads — entities created from config metadata, real data fills in on second refresh
 - **Round-robin battery cache** ([#165](https://github.com/joyfulhouse/eg4_web_monitor/issues/165)): Serial-based battery tracking across round-robin rotation for >4 battery systems
 - **Per-transport refresh intervals**: Independent poll intervals for Modbus TCP, WiFi dongle, and serial, configurable via options flow
-- **Complete i18n**: 12 language translations (Chinese, Spanish, German, French, Korean, Japanese, Portuguese, Italian, Dutch, Russian, Arabic, Hindi)
+- **Complete i18n**: 12 language translations (Chinese Simplified, Chinese Traditional, Dutch, French, German, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish)
 
 #### Testing & Quality
 - **779 tests** (up from ~350 in v3.1.8): Comprehensive suites for all entity types, coordinator paths, config flow, reconfigure flow, and tier validation
