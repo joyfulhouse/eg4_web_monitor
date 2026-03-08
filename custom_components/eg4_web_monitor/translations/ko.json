@@ -147,22 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Confirm Device",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "title": "장치 확인",
+        "description": "**{device_type}**: {device_model}\n**시리얼**: {device_serial}\n**패밀리**: {device_family}\n**펀웨어**: {device_firmware}\n**PV 전력**: {device_pv_power}W | **배터리 SOC**: {device_battery_soc}%\n\n전력 계통 유형을 선택하세요:",
         "data": {
-          "grid_type": "Grid Type"
+          "grid_type": "계통 유형"
         },
         "data_description": {
-          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+          "grid_type": "US 120V/240V (L1/L2)용 스플릿 페이즈, 브라질 220V 또는 EU 230V용 단상, R/S/T 시스템용 삼상"
         }
       },
       "local_device_added": {
-        "title": "Device Added",
-        "description": "Device #{device_count} added successfully. What next?",
+        "title": "장치 추가 완료",
+        "description": "장치 #{device_count}이(가) 성공적으로 추가되었습니다. 다음 작업을 선택하세요:",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "다른 장치 추가",
+          "local_add_cloud": "클라우드 자격 증명 추가",
+          "local_finish": "설정 완료"
         }
       },
       "local_finish": {
@@ -368,8 +368,8 @@
         "description": "{brand_name} 웹 모니터 통합의 폴링 간격을 구성하세요. 센서 업데이트는 장치 데이터를 가져오는 빈도를 제어합니다. 매개변수 새로 고침은 구성 설정이 동기화되는 빈도를 제어합니다.",
         "data": {
           "sensor_update_interval": "센서 업데이트 간격 (초)",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "modbus_update_interval": "Modbus 업데이트 간격 (초)",
+          "dongle_update_interval": "WiFi 동글 업데이트 간격 (초)",
           "http_polling_interval": "HTTP/클라우드 폴링 간격 (초)",
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
@@ -378,8 +378,8 @@
         },
         "data_description": {
           "sensor_update_interval": "센서 업데이트를 폴링하는 빈도 ({min_sensor_interval}-{max_sensor_interval}초). 값이 낮을수록 업데이트가 빠르지만 API 부하가 증가합니다.",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "modbus_update_interval": "Modbus TCP/시리얼 장치 폴링 빈도 ({min_modbus_interval}-{max_modbus_interval}초). 낮은 값은 빠른 업데이트를 제공하지만 버스 트래픽이 증가합니다.",
+          "dongle_update_interval": "WiFi 동글 장치 폴링 빈도 ({min_dongle_interval}-{max_dongle_interval}초). WiFi 연결은 안정성을 위해 Modbus보다 긴 간격이 필요할 수 있습니다.",
           "http_polling_interval": "클라우드 API 데이터 폴링 빈도 ({min_http_interval}-{max_http_interval}초). 높은 값은 API 부하를 줄입니다. 하이브리드 모드에서는 클라우드 전용 데이터만 제어합니다. 로컬 전송 데이터는 센서 간격으로 업데이트됩니다.",
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
@@ -547,52 +547,52 @@
         "name": "EPS 전력 L2"
       },
       "eps_apparent_power_l1": {
-        "name": "EPS Apparent Power L1"
+        "name": "EPS 피상전력 L1"
       },
       "eps_apparent_power_l2": {
-        "name": "EPS Apparent Power L2"
+        "name": "EPS 피상전력 L2"
       },
       "eps_energy_today_l1": {
-        "name": "EPS Energy Today L1"
+        "name": "EPS 오늘 에너지 L1"
       },
       "eps_energy_today_l2": {
-        "name": "EPS Energy Today L2"
+        "name": "EPS 오늘 에너지 L2"
       },
       "eps_energy_total_l1": {
-        "name": "EPS Energy Total L1"
+        "name": "EPS 누적 에너지 L1"
       },
       "eps_energy_total_l2": {
-        "name": "EPS Energy Total L2"
+        "name": "EPS 누적 에너지 L2"
       },
       "inverter_power_l1": {
-        "name": "Inverter Power L1"
+        "name": "인버터 전력 L1"
       },
       "inverter_power_l2": {
-        "name": "Inverter Power L2"
+        "name": "인버터 전력 L2"
       },
       "rectifier_power_l1": {
-        "name": "Rectifier Power L1"
+        "name": "정류기 전력 L1"
       },
       "rectifier_power_l2": {
-        "name": "Rectifier Power L2"
+        "name": "정류기 전력 L2"
       },
       "grid_export_power_l1": {
-        "name": "Grid Export Power L1"
+        "name": "계통 송전 전력 L1"
       },
       "grid_export_power_l2": {
-        "name": "Grid Export Power L2"
+        "name": "계통 송전 전력 L2"
       },
       "grid_import_power_l1": {
-        "name": "Grid Import Power L1"
+        "name": "계통 수전 전력 L1"
       },
       "grid_import_power_l2": {
-        "name": "Grid Import Power L2"
+        "name": "계통 수전 전력 L2"
       },
       "generator_voltage_l1": {
-        "name": "Generator Voltage L1"
+        "name": "발전기 전압 L1"
       },
       "generator_voltage_l2": {
-        "name": "Generator Voltage L2"
+        "name": "발전기 전압 L2"
       },
       "power_output": {
         "name": "출력 전력"
@@ -676,7 +676,7 @@
         "name": "PV 충전 전력"
       },
       "pv_start_voltage": {
-        "name": "PV Start Voltage"
+        "name": "PV 시작 전압"
       },
       "ac_charge_soc_limit": {
         "name": "AC 충전 SOC 제한"
@@ -699,7 +699,7 @@
         }
       },
       "pv_input_mode": {
-        "name": "PV Input Mode",
+        "name": "PV 입력 모드",
         "state": {
           "no_pv": "NO PV",
           "pv1": "PV1",

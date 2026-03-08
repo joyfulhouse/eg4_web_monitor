@@ -408,7 +408,9 @@ class TestTransportAccessors:
 
         assert coordinator.has_local_transport("GRIDBOSS001") is True
 
-    def test_get_local_transport_mid_device_no_transport(self, hass, local_config_entry):
+    def test_get_local_transport_mid_device_no_transport(
+        self, hass, local_config_entry
+    ):
         """MID device without _transport attribute returns None."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -1499,7 +1501,9 @@ class TestBatteryRRCacheFallback:
         mock_inverter.eps_power_l2 = None
         return mock_inverter
 
-    async def test_cache_fallback_when_batteries_empty_this_poll(self, hass: Any) -> None:
+    async def test_cache_fallback_when_batteries_empty_this_poll(
+        self, hass: Any
+    ) -> None:
         """When battery_data.batteries is empty but cache has data, use cache.
 
         Regression test for issue #180: after a transient WiFi dongle read
@@ -1526,12 +1530,15 @@ class TestBatteryRRCacheFallback:
         coordinator._inverter_cache[serial] = mock_inverter
         coordinator._firmware_cache[serial] = "FAAB-2525"
 
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
-            return_value={"state_of_charge": 79},
-        ), patch(
-            "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
-            return_value={"battery_bank_count": 4, "battery_bank_voltage": 52.7},
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+                return_value={"state_of_charge": 79},
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
+                return_value={"battery_bank_count": 4, "battery_bank_voltage": 52.7},
+            ),
         ):
             processed: dict[str, Any] = {
                 "devices": {},
@@ -1565,12 +1572,15 @@ class TestBatteryRRCacheFallback:
         coordinator._inverter_cache[serial] = mock_inverter
         coordinator._firmware_cache[serial] = "FAAB-2525"
 
-        with patch(
-            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
-            return_value={"state_of_charge": 50},
-        ), patch(
-            "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
-            return_value={"battery_bank_count": 4},
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+                return_value={"state_of_charge": 50},
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_battery_bank_sensor_mapping",
+                return_value={"battery_bank_count": 4},
+            ),
         ):
             processed: dict[str, Any] = {
                 "devices": {},

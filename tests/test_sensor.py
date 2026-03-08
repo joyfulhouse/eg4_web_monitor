@@ -179,20 +179,37 @@ class TestLateDeviceSensorRegistration:
 
     # Minimal set of HTTP-only sensor keys (present from first poll)
     HTTP_SENSOR_KEYS = {
-        "pv_total_power", "pv1_power", "pv2_power",
-        "battery_power", "state_of_charge", "consumption_power",
-        "output_power", "ac_power", "eps_power",
-        "grid_voltage_r", "grid_frequency", "internal_temperature",
-        "yield", "yield_lifetime", "grid_import", "grid_export",
+        "pv_total_power",
+        "pv1_power",
+        "pv2_power",
+        "battery_power",
+        "state_of_charge",
+        "consumption_power",
+        "output_power",
+        "ac_power",
+        "eps_power",
+        "grid_voltage_r",
+        "grid_frequency",
+        "internal_temperature",
+        "yield",
+        "yield_lifetime",
+        "grid_import",
+        "grid_export",
     }
 
     # Transport-only sensor keys (appear after local transport attached)
     TRANSPORT_ONLY_KEYS = {
-        "inverter_power_l1", "inverter_power_l2",
-        "rectifier_power_l1", "rectifier_power_l2",
-        "grid_export_power_l1", "grid_export_power_l2",
-        "grid_import_power_l1", "grid_import_power_l2",
-        "bt_temperature", "battery_current", "total_load_power",
+        "inverter_power_l1",
+        "inverter_power_l2",
+        "rectifier_power_l1",
+        "rectifier_power_l2",
+        "grid_export_power_l1",
+        "grid_export_power_l2",
+        "grid_import_power_l1",
+        "grid_import_power_l2",
+        "bt_temperature",
+        "battery_current",
+        "total_load_power",
     }
 
     @pytest.fixture
@@ -287,7 +304,9 @@ class TestLateDeviceSensorRegistration:
         initial_call_count = mock_add_entities.call_count
 
         # Simulate second update: transport sensors appear
-        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"]["sensors"]
+        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"][
+            "sensors"
+        ]
         for key in self.TRANSPORT_ONLY_KEYS:
             device_sensors[key] = 0
 
@@ -316,7 +335,9 @@ class TestLateDeviceSensorRegistration:
         await async_setup_entry(hass, hybrid_config_entry, mock_add_entities)
 
         # Add transport sensors
-        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"]["sensors"]
+        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"][
+            "sensors"
+        ]
         for key in self.TRANSPORT_ONLY_KEYS:
             device_sensors[key] = 0
 
@@ -342,7 +363,9 @@ class TestLateDeviceSensorRegistration:
 
         # Add a three-phase-only sensor to split-phase device
         # (features say supports_three_phase=False)
-        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"]["sensors"]
+        device_sensors = mock_coordinator_http_only.data["devices"]["1234567890"][
+            "sensors"
+        ]
         device_sensors["grid_voltage_t"] = 0  # Three-phase only
 
         device_listener = mock_coordinator_http_only._listeners[2]

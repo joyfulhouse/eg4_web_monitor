@@ -388,4 +388,3 @@ class EG4DataUpdateCoordinator(DataUpdateCoordinator):
 **Analysis Date**: November 20, 2025
 **Status**: Device objects discovered but not yet evaluated for compatibility
 **Recommendation**: Proceed with current refactoring, explore device objects later
-

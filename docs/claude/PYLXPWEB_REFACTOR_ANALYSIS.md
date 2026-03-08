@@ -957,4 +957,3 @@ coordinator.client.api.control.write_parameter(serial, param, value)
 ---
 
 **End of Analysis**
-

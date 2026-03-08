@@ -47,15 +47,18 @@ No technical knowledge of solar systems is required - if you can use the EG4 Mon
 
 ## Features
 
-- **Local & Cloud Connectivity**: Modbus TCP, WiFi dongle, cloud API, or hybrid mode — choose what works for your setup
-- **Complete Device Support**: FlexBOSS, 18kPV, 12kPV, XP inverters, GridBOSS, and individual batteries
-- **Real-time Monitoring**: Power, voltage, current, temperature, frequency, and energy statistics
-- **Fast Local Polling**: 5-second updates via Modbus or dongle, no internet dependency
+- **Local & Cloud Connectivity**: Modbus TCP, WiFi dongle, USB/RS485 serial, cloud API, or hybrid mode
+- **Complete Device Support**: FlexBOSS21, FlexBOSS18, 18kPV, 12kPV, XP inverters, GridBOSS, and individual batteries
+- **Real-time Monitoring**: Power, voltage, current, temperature, frequency, and energy statistics with split-phase per-leg detail
+- **Fast Local Polling**: 5-second updates via Modbus, dongle, or serial — no internet dependency
 - **Hybrid Mode**: Enrich local data with cloud features like DST auto-sync and quick charge control
-- **Control & Automation**: Quick charge, battery backup (EPS), operating modes, and SOC limits
+- **Data Integrity**: WiFi dongle cross-request validation, canary checks, and energy monotonicity guards protect against corrupt readings
+- **Control & Automation**: Quick charge, battery backup (EPS), operating modes, SOC limits, and GridBOSS smart port configuration
+- **BMS Diagnostics**: Bank-level cell voltage, temperature, current limits, cycle count — always available, no CAN bus needed
+- **Battery Tracking**: Round-robin battery cache with per-battery last-seen timestamps for >4 battery systems
 - **Multi-Station Support**: Monitor multiple solar installations from one account
-- **GridBOSS Integration**: Grid management, smart load ports, AC coupling, and generator monitoring
-- **Multi-Language Support**: User interface available in multiple languages
+- **GridBOSS Integration**: Grid management, smart load/AC couple port configuration, current sensors, and generator monitoring
+- **Multi-Language Support**: 12 languages (Chinese Simplified, Chinese Traditional, Dutch, French, German, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish)
 
 ![Integration Screenshot](images/integration.png)
 
@@ -304,11 +307,13 @@ After initial setup, you can customize polling intervals:
 
 ### Selects
 - **Operating Mode**: Switch between Normal and Standby modes
+- **GridBOSS Smart Port Mode** (1-4): Configure each port as Off, Smart Load, or AC Couple
 
 ### Numbers
 - **System Charge SOC Limit**: Set battery charge limit (%)
 - **AC Charge Power**: Configure AC charging power (0.1 kW increments)
 - **PV Charge Power**: Configure PV charging power
+- **PV Start Voltage**: Configure PV start voltage threshold
 - **Grid Peak Shaving Power**: Configure peak shaving power limit
 - **Battery Charge Current**: Configure battery charging current
 - **Battery Discharge Current**: Configure battery discharging current
@@ -382,9 +387,9 @@ switch.eg4_station_daylight_saving_time
 
 ## Supported Devices
 
-- **Inverters**: FlexBOSS21, FlexBOSS18, 18KPV, 12KPV, XP series
-- **GridBOSS**: Microgrid interconnection devices
-- **Batteries**: All EG4-compatible battery modules with BMS integration
+- **Inverters**: FlexBOSS21, FlexBOSS18, 18kPV, 12kPV, XP series, LXP-EU (three-phase), LXP-LB-BR (Brazil 10kW)
+- **GridBOSS**: Microgrid interconnection devices with smart port configuration
+- **Batteries**: All EG4-compatible battery modules with BMS integration and individual cell monitoring
 
 ## Automation Examples
 

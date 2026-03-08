@@ -1587,7 +1587,9 @@ class TestStaticLocalData:
         static_keys = GRIDBOSS_STATIC_ENTITY_KEYS
         for key in static_keys:
             assert key in sensors, f"Missing GridBOSS sensor key: {key}"
-        for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS:
+        for key in (
+            GRIDBOSS_SMART_PORT_DYNAMIC_KEYS | GRIDBOSS_COORDINATOR_INTERNAL_KEYS
+        ):
             assert key not in sensors, (
                 f"Dynamic/internal key should not be in static data: {key}"
             )

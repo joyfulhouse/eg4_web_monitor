@@ -1,5 +1,5 @@
 # EG4 Battery Cell Balancing Automation
-# 
+#
 # This automation monitors battery cell voltage deltas and automatically manages
 # the top balancing cycle without requiring additional helper entities.
 #
@@ -23,7 +23,7 @@
 - id: eg4_battery_cell_balancing
   alias: "EG4 Battery Cell Balancing"
   description: "Automatically manages battery top balancing based on cell voltage deltas"
-  
+
   trigger:
     # Trigger 1: High cell voltage delta detected (start balancing)
     - id: "start_balancing"
@@ -38,7 +38,7 @@
       above: 0.05  # Voltage delta threshold in volts (50mV)
       for:
         hours: 24  # Wait 24 hours before triggering balancing
-    
+
     # Trigger 2: SOC limit has been at 101% for 48 hours (end balancing)
     - id: "end_balancing"
       platform: numeric_state
@@ -46,7 +46,7 @@
       above: 100  # SOC limit above 100% (balancing mode)
       for:
         hours: 48  # After 48 hours of balancing, return to normal
-  
+
   condition:
     # Use different conditions based on trigger
     - choose:
@@ -59,8 +59,8 @@
               entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               below: 101
           sequence: []  # Will execute start_balancing actions
-        
-        # Condition for ending balancing  
+
+        # Condition for ending balancing
         - conditions:
             - condition: trigger
               id: "end_balancing"
@@ -69,10 +69,10 @@
               entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               above: 100
           sequence: []  # Will execute end_balancing actions
-      
+
       # If no conditions match, don't run
       default: []
-  
+
   action:
     - choose:
         # Action 1: Start balancing (set SOC to 101%)
@@ -87,7 +87,7 @@
                 entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               data:
                 value: 101
-            
+
             # Log the action
             - service: logbook.log
               data:
@@ -97,17 +97,17 @@
                   Cell voltage delta: {{ trigger.to_state.state }}V (threshold: 0.05V).
                   Starting top balancing by setting SOC limit to 101% for 48 hours.
                 entity_id: "{{ trigger.entity_id }}"
-            
+
             # Optional: Send notification (uncomment and configure your notification service)
             # - service: notify.mobile_app_your_phone
             #   data:
             #     title: "🔋 EG4 Battery Top Balancing Started"
             #     message: >
-            #       Battery cell imbalance detected: {{ trigger.to_state.attributes.friendly_name }} 
+            #       Battery cell imbalance detected: {{ trigger.to_state.attributes.friendly_name }}
             #       has a voltage delta of {{ trigger.to_state.state }}V.
-            #       
+            #
             #       Top balancing initiated - SOC limit set to 101% for 48 hours.
-        
+
         # Action 2: End balancing (return SOC to 80%)
         - conditions:
             - condition: trigger
@@ -119,7 +119,7 @@
                 entity_id: number.flexboss21_1234567890_system_charge_soc_limit
               data:
                 value: 80
-            
+
             # Log the completion
             - service: logbook.log
               data:
@@ -128,7 +128,7 @@
                   Battery top balancing completed after 48 hours at 101% SOC.
                   SOC limit returned to 80% for normal operation.
                   Check battery cell voltage deltas to verify balancing effectiveness.
-            
+
             # Optional: Send notification (uncomment and configure your notification service)
             # - service: notify.mobile_app_your_phone
             #   data:
@@ -136,7 +136,7 @@
             #     message: >
             #       Battery top balancing completed successfully after 48 hours.
             #       SOC limit has been returned to 80% for normal operation.
-            #       
+            #
             #       Monitor your battery cell voltage deltas to ensure balancing was effective.
 
 # =============================================================================
@@ -145,13 +145,13 @@
 
 # 1. UPDATE ENTITY IDs (REQUIRED):
 #    Replace the following entity IDs with your actual sensors:
-#    
+#
 #    Battery Cell Voltage Delta Sensors:
 #    - sensor.battery_1234567890_01_cell_voltage_delta
 #    - sensor.battery_1234567890_02_cell_voltage_delta
 #    - sensor.battery_0987654321_01_cell_voltage_delta
 #    - sensor.battery_0987654321_02_cell_voltage_delta
-#    
+#
 #    SOC Limit Control (appears in TWO places):
 #    - number.flexboss21_1234567890_system_charge_soc_limit
 #
@@ -182,9 +182,9 @@
 # =============================================================================
 #
 # ⚠️  IMPORTANT SAFETY CONSIDERATIONS:
-# 
+#
 # 1. BATTERY COMPATIBILITY: Ensure your batteries support top balancing to 101%
-# 2. VENTILATION: Ensure proper ventilation during balancing cycles  
+# 2. VENTILATION: Ensure proper ventilation during balancing cycles
 # 3. MONITORING: Monitor the first few cycles closely for any issues
 # 4. MANUAL OVERRIDE: You can manually change the SOC limit anytime if needed
 # 5. MANUFACTURER GUIDELINES: Verify this process aligns with your battery specs

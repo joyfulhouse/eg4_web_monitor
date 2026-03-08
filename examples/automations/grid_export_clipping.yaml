@@ -23,7 +23,7 @@ action:
       value: 100
     target:
       entity_id: number.18kpv_1234567890_system_charge_soc_limit
-  
+
   # Step 2: Calculate optimal charge rate
   - variables:
       battery_capacity_kwh: 42.9  # 14.3kWh × 3 batteries
@@ -49,14 +49,14 @@ action:
       max_charge_rate_kw: 12  # Maximum 12kW for 3-battery system
       final_charge_rate_kw: >
         {{ ([max_charge_rate_kw | float, [min_charge_rate_kw | float, required_charge_rate_kw | float] | max] | min) | round(0, 'ceil') | int }}
-  
+
   # Step 3: Set the calculated charge rate
   - service: number.set_value
     data:
       value: "{{ final_charge_rate_kw | int }}"
     target:
       entity_id: number.18kpv_1234567890_pv_charge_power
-  
+
   # Step 4: Send notification (optional)
   - service: notify.persistent_notification
     data:

@@ -147,22 +147,22 @@
         }
       },
       "local_device_confirmed": {
-        "title": "Confirm Device",
-        "description": "**{device_type}**: {device_model}\n**Serial**: {device_serial}\n**Family**: {device_family}\n**Firmware**: {device_firmware}\n**PV Power**: {device_pv_power}W | **Battery SOC**: {device_battery_soc}%\n\nSelect your electrical grid type:",
+        "title": "Apparaat bevestigen",
+        "description": "**{device_type}**: {device_model}\n**Serienummer**: {device_serial}\n**Familie**: {device_family}\n**Firmware**: {device_firmware}\n**PV-vermogen**: {device_pv_power}W | **Batterij SOC**: {device_battery_soc}%\n\nSelecteer uw type elektriciteitsnet:",
         "data": {
-          "grid_type": "Grid Type"
+          "grid_type": "Nettype"
         },
         "data_description": {
-          "grid_type": "Split Phase for US 120V/240V (L1/L2), Single Phase for Brazil 220V or EU 230V, Three Phase for R/S/T systems"
+          "grid_type": "Split Phase voor US 120V/240V (L1/L2), Enkelfasig voor Brazilie 220V of EU 230V, Driefasig voor R/S/T-systemen"
         }
       },
       "local_device_added": {
-        "title": "Device Added",
-        "description": "Device #{device_count} added successfully. What next?",
+        "title": "Apparaat toegevoegd",
+        "description": "Apparaat #{device_count} succesvol toegevoegd. Wat nu?",
         "menu_options": {
-          "local_device_type": "Add Another Device",
-          "local_add_cloud": "Add Cloud Credentials",
-          "local_finish": "Finish Setup"
+          "local_device_type": "Nog een apparaat toevoegen",
+          "local_add_cloud": "Cloud-inloggegevens toevoegen",
+          "local_finish": "Installatie voltooien"
         }
       },
       "local_finish": {
@@ -368,8 +368,8 @@
         "description": "Configureer polling-intervallen voor uw {brand_name} Web Monitor-integratie. Sensorupdates bepalen hoe vaak apparaatgegevens worden opgehaald. Parameterverversing bepaalt hoe vaak configuratie-instellingen worden gesynchroniseerd.",
         "data": {
           "sensor_update_interval": "Sensorupdate-interval (seconden)",
-          "modbus_update_interval": "Modbus Update Interval (seconds)",
-          "dongle_update_interval": "WiFi Dongle Update Interval (seconds)",
+          "modbus_update_interval": "Modbus update-interval (seconden)",
+          "dongle_update_interval": "WiFi Dongle update-interval (seconden)",
           "http_polling_interval": "HTTP/cloud-polling interval (seconden)",
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
@@ -378,8 +378,8 @@
         },
         "data_description": {
           "sensor_update_interval": "Hoe vaak te pollen voor sensorupdates ({min_sensor_interval}-{max_sensor_interval} seconden). Lagere waarden bieden snellere updates maar verhogen de API-belasting.",
-          "modbus_update_interval": "How often to poll Modbus TCP/Serial devices ({min_modbus_interval}-{max_modbus_interval} seconds). Lower values give faster updates but increase bus traffic.",
-          "dongle_update_interval": "How often to poll WiFi Dongle devices ({min_dongle_interval}-{max_dongle_interval} seconds). WiFi connections may need longer intervals than Modbus for stability.",
+          "modbus_update_interval": "Hoe vaak Modbus TCP/Serieel apparaten worden gepolld ({min_modbus_interval}-{max_modbus_interval} seconden). Lagere waarden geven snellere updates maar verhogen het busverkeer.",
+          "dongle_update_interval": "Hoe vaak WiFi Dongle apparaten worden gepolld ({min_dongle_interval}-{max_dongle_interval} seconden). WiFi-verbindingen hebben mogelijk langere intervallen nodig dan Modbus voor stabiliteit.",
           "http_polling_interval": "Hoe vaak de cloud-API wordt bevraagd voor gegevens ({min_http_interval}-{max_http_interval} seconden). Hogere waarden verminderen de API-belasting. In hybride modus beheert dit alleen cloudgegevens; lokale transportgegevens worden bijgewerkt op het sensorinterval.",
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
@@ -547,52 +547,52 @@
         "name": "EPS-vermogen L2"
       },
       "eps_apparent_power_l1": {
-        "name": "EPS Apparent Power L1"
+        "name": "EPS schijnbaar vermogen L1"
       },
       "eps_apparent_power_l2": {
-        "name": "EPS Apparent Power L2"
+        "name": "EPS schijnbaar vermogen L2"
       },
       "eps_energy_today_l1": {
-        "name": "EPS Energy Today L1"
+        "name": "EPS energie vandaag L1"
       },
       "eps_energy_today_l2": {
-        "name": "EPS Energy Today L2"
+        "name": "EPS energie vandaag L2"
       },
       "eps_energy_total_l1": {
-        "name": "EPS Energy Total L1"
+        "name": "EPS energie totaal L1"
       },
       "eps_energy_total_l2": {
-        "name": "EPS Energy Total L2"
+        "name": "EPS energie totaal L2"
       },
       "inverter_power_l1": {
-        "name": "Inverter Power L1"
+        "name": "Omvormer vermogen L1"
       },
       "inverter_power_l2": {
-        "name": "Inverter Power L2"
+        "name": "Omvormer vermogen L2"
       },
       "rectifier_power_l1": {
-        "name": "Rectifier Power L1"
+        "name": "Gelijkrichter vermogen L1"
       },
       "rectifier_power_l2": {
-        "name": "Rectifier Power L2"
+        "name": "Gelijkrichter vermogen L2"
       },
       "grid_export_power_l1": {
-        "name": "Grid Export Power L1"
+        "name": "Net export vermogen L1"
       },
       "grid_export_power_l2": {
-        "name": "Grid Export Power L2"
+        "name": "Net export vermogen L2"
       },
       "grid_import_power_l1": {
-        "name": "Grid Import Power L1"
+        "name": "Net import vermogen L1"
       },
       "grid_import_power_l2": {
-        "name": "Grid Import Power L2"
+        "name": "Net import vermogen L2"
       },
       "generator_voltage_l1": {
-        "name": "Generator Voltage L1"
+        "name": "Generator spanning L1"
       },
       "generator_voltage_l2": {
-        "name": "Generator Voltage L2"
+        "name": "Generator spanning L2"
       },
       "power_output": {
         "name": "Uitgangsvermogen"
@@ -676,7 +676,7 @@
         "name": "PV-laadvermogen"
       },
       "pv_start_voltage": {
-        "name": "PV Start Voltage"
+        "name": "PV startspanning"
       },
       "ac_charge_soc_limit": {
         "name": "AC-laad-SOC-limiet"
@@ -699,7 +699,7 @@
         }
       },
       "pv_input_mode": {
-        "name": "PV Input Mode",
+        "name": "PV invoermodus",
         "state": {
           "no_pv": "NO PV",
           "pv1": "PV1",
