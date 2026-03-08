@@ -1623,7 +1623,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=TimeoutError("Timeout")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1656,7 +1656,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=PermissionError("Access denied")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1691,7 +1691,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 ),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1724,7 +1724,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=OSError("No such device")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1759,7 +1759,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(return_value=device),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
