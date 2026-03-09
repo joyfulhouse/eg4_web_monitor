@@ -5,9 +5,13 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0] - 2026-03-08
+## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.
+
+### Changed
+
+- **WiFi dongle minimum polling interval** ([#185](https://github.com/joyfulhouse/eg4_web_monitor/issues/185)): Lowered from 15s to 5s, allowing users who need faster reaction times to opt in via the options flow. Default remains 30s.
 
 ### Breaking Changes
 

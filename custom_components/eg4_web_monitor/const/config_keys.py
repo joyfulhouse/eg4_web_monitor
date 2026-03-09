@@ -113,7 +113,7 @@ DEFAULT_DONGLE_UPDATE_INTERVAL = 30  # seconds (WiFi dongle reads take ~8-10s)
 # Per-transport polling limits
 MIN_MODBUS_UPDATE_INTERVAL = 3  # seconds
 MAX_MODBUS_UPDATE_INTERVAL = 300  # seconds (5 minutes)
-MIN_DONGLE_UPDATE_INTERVAL = 15  # seconds (reads take ~7-10s, need recovery gap)
+MIN_DONGLE_UPDATE_INTERVAL = 5  # seconds (user-configurable; reads take ~7-10s)
 MAX_DONGLE_UPDATE_INTERVAL = 300  # seconds (5 minutes)
 
 # HTTP/Cloud polling interval limits (rate limit protection)
