@@ -1250,3 +1250,145 @@ class TestHTTPFlowValidateDataAndPGClamping:
         # yield_lifetime should be clamped to 5000 (previous value)
         pg_sensors = result["devices"]["parallel_group_groupa"]["sensors"]
         assert pg_sensors["yield_lifetime"] == 5000.0
+
+
+class TestHTTPInverterLifetimeEnergyClamping:
+    """Verify inverter lifetime energy is clamped in the HTTP flow."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_inverter_energy_decrease_clamped(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Inverter lifetime energy decrease is clamped during HTTP update."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = _mock_inverter()
+        coordinator.station = _mock_station([inv])
+
+        # Previous cycle had yield_lifetime=10000
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "sensors": {"yield_lifetime": 10000.0},
+                }
+            }
+        }
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {"yield_lifetime": 9999.0},
+                    "batteries": {},
+                }
+            ),
+        ):
+            result = await coordinator._async_update_http_data()
+
+        # yield_lifetime should be clamped to 10000 (previous value)
+        inv_sensors = result["devices"]["INV001"]["sensors"]
+        assert inv_sensors["yield_lifetime"] == 10000.0
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_inverter_energy_increase_passes(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Inverter lifetime energy increase passes unclamped."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = _mock_inverter()
+        coordinator.station = _mock_station([inv])
+
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "sensors": {"yield_lifetime": 10000.0},
+                }
+            }
+        }
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {"yield_lifetime": 10001.0},
+                    "batteries": {},
+                }
+            ),
+        ):
+            result = await coordinator._async_update_http_data()
+
+        inv_sensors = result["devices"]["INV001"]["sensors"]
+        assert inv_sensors["yield_lifetime"] == 10001.0
+
+
+class TestHTTPNaNSanitization:
+    """Verify NaN/Inf values are sanitized in the HTTP flow."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_nan_in_inverter_sensors_replaced(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """NaN value in inverter sensors is replaced with None."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = _mock_inverter()
+        coordinator.station = _mock_station([inv])
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {
+                        "pv_total_power": float("nan"),
+                        "battery_voltage": 52.4,
+                    },
+                    "batteries": {},
+                }
+            ),
+        ):
+            result = await coordinator._async_update_http_data()
+
+        inv_sensors = result["devices"]["INV001"]["sensors"]
+        assert inv_sensors["pv_total_power"] is None
+        assert inv_sensors["battery_voltage"] == 52.4
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_inf_in_inverter_sensors_replaced(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Infinity value in inverter sensors is replaced with None."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = _mock_inverter()
+        coordinator.station = _mock_station([inv])
+
+        with patch.object(
+            coordinator,
+            "_process_inverter_object",
+            new=AsyncMock(
+                return_value={
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {"consumption_power": float("inf")},
+                    "batteries": {},
+                }
+            ),
+        ):
+            result = await coordinator._async_update_http_data()
+
+        inv_sensors = result["devices"]["INV001"]["sensors"]
+        assert inv_sensors["consumption_power"] is None

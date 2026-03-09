@@ -62,8 +62,11 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     compute_bank_charge_rate,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
+    INVERTER_LIFETIME_ENERGY_KEYS,
+    MID_LIFETIME_ENERGY_KEYS,
     PG_LIFETIME_ENERGY_KEYS,
     apply_gridboss_overlay,
+    sanitize_numeric_sensors,
 )
 from pylxpweb.exceptions import (
     LuxpowerAPIError,
@@ -5203,6 +5206,204 @@ class TestHTTPValidateDataPropagation:
         )
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         assert coordinator._data_validation_enabled is True
+
+
+class TestSanitizeNumericSensors:
+    """Test NaN/Infinity filtering for sensor values."""
+
+    def test_nan_replaced_with_none(self):
+        """NaN float values are replaced with None."""
+        sensors: dict[str, Any] = {"pv_total_power": float("nan"), "status": "ok"}
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["pv_total_power"] is None
+        assert sensors["status"] == "ok"
+        assert count == 1
+
+    def test_inf_replaced_with_none(self):
+        """Positive infinity is replaced with None."""
+        sensors: dict[str, Any] = {"consumption_power": float("inf")}
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["consumption_power"] is None
+        assert count == 1
+
+    def test_neg_inf_replaced_with_none(self):
+        """Negative infinity is replaced with None."""
+        sensors: dict[str, Any] = {"grid_power": float("-inf")}
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["grid_power"] is None
+        assert count == 1
+
+    def test_normal_floats_unchanged(self):
+        """Normal float values are left unchanged."""
+        sensors: dict[str, Any] = {
+            "battery_voltage": 52.4,
+            "state_of_charge": 85.0,
+            "grid_frequency": 60.0,
+        }
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["battery_voltage"] == 52.4
+        assert sensors["state_of_charge"] == 85.0
+        assert count == 0
+
+    def test_zero_float_unchanged(self):
+        """Zero is a valid finite float and should not be replaced."""
+        sensors: dict[str, Any] = {"pv_total_power": 0.0}
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["pv_total_power"] == 0.0
+        assert count == 0
+
+    def test_non_float_values_unchanged(self):
+        """Non-float types (int, str, None, bool) are left unchanged."""
+        sensors: dict[str, Any] = {
+            "battery_count": 4,
+            "status_text": "Normal",
+            "has_data": True,
+            "missing": None,
+        }
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["battery_count"] == 4
+        assert sensors["status_text"] == "Normal"
+        assert sensors["has_data"] is True
+        assert sensors["missing"] is None
+        assert count == 0
+
+    def test_multiple_non_finite_values(self):
+        """Multiple non-finite values in same dict are all replaced."""
+        sensors: dict[str, Any] = {
+            "a": float("nan"),
+            "b": float("inf"),
+            "c": float("-inf"),
+            "d": 42.0,
+        }
+        count = sanitize_numeric_sensors(sensors)
+        assert sensors["a"] is None
+        assert sensors["b"] is None
+        assert sensors["c"] is None
+        assert sensors["d"] == 42.0
+        assert count == 3
+
+    def test_empty_dict(self):
+        """Empty dict returns 0 replacements."""
+        sensors: dict[str, Any] = {}
+        count = sanitize_numeric_sensors(sensors)
+        assert count == 0
+
+
+class TestInverterLifetimeEnergyKeys:
+    """Test INVERTER_LIFETIME_ENERGY_KEYS constant and clamping."""
+
+    def test_key_set_contents(self):
+        """Inverter lifetime energy key set has the expected 6 keys."""
+        assert len(INVERTER_LIFETIME_ENERGY_KEYS) == 6
+        assert "yield_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+        assert "charging_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+        assert "discharging_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+        assert "grid_import_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+        assert "grid_export_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+        assert "consumption_lifetime" in INVERTER_LIFETIME_ENERGY_KEYS
+
+    def test_matches_pg_keys(self):
+        """Inverter and PG lifetime key sets are identical."""
+        assert INVERTER_LIFETIME_ENERGY_KEYS == PG_LIFETIME_ENERGY_KEYS
+
+    def test_inverter_energy_clamped(self, hass):
+        """HTTP inverter lifetime energy decrease is clamped to previous value."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Inv Clamp Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            entry_id="inv_clamp_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "sensors": {
+                        "yield_lifetime": 10000.0,
+                        "charging_lifetime": 5000.0,
+                        "discharging_lifetime": 4000.0,
+                        "grid_import_lifetime": 8000.0,
+                        "grid_export_lifetime": 7000.0,
+                        "consumption_lifetime": 12000.0,
+                    }
+                },
+            }
+        }
+        sensors = {
+            "yield_lifetime": 9999.0,  # decreased
+            "charging_lifetime": 5001.0,  # increased
+            "discharging_lifetime": 4001.0,  # increased
+            "grid_import_lifetime": 7999.0,  # decreased
+            "grid_export_lifetime": 7001.0,  # increased
+            "consumption_lifetime": 11999.0,  # decreased
+        }
+        coordinator._clamp_computed_energy(
+            "INV001", sensors, INVERTER_LIFETIME_ENERGY_KEYS
+        )
+        assert sensors["yield_lifetime"] == 10000.0  # clamped
+        assert sensors["charging_lifetime"] == 5001.0  # passed
+        assert sensors["grid_import_lifetime"] == 8000.0  # clamped
+        assert sensors["grid_export_lifetime"] == 7001.0  # passed
+        assert sensors["consumption_lifetime"] == 12000.0  # clamped
+
+
+class TestMIDLifetimeEnergyKeys:
+    """Test MID_LIFETIME_ENERGY_KEYS constant."""
+
+    def test_key_set_contents(self):
+        """MID lifetime energy key set has expected keys."""
+        assert len(MID_LIFETIME_ENERGY_KEYS) == 12
+        assert "grid_export_total" in MID_LIFETIME_ENERGY_KEYS
+        assert "grid_import_total" in MID_LIFETIME_ENERGY_KEYS
+        assert "ups_total" in MID_LIFETIME_ENERGY_KEYS
+        assert "load_total" in MID_LIFETIME_ENERGY_KEYS
+        assert "smart_load1_total" in MID_LIFETIME_ENERGY_KEYS
+        assert "ac_couple1_total" in MID_LIFETIME_ENERGY_KEYS
+
+    def test_mid_energy_clamped(self, hass):
+        """MID lifetime energy decrease is clamped to previous value."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - MID Clamp Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            entry_id="mid_clamp_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.data = {
+            "devices": {
+                "MID001": {
+                    "sensors": {
+                        "grid_export_total": 3000.0,
+                        "grid_import_total": 5000.0,
+                        "ups_total": 1000.0,
+                        "load_total": 4000.0,
+                    }
+                },
+            }
+        }
+        sensors = {
+            "grid_export_total": 2999.0,  # decreased
+            "grid_import_total": 5001.0,  # increased
+            "ups_total": 999.0,  # decreased
+            "load_total": 4001.0,  # increased
+        }
+        coordinator._clamp_computed_energy(
+            "MID001", sensors, MID_LIFETIME_ENERGY_KEYS
+        )
+        assert sensors["grid_export_total"] == 3000.0  # clamped
+        assert sensors["grid_import_total"] == 5001.0  # passed
+        assert sensors["ups_total"] == 1000.0  # clamped
+        assert sensors["load_total"] == 4001.0  # passed
 
 
 class TestChargeRates:

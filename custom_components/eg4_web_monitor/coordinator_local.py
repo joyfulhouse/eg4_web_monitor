@@ -37,6 +37,7 @@ from .coordinator_mixins import (
     _MixinBase,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
+    sanitize_numeric_sensors,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -787,6 +788,7 @@ class LocalTransportMixin(_MixinBase):
                     "dongle" if transport_type == "wifi_dongle" else "modbus"
                 )
                 sensors["transport_host"] = host
+                sanitize_numeric_sensors(sensors)
 
                 device_data: dict[str, Any] = {
                     "type": "gridboss",
@@ -1003,6 +1005,9 @@ class LocalTransportMixin(_MixinBase):
                 )
 
                 self._clamp_computed_energy(serial, sensors)
+                sanitize_numeric_sensors(sensors)
+                for bat_sensors in device_data.get("batteries", {}).values():
+                    sanitize_numeric_sensors(bat_sensors)
 
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
@@ -1806,6 +1811,7 @@ class LocalTransportMixin(_MixinBase):
             self._clamp_computed_energy(
                 group_device_id, group_sensors, PG_LIFETIME_ENERGY_KEYS
             )
+            sanitize_numeric_sensors(group_sensors)
 
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 

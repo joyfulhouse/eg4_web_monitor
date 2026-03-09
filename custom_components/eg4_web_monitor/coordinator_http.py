@@ -41,10 +41,13 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
+    INVERTER_LIFETIME_ENERGY_KEYS,
+    MID_LIFETIME_ENERGY_KEYS,
     PG_LIFETIME_ENERGY_KEYS,
     _MixinBase,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
+    sanitize_numeric_sensors,
 )
 from .utils import clean_battery_display_name
 
@@ -240,6 +243,17 @@ class HTTPUpdateMixin(_MixinBase):
                 device_data["sensors"]["connection_transport"] = "Cloud"
 
         return data
+
+    def _sanitize_mid_device(self, serial: str, mid_data: dict[str, Any]) -> None:
+        """Clamp lifetime energy and sanitize non-finite values for a MID device.
+
+        Called after ``_process_mid_device_object`` for both grouped and
+        standalone MID devices in the HTTP path.
+        """
+        mid_sensors = mid_data.get("sensors", {})
+        if mid_sensors:
+            self._clamp_computed_energy(serial, mid_sensors, MID_LIFETIME_ENERGY_KEYS)
+            sanitize_numeric_sensors(mid_sensors)
 
     async def _async_update_http_data(
         self,
@@ -510,8 +524,16 @@ class HTTPUpdateMixin(_MixinBase):
         ]
         inverter_results = await asyncio.gather(*inverter_tasks)
 
-        # Populate processed devices from results
+        # Populate processed devices from results and apply post-processing.
+        # Cloud API data bypasses pylxpweb canary/monotonicity checks, so
+        # clamp lifetime energy and sanitize non-finite values here.
         for serial, device_data in inverter_results:
+            sensors = device_data.get("sensors", {})
+            if sensors:
+                self._clamp_computed_energy(
+                    serial, sensors, INVERTER_LIFETIME_ENERGY_KEYS
+                )
+                sanitize_numeric_sensors(sensors)
             processed["devices"][serial] = device_data
 
         # Propagate total inverter power rating to MID devices (one-time).
@@ -592,16 +614,17 @@ class HTTPUpdateMixin(_MixinBase):
 
                     # Clamp PG lifetime energy (monotonicity) — mirrors
                     # LOCAL path in _process_local_parallel_groups().
+                    pg_sensors = group_data.get("sensors", {})
                     self._clamp_computed_energy(
                         pg_device_id,
-                        group_data.get("sensors", {}),
+                        pg_sensors,
                         PG_LIFETIME_ENERGY_KEYS,
                     )
+                    sanitize_numeric_sensors(pg_sensors)
 
                     # Aggregate member inverter battery data for parallel group.
                     # Single pass collects both battery count (override when
                     # cloud returns 0) and battery current sum.
-                    pg_sensors = group_data.get("sensors", {})
                     need_bat_count = pg_sensors.get("parallel_battery_count", 0) == 0
                     total_bats = 0
                     total_current = 0.0
@@ -634,9 +657,9 @@ class HTTPUpdateMixin(_MixinBase):
                             mid_data = await self._process_mid_device_object(
                                 group.mid_device
                             )
-                            processed["devices"][group.mid_device.serial_number] = (
-                                mid_data
-                            )
+                            mid_serial = group.mid_device.serial_number
+                            self._sanitize_mid_device(mid_serial, mid_data)
+                            processed["devices"][mid_serial] = mid_data
 
                             # Apply GridBOSS CT overlay to parallel group.
                             # GridBOSS CTs are the authoritative source for
@@ -663,9 +686,9 @@ class HTTPUpdateMixin(_MixinBase):
         if hasattr(self.station, "standalone_mid_devices"):
             for mid_device in self.station.standalone_mid_devices:
                 try:
-                    processed["devices"][
-                        mid_device.serial_number
-                    ] = await self._process_mid_device_object(mid_device)
+                    mid_data = await self._process_mid_device_object(mid_device)
+                    self._sanitize_mid_device(mid_device.serial_number, mid_data)
+                    processed["devices"][mid_device.serial_number] = mid_data
                     _LOGGER.debug(
                         "Processed standalone MID device %s",
                         mid_device.serial_number,
@@ -834,6 +857,14 @@ class HTTPUpdateMixin(_MixinBase):
                         serial,
                         e,
                     )
+
+        # Sanitize individual battery sensor dicts.  Battery values like
+        # cell_voltage_delta (subtraction) and charge_rate (division) can
+        # produce NaN from corrupt upstream data.  One pass covers all three
+        # battery assembly paths (HYBRID, LOCAL round-robin, CLOUD-only).
+        for device_data in processed["devices"].values():
+            for bat_sensors in device_data.get("batteries", {}).values():
+                sanitize_numeric_sensors(bat_sensors)
 
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:

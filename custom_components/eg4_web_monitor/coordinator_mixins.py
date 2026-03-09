@@ -11,6 +11,7 @@ final coordinator class inheriting all mixins together.
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -77,6 +78,55 @@ PG_LIFETIME_ENERGY_KEYS = frozenset(
         "consumption_lifetime",
     }
 )
+
+# Inverter lifetime energy keys that should never decrease in the HTTP
+# path.  The LOCAL path handles these via pylxpweb's _is_energy_valid()
+# during register reads; the HTTP path gets them from the cloud API and
+# needs coordinator-level clamping.
+# Same key set as PG_LIFETIME_ENERGY_KEYS — both track the same six
+# cumulative energy counters.
+INVERTER_LIFETIME_ENERGY_KEYS = PG_LIFETIME_ENERGY_KEYS
+
+# GridBOSS/MID device lifetime energy keys for coordinator-level clamping.
+MID_LIFETIME_ENERGY_KEYS = frozenset(
+    {
+        "grid_export_total",
+        "grid_import_total",
+        "ups_total",
+        "load_total",
+        "ac_couple1_total",
+        "ac_couple2_total",
+        "ac_couple3_total",
+        "ac_couple4_total",
+        "smart_load1_total",
+        "smart_load2_total",
+        "smart_load3_total",
+        "smart_load4_total",
+    }
+)
+
+
+def sanitize_numeric_sensors(sensors: dict[str, Any]) -> int:
+    """Replace non-finite floats (NaN, Inf) with None.
+
+    HA treats NaN as permanent unavailability — the entity never recovers.
+    This sentinel replaces corrupt math results so the sensor shows
+    ``unknown`` for one cycle instead of breaking permanently.
+
+    Args:
+        sensors: Sensor dict (mutated in place).
+
+    Returns:
+        Number of values replaced.
+    """
+    replaced = 0
+    for key, value in sensors.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            _LOGGER.debug("Replacing non-finite value for %s: %s", key, value)
+            sensors[key] = None
+            replaced += 1
+    return replaced
+
 
 # GridBOSS sensor → parallel group sensor overlay mapping.
 # GridBOSS CTs are the authoritative measurement point for grid power
