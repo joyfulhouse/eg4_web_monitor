@@ -5530,3 +5530,138 @@ class TestRoundRobinTruncatedSerialGuard:
             batteries = [self._make_battery("Batter", index=0)]
             result = coordinator._merge_round_robin_batteries(serial, batteries)
             assert len(result) == 1  # only the original real battery
+
+
+class TestResolveLocalFirmware:
+    """Test _resolve_local_firmware() local-register-preferred firmware resolution."""
+
+    async def test_no_transport_returns_cloud_version(self, hass, mock_config_entry):
+        """Without a local transport, cloud version is returned unchanged."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        del device._transport  # no transport
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        assert "INV001" not in coordinator._firmware_cache
+
+    async def test_cache_hit_returns_cached_value(self, hass, mock_config_entry):
+        """Cached firmware is returned without reading transport."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = "LOCAL-2.0"
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "LOCAL-2.0"
+        device._transport.read_firmware_version.assert_not_called()
+
+    async def test_sentinel_cache_hit_returns_cloud_version(
+        self, hass, mock_config_entry
+    ):
+        """Empty-string sentinel in cache returns cloud version as fallback."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = ""
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+
+    async def test_successful_read_caches_and_returns_local(
+        self, hass, mock_config_entry
+    ):
+        """Successful transport read is cached and returned."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "FAAB-2525"
+        assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
+
+    async def test_transport_without_read_method_caches_sentinel(
+        self, hass, mock_config_entry
+    ):
+        """Transport lacking read_firmware_version permanently caches sentinel."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock(spec=[])  # no methods at all
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        assert coordinator._firmware_cache["INV001"] == ""
+
+    async def test_transient_failure_does_not_cache_sentinel(
+        self, hass, mock_config_entry
+    ):
+        """Exception during read does NOT cache sentinel — allows retry."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(
+            side_effect=OSError("bus stall")
+        )
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        # No sentinel cached — next cycle will retry
+        assert "INV001" not in coordinator._firmware_cache
+
+    async def test_retry_succeeds_after_transient_failure(
+        self, hass, mock_config_entry
+    ):
+        """After a transient failure, next call succeeds and caches."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(
+            side_effect=OSError("bus stall")
+        )
+
+        # First call fails
+        result1 = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result1 == "CLOUD-1.0"
+        assert "INV001" not in coordinator._firmware_cache
+
+        # Second call succeeds
+        device._transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
+        result2 = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result2 == "FAAB-2525"
+        assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
+
+    async def test_empty_read_returns_cloud_version(self, hass, mock_config_entry):
+        """Empty string from transport read falls back to cloud version."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(return_value="")
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"

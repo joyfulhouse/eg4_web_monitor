@@ -238,6 +238,9 @@ if TYPE_CHECKING:
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
+        async def _resolve_local_firmware(
+            self, device: Any, cloud_version: str
+        ) -> str: ...
         async def _process_inverter_object(
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
@@ -396,10 +399,12 @@ class DeviceProcessingMixin(_MixinBase):
     async def _resolve_local_firmware(self, device: Any, cloud_version: str) -> str:
         """Return firmware version, preferring local register over cloud API.
 
-        The cloud API can report incorrect firmware values. When a local
-        transport is attached, read holding registers 7-10 once and cache
-        the result. On failure a sentinel is cached so the read is not
-        retried every poll cycle.
+        The cloud API can report incorrect firmware values.  When a local
+        transport is attached, read holding registers 7-10 and cache the
+        result.  If the transport lacks ``read_firmware_version`` entirely,
+        a sentinel is cached so we never re-check.  If the read raises an
+        exception (e.g. Waveshare bus stall on first refresh), no sentinel
+        is cached so the read is retried on the next poll cycle.
 
         Args:
             device: BaseInverter or MIDDevice with optional ``_transport``.
@@ -419,19 +424,26 @@ class DeviceProcessingMixin(_MixinBase):
 
         # First encounter — read from local transport and cache.
         read_fw = getattr(transport, "read_firmware_version", None)
-        if read_fw is not None:
-            try:
-                local_fw: str = await read_fw()
-                if local_fw:
-                    self._firmware_cache[serial] = local_fw
-                    return local_fw
-            except Exception:
-                _LOGGER.debug(
-                    "Could not read local firmware for %s, using cloud value",
-                    serial,
-                )
-        # Cache empty string as sentinel to avoid retrying on every cycle.
-        self._firmware_cache[serial] = ""
+        if read_fw is None:
+            # Transport doesn't support firmware reads (permanent).
+            # Cache sentinel so we don't re-check every cycle.
+            self._firmware_cache[serial] = ""
+            return cloud_version
+        try:
+            local_fw: str = await read_fw()
+            if local_fw:
+                self._firmware_cache[serial] = local_fw
+                return local_fw
+        except Exception as exc:
+            # Transient failure (e.g. Waveshare bus stall on first refresh).
+            # Do NOT cache sentinel — allow retry on the next poll cycle
+            # so a brief startup stall doesn't permanently suppress local
+            # firmware reads.
+            _LOGGER.debug(
+                "Could not read local firmware for %s: %s",
+                serial,
+                exc,
+            )
         return cloud_version
 
     async def _process_inverter_object(
