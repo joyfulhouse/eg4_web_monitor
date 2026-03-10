@@ -16,6 +16,7 @@ jobs:
     # into shell commands). The `contains(body, '@claude')` checks are also safe since
     # they only appear in expression context, never in `run:` blocks.
     if: |
+      github.event.sender.type != 'Bot' &&
       (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
