@@ -393,6 +393,47 @@ class DeviceProcessingMixin(_MixinBase):
                 return transport.get("grid_type")
         return None
 
+    async def _resolve_local_firmware(self, device: Any, cloud_version: str) -> str:
+        """Return firmware version, preferring local register over cloud API.
+
+        The cloud API can report incorrect firmware values. When a local
+        transport is attached, read holding registers 7-10 once and cache
+        the result. On failure a sentinel is cached so the read is not
+        retried every poll cycle.
+
+        Args:
+            device: BaseInverter or MIDDevice with optional ``_transport``.
+            cloud_version: Firmware version string from the cloud API.
+
+        Returns:
+            Local firmware version if available, otherwise cloud_version.
+        """
+        transport = getattr(device, "_transport", None)
+        if transport is None:
+            return cloud_version
+
+        serial: str = device.serial_number
+        cached = self._firmware_cache.get(serial)
+        if cached is not None:
+            return cached if cached else cloud_version
+
+        # First encounter — read from local transport and cache.
+        read_fw = getattr(transport, "read_firmware_version", None)
+        if read_fw is not None:
+            try:
+                local_fw: str = await read_fw()
+                if local_fw:
+                    self._firmware_cache[serial] = local_fw
+                    return local_fw
+            except Exception:
+                _LOGGER.debug(
+                    "Could not read local firmware for %s, using cloud value",
+                    serial,
+                )
+        # Cache empty string as sentinel to avoid retrying on every cycle.
+        self._firmware_cache[serial] = ""
+        return cloud_version
+
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
     ) -> dict[str, Any]:
@@ -443,6 +484,9 @@ class DeviceProcessingMixin(_MixinBase):
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
         firmware_version = getattr(inverter, "firmware_version", "1.0.0")
+        firmware_version = await self._resolve_local_firmware(
+            inverter, firmware_version
+        )
 
         # Check for firmware updates (pylxpweb 0.3.7+)
         firmware_update_info = None
@@ -1241,6 +1285,9 @@ class DeviceProcessingMixin(_MixinBase):
         """
         model = getattr(mid_device, "model", "GridBOSS")
         firmware_version = getattr(mid_device, "firmware_version", "1.0.0")
+        firmware_version = await self._resolve_local_firmware(
+            mid_device, firmware_version
+        )
 
         firmware_update_info = None
         try:
