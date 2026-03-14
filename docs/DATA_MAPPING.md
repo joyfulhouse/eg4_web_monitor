@@ -769,7 +769,6 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | HA Sensor Key | Computation | Where |
 |---------------|-------------|-------|
 | `consumption_power` | pylxpweb `inverter.consumption_power` (energy balance: PV + discharge + grid_import - charge - grid_export) | coordinator_local.py |
-| `total_load_power` | Aliased from consumption_power | coordinator_local.py |
 | `battery_power` | `charge_power - discharge_power` | coordinator_local.py |
 | `rectifier_power` | From register 17 (`grid_power`) — renamed for clarity | coordinator_local.py |
 | `grid_import_power` | From register 27 (`power_to_user`) | coordinator_local.py |
@@ -825,7 +824,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
-- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`
+- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
 
@@ -842,7 +841,6 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `bt_temperature` | Yes | No | Yes (overlay) | Modbus reg 108 only |
 | `grid_current_l1/l2/l3` | Yes | No | Yes (overlay) | Modbus regs 18, 190, 191 |
 | `battery_current` (inverter) | Yes | No | Yes (overlay) | Modbus reg 4 (via `_transport_runtime`) |
-| `total_load_power` | Yes | API | Yes (overlay) | Aliased from consumption_power |
 | `consumption_power` (inverter) | Computed | API | API or computed | Energy balance vs API |
 | `consumption` (energy) | Computed | API (÷10) | API (÷10) | `_energy_balance()` vs `todayLoad` |
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
@@ -1001,7 +999,7 @@ additional switch entities (cloud-only controls), and transport-exclusive sensor
 ### Known Discrepancies
 
 HYBRID has 10 more entities than CLOUD due to transport-exclusive sensors
-(`bt_temperature`, `battery_current`, `total_load_power`, `grid_current_l1/l2/l3`,
+(`bt_temperature`, `battery_current`, `grid_current_l1/l2/l3`,
 `transport_ip_address` per inverter). CLOUD has cloud-only command buttons not
 available in LOCAL mode.
 
@@ -1219,10 +1217,7 @@ Returns `None` when both voltages are zero (no EPS output).
 **Source:** `inverter.eps_power_l1` / `inverter.eps_power_l2` properties in
 pylxpweb. Set in `coordinator_local.py` `_build_local_device_data()`.
 
-#### `total_load_power` (Inverter)
 
-Alias for `consumption_power`. Same value, different sensor key for
-backward compatibility.
 
 #### `rectifier_power` (Inverter)
 
