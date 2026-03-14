@@ -238,6 +238,9 @@ if TYPE_CHECKING:
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
+        async def _resolve_local_firmware(
+            self, device: Any, cloud_version: str
+        ) -> str: ...
         async def _process_inverter_object(
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
@@ -393,6 +396,56 @@ class DeviceProcessingMixin(_MixinBase):
                 return transport.get("grid_type")
         return None
 
+    async def _resolve_local_firmware(self, device: Any, cloud_version: str) -> str:
+        """Return firmware version, preferring local register over cloud API.
+
+        The cloud API can report incorrect firmware values.  When a local
+        transport is attached, read holding registers 7-10 and cache the
+        result.  If the transport lacks ``read_firmware_version`` entirely,
+        a sentinel is cached so we never re-check.  If the read raises an
+        exception (e.g. Waveshare bus stall on first refresh), no sentinel
+        is cached so the read is retried on the next poll cycle.
+
+        Args:
+            device: BaseInverter or MIDDevice with optional ``_transport``.
+            cloud_version: Firmware version string from the cloud API.
+
+        Returns:
+            Local firmware version if available, otherwise cloud_version.
+        """
+        transport = getattr(device, "_transport", None)
+        if transport is None:
+            return cloud_version
+
+        serial: str = device.serial_number
+        cached = self._firmware_cache.get(serial)
+        if cached is not None:
+            return cached if cached else cloud_version
+
+        # First encounter — read from local transport and cache.
+        read_fw = getattr(transport, "read_firmware_version", None)
+        if read_fw is None:
+            # Transport doesn't support firmware reads (permanent).
+            # Cache sentinel so we don't re-check every cycle.
+            self._firmware_cache[serial] = ""
+            return cloud_version
+        try:
+            local_fw: str = await read_fw()
+            if local_fw:
+                self._firmware_cache[serial] = local_fw
+                return local_fw
+        except Exception as exc:
+            # Transient failure (e.g. Waveshare bus stall on first refresh).
+            # Do NOT cache sentinel — allow retry on the next poll cycle
+            # so a brief startup stall doesn't permanently suppress local
+            # firmware reads.
+            _LOGGER.debug(
+                "Could not read local firmware for %s: %s",
+                serial,
+                exc,
+            )
+        return cloud_version
+
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
     ) -> dict[str, Any]:
@@ -443,6 +496,9 @@ class DeviceProcessingMixin(_MixinBase):
         # Get model and firmware from properties
         model = getattr(inverter, "model", "Unknown")
         firmware_version = getattr(inverter, "firmware_version", "1.0.0")
+        firmware_version = await self._resolve_local_firmware(
+            inverter, firmware_version
+        )
 
         # Check for firmware updates (pylxpweb 0.3.7+)
         firmware_update_info = None
@@ -552,8 +608,6 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
-            if (val := getattr(inverter, "total_load_power", None)) is not None:
-                sensors["total_load_power"] = val
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
@@ -594,8 +648,6 @@ class DeviceProcessingMixin(_MixinBase):
         # Note: load_power sensor removed - it was confusingly named as grid_import
         # Use consumption_power instead, which represents actual household consumption
         # calculated as: pv_total + grid_import - grid_export (clamped to >= 0)
-        #
-        # total_load_power is now computed in pylxpweb as alias for consumption_power
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):
@@ -1241,6 +1293,9 @@ class DeviceProcessingMixin(_MixinBase):
         """
         model = getattr(mid_device, "model", "GridBOSS")
         firmware_version = getattr(mid_device, "firmware_version", "1.0.0")
+        firmware_version = await self._resolve_local_firmware(
+            mid_device, firmware_version
+        )
 
         firmware_update_info = None
         try:

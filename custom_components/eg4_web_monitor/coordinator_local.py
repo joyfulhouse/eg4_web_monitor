@@ -304,8 +304,6 @@ class LocalTransportMixin(_MixinBase):
         # Add computed sensors from inverter properties (for deprecated code path)
         if (val := inverter.consumption_power) is not None:
             device_data["sensors"]["consumption_power"] = val
-        if (val := inverter.total_load_power) is not None:
-            device_data["sensors"]["total_load_power"] = val
         if (val := inverter.battery_power) is not None:
             device_data["sensors"]["battery_power"] = val
         if (val := inverter.rectifier_power) is not None:
@@ -969,8 +967,6 @@ class LocalTransportMixin(_MixinBase):
                 # Computed power sensors from pylxpweb library
                 if (val := inverter.consumption_power) is not None:
                     sensors["consumption_power"] = val
-                if (val := inverter.total_load_power) is not None:
-                    sensors["total_load_power"] = val
                 if (val := inverter.battery_power) is not None:
                     sensors["battery_power"] = val
                 if (val := inverter.rectifier_power) is not None:
@@ -983,11 +979,10 @@ class LocalTransportMixin(_MixinBase):
                 sensors["last_polled"] = dt_util.utcnow()
 
                 _LOGGER.debug(
-                    "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "
+                    "LOCAL: Computed sensors for %s: consumption=%s, "
                     "battery=%s, rectifier=%s, grid_import=%s",
                     serial,
                     sensors.get("consumption_power"),
-                    sensors.get("total_load_power"),
                     sensors.get("battery_power"),
                     sensors.get("rectifier_power"),
                     sensors.get("grid_import_power"),

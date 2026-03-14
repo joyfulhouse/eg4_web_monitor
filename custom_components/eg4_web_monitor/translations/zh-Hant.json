@@ -609,9 +609,6 @@
       "bus2_voltage": {
         "name": "母線 2 電壓"
       },
-      "total_load_power": {
-        "name": "總負載功率"
-      },
       "smart_port1_status": {
         "name": "智慧端口1狀態",
         "state": {
