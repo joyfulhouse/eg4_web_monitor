@@ -273,7 +273,6 @@ BATTERY_BANK_KEYS: frozenset[str] = (
 INVERTER_COMPUTED_KEYS: frozenset[str] = frozenset(
     {
         "consumption_power",
-        "total_load_power",
         "battery_power",
         "rectifier_power",
         "grid_import_power",

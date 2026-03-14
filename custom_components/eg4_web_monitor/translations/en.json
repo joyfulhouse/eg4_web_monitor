@@ -519,7 +519,6 @@
       "grid_voltage": {
         "name": "Grid Voltage"
       },
-
       "grid_frequency": {
         "name": "Grid Frequency"
       },
@@ -535,7 +534,6 @@
       "eps_voltage": {
         "name": "EPS Voltage"
       },
-
       "eps_frequency": {
         "name": "EPS Frequency"
       },
@@ -610,9 +608,6 @@
       },
       "bus2_voltage": {
         "name": "Bus 2 Voltage"
-      },
-      "total_load_power": {
-        "name": "Total Load Power"
       },
       "smart_port1_status": {
         "name": "Smart Port 1 Status",

@@ -249,14 +249,6 @@ SENSOR_TYPES = {
         "icon": "mdi:engine",
         "suggested_display_precision": 1,
     },
-    # Synthetic sensor: Total Load Power (EPS + Consumption for power flow charts)
-    "total_load_power": {
-        "name": "Total Load Power",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:home-lightning-bolt",
-    },
     "battery_status": {
         "name": "Battery Status",
         "icon": "mdi:battery-heart",
