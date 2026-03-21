@@ -608,6 +608,8 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
+            # total_load_power is a computed inverter property, not a raw
+            # transport attribute, so it cannot be part of _TRANSPORT_OVERLAY.
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 sensors["total_load_power"] = val
 

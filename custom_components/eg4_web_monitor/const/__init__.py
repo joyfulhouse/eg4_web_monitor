@@ -112,6 +112,7 @@ from .config_keys import (
 # HTTP API parameter names - extracted to modbus.py
 from .modbus import (
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_AC_COUPLE_EN,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
@@ -301,6 +302,7 @@ __all__ = [
     "MIN_SENSOR_UPDATE_INTERVAL",
     # HTTP API parameter names
     "PARAM_FUNC_AC_CHARGE",
+    "PARAM_FUNC_AC_COUPLE_EN",
     "PARAM_FUNC_BATTERY_BACKUP_CTRL",
     "PARAM_FUNC_EPS_EN",
     "PARAM_FUNC_FORCED_CHG_EN",
