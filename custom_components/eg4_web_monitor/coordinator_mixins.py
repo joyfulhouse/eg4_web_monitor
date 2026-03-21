@@ -52,10 +52,11 @@ _LOGGER = logging.getLogger(__name__)
 _warned_smart_port_devices: set[str] = set()
 
 # Cache the last known good smart port statuses per MID device serial.
-# WiFi dongles return corrupt status register data ~3% of polls (all-zeros
-# or out-of-range values like status=3). Using cached values prevents the
-# filter from being skipped, which would allow raw AC couple data to leak
-# through as smart_load sensor values.
+# WiFi dongles return corrupt status register data ~3% of polls (out-of-range
+# values like status=3). Using cached values prevents the filter from being
+# skipped, which would allow raw AC couple data to leak through as
+# smart_load sensor values. Note: all-zeros is a valid state (all ports
+# unused) and should NOT be treated as corrupt.
 _last_good_smart_port_statuses: dict[str, dict[int, int]] = {}
 
 # Map raw smart port status integers to human-readable enum labels
@@ -623,8 +624,6 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
-            if (val := getattr(inverter, "total_load_power", None)) is not None:
-                sensors["total_load_power"] = val
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
@@ -665,8 +664,6 @@ class DeviceProcessingMixin(_MixinBase):
         # Note: load_power sensor removed - it was confusingly named as grid_import
         # Use consumption_power instead, which represents actual household consumption
         # calculated as: pv_total + grid_import - grid_export (clamped to >= 0)
-        #
-        # total_load_power is now computed in pylxpweb as alias for consumption_power
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):
@@ -1505,9 +1502,12 @@ class DeviceProcessingMixin(_MixinBase):
         - Status 2: AC Couple - ensure ac_couple power keys, remove all
           smart_load keys
 
-        Invalid status values (None, or outside 0-2 range) are logged as warnings
-        and treated as unused. This can occur with certain WiFi dongle firmware
-        versions that don't properly expose these registers.
+        Invalid status values (None, or outside 0-2 range) are logged as warnings.
+        When a cache of known-good statuses exists, the cached values are used
+        instead.  On the first poll with no cache, filtering is skipped (to avoid
+        removing sensors that may be in use) but all status values are converted
+        to valid labels (out-of-range values default to "unused") so raw integers
+        never reach HA's enum validation.
 
         Modifies the sensors dictionary in place.
 
@@ -1528,14 +1528,16 @@ class DeviceProcessingMixin(_MixinBase):
         )
 
         # Determine if this read is valid or corrupt.
-        # A valid read has at least one non-zero status and all values in range 0-2.
+        # A valid read has all values in range 0-2. All-zeros is valid (all
+        # ports unused) and must NOT be rejected — doing so causes raw integer
+        # 0 to leak through as the sensor state, which HA's enum validation
+        # rejects with ValueError (fixes #195).
         serial = getattr(mid_device, "serial_number", "unknown")
         all_valid_range = all(
             s is not None and s in _SMART_PORT_STATUS_LABELS
             for s in smart_port_statuses.values()
         )
-        has_nonzero = any(s != 0 for s in smart_port_statuses.values() if s is not None)
-        is_good_read = bool(smart_port_statuses) and all_valid_range and has_nonzero
+        is_good_read = bool(smart_port_statuses) and all_valid_range
 
         # Log invalid values from the raw read before any cache substitution
         if not is_good_read:
@@ -1564,7 +1566,7 @@ class DeviceProcessingMixin(_MixinBase):
                 )
 
         if is_good_read:
-            # Cache this as the last known good status set
+            # Cache the validated statuses (is_good_read guarantees all non-None)
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
@@ -1581,17 +1583,16 @@ class DeviceProcessingMixin(_MixinBase):
         else:
             # No cache yet and current read is suspect -- skip filtering
             # to avoid removing sensors that may be in use.  Still convert
-            # any valid raw integers to enum strings so HA doesn't reject
-            # them (e.g. 0 → "unused").  See issue #194.
+            # any in-range integers to string labels so raw ints never reach
+            # HA's enum validation (defense-in-depth for #194 and #195).
             _LOGGER.debug(
-                "Smart Port statuses all zero/invalid with no cache — "
+                "Smart Port statuses invalid with no cache — "
                 "skipping sensor filtering on initial poll"
             )
             for port, status in smart_port_statuses.items():
-                if status is not None and status in _SMART_PORT_STATUS_LABELS:
-                    sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS[
-                        status
-                    ]
+                sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS.get(
+                    status if status is not None else -1, "unused"
+                )
             return
 
         # Convert raw status integers to enum string labels

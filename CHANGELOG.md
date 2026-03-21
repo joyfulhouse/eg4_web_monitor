@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Off-grid mode state change fails on fresh LOCAL-only install** ([#194](https://github.com/joyfulhouse/eg4_web_monitor/issues/194)): Smart port status sensors received raw integer `0` instead of enum string `"unused"` when all ports were unused and no cache existed, causing HA to reject entity state writes and block switch toggles.
-- **Firmware cache sentinel inconsistency**: `_resolve_local_firmware()` now caches a sentinel when `read_firmware_version()` returns empty string (avoids unnecessary Modbus reads every poll cycle) and treats `"Unknown"` entries from the LOCAL path as sentinels in HYBRID mode.
+- **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation. Out-of-range values on corrupt reads now also default to `"unused"` instead of leaking raw integers.
+- **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle. `"Unknown"` entries from the LOCAL path are treated as sentinels in HYBRID mode.
 
 ## [3.2.0] - 2026-03-09
 

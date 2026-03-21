@@ -609,9 +609,6 @@
       "bus2_voltage": {
         "name": "Voltaje Bus 2"
       },
-      "total_load_power": {
-        "name": "Potencia Total de Carga"
-      },
       "smart_port1_status": {
         "name": "Estado Smart Port 1",
         "state": {
