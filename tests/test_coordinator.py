@@ -3953,7 +3953,7 @@ class TestSmartPortFiltering:
         _last_good_smart_port_statuses.pop(serial, None)
 
     def test_corrupt_read_no_cache_still_converts_labels(self):
-        """Corrupt read with no cache skips filtering but converts labels (#195)."""
+        """Corrupt read with no cache skips filtering but converts labels (#194, #195)."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
@@ -5697,7 +5697,7 @@ class TestResolveLocalFirmware:
     async def test_empty_read_caches_sentinel_and_returns_cloud(
         self, hass, mock_config_entry
     ):
-        """Empty string from transport read caches sentinel and falls back."""
+        """Empty string from transport read caches sentinel and falls back to cloud."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -5710,3 +5710,23 @@ class TestResolveLocalFirmware:
         assert result == "CLOUD-1.0"
         # Empty string cached as sentinel — won't re-read every cycle
         assert coordinator._firmware_cache["INV001"] == ""
+
+    async def test_unknown_cache_hit_returns_cloud_version(
+        self, hass, mock_config_entry
+    ):
+        """'Unknown' cached by coordinator_local.py is treated as sentinel.
+
+        In HYBRID mode, coordinator_local.py may pre-populate _firmware_cache
+        with 'Unknown' when the transport can't read firmware.  This method
+        should fall back to cloud_version rather than returning 'Unknown'.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = "Unknown"
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
