@@ -3758,7 +3758,7 @@ class TestSmartPortFiltering:
             DeviceProcessingMixin,
         )
 
-        # Port 1 = AC Couple (active, prevents all-zero skip), port 2 = Unused
+        # Port 1 = AC Couple, port 2 = Unused
         mid = self._make_mid_device({1: 2, 2: 0, 3: 0, 4: 0})
         sensors: dict = {
             "smart_load2_power_l1": 10.0,
@@ -3916,42 +3916,92 @@ class TestSmartPortFiltering:
         assert sensors["smart_port3_status"] == "smart_load"
         assert sensors["smart_port4_status"] == "unused"
 
-    def test_all_zeros_no_cache_skips_filtering(self):
-        """When all statuses are 0 with no cache, filtering is skipped."""
+    def test_all_zeros_is_valid_read(self):
+        """All-zeros is a valid read (all ports unused), not corrupt (#195)."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
         )
 
-        # Use unique serial with no cached statuses
-        serial = "TEST_MID_ZEROS_NOCACHE"
+        serial = "TEST_MID_ZEROS_VALID"
         _last_good_smart_port_statuses.pop(serial, None)
 
         mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_port1_status": 0,
+            "smart_port2_status": 0,
+            "smart_port3_status": 0,
+            "smart_port4_status": 0,
             "smart_load1_power_l1": 50.0,
             "ac_couple1_power_l1": 100.0,
         }
 
         DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
 
-        # Power keys preserved (no cache → skip filtering)
-        assert sensors["smart_load1_power_l1"] == 50.0
-        assert sensors["ac_couple1_power_l1"] == 100.0
+        # Status integers converted to string labels (not raw 0)
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # All ports unused → both smart_load and ac_couple keys removed
+        assert "smart_load1_power_l1" not in sensors
+        assert "ac_couple1_power_l1" not in sensors
+        # Cached as a good read
+        assert serial in _last_good_smart_port_statuses
 
-    def test_all_zeros_with_cache_uses_cached_statuses(self):
-        """When all statuses are 0 but cache exists, cached statuses are used."""
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+
+    def test_corrupt_read_no_cache_still_converts_labels(self):
+        """Corrupt read with no cache skips filtering but converts labels (#195)."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_CORRUPT_NOCACHE"
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+        # Port 3 has out-of-range value (corrupt)
+        mid = self._make_mid_device({1: 0, 2: 1, 3: 5, 4: 0}, serial=serial)
+        sensors: dict = {
+            "smart_port1_status": 0,
+            "smart_port2_status": 1,
+            "smart_port3_status": 5,
+            "smart_port4_status": 0,
+            "smart_load1_power_l1": 50.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # Valid integers converted to labels even though filtering was skipped
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "smart_load"
+        # Out-of-range value falls back to "unused" to prevent HA ValueError
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # Power keys preserved (filtering skipped)
+        assert sensors["smart_load1_power_l1"] == 50.0
+
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_corrupt_read_with_cache_uses_cached_statuses(self):
+        """When read is corrupt but cache exists, cached statuses are used."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
         )
 
-        serial = "TEST_MID_ZEROS_CACHED"
+        serial = "TEST_MID_CORRUPT_CACHED"
         # Pre-populate cache: port 1 = AC couple, others unused
         _last_good_smart_port_statuses[serial] = {1: 2, 2: 0, 3: 0, 4: 0}
 
-        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
+        # Corrupt read: port 2 has out-of-range value
+        mid = self._make_mid_device({1: 0, 2: 7, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_load1_power_l1": 50.0,
             "smart_load1_power_l2": 30.0,
@@ -5644,8 +5694,10 @@ class TestResolveLocalFirmware:
         assert result2 == "FAAB-2525"
         assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
 
-    async def test_empty_read_returns_cloud_version(self, hass, mock_config_entry):
-        """Empty string from transport read falls back to cloud version."""
+    async def test_empty_read_caches_sentinel_and_returns_cloud(
+        self, hass, mock_config_entry
+    ):
+        """Empty string from transport read caches sentinel and falls back."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -5656,3 +5708,5 @@ class TestResolveLocalFirmware:
 
         result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
         assert result == "CLOUD-1.0"
+        # Empty string cached as sentinel — won't re-read every cycle
+        assert coordinator._firmware_cache["INV001"] == ""
