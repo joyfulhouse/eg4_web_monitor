@@ -1559,7 +1559,7 @@ class DeviceProcessingMixin(_MixinBase):
                 )
 
         if is_good_read:
-            # Cache the validated statuses (is_good_read guarantees non-None)
+            # Cache the validated statuses (is_good_read guarantees all non-None)
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
