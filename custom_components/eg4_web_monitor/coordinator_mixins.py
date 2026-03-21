@@ -400,11 +400,20 @@ class DeviceProcessingMixin(_MixinBase):
         """Return firmware version, preferring local register over cloud API.
 
         The cloud API can report incorrect firmware values.  When a local
-        transport is attached, read holding registers 7-10 and cache the
-        result.  If the transport lacks ``read_firmware_version`` entirely,
-        a sentinel is cached so we never re-check.  If the read raises an
-        exception (e.g. Waveshare bus stall on first refresh), no sentinel
-        is cached so the read is retried on the next poll cycle.
+        transport is attached, delegate to ``transport.read_firmware_version``
+        (which reads holding registers 7-10) and cache the result.
+
+        Sentinel values (``""`` or ``"Unknown"``) in the cache mean "local
+        firmware is unavailable" and trigger a cloud fallback.  The LOCAL
+        path in ``coordinator_local.py`` may pre-populate the cache with
+        ``"Unknown"``; this method treats that identically to its own ``""``
+        sentinel.
+
+        Caching strategy:
+        - Real firmware string → cached, returned on subsequent calls.
+        - No ``read_firmware_version`` method → ``""`` sentinel cached.
+        - Method returns empty/falsy → ``""`` sentinel cached (permanent).
+        - Exception (e.g. Waveshare bus stall) → **not** cached (retry).
 
         Args:
             device: BaseInverter or MIDDevice with optional ``_transport``.
@@ -420,7 +429,10 @@ class DeviceProcessingMixin(_MixinBase):
         serial: str = device.serial_number
         cached = self._firmware_cache.get(serial)
         if cached is not None:
-            return cached if cached else cloud_version
+            # Real firmware → return it.  Sentinel ("" or "Unknown") → cloud.
+            if cached and cached != "Unknown":
+                return cached
+            return cloud_version
 
         # First encounter — read from local transport and cache.
         read_fw = getattr(transport, "read_firmware_version", None)
@@ -434,6 +446,9 @@ class DeviceProcessingMixin(_MixinBase):
             if local_fw:
                 self._firmware_cache[serial] = local_fw
                 return local_fw
+            # Transport responded but returned empty — permanent condition.
+            # Cache sentinel so we don't re-read every poll cycle.
+            self._firmware_cache[serial] = ""
         except Exception as exc:
             # Transient failure (e.g. Waveshare bus stall on first refresh).
             # Do NOT cache sentinel — allow retry on the next poll cycle

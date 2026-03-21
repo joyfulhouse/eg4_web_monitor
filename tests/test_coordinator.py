@@ -5685,8 +5685,10 @@ class TestResolveLocalFirmware:
         assert result2 == "FAAB-2525"
         assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
 
-    async def test_empty_read_returns_cloud_version(self, hass, mock_config_entry):
-        """Empty string from transport read falls back to cloud version."""
+    async def test_empty_read_caches_sentinel_and_returns_cloud(
+        self, hass, mock_config_entry
+    ):
+        """Empty string from transport read caches sentinel and falls back to cloud."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -5694,6 +5696,28 @@ class TestResolveLocalFirmware:
         device.serial_number = "INV001"
         device._transport = MagicMock()
         device._transport.read_firmware_version = AsyncMock(return_value="")
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        # Sentinel cached — no re-read on subsequent polls
+        assert coordinator._firmware_cache["INV001"] == ""
+
+    async def test_unknown_cache_hit_returns_cloud_version(
+        self, hass, mock_config_entry
+    ):
+        """'Unknown' cached by coordinator_local.py is treated as sentinel.
+
+        In HYBRID mode, coordinator_local.py may pre-populate _firmware_cache
+        with 'Unknown' when the transport can't read firmware.  This method
+        should fall back to cloud_version rather than returning 'Unknown'.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = "Unknown"
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
 
         result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
         assert result == "CLOUD-1.0"
