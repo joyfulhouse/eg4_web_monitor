@@ -1565,11 +1565,18 @@ class DeviceProcessingMixin(_MixinBase):
             }
         else:
             # No cache yet and current read is suspect -- skip filtering
-            # to avoid removing sensors that may be in use.
+            # to avoid removing sensors that may be in use.  Still convert
+            # any valid raw integers to enum strings so HA doesn't reject
+            # them (e.g. 0 → "unused").  See issue #194.
             _LOGGER.debug(
                 "Smart Port statuses all zero/invalid with no cache — "
                 "skipping sensor filtering on initial poll"
             )
+            for port, status in smart_port_statuses.items():
+                if status is not None and status in _SMART_PORT_STATUS_LABELS:
+                    sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS[
+                        status
+                    ]
             return
 
         # Convert raw status integers to enum string labels

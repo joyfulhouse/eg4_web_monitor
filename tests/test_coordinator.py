@@ -3943,6 +3943,38 @@ class TestSmartPortFiltering:
         assert sensors["smart_load1_power_l1"] == 50.0
         assert sensors["ac_couple1_power_l1"] == 100.0
 
+    def test_all_zeros_no_cache_converts_to_enum_strings(self):
+        """Issue #194: raw integer 0 must be converted to 'unused' even on early return.
+
+        When all smart port statuses are zero and there is no cache,
+        the function skips sensor filtering but must still convert the raw
+        integer status values to enum string labels.  Otherwise HA rejects
+        the value because 0 is not in the sensor's options list.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_ISSUE194"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {
+            "smart_port1_status": 0,
+            "smart_port2_status": 0,
+            "smart_port3_status": 0,
+            "smart_port4_status": 0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # All raw integers converted to enum string labels
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+
     def test_all_zeros_with_cache_uses_cached_statuses(self):
         """When all statuses are 0 but cache exists, cached statuses are used."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
