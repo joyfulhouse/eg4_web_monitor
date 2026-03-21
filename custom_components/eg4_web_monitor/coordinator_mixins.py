@@ -613,8 +613,6 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
-            if (val := getattr(inverter, "total_load_power", None)) is not None:
-                sensors["total_load_power"] = val
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
@@ -655,8 +653,6 @@ class DeviceProcessingMixin(_MixinBase):
         # Note: load_power sensor removed - it was confusingly named as grid_import
         # Use consumption_power instead, which represents actual household consumption
         # calculated as: pv_total + grid_import - grid_export (clamped to >= 0)
-        #
-        # total_load_power is now computed in pylxpweb as alias for consumption_power
 
         # Add legacy ac_voltage sensor
         if hasattr(inverter, "eps_voltage_r"):

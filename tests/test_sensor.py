@@ -209,7 +209,6 @@ class TestLateDeviceSensorRegistration:
         "grid_import_power_l2",
         "bt_temperature",
         "battery_current",
-        "total_load_power",
     }
 
     @pytest.fixture

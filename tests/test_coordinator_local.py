@@ -207,7 +207,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport = MagicMock()
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -243,7 +242,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport_battery = None
         mock_inverter._transport = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -279,7 +277,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport_battery = None
         mock_inverter._transport = None
         mock_inverter.consumption_power = 3000
-        mock_inverter.total_load_power = 4000
         mock_inverter.battery_power = 1500
         mock_inverter.rectifier_power = 200
         mock_inverter.power_to_user = 500
@@ -297,7 +294,6 @@ class TestBuildLocalDeviceData:
             )
 
         assert result["sensors"]["consumption_power"] == 3000
-        assert result["sensors"]["total_load_power"] == 4000
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
         assert result["sensors"]["grid_import_power"] == 500
@@ -988,7 +984,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.101"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1080,7 +1075,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1197,7 +1191,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1284,7 +1277,6 @@ class TestBatteryBankCountSuppression:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1493,7 +1485,6 @@ class TestBatteryRRCacheFallback:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None

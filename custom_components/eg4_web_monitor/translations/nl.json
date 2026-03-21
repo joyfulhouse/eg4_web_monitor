@@ -609,9 +609,6 @@
       "bus2_voltage": {
         "name": "Bus 2-spanning"
       },
-      "total_load_power": {
-        "name": "Totaal belastingsvermogen"
-      },
       "smart_port1_status": {
         "name": "Smart Port 1 Status",
         "state": {

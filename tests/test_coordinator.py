@@ -1180,7 +1180,6 @@ class TestDeferredLocalParameters:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1224,7 +1223,6 @@ class TestDeferredLocalParameters:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1416,7 +1414,6 @@ class TestCacheTTLAdherence:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -4132,7 +4129,6 @@ class TestParameterPreComputation:
             mock_inv._transport_energy = None
             mock_inv._transport_battery = None
             mock_inv.consumption_power = None
-            mock_inv.total_load_power = None
             mock_inv.battery_power = None
             mock_inv.rectifier_power = None
             mock_inv.power_to_user = None
@@ -4216,7 +4212,6 @@ class TestParameterPreComputation:
         mock_inv._transport_energy = None
         mock_inv._transport_battery = None
         mock_inv.consumption_power = None
-        mock_inv.total_load_power = None
         mock_inv.battery_power = None
         mock_inv.rectifier_power = None
         mock_inv.power_to_user = None
@@ -4703,7 +4698,6 @@ class TestHybridTransportExclusiveSensors:
         mock_runtime.inverter_rms_current_t = 4.1
         mock_runtime.battery_current = 12.5
         mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = 2500.0
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4713,7 +4707,6 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["grid_current_l2"] == 4.3
         assert sensors["grid_current_l3"] == 4.1
         assert sensors["battery_current"] == 12.5
-        assert sensors["total_load_power"] == 2500.0
 
     async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""
@@ -4734,7 +4727,7 @@ class TestHybridTransportExclusiveSensors:
         sensors = result["sensors"]
 
         # Verify the transport overlay path didn't run (no _transport_runtime)
-        assert "total_load_power" not in sensors
+        assert "bt_temperature" not in sensors
 
     async def test_transport_runtime_none_values_not_overlaid(
         self, hass, mock_config_entry
@@ -4759,14 +4752,12 @@ class TestHybridTransportExclusiveSensors:
         mock_runtime.inverter_rms_current_t = None
         mock_runtime.battery_current = None
         mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = None
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
 
         # Only non-None values from transport overlay should appear
         assert sensors["grid_current_l1"] == 4.5
-        assert "total_load_power" not in sensors
 
 
 class TestHybridParallelBatteryCountOverride:
