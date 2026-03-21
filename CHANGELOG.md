@@ -5,6 +5,13 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation. Out-of-range values on corrupt reads now also default to `"unused"` instead of leaking raw integers.
+- **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle.
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.
