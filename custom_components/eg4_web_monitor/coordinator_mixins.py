@@ -401,11 +401,12 @@ class DeviceProcessingMixin(_MixinBase):
         """Return firmware version, preferring local register over cloud API.
 
         The cloud API can report incorrect firmware values.  When a local
-        transport is attached, read holding registers 7-10 and cache the
-        result.  If the transport lacks ``read_firmware_version`` entirely,
-        a sentinel is cached so we never re-check.  If the read raises an
-        exception (e.g. Waveshare bus stall on first refresh), no sentinel
-        is cached so the read is retried on the next poll cycle.
+        transport is attached, call ``read_firmware_version()`` and cache
+        the result.  If the transport lacks the method entirely or returns
+        an empty string, a sentinel is cached so we never re-check.  If
+        the read raises an exception (e.g. Waveshare bus stall on first
+        refresh), no sentinel is cached so the read is retried on the next
+        poll cycle.
 
         Args:
             device: BaseInverter or MIDDevice with optional ``_transport``.
@@ -435,6 +436,9 @@ class DeviceProcessingMixin(_MixinBase):
             if local_fw:
                 self._firmware_cache[serial] = local_fw
                 return local_fw
+            # Empty string — transport exists but returned no data.
+            # Cache sentinel so we don't re-read every poll cycle.
+            self._firmware_cache[serial] = ""
         except Exception as exc:
             # Transient failure (e.g. Waveshare bus stall on first refresh).
             # Do NOT cache sentinel — allow retry on the next poll cycle
@@ -1491,9 +1495,12 @@ class DeviceProcessingMixin(_MixinBase):
         - Status 2: AC Couple - ensure ac_couple power keys, remove all
           smart_load keys
 
-        Invalid status values (None, or outside 0-2 range) are logged as warnings
-        and treated as unused. This can occur with certain WiFi dongle firmware
-        versions that don't properly expose these registers.
+        Invalid status values (None, or outside 0-2 range) are logged as warnings.
+        When a cache of known-good statuses exists, the cached values are used
+        instead.  On the first poll with no cache, filtering is skipped (to avoid
+        removing sensors that may be in use) but all status values are converted
+        to valid labels (out-of-range values default to "unused") so raw integers
+        never reach HA's enum validation.
 
         Modifies the sensors dictionary in place.
 
@@ -1576,10 +1583,9 @@ class DeviceProcessingMixin(_MixinBase):
                 "skipping sensor filtering on initial poll"
             )
             for port, status in smart_port_statuses.items():
-                if status is not None and status in _SMART_PORT_STATUS_LABELS:
-                    sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS[
-                        status
-                    ]
+                sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS.get(
+                    status if status is not None else -1, "unused"
+                )
             return
 
         # Convert raw status integers to enum string labels
