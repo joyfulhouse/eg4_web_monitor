@@ -445,7 +445,16 @@ def _create_simple_device_sensors(
     device_data: dict[str, Any],
     device_type: str,
 ) -> list[SensorEntity]:
-    """Create sensor entities for a GridBOSS or Parallel Group device."""
+    """Create sensor entities for a GridBOSS or Parallel Group device.
+
+    For GridBOSS devices, smart port dynamic keys are excluded here because
+    they are registered by the _async_discover_smart_port_sensors() listener
+    once port statuses are known. Including them here would create duplicate
+    unique IDs (see issue #202).
+    """
+    skip_keys = (
+        GRIDBOSS_SMART_PORT_DYNAMIC_KEYS if device_type == "gridboss" else frozenset()
+    )
     return [
         EG4InverterSensor(
             coordinator=coordinator,
@@ -454,7 +463,7 @@ def _create_simple_device_sensors(
             device_type=device_type,
         )
         for sensor_key in device_data.get("sensors", {})
-        if sensor_key in SENSOR_TYPES
+        if sensor_key in SENSOR_TYPES and sensor_key not in skip_keys
     ]
 
 
