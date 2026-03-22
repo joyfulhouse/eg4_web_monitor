@@ -244,14 +244,10 @@ async def async_setup_entry(
     # port statuses are unknown until the first real Modbus/API read. Once
     # _filter_unused_smart_port_sensors() populates keys for active ports,
     # this listener registers the corresponding entities.
+    # Initialized empty — NOT pre-seeded from coordinator.data — so the
+    # listener creates entities on its first fire even if keys are already
+    # present (e.g., cloud/hybrid mode where the first refresh populates them).
     known_smart_port_keys: dict[str, set[str]] = {}
-    for serial, device_data in coordinator.data.get("devices", {}).items():
-        if device_data.get("type") == "gridboss":
-            known_smart_port_keys[serial] = {
-                k
-                for k in device_data.get("sensors", {})
-                if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-            }
 
     @callback
     def _async_discover_smart_port_sensors() -> None:
@@ -319,6 +315,13 @@ async def async_setup_entry(
                     continue
                 # Skip battery_bank sensors (handled by their own entity class)
                 if sensor_key.startswith("battery_bank_"):
+                    continue
+                # Skip smart port keys for GridBOSS (handled by
+                # _async_discover_smart_port_sensors)
+                if (
+                    dtype == "gridboss"
+                    and sensor_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+                ):
                     continue
                 if not _should_create_sensor(sensor_key, features):
                     continue
