@@ -25,6 +25,7 @@ from .const import (
     FUNCTION_PARAM_MAPPING,
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_AC_COUPLE_EN,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
@@ -163,6 +164,20 @@ async def async_setup_entry(
                                 "Skipping working mode %s for %s (no Modbus support)",
                                 param,
                                 serial,
+                            )
+                            continue
+
+                    # AC Coupling Mode only on EG4_OFFGRID (12000XP/6000XP)
+                    # EG4_HYBRID uses GridBOSS smart ports for AC coupling
+                    if mode_config.get("param") == PARAM_FUNC_AC_COUPLE_EN:
+                        features = device_data.get("features", {})
+                        family = features.get("inverter_family")
+                        if family != INVERTER_FAMILY_EG4_OFFGRID:
+                            _LOGGER.debug(
+                                "Skipping AC Coupling Mode for %s (family=%s, "
+                                "only supported on EG4_OFFGRID)",
+                                serial,
+                                family,
                             )
                             continue
 
@@ -438,6 +453,7 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # Extended function registers (verified via Modbus probe 2026-02-13)
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
+    "FUNC_AC_COUPLE_EN": PARAM_FUNC_AC_COUPLE_EN,  # Register 179, bit 11
 }
 
 
