@@ -78,3 +78,28 @@ FORCED_DISCHARGE_POWER_STEP = 1
 FORCED_DISCHARGE_SOC_MIN = 0
 FORCED_DISCHARGE_SOC_MAX = 100
 FORCED_DISCHARGE_SOC_STEP = 1
+
+# =============================================================================
+# AC Charge Start/End SOC (%)
+# =============================================================================
+
+AC_CHARGE_START_SOC_MIN = 0
+AC_CHARGE_START_SOC_MAX = 90
+AC_CHARGE_START_SOC_STEP = 1
+
+AC_CHARGE_END_SOC_MIN = 20
+AC_CHARGE_END_SOC_MAX = 100
+AC_CHARGE_END_SOC_STEP = 1
+
+# =============================================================================
+# AC Charge Start/End Voltage (V)
+# =============================================================================
+# Register stores decivolts (raw 384 = 38.4V).
+
+AC_CHARGE_START_VOLTAGE_MIN = 38.4
+AC_CHARGE_START_VOLTAGE_MAX = 52.0
+AC_CHARGE_START_VOLTAGE_STEP = 0.1
+
+AC_CHARGE_END_VOLTAGE_MIN = 48.0
+AC_CHARGE_END_VOLTAGE_MAX = 59.0
+AC_CHARGE_END_VOLTAGE_STEP = 0.1
