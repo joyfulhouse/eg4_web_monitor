@@ -1,0 +1,63 @@
+{
+  "formula": "mol-fix-issue",
+  "name": "mol-fix-issue",
+  "description": "Fix a single GitHub issue end-to-end: investigate, implement, test, review, PR.",
+  "version": 1,
+  "phase": "liquid",
+  "variables": {
+    "issue_id": {
+      "description": "Beads issue ID (e.g., eg4-abc123) or GitHub issue number",
+      "required": true
+    },
+    "branch_prefix": {
+      "description": "Branch prefix (fix/ or feat/)",
+      "default": "fix"
+    }
+  },
+  "steps": [
+    {
+      "id": "investigate",
+      "title": "Investigate: understand the issue",
+      "type": "task",
+      "description": "Read the beads issue (bd show {{issue_id}}). Read GitHub issue comments. Identify affected files using Grep/Glob. Understand root cause before writing any code. For bugs: reproduce the issue path through code. For features: identify where to add the functionality.",
+      "estimate": 20,
+      "labels": ["fix", "investigation"]
+    },
+    {
+      "id": "implement",
+      "title": "Implement: write the fix in a worktree",
+      "type": "task",
+      "description": "Create worktree (bd worktree create {{branch_prefix}}-{{issue_id}}). Implement the fix following project conventions (base entities, coordinator mixins, f-strings for code, %-formatting for logging). Add/update tests for the change.",
+      "depends_on": ["investigate"],
+      "estimate": 60,
+      "labels": ["fix", "implementation"]
+    },
+    {
+      "id": "validate",
+      "title": "Validate: run full quality suite",
+      "type": "task",
+      "description": "Run: uv run ruff check --fix && uv run ruff format, uv run mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/, uv run pytest tests/ -x --tb=short. All must pass with zero errors.",
+      "depends_on": ["implement"],
+      "estimate": 10,
+      "labels": ["fix", "validation"]
+    },
+    {
+      "id": "review",
+      "title": "Review: code review and simplify",
+      "type": "task",
+      "description": "Run code-simplifier on changed files. Run code-reviewer agent on the diff. Fix all issues found. Re-run validation after fixes.",
+      "depends_on": ["validate"],
+      "estimate": 15,
+      "labels": ["fix", "review"]
+    },
+    {
+      "id": "ship",
+      "title": "Ship: create PR and comment on issue",
+      "type": "task",
+      "description": "Commit with message referencing GitHub issue (fix: description (#N)). Push branch. Create PR with gh pr create. Comment on GitHub issue with install/test/debug instructions per ship-fix template. Close beads issue.",
+      "depends_on": ["review"],
+      "estimate": 10,
+      "labels": ["fix", "shipping"]
+    }
+  ]
+}

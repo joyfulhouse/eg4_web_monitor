@@ -111,11 +111,13 @@ def compute_parallel_group_charge_rate(
 def alias_common_voltage_sensors(
     sensors: dict[str, Any], features: dict[str, Any]
 ) -> None:
-    """Alias R-phase voltage readings to phase-neutral names for non-three-phase.
+    """Alias voltage readings to phase-neutral names for non-three-phase.
 
-    For single-phase and split-phase configurations, copies grid_voltage_r
-    and eps_voltage_r to grid_voltage and eps_voltage respectively. Three-phase
-    configurations use the R/S/T naming convention and skip this aliasing.
+    For single-phase configurations, copies grid_voltage_r / eps_voltage_r to
+    grid_voltage / eps_voltage respectively. For US split-phase systems where
+    R/S/T registers contain garbage, falls back to summing L1+L2 voltages
+    (total ~240V for split-phase). Three-phase configurations use the R/S/T
+    naming convention and skip this aliasing entirely.
 
     Args:
         sensors: Mutable sensor dict to update.
@@ -123,10 +125,32 @@ def alias_common_voltage_sensors(
     """
     if features.get("supports_three_phase", False):
         return
+
+    # Grid voltage: prefer R-phase, fall back to L1+L2 sum for split-phase
     if (v := sensors.get("grid_voltage_r")) is not None:
         sensors["grid_voltage"] = v
+    else:
+        l1 = sensors.get("grid_voltage_l1")
+        l2 = sensors.get("grid_voltage_l2")
+        if l1 is not None and l2 is not None:
+            sensors["grid_voltage"] = l1 + l2
+        elif l1 is not None:
+            sensors["grid_voltage"] = l1
+        elif l2 is not None:
+            sensors["grid_voltage"] = l2
+
+    # EPS voltage: prefer R-phase, fall back to L1+L2 sum for split-phase
     if (v := sensors.get("eps_voltage_r")) is not None:
         sensors["eps_voltage"] = v
+    else:
+        l1 = sensors.get("eps_voltage_l1")
+        l2 = sensors.get("eps_voltage_l2")
+        if l1 is not None and l2 is not None:
+            sensors["eps_voltage"] = l1 + l2
+        elif l1 is not None:
+            sensors["eps_voltage"] = l1
+        elif l2 is not None:
+            sensors["eps_voltage"] = l2
 
 
 # ---------------------------------------------------------------------------

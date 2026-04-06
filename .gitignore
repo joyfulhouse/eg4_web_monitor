@@ -156,3 +156,9 @@ docker-compose.override.yml.trash/
 
 # Local scratchpad and one-off scripts (not part of the integration)
 scratchpad/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.mcp.json
