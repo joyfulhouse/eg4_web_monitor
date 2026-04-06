@@ -488,7 +488,12 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
         return False
 
     async def async_select_option(self, option: str) -> None:
-        """Change the smart port mode via local Modbus or cloud API."""
+        """Change the smart port mode via local Modbus or cloud API.
+
+        Uses the coordinator's write_smart_port_mode() which tries local
+        transport first (with automatic cloud fallback) for robust
+        GridBOSS register writes across all connection modes.
+        """
         if option not in SMART_PORT_MODE_TO_VALUE:
             raise HomeAssistantError(f"Invalid smart port mode: {option}")
 
@@ -506,24 +511,9 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
-                await self.coordinator.write_named_parameter(
-                    f"BIT_MIDBOX_SP_MODE_{self._port}",
-                    int_value,
-                    serial=self._serial,
-                )
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.set_smart_port_mode(
-                    self._serial, self._port, int_value
-                )
-                if not result.success:
-                    raise HomeAssistantError(
-                        f"Failed to set smart port {self._port} mode to {option}"
-                    )
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+            await self.coordinator.write_smart_port_mode(
+                self._serial, self._port, int_value
+            )
 
             _LOGGER.info(
                 "Successfully set smart port %d mode to %s for device %s",

@@ -1975,6 +1975,13 @@ class LocalTransportMixin(_MixinBase):
             if transport:
                 return transport
 
+            # Check Station MID devices (GridBOSS in HYBRID mode)
+            for station_mid in self.station.all_mid_devices:
+                if station_mid.serial_number == serial:
+                    transport = getattr(station_mid, "_transport", None)
+                    if transport:
+                        return transport
+
         # Check LOCAL mode inverter cache
         if serial and self.connection_type == CONNECTION_TYPE_LOCAL:
             inverter = self._inverter_cache.get(serial)
