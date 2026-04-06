@@ -1,64 +1,68 @@
-# EG4 Web Monitor Documentation
+# EG4 Web Monitor — Documentation Index
 
-This directory contains technical documentation, API references, and implementation guides for the EG4 Web Monitor Home Assistant integration.
+## Directory Map
 
-## 📚 Documentation Index
+```
+docs/
+├── README.md                    ← You are here
+├── DATA_MAPPING.md              — Canonical register-to-sensor mapping (Cloud + Local + Hybrid)
+├── architecture/                — Architecture decisions and design docs
+│   ├── STRUCTURE.md             — Full project layout (both repos), data flow
+│   ├── COMPONENTS.md            — Coordinator mixins, entity classes, pylxpweb integration
+│   ├── DST_AUTOMATION_IMPLEMENTATION.md
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   └── MAINTAINABILITY_ASSESSMENT.md
+├── reference/                   — API docs, register maps, scaling tables
+│   ├── BATTERY_CURRENT_CONTROL.md
+│   ├── MODBUS_DOCS.md
+│   ├── PLANT_API_DOCUMENTATION.md
+│   └── SCALING_VALIDATION.md
+├── plans/                       — Implementation plans (active)
+│   ├── archive/                 — Completed plans
+│   └── <date>-<topic>-design.md
+└── claude/                      — Agent session artifacts
+    ├── archive/                 — Historical session notes (pre-2026)
+    ├── entity-comparison.md     — 6-way entity validation (Cloud/Local/Hybrid)
+    ├── GRIDBOSS_REGISTER_MAP.md — GridBOSS register probe results
+    └── MODE_COMPARISON_REPORT.md
+```
 
-### API Documentation
-- **[Plant API Documentation](PLANT_API_DOCUMENTATION.md)** - Complete API reference for plant/station configuration endpoints
-  - Plant details retrieval
-  - Configuration update methods
-  - Daylight Saving Time management
-  - Timezone and location settings
+## What Goes Where
 
-### Implementation Guides
-- **[DST Automation Implementation](DST_AUTOMATION_IMPLEMENTATION.md)** - Step-by-step guide for implementing automatic Daylight Saving Time management
-  - API endpoint analysis
-  - Station device creation
-  - Entity implementation (sensors, switches)
-  - Automation examples
+| Content | Location | When to Update |
+|---------|----------|----------------|
+| Register/sensor mappings | `DATA_MAPPING.md` | Any sensor add/change/rename |
+| Architecture decisions | `architecture/` | Major design changes |
+| API reference, Modbus maps | `reference/` | New registers or API endpoints |
+| Implementation plans | `plans/` | Before starting L/XL features |
+| Completed plans | `plans/archive/` | After plan is fully implemented |
+| Agent session notes | `claude/` | Active investigations only |
+| Old session artifacts | `claude/archive/` | Auto-archived, don't edit |
+| Sprint plans | Created by `/sprint-plan` | Each sprint cycle |
 
-- **[Implementation Summary](IMPLEMENTATION_SUMMARY.md)** - Complete overview of all station/plant features
-  - Entity types and configurations
-  - Data mappings and field descriptions
-  - Device hierarchy
-  - Example configurations
+## Key References
 
-## 🔗 Related Documentation
+- **[DATA_MAPPING.md](DATA_MAPPING.md)** — THE canonical reference for all sensor mappings. Consult before any sensor work.
+- **[STRUCTURE.md](architecture/STRUCTURE.md)** — Full project layout for both eg4_web_monitor and pylxpweb
+- **[COMPONENTS.md](architecture/COMPONENTS.md)** — All components, mixins, entity classes, pylxpweb integration points
+- **[Main README](../README.md)** — User-facing installation and setup guide
+- **[CLAUDE.md](../CLAUDE.md)** — Development conventions, pylxpweb management, sprint workflow
+- **[AGENTS.md](../AGENTS.md)** — Multi-agent workflow and beads integration
+- **[CHANGELOG.md](../CHANGELOG.md)** — Release history
 
-- **[Main README](../README.md)** - Integration overview, installation, and user guide
-- **[Examples](../examples/README.md)** - Pre-built automation and dashboard examples
-- **[Samples](../samples/README.md)** - API response samples and test data
-- **[Claude Instructions](../CLAUDE.md)** - Development guidelines and project structure
+## pylxpweb (sibling repo)
 
-## 📖 Additional Resources
+The device/API library lives at `/Users/bryanli/Projects/joyfulhouse/python/pylxpweb`.
+It is managed from this workspace. See CLAUDE.md > "pylxpweb Library Management" for:
+- Development workflow (Docker volume mount)
+- Testing commands
+- Release process (CI/CD via OIDC)
+- Cross-repo fix workflow
 
-### For Users
-- Installation and setup: See [Main README](../README.md)
-- Automation examples: See [Examples](../examples/)
-- Troubleshooting: Check integration logs and [GitHub Issues](https://github.com/joyfulhouse/eg4_web_monitor/issues)
+## Maintenance Rules
 
-### For Developers
-- API client: `pylxpweb` library (external dependency)
-- Coordinator: `coordinator.py` with mixins in `coordinator_mixins.py`
-- Base entity classes: `base_entity.py` (EG4DeviceEntity, EG4BatteryEntity, EG4StationEntity, EG4BaseSensor, EG4BaseBatterySensor, EG4BatteryBankEntity, EG4BaseSwitch)
-- Entity platforms: `sensor.py`, `switch.py`, `button.py`, `number.py`, `select.py`, `update.py`
-- Constants and TypedDicts: `const/` package (SensorConfig, SENSOR_TYPES, config keys, etc.)
-- Config flow: `config_flow/` package (unified EG4ConfigFlow, discovery, schemas, helpers, options)
-
-## 🤝 Contributing
-
-When adding new features or documentation:
-1. Update relevant docs in this directory
-2. Add API samples to `samples/` directory
-3. Include automation examples in `examples/automations/` if applicable
-4. Update the main README with user-facing information
-5. Follow Home Assistant [quality scale guidelines](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
-
-## 📝 Documentation Standards
-
-- Use clear, descriptive headings
-- Include code examples with proper syntax highlighting
-- Document all API endpoints with request/response examples
-- Keep technical details separate from user documentation
-- Update this index when adding new documentation files
+1. **Never duplicate** DATA_MAPPING.md content elsewhere — link to it
+2. **Archive completed plans** — move to `plans/archive/` when done
+3. **Archive old session docs** — move to `claude/archive/` after 30 days
+4. **Keep this index updated** when adding new docs
+5. **Plans use date prefix** — `YYYY-MM-DD-<topic>-design.md`
