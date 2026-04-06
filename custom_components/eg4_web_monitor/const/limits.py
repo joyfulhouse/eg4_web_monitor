@@ -62,3 +62,39 @@ SOC_LIMIT_STEP = 1
 SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
 SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
+
+# =============================================================================
+# AC Charge Start SOC (%)
+# =============================================================================
+# Battery SOC to start AC charging (register 160)
+
+AC_CHARGE_START_SOC_MIN = 0
+AC_CHARGE_START_SOC_MAX = 90
+AC_CHARGE_START_SOC_STEP = 1
+
+# =============================================================================
+# AC Charge End SOC (%)
+# =============================================================================
+# Battery SOC to stop AC charging (register 161)
+
+AC_CHARGE_END_SOC_MIN = 20
+AC_CHARGE_END_SOC_MAX = 100
+AC_CHARGE_END_SOC_STEP = 1
+
+# =============================================================================
+# AC Charge Start Voltage (V)
+# =============================================================================
+# Battery voltage to start AC charging (register 158, DIV_10)
+
+AC_CHARGE_START_VOLTAGE_MIN = 38.4
+AC_CHARGE_START_VOLTAGE_MAX = 52.0
+AC_CHARGE_START_VOLTAGE_STEP = 0.1
+
+# =============================================================================
+# AC Charge End Voltage (V)
+# =============================================================================
+# Battery voltage to stop AC charging (register 159, DIV_10)
+
+AC_CHARGE_END_VOLTAGE_MIN = 48.0
+AC_CHARGE_END_VOLTAGE_MAX = 59.0
+AC_CHARGE_END_VOLTAGE_STEP = 0.1

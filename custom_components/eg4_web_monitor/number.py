@@ -19,17 +19,33 @@ else:
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
 from .const import (
+    AC_CHARGE_END_SOC_MAX,
+    AC_CHARGE_END_SOC_MIN,
+    AC_CHARGE_END_SOC_STEP,
+    AC_CHARGE_END_VOLTAGE_MAX,
+    AC_CHARGE_END_VOLTAGE_MIN,
+    AC_CHARGE_END_VOLTAGE_STEP,
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
     AC_CHARGE_POWER_STEP,
+    AC_CHARGE_START_SOC_MAX,
+    AC_CHARGE_START_SOC_MIN,
+    AC_CHARGE_START_SOC_STEP,
+    AC_CHARGE_START_VOLTAGE_MAX,
+    AC_CHARGE_START_VOLTAGE_MIN,
+    AC_CHARGE_START_VOLTAGE_STEP,
     BATTERY_CURRENT_MAX,
     BATTERY_CURRENT_MIN,
     BATTERY_CURRENT_STEP,
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
+    PARAM_HOLD_AC_CHARGE_END_SOC,
+    PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+    PARAM_HOLD_AC_CHARGE_START_SOC,
+    PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
@@ -40,12 +56,12 @@ from .const import (
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
     PV_CHARGE_POWER_STEP,
-    SOC_LIMIT_MAX,
-    SOC_LIMIT_MIN,
-    SOC_LIMIT_STEP,
     PV_START_VOLTAGE_MAX,
     PV_START_VOLTAGE_MIN,
     PV_START_VOLTAGE_STEP,
+    SOC_LIMIT_MAX,
+    SOC_LIMIT_MIN,
+    SOC_LIMIT_STEP,
     SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
@@ -291,6 +307,10 @@ async def async_setup_entry(
                         PVChargePowerNumber(coordinator, serial),
                         PVStartVoltageNumber(coordinator, serial),
                         ACChargeSOCLimitNumber(coordinator, serial),
+                        ACChargeStartSOCNumber(coordinator, serial),
+                        ACChargeEndSOCNumber(coordinator, serial),
+                        ACChargeStartVoltageNumber(coordinator, serial),
+                        ACChargeEndVoltageNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
                         BatteryChargeCurrentNumber(coordinator, serial),
@@ -676,6 +696,298 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_kwargs={"soc_percent": int_value},
             label=f"AC charge SOC limit to {int_value}%",
         )
+
+
+class ACChargeStartSOCNumber(EG4BaseNumberEntity):
+    """Number entity for AC Charge Start SOC control (register 160).
+
+    Battery SOC threshold to start AC charging (0-90%).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge Start SOC"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_charge_start_soc"
+        )
+        self._attr_native_min_value = AC_CHARGE_START_SOC_MIN
+        self._attr_native_max_value = AC_CHARGE_START_SOC_MAX
+        self._attr_native_step = AC_CHARGE_START_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-low"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartSOCNumber, ACChargeEndSOCNumber, ACChargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current AC charge start SOC threshold."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_START_SOC,
+            value_min=0,
+            value_max=90,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the AC charge start SOC threshold."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 90:
+            raise HomeAssistantError(
+                f"AC charge start SOC must be between 0-90%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"AC charge start SOC must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting AC charge start SOC for %s to %d%%", self.serial, int_value
+        )
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_START_SOC, int_value, serial=self.serial
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial, PARAM_HOLD_AC_CHARGE_START_SOC, str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set AC charge start SOC to {int_value}%"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
+
+
+class ACChargeEndSOCNumber(EG4BaseNumberEntity):
+    """Number entity for AC Charge End SOC control (register 161).
+
+    Battery SOC threshold to stop AC charging (20-100%).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge End SOC"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_charge_end_soc"
+        self._attr_native_min_value = AC_CHARGE_END_SOC_MIN
+        self._attr_native_max_value = AC_CHARGE_END_SOC_MAX
+        self._attr_native_step = AC_CHARGE_END_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartSOCNumber, ACChargeEndSOCNumber, ACChargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current AC charge end SOC threshold."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_END_SOC,
+            value_min=20,
+            value_max=100,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the AC charge end SOC threshold."""
+        int_value = int(value)
+        if int_value < 20 or int_value > 100:
+            raise HomeAssistantError(
+                f"AC charge end SOC must be between 20-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"AC charge end SOC must be an integer value, got {value}"
+            )
+
+        _LOGGER.info("Setting AC charge end SOC for %s to %d%%", self.serial, int_value)
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_END_SOC, int_value, serial=self.serial
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial, PARAM_HOLD_AC_CHARGE_END_SOC, str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set AC charge end SOC to {int_value}%"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
+
+
+class ACChargeStartVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for AC Charge Start Voltage control (register 158).
+
+    Battery voltage threshold to start AC charging (38.4-52.0V).
+    Register stores decivolts (DIV_10 scaling).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge Start Voltage"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_charge_start_voltage"
+        )
+        self._attr_native_min_value = AC_CHARGE_START_VOLTAGE_MIN
+        self._attr_native_max_value = AC_CHARGE_START_VOLTAGE_MAX
+        self._attr_native_step = AC_CHARGE_START_VOLTAGE_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:battery-charging-low"
+        self._attr_native_precision = 1
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartVoltageNumber, ACChargeEndVoltageNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current AC charge start voltage (raw decivolts / 10 -> V)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
+            value_min=38.4,
+            value_max=52.0,
+            as_float=True,
+            param_transform=lambda v: float(v) / 10.0,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the AC charge start voltage."""
+        if value < AC_CHARGE_START_VOLTAGE_MIN or value > AC_CHARGE_START_VOLTAGE_MAX:
+            raise HomeAssistantError(
+                f"AC charge start voltage must be between "
+                f"{AC_CHARGE_START_VOLTAGE_MIN}-{AC_CHARGE_START_VOLTAGE_MAX} V, "
+                f"got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting AC charge start voltage for %s to %.1f V", self.serial, value
+        )
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                # Local Modbus: write raw decivolts (40.0V -> 400)
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
+                    int(round(value * 10)),
+                    serial=self.serial,
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                # Cloud API: write decivolts as string
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial,
+                    "HOLD_AC_CHARGE_START_BATTERY_VOLTAGE",
+                    str(int(round(value * 10))),
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set AC charge start voltage to {value} V"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
+
+
+class ACChargeEndVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for AC Charge End Voltage control (register 159).
+
+    Battery voltage threshold to stop AC charging (48.0-59.0V).
+    Register stores decivolts (DIV_10 scaling).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge End Voltage"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_charge_end_voltage"
+        )
+        self._attr_native_min_value = AC_CHARGE_END_VOLTAGE_MIN
+        self._attr_native_max_value = AC_CHARGE_END_VOLTAGE_MAX
+        self._attr_native_step = AC_CHARGE_END_VOLTAGE_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 1
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartVoltageNumber, ACChargeEndVoltageNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current AC charge end voltage (raw decivolts / 10 -> V)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
+            value_min=48.0,
+            value_max=59.0,
+            as_float=True,
+            param_transform=lambda v: float(v) / 10.0,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the AC charge end voltage."""
+        if value < AC_CHARGE_END_VOLTAGE_MIN or value > AC_CHARGE_END_VOLTAGE_MAX:
+            raise HomeAssistantError(
+                f"AC charge end voltage must be between "
+                f"{AC_CHARGE_END_VOLTAGE_MIN}-{AC_CHARGE_END_VOLTAGE_MAX} V, "
+                f"got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting AC charge end voltage for %s to %.1f V", self.serial, value
+        )
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                # Local Modbus: write raw decivolts (48.0V -> 480)
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
+                    int(round(value * 10)),
+                    serial=self.serial,
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                # Cloud API: write decivolts as string
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial,
+                    "HOLD_AC_CHARGE_END_BATTERY_VOLTAGE",
+                    str(int(round(value * 10))),
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set AC charge end voltage to {value} V"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
 
 
 class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
