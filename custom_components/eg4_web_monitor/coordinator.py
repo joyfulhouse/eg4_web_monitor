@@ -475,6 +475,31 @@ class EG4DataUpdateCoordinator(
         """Get inverter device object by serial number (O(1) cached lookup)."""
         return self._inverter_cache.get(serial)
 
+    def get_mid_device_object(self, serial: str) -> Any | None:
+        """Get MID device (GridBOSS) object by serial number.
+
+        Checks the LOCAL mode cache first, then the Station's MID devices
+        for HYBRID mode support.
+
+        Args:
+            serial: MID device serial number.
+
+        Returns:
+            MIDDevice instance or None if not found.
+        """
+        # Check LOCAL mode cache first
+        mid_device = self._mid_device_cache.get(serial)
+        if mid_device is not None:
+            return mid_device
+
+        # Check Station MID devices (HYBRID mode)
+        if self.station:
+            for mid in self.station.all_mid_devices:
+                if mid.serial_number == serial:
+                    return mid
+
+        return None
+
     def get_battery_object(self, serial: str, battery_index: int) -> Battery | None:
         """Get battery object by inverter serial and battery index."""
         inverter = self.get_inverter_object(serial)
@@ -630,6 +655,84 @@ class EG4DataUpdateCoordinator(
             raise HomeAssistantError(
                 f"Failed to write parameter {parameter}: {err}"
             ) from err
+
+    async def write_smart_port_mode(
+        self,
+        serial: str,
+        port: int,
+        value: int,
+    ) -> bool:
+        """Write a GridBOSS smart port mode via local transport or cloud API.
+
+        Smart port modes are stored in GridBOSS holding register 20 as
+        2-bit fields (per port).  This method resolves the correct transport
+        for the MID device and falls back to the cloud API when no local
+        transport is available.
+
+        Args:
+            serial: GridBOSS/MID device serial number.
+            port: Smart port number (1-4).
+            value: Port mode (0=Off, 1=Smart Load, 2=AC Couple).
+
+        Returns:
+            True if write succeeded.
+
+        Raises:
+            HomeAssistantError: If neither local transport nor cloud API
+                is available, or if the write fails.
+        """
+        param_name = f"BIT_MIDBOX_SP_MODE_{port}"
+
+        # Try local transport first
+        transport = self.get_local_transport(serial)
+        if transport:
+            try:
+                if not transport.is_connected:
+                    _LOGGER.debug(
+                        "Reconnecting transport for %s before writing %s",
+                        serial,
+                        param_name,
+                    )
+                    await transport.connect()
+
+                await transport.write_named_parameters({param_name: value})
+                _LOGGER.debug(
+                    "Wrote smart port %d mode = %d for %s via local transport",
+                    port,
+                    value,
+                    serial,
+                )
+                return True
+
+            except Exception as err:
+                _LOGGER.warning(
+                    "Local transport write failed for %s, trying cloud API: %s",
+                    param_name,
+                    err,
+                )
+                # Fall through to cloud API
+
+        # Fallback to cloud API
+        if self.client is not None:
+            result = await self.client.api.control.set_smart_port_mode(
+                serial, port, value
+            )
+            if result.success:
+                _LOGGER.debug(
+                    "Wrote smart port %d mode = %d for %s via cloud API",
+                    port,
+                    value,
+                    serial,
+                )
+                return True
+            raise HomeAssistantError(
+                f"Cloud API failed to set smart port {port} mode for {serial}"
+            )
+
+        raise HomeAssistantError(
+            f"No local transport or cloud API available to write smart port mode "
+            f"for {serial}"
+        )
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.
