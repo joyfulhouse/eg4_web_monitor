@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Split-phase Grid/EPS Voltage showing Unknown** ([#206](https://github.com/joyfulhouse/eg4_web_monitor/issues/206)): Combined `grid_voltage` and `eps_voltage` sensors showed "Unknown" on US split-phase inverters (12kPV, FlexBOSS, etc.) because R-phase registers contain garbage on these systems. Added L1+L2 fallback: when R-phase is None, the combined voltage is computed as `L1 + L2` (~240V for split-phase).
+- **GridBOSS smart port sensors create duplicate unique IDs** ([#202](https://github.com/joyfulhouse/eg4_web_monitor/issues/202)): Smart port sensors were registered by both static entity creation and late-discovery callback, causing "ID already exists" warnings on every startup. Smart port entities are now exclusively created by the late-discovery listener.
+- **AC coupling registers incorrect on EG4_OFFGRID** ([#196](https://github.com/joyfulhouse/eg4_web_monitor/issues/196)): AC couple energy registers were mapped incorrectly for EG4_OFFGRID inverters.
 - **Off-grid mode state change fails on fresh LOCAL-only install** ([#194](https://github.com/joyfulhouse/eg4_web_monitor/issues/194)): Smart port status sensors received raw integer `0` instead of enum string `"unused"` when all ports were unused and no cache existed, causing HA to reject entity state writes and block switch toggles.
 - **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation. Out-of-range values on corrupt reads now also default to `"unused"` instead of leaking raw integers.
+- **Redundant total_load_power sensor** ([#191](https://github.com/joyfulhouse/eg4_web_monitor/issues/191)): Removed duplicate sensor that was redundant with `load_power`.
 - **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle. `"Unknown"` entries from the LOCAL path are treated as sentinels in HYBRID mode.
+
+### Changed
+
+- **Example dashboards updated** ([#209](https://github.com/joyfulhouse/eg4_web_monitor/issues/209)): Updated all example dashboard YAML files to use v3.2.0 entity names (`battery_soc` → `state_of_charge`, `daily_pv_generation` → `yield`, `pv_power` → `pv_total_power`, etc.).
 
 ## [3.2.0] - 2026-03-09
 
