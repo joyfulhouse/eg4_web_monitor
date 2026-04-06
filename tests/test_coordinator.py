@@ -4065,6 +4065,90 @@ class TestCommonVoltageSensors:
         assert "grid_voltage" not in sensors
         assert "eps_voltage" not in sensors
 
+    def test_alias_falls_back_to_l1_l2_sum_when_r_phase_none(self):
+        """Split-phase: grid_voltage = L1 + L2 when R-phase is None (US systems)."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": 121.3,
+            "grid_voltage_l2": 119.7,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": 120.0,
+            "eps_voltage_l2": 118.5,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == pytest.approx(241.0)
+        assert sensors["eps_voltage"] == pytest.approx(238.5)
+
+    def test_alias_falls_back_to_l1_l2_sum_when_r_phase_missing(self):
+        """Split-phase: grid_voltage = L1 + L2 when R-phase key is absent."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_l1": 120.5,
+            "grid_voltage_l2": 120.5,
+            "eps_voltage_l1": 119.0,
+            "eps_voltage_l2": 121.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == pytest.approx(241.0)
+        assert sensors["eps_voltage"] == pytest.approx(240.0)
+
+    def test_alias_prefers_r_phase_over_l1_l2(self):
+        """R-phase takes precedence even when L1/L2 are also present."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": 230.0,
+            "grid_voltage_l1": 121.0,
+            "grid_voltage_l2": 119.0,
+            "eps_voltage_r": 228.0,
+            "eps_voltage_l1": 120.0,
+            "eps_voltage_l2": 118.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 230.0
+        assert sensors["eps_voltage"] == 228.0
+
+    def test_alias_uses_single_leg_when_only_l1_present(self):
+        """Only L1 available -- use it as the alias value."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": 120.5,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": 119.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 120.5
+        assert sensors["eps_voltage"] == 119.0
+
+    def test_alias_uses_single_leg_when_only_l2_present(self):
+        """Only L2 available -- use it as the alias value."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l2": 121.0,
+            "eps_voltage_r": None,
+            "eps_voltage_l2": 118.5,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 121.0
+        assert sensors["eps_voltage"] == 118.5
+
+    def test_alias_no_fallback_when_l1_l2_both_none(self):
+        """No alias created when R-phase is None and L1/L2 are also None."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": None,
+            "grid_voltage_l2": None,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": None,
+            "eps_voltage_l2": None,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert "grid_voltage" not in sensors
+        assert "eps_voltage" not in sensors
+
     def test_common_voltage_keys_in_all_inverter_sensor_keys(self):
         """grid_voltage and eps_voltage must be in ALL_INVERTER_SENSOR_KEYS."""
         assert "grid_voltage" in ALL_INVERTER_SENSOR_KEYS
