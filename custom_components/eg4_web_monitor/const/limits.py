@@ -62,3 +62,19 @@ SOC_LIMIT_STEP = 1
 SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
 SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
+
+# =============================================================================
+# Forced Discharge Power Rate (%)
+# =============================================================================
+
+FORCED_DISCHARGE_POWER_MIN = 0
+FORCED_DISCHARGE_POWER_MAX = 100
+FORCED_DISCHARGE_POWER_STEP = 1
+
+# =============================================================================
+# Forced Discharge SOC Limit (%)
+# =============================================================================
+
+FORCED_DISCHARGE_SOC_MIN = 0
+FORCED_DISCHARGE_SOC_MAX = 100
+FORCED_DISCHARGE_SOC_STEP = 1

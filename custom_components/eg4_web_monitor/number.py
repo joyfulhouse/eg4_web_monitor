@@ -25,6 +25,12 @@ from .const import (
     BATTERY_CURRENT_MAX,
     BATTERY_CURRENT_MIN,
     BATTERY_CURRENT_STEP,
+    FORCED_DISCHARGE_POWER_MAX,
+    FORCED_DISCHARGE_POWER_MIN,
+    FORCED_DISCHARGE_POWER_STEP,
+    FORCED_DISCHARGE_SOC_MAX,
+    FORCED_DISCHARGE_SOC_MIN,
+    FORCED_DISCHARGE_SOC_STEP,
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
@@ -33,6 +39,8 @@ from .const import (
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
+    PARAM_HOLD_FORCED_DISCHG_POWER_CMD,
+    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
     PARAM_HOLD_START_PV_VOLT,
@@ -40,12 +48,12 @@ from .const import (
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
     PV_CHARGE_POWER_STEP,
-    SOC_LIMIT_MAX,
-    SOC_LIMIT_MIN,
-    SOC_LIMIT_STEP,
     PV_START_VOLTAGE_MAX,
     PV_START_VOLTAGE_MIN,
     PV_START_VOLTAGE_STEP,
+    SOC_LIMIT_MAX,
+    SOC_LIMIT_MIN,
+    SOC_LIMIT_STEP,
     SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
@@ -296,6 +304,8 @@ async def async_setup_entry(
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         GridPeakShavingPowerNumber(coordinator, serial),
+                        ForcedDischargePowerRateNumber(coordinator, serial),
+                        ForcedDischargeSOCLimitNumber(coordinator, serial),
                     ]
                 )
 
@@ -874,3 +884,154 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
             cloud_kwargs={"current_amps": int_value},
             label=f"battery discharge current to {int_value} A",
         )
+
+
+class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge Power Rate control (register 82).
+
+    Controls the discharge power command percentage when forced discharge
+    is enabled. Range: 0-100%.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge Power Rate"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_power_rate"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_POWER_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_POWER_MAX
+        self._attr_native_step = FORCED_DISCHARGE_POWER_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-arrow-down"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        """Return related entity types for parameter refresh."""
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current forced discharge power rate."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_POWER_CMD,
+            value_min=0,
+            value_max=100,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the forced discharge power rate."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be between 0-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting forced discharge power rate for %s to %d%%",
+            self.serial,
+            int_value,
+        )
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_FORCED_DISCHG_POWER_CMD, int_value, serial=self.serial
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial, "HOLD_FORCED_DISCHG_POWER_CMD", str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set forced discharge power rate to {int_value}%"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()
+
+
+class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge SOC Limit control (register 83).
+
+    Controls the minimum SOC threshold when forced discharge is enabled.
+    The inverter will stop discharging when battery SOC reaches this level.
+    Range: 0-100%.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge SOC Limit"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_soc_limit"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_SOC_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_SOC_MAX
+        self._attr_native_step = FORCED_DISCHARGE_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-alert-variant"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        """Return related entity types for parameter refresh."""
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current forced discharge SOC limit."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+            value_min=0,
+            value_max=100,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the forced discharge SOC limit."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be between 0-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be an integer value, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting forced discharge SOC limit for %s to %d%%",
+            self.serial,
+            int_value,
+        )
+        with optimistic_value_context(self, value):
+            if self.coordinator.has_local_transport(self.serial):
+                await self.coordinator.write_named_parameter(
+                    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, int_value, serial=self.serial
+                )
+                await asyncio.sleep(0.5)
+            elif self.coordinator.client is not None:
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial, "HOLD_FORCED_DISCHG_SOC_LIMIT", str(int_value)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set forced discharge SOC limit to {int_value}%"
+                    )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            await self._refresh_related_entities()

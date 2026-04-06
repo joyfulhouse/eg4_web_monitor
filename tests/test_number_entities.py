@@ -15,6 +15,8 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeSOCLimitNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
+    ForcedDischargePowerRateNumber,
+    ForcedDischargeSOCLimitNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     SystemChargeSOCLimitNumber,
@@ -88,7 +90,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 10 number entities."""
+        """FlexBOSS inverter creates 12 number entities."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -96,11 +98,13 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 10
+        assert len(entities) == 12
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
         assert "PVStartVoltageNumber" in type_names
+        assert "ForcedDischargePowerRateNumber" in type_names
+        assert "ForcedDischargeSOCLimitNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):
@@ -456,3 +460,223 @@ class TestSystemChargeSOCWrite:
             HomeAssistantError, match="must be an integer between 10-101"
         ):
             await entity.async_set_native_value(5.0)
+
+
+# ── ForcedDischargePowerRateNumber ─────────────────────────────────
+
+
+class TestForcedDischargePowerRateNativeValue:
+    """Test ForcedDischargePowerRate native_value reads."""
+
+    def test_reads_from_params(self):
+        """Reads forced discharge power rate from parameter data."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FORCED_DISCHG_POWER_CMD": 50},
+        )
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        assert entity.native_value == 50
+
+    def test_none_when_no_data(self):
+        """Returns None when no parameter data is available."""
+        coordinator = _mock_coordinator()
+        coordinator.get_inverter_object = MagicMock(return_value=None)
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_out_of_range_returns_none(self):
+        """Values outside 0-100 range return None."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FORCED_DISCHG_POWER_CMD": 150},
+        )
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_optimistic_takes_precedence(self):
+        """Optimistic value overrides parameter data."""
+        coordinator = _mock_coordinator(
+            parameters={"HOLD_FORCED_DISCHG_POWER_CMD": 50},
+        )
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        entity._optimistic_value = 75.0
+        assert entity.native_value == 75
+
+
+class TestForcedDischargePowerRateWrite:
+    """Test ForcedDischargePowerRate write operations."""
+
+    @pytest.mark.asyncio
+    async def test_write_local(self):
+        """Local transport writes named parameter."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(60.0)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_FORCED_DISCHG_POWER_CMD"
+        assert call_args[0][1] == 60
+
+    @pytest.mark.asyncio
+    async def test_write_cloud(self):
+        """Cloud mode calls write_parameter API."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        mock_result = MagicMock()
+        mock_result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=mock_result
+        )
+
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(80.0)
+
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_FORCED_DISCHG_POWER_CMD", "80"
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_out_of_range_raises(self):
+        """Out of range values raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between 0-100"):
+            await entity.async_set_native_value(150.0)
+
+    @pytest.mark.asyncio
+    async def test_write_non_integer_raises(self):
+        """Non-integer values raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be an integer"):
+            await entity.async_set_native_value(50.5)
+
+    @pytest.mark.asyncio
+    async def test_write_no_transport_raises(self):
+        """No local or cloud raises HomeAssistantError."""
+        coordinator = _mock_coordinator(has_local=False)
+        coordinator.client = None
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="No local transport or cloud API"):
+            await entity.async_set_native_value(50.0)
+
+
+# ── ForcedDischargeSOCLimitNumber ──────────────────────────────────
+
+
+class TestForcedDischargeSOCLimitNativeValue:
+    """Test ForcedDischargeSOCLimit native_value reads."""
+
+    def test_reads_from_params(self):
+        """Reads forced discharge SOC limit from parameter data."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FORCED_DISCHG_SOC_LIMIT": 20},
+        )
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_value == 20
+
+    def test_none_when_no_data(self):
+        """Returns None when no parameter data is available."""
+        coordinator = _mock_coordinator()
+        coordinator.get_inverter_object = MagicMock(return_value=None)
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_out_of_range_returns_none(self):
+        """Values outside 0-100 range return None."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FORCED_DISCHG_SOC_LIMIT": 200},
+        )
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_optimistic_takes_precedence(self):
+        """Optimistic value overrides parameter data."""
+        coordinator = _mock_coordinator(
+            parameters={"HOLD_FORCED_DISCHG_SOC_LIMIT": 20},
+        )
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        entity._optimistic_value = 30.0
+        assert entity.native_value == 30
+
+
+class TestForcedDischargeSOCLimitWrite:
+    """Test ForcedDischargeSOCLimit write operations."""
+
+    @pytest.mark.asyncio
+    async def test_write_local(self):
+        """Local transport writes named parameter."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(15.0)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_FORCED_DISCHG_SOC_LIMIT"
+        assert call_args[0][1] == 15
+
+    @pytest.mark.asyncio
+    async def test_write_cloud(self):
+        """Cloud mode calls write_parameter API."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        mock_result = MagicMock()
+        mock_result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=mock_result
+        )
+
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(25.0)
+
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_FORCED_DISCHG_SOC_LIMIT", "25"
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_out_of_range_raises(self):
+        """Out of range values raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between 0-100"):
+            await entity.async_set_native_value(150.0)
+
+    @pytest.mark.asyncio
+    async def test_write_non_integer_raises(self):
+        """Non-integer values raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be an integer"):
+            await entity.async_set_native_value(50.5)
+
+    @pytest.mark.asyncio
+    async def test_write_no_transport_raises(self):
+        """No local or cloud raises HomeAssistantError."""
+        coordinator = _mock_coordinator(has_local=False)
+        coordinator.client = None
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="No local transport or cloud API"):
+            await entity.async_set_native_value(25.0)
