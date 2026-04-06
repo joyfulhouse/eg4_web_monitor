@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Forced discharge power rate and SOC limit controls** ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207)): New number entities for `forced_discharge_power_rate` (register 82, 0-100%) and `forced_discharge_soc_limit` (register 83, 0-100%), enabling automation of discharge intensity for time-of-use rate optimization.
+- **AC charge start/end SOC and voltage controls** ([#204](https://github.com/joyfulhouse/eg4_web_monitor/issues/204)): Four new number entities for controlling AC charge thresholds — `ac_charge_start_soc` (0-90%), `ac_charge_end_soc` (20-100%), `ac_charge_start_voltage` (38.4-52.0V), `ac_charge_end_voltage` (48.0-59.0V).
+
 ### Fixed
 
+- **GridBOSS smart port mode write failure** ([#182](https://github.com/joyfulhouse/eg4_web_monitor/issues/182)): Smart Port Mode select entities failed to write in HYBRID mode because `get_local_transport()` couldn't find GridBOSS MID devices via the Station object. Added dedicated `write_smart_port_mode()` method with proper MID device transport lookup.
 - **Split-phase Grid/EPS Voltage showing Unknown** ([#206](https://github.com/joyfulhouse/eg4_web_monitor/issues/206)): Combined `grid_voltage` and `eps_voltage` sensors showed "Unknown" on US split-phase inverters (12kPV, FlexBOSS, etc.) because R-phase registers contain garbage on these systems. Added L1+L2 fallback: when R-phase is None, the combined voltage is computed as `L1 + L2` (~240V for split-phase).
 - **GridBOSS smart port sensors create duplicate unique IDs** ([#202](https://github.com/joyfulhouse/eg4_web_monitor/issues/202)): Smart port sensors were registered by both static entity creation and late-discovery callback, causing "ID already exists" warnings on every startup. Smart port entities are now exclusively created by the late-discovery listener.
 - **AC coupling registers incorrect on EG4_OFFGRID** ([#196](https://github.com/joyfulhouse/eg4_web_monitor/issues/196)): AC couple energy registers were mapped incorrectly for EG4_OFFGRID inverters.
