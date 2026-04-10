@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0-alpha.1] - 2026-04-09
+
 ### Added
 
 - **Forced discharge power rate and SOC limit controls** ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207)): New number entities for `forced_discharge_power_rate` (register 82, 0-100%) and `forced_discharge_soc_limit` (register 83, 0-100%), enabling automation of discharge intensity for time-of-use rate optimization.
@@ -19,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GridBOSS smart port sensors create duplicate unique IDs** ([#202](https://github.com/joyfulhouse/eg4_web_monitor/issues/202)): Smart port sensors were registered by both static entity creation and late-discovery callback, causing "ID already exists" warnings on every startup. Smart port entities are now exclusively created by the late-discovery listener.
 - **AC coupling registers incorrect on EG4_OFFGRID** ([#196](https://github.com/joyfulhouse/eg4_web_monitor/issues/196)): AC couple energy registers were mapped incorrectly for EG4_OFFGRID inverters.
 - **Off-grid mode state change fails on fresh LOCAL-only install** ([#194](https://github.com/joyfulhouse/eg4_web_monitor/issues/194)): Smart port status sensors received raw integer `0` instead of enum string `"unused"` when all ports were unused and no cache existed, causing HA to reject entity state writes and block switch toggles.
-- **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation. Out-of-range values on corrupt reads now also default to `"unused"` instead of leaking raw integers.
+- **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation.
 - **Redundant total_load_power sensor** ([#191](https://github.com/joyfulhouse/eg4_web_monitor/issues/191)): Removed duplicate sensor that was redundant with `load_power`.
-- **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle. `"Unknown"` entries from the LOCAL path are treated as sentinels in HYBRID mode.
+- **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle.
 
 ### Changed
 
