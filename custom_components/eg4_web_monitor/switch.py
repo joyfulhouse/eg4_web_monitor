@@ -581,6 +581,12 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             await self._execute_eco_mode_raw(turn_on)
             return
 
+        # FUNC_AC_COUPLE_EN: register 179 bit 11 on 12000XP.
+        # Use raw register write to bypass pylxpweb mapping.
+        if param == "FUNC_AC_COUPLE_EN":
+            await self._execute_ac_couple_raw(turn_on)
+            return
+
         param_name = _WORKING_MODE_PARAMETERS.get(param)
         methods = _WORKING_MODE_METHODS.get(param)
 
@@ -614,7 +620,6 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 f"Working mode {param} not available via any transport"
             )
 
-
     async def _execute_eco_mode_raw(self, turn_on: bool) -> None:
         """Toggle Battery ECO Mode via raw bit-15 write to register 110.
 
@@ -629,9 +634,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             # Get current reg 110 value from parameter cache
             params = {}
             if self.coordinator.data and "parameters" in self.coordinator.data:
-                params = self.coordinator.data["parameters"].get(
-                    self._serial, {}
-                )
+                params = self.coordinator.data["parameters"].get(self._serial, {})
             # _raw_reg_110 is stashed by the read override; fall back to 0
             current_val = params.get("_raw_reg_110", 0)
 
@@ -640,9 +643,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             else:
                 new_val = current_val & ~(1 << 15)
 
-            await self.coordinator.write_raw_register(
-                110, new_val, serial=self._serial
-            )
+            await self.coordinator.write_raw_register(110, new_val, serial=self._serial)
 
             # Update coordinator parameter data immediately
             params["FUNC_BATTERY_ECO_EN"] = turn_on
@@ -662,9 +663,49 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         except Exception as err:
             self._optimistic_state = None
             self.async_write_ha_state()
-            raise HomeAssistantError(
-                f"Failed to set Battery ECO Mode: {err}"
-            ) from err
+            raise HomeAssistantError(f"Failed to set Battery ECO Mode: {err}") from err
+
+    async def _execute_ac_couple_raw(self, turn_on: bool) -> None:
+        """Toggle AC Coupling Mode via raw bit-11 write to register 179.
+
+        Register 179 (uFunctionEn2) bit 11 controls AC coupling on the
+        12000XP (confirmed via Modbus sweep: reg 179 = 0x0800 when enabled).
+        Uses raw read-modify-write to avoid pylxpweb mapping issues.
+        """
+        self._optimistic_state = turn_on
+        self.async_write_ha_state()
+        try:
+            params = {}
+            if self.coordinator.data and "parameters" in self.coordinator.data:
+                params = self.coordinator.data["parameters"].get(self._serial, {})
+            current_val = params.get("_raw_reg_179", 0)
+
+            if turn_on:
+                new_val = current_val | (1 << 11)
+            else:
+                new_val = current_val & ~(1 << 11)
+
+            await self.coordinator.write_raw_register(179, new_val, serial=self._serial)
+
+            # Update coordinator parameter data immediately
+            params["FUNC_AC_COUPLE_EN"] = turn_on
+            params["_raw_reg_179"] = new_val
+
+            _LOGGER.info(
+                "AC Coupling Mode %s: reg179 0x%04X -> 0x%04X",
+                "ON" if turn_on else "OFF",
+                current_val,
+                new_val,
+            )
+
+            await asyncio.sleep(0.5)
+            await self.coordinator.async_refresh()
+            self._optimistic_state = None
+            self.async_write_ha_state()
+        except Exception as err:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(f"Failed to set AC Coupling Mode: {err}") from err
 
 
 class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):

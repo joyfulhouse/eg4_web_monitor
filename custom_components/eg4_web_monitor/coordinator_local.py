@@ -272,6 +272,23 @@ class LocalTransportMixin(_MixinBase):
             except Exception as eco_err:
                 _LOGGER.debug("Battery ECO raw read failed: %s", eco_err)
 
+            # pylxpweb may not correctly map FUNC_AC_COUPLE_EN for 12000XP.
+            # Register 179 bit 11 controls AC coupling (confirmed via Modbus
+            # sweep: reg 179 = 0x0800 when AC coupling enabled).
+            try:
+                raw_179 = await transport.read_parameters(179, 1)
+                if 179 in raw_179:
+                    ac_couple_on = bool(raw_179[179] & (1 << 11))
+                    params["FUNC_AC_COUPLE_EN"] = ac_couple_on
+                    params["_raw_reg_179"] = raw_179[179]
+                    _LOGGER.debug(
+                        "AC Couple override: reg179=0x%04X, bit11=%s",
+                        raw_179[179],
+                        ac_couple_on,
+                    )
+            except Exception as ac_err:
+                _LOGGER.debug("AC Couple raw read failed: %s", ac_err)
+
         except Exception as err:
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
