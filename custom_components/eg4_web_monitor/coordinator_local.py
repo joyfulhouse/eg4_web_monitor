@@ -255,10 +255,49 @@ class LocalTransportMixin(_MixinBase):
             if key_params:
                 _LOGGER.debug("Number entity params: %s", key_params)
 
+            # pylxpweb maps FUNC_BATTERY_ECO_EN to bit 9 of reg 110, but the
+            # 12000XP hardware (confirmed via Modbus sweep: reg 110 = 0x8080
+            # when ECO enabled) uses bit 15.  Override with the correct bit.
+            try:
+                raw_110 = await transport.read_parameters(110, 1)
+                if 110 in raw_110:
+                    eco_on = bool(raw_110[110] & (1 << 15))
+                    params["FUNC_BATTERY_ECO_EN"] = eco_on
+                    params["_raw_reg_110"] = raw_110[110]
+                    _LOGGER.debug(
+                        "Battery ECO override: reg110=0x%04X, bit15=%s",
+                        raw_110[110],
+                        eco_on,
+                    )
+            except Exception as eco_err:
+                _LOGGER.debug("Battery ECO raw read failed: %s", eco_err)
+
         except Exception as err:
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
         return params
+
+    async def _read_ac_couple_energy(
+        self, transport: Any, sensors: dict[str, Any]
+    ) -> None:
+        """Read AC couple energy registers 124-126 directly via Modbus.
+
+        Register 124: AC couple energy today (raw Wh, divide by 1000 for kWh)
+        Registers 125-126: AC couple energy total (32-bit, raw Wh)
+
+        Note: pylxpweb annotates these as DIV_10 but the 12000XP stores raw Wh.
+        """
+        try:
+            regs = await transport.read_parameters(124, 3)
+            if 124 in regs:
+                today = regs[124] / 1000.0
+                sensors["ac_couple_energy_today"] = round(today, 3)
+            if 125 in regs and 126 in regs:
+                total_raw = regs[125] | (regs[126] << 16)
+                total = total_raw / 1000.0
+                sensors["ac_couple_energy_total"] = round(total, 3)
+        except Exception as err:
+            _LOGGER.debug("AC couple energy register read failed: %s", err)
 
     def _build_local_device_data(
         self,
@@ -1974,6 +2013,11 @@ class LocalTransportMixin(_MixinBase):
         # Check for transport attached to Station device (HYBRID with local_transports)
         if serial and self.station:
             inverter = self.get_inverter_object(serial)
+            if inverter is None:
+                for inv in self.station.all_inverters:
+                    if inv.serial_number == serial:
+                        inverter = inv
+                        break
             transport = getattr(inverter, "_transport", None) if inverter else None
             if transport:
                 return transport

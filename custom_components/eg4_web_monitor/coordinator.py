@@ -656,6 +656,43 @@ class EG4DataUpdateCoordinator(
                 f"Failed to write parameter {parameter}: {err}"
             ) from err
 
+    async def write_raw_register(
+        self,
+        address: int,
+        value: int,
+        serial: str | None = None,
+    ) -> bool:
+        """Write a raw holding register by address.
+
+        Used for registers where pylxpweb's named parameter bit mapping is
+        incorrect (e.g., Battery ECO Mode on 12000XP uses bit 15, not bit 9).
+
+        Args:
+            address: Modbus holding register address
+            value: Integer value to write
+            serial: Device serial for LOCAL mode with multiple devices
+
+        Returns:
+            True if write succeeded, False otherwise.
+        """
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError("No local transport available for register write")
+
+        try:
+            if not transport.is_connected:
+                await transport.connect()
+
+            await transport.write_parameters({address: value})
+            _LOGGER.debug("Wrote register %d = %d", address, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", address, err)
+            raise HomeAssistantError(
+                f"Failed to write register {address}: {err}"
+            ) from err
+
     async def write_smart_port_mode(
         self,
         serial: str,

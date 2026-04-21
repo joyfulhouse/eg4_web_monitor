@@ -27,6 +27,7 @@ from .const import (
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_AC_COUPLE_EN,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
+    PARAM_FUNC_BATTERY_ECO_EN,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
@@ -165,6 +166,16 @@ async def async_setup_entry(
                                 param,
                                 serial,
                             )
+                            continue
+
+                    # Peak Shaving and Forced Discharge don't apply to offgrid
+                    if mode_config.get("param") in (
+                        "FUNC_GRID_PEAK_SHAVING",
+                        "FUNC_FORCED_DISCHG_EN",
+                    ):
+                        features = device_data.get("features", {})
+                        family = features.get("inverter_family")
+                        if family == INVERTER_FAMILY_EG4_OFFGRID:
                             continue
 
                     # AC Coupling Mode only on EG4_OFFGRID (12000XP/6000XP)
@@ -454,6 +465,7 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
     "FUNC_AC_COUPLE_EN": PARAM_FUNC_AC_COUPLE_EN,  # Register 179, bit 11
+    "FUNC_BATTERY_ECO_EN": PARAM_FUNC_BATTERY_ECO_EN,  # Register 110, bit 15
 }
 
 
@@ -562,6 +574,13 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
     async def _execute_working_mode(self, turn_on: bool) -> None:
         """Execute working mode toggle, preferring local transport."""
         param = self._mode_config["param"]
+
+        # FUNC_BATTERY_ECO_EN: pylxpweb maps to bit 9 of reg 110 but
+        # the 12000XP uses bit 15.  Use raw register write.
+        if param == "FUNC_BATTERY_ECO_EN":
+            await self._execute_eco_mode_raw(turn_on)
+            return
+
         param_name = _WORKING_MODE_PARAMETERS.get(param)
         methods = _WORKING_MODE_METHODS.get(param)
 
@@ -594,6 +613,58 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             raise HomeAssistantError(
                 f"Working mode {param} not available via any transport"
             )
+
+
+    async def _execute_eco_mode_raw(self, turn_on: bool) -> None:
+        """Toggle Battery ECO Mode via raw bit-15 write to register 110.
+
+        pylxpweb maps FUNC_BATTERY_ECO_EN to bit 9 which is wrong for
+        12000XP (confirmed bit 15 via Modbus sweep).  Read current reg 110
+        from coordinator parameter cache, flip bit 15, write back via
+        write_raw_register.
+        """
+        self._optimistic_state = turn_on
+        self.async_write_ha_state()
+        try:
+            # Get current reg 110 value from parameter cache
+            params = {}
+            if self.coordinator.data and "parameters" in self.coordinator.data:
+                params = self.coordinator.data["parameters"].get(
+                    self._serial, {}
+                )
+            # _raw_reg_110 is stashed by the read override; fall back to 0
+            current_val = params.get("_raw_reg_110", 0)
+
+            if turn_on:
+                new_val = current_val | (1 << 15)
+            else:
+                new_val = current_val & ~(1 << 15)
+
+            await self.coordinator.write_raw_register(
+                110, new_val, serial=self._serial
+            )
+
+            # Update coordinator parameter data immediately
+            params["FUNC_BATTERY_ECO_EN"] = turn_on
+            params["_raw_reg_110"] = new_val
+
+            _LOGGER.info(
+                "Battery ECO Mode %s: reg110 0x%04X -> 0x%04X",
+                "ON" if turn_on else "OFF",
+                current_val,
+                new_val,
+            )
+
+            await asyncio.sleep(0.5)
+            await self.coordinator.async_refresh()
+            self._optimistic_state = None
+            self.async_write_ha_state()
+        except Exception as err:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to set Battery ECO Mode: {err}"
+            ) from err
 
 
 class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):

@@ -56,6 +56,13 @@ WORKING_MODES = {
         "icon": "mdi:solar-power-variant",
         "entity_category": EntityCategory.CONFIG,
     },
+    "battery_eco_mode": {
+        "name": "Battery ECO Mode",
+        "param": "FUNC_BATTERY_ECO_EN",
+        "description": "Switches to grid bypass mode when at EOD and not AC charging. Increases UPS switchover time.",
+        "icon": "mdi:battery-heart-variant",
+        "entity_category": EntityCategory.CONFIG,
+    },
 }
 
 # =============================================================================
@@ -71,4 +78,5 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_FORCED_DISCHG_EN": "FUNC_FORCED_DISCHG_EN",
     "FUNC_SET_TO_STANDBY": "FUNC_SET_TO_STANDBY",
     "FUNC_AC_COUPLE_EN": "FUNC_AC_COUPLE_EN",
+    "FUNC_BATTERY_ECO_EN": "FUNC_BATTERY_ECO_EN",
 }

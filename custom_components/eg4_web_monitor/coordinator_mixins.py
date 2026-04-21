@@ -2003,6 +2003,24 @@ class ParameterManagementMixin(_MixinBase):
                     self.data["parameters"] = {}
 
                 self.data["parameters"][serial] = inverter.parameters
+
+                # pylxpweb maps FUNC_BATTERY_ECO_EN to bit 9 of reg 110,
+                # but 12000XP uses bit 15.  Override from raw register if
+                # a local transport is attached.
+                transport = getattr(inverter, "_transport", None)
+                if transport is not None:
+                    try:
+                        raw_110 = await transport.read_parameters(110, 1)
+                        if 110 in raw_110:
+                            eco_on = bool(raw_110[110] & (1 << 15))
+                            self.data["parameters"][serial][
+                                "FUNC_BATTERY_ECO_EN"
+                            ] = eco_on
+                            self.data["parameters"][serial][
+                                "_raw_reg_110"
+                            ] = raw_110[110]
+                    except Exception:
+                        pass  # non-critical; fall back to library value
             else:
                 _LOGGER.warning(
                     "Inverter %s has no parameters attribute or empty parameters",
