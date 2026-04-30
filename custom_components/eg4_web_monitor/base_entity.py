@@ -256,6 +256,52 @@ def _get_model_from_coordinator(
     return "Unknown"
 
 
+# HA's recorder treats a drop greater than 10% as a meter reset (silent);
+# smaller dips trigger a "state is not strictly increasing" warning
+# (homeassistant/components/sensor/recorder.py). We suppress dips that fall
+# in that warning zone — they are virtually always cloud-API rounding noise
+# (e.g. consumption_lifetime stepping 2917.1 → 2917.0). Genuine resets
+# (midnight rollover for daily totals, inverter replacement, lifetime
+# counter wrap) are larger than 10% and pass through unchanged.
+_RESET_DETECTION_THRESHOLD = 0.9
+
+
+def _guard_total_increasing(
+    state_class: Any, raw_value: Any, last_reported: float | None
+) -> tuple[Any, float | None]:
+    """Pin small downward dips for ``total_increasing`` sensors.
+
+    Returns ``(value_to_report, new_last_reported)``. When a dip is suppressed,
+    the cache stays at the previous high so subsequent dips remain aligned with
+    what HA's recorder has stored. Non-numeric, ``None``, and non-
+    ``total_increasing`` values are returned untouched and never update the
+    cache.
+    """
+    if raw_value is None:
+        return raw_value, last_reported
+
+    state_class_str = (
+        state_class.value if hasattr(state_class, "value") else state_class
+    )
+    if state_class_str != "total_increasing":
+        return raw_value, last_reported
+
+    try:
+        new_val = float(raw_value)
+    except (TypeError, ValueError):
+        return raw_value, last_reported
+
+    if (
+        last_reported is not None
+        and last_reported > 0
+        and new_val < last_reported
+        and new_val >= _RESET_DETECTION_THRESHOLD * last_reported
+    ):
+        return last_reported, last_reported
+
+    return raw_value, new_val
+
+
 def _apply_sensor_config(
     entity: Any,
     sensor_key: str,
@@ -321,13 +367,13 @@ class EG4BaseSensor(EG4DeviceEntity):
     - Sensor configuration from SENSOR_TYPES
     - Display precision handling
     - Diagnostic entity category detection
-
-    Note: Monotonic value enforcement for TOTAL_INCREASING sensors is handled
-    by Home Assistant's statistics system, not by this integration.
+    - Dip suppression for ``total_increasing`` sensors (see
+      :func:`_guard_total_increasing`)
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
+        _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
     _attr_suggested_display_precision: int | None = None
@@ -350,6 +396,7 @@ class EG4BaseSensor(EG4DeviceEntity):
         super().__init__(coordinator, serial)
         self._sensor_key = sensor_key
         self._device_type = device_type
+        self._last_reported_value: float | None = None
 
         # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
         sensor_config = _apply_sensor_config(
@@ -400,10 +447,18 @@ class EG4BaseSensor(EG4DeviceEntity):
     def native_value(self) -> Any:
         """Return the state of the sensor.
 
-        Note: Home Assistant's TOTAL_INCREASING state class handles
-        meter resets automatically - no integration-level enforcement needed.
+        For ``total_increasing`` sensors, suppress small downward dips (≤10%)
+        that arise from cloud-API rounding noise. Larger drops (e.g. midnight
+        resets for daily totals) pass through, matching HA recorder's reset
+        threshold.
         """
-        return self._get_raw_value()
+        raw_value = self._get_raw_value()
+        value, self._last_reported_value = _guard_total_increasing(
+            getattr(self, "_attr_state_class", None),
+            raw_value,
+            self._last_reported_value,
+        )
+        return value
 
     @property
     def available(self) -> bool:
@@ -423,13 +478,13 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
     Provides common functionality for battery-specific sensors:
     - Sensor configuration from SENSOR_TYPES
     - Battery-specific entity category detection
-
-    Note: Monotonic value enforcement for TOTAL_INCREASING sensors is handled
-    by Home Assistant's statistics system, not by this integration.
+    - Dip suppression for ``total_increasing`` sensors (see
+      :func:`_guard_total_increasing`)
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
+        _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
     _attr_suggested_display_precision: int | None = None
@@ -453,6 +508,7 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         # Also store as _serial for compatibility
         self._serial = serial
         self._sensor_key = sensor_key
+        self._last_reported_value: float | None = None
 
         # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
         sensor_config = _apply_sensor_config(
@@ -489,10 +545,18 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
     def native_value(self) -> Any:
         """Return the state of the sensor.
 
-        Note: Home Assistant's TOTAL_INCREASING state class handles
-        meter resets automatically - no integration-level enforcement needed.
+        For ``total_increasing`` sensors, suppress small downward dips (≤10%)
+        that arise from cloud-API rounding noise. Larger drops (e.g. midnight
+        resets for daily totals) pass through, matching HA recorder's reset
+        threshold.
         """
-        return self._get_raw_value()
+        raw_value = self._get_raw_value()
+        value, self._last_reported_value = _guard_total_increasing(
+            getattr(self, "_attr_state_class", None),
+            raw_value,
+            self._last_reported_value,
+        )
+        return value
 
     @property
     def available(self) -> bool:
@@ -515,11 +579,13 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
     """Base class for EG4 battery bank entities (aggregate of all batteries).
 
     Battery bank entities represent the combined state of all batteries
-    connected to an inverter.
+    connected to an inverter. ``total_increasing`` sensors get the same dip
+    suppression as :class:`EG4BaseSensor`.
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
         _sensor_config: Configuration dictionary for this sensor.
+        _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
     def __init__(
@@ -537,6 +603,7 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         """
         super().__init__(coordinator, serial)
         self._sensor_key = sensor_key
+        self._last_reported_value: float | None = None
 
         # Apply shared sensor config (unit, device_class, state_class, icon, precision, category)
         sensor_config = _apply_sensor_config(self, sensor_key)
@@ -589,14 +656,30 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
             in self.coordinator.data["devices"][self._serial].get("sensors", {})
         )
 
-    @property
-    def native_value(self) -> Any:
-        """Return the state of the sensor."""
+    def _get_raw_value(self) -> Any:
+        """Get raw sensor value from battery bank aggregate sensors."""
         if not self.coordinator.data or "devices" not in self.coordinator.data:
             return None
         device_data = self.coordinator.data["devices"].get(self._serial, {})
         sensors = device_data.get("sensors", {})
         return sensors.get(self._sensor_key)
+
+    @property
+    def native_value(self) -> Any:
+        """Return the state of the sensor.
+
+        For ``total_increasing`` sensors, suppress small downward dips (≤10%)
+        that arise from cloud-API rounding noise. Larger drops (e.g. midnight
+        resets for daily totals) pass through, matching HA recorder's reset
+        threshold.
+        """
+        raw_value = self._get_raw_value()
+        value, self._last_reported_value = _guard_total_increasing(
+            getattr(self, "_attr_state_class", None),
+            raw_value,
+            self._last_reported_value,
+        )
+        return value
 
 
 # ========== Number Base Classes ==========

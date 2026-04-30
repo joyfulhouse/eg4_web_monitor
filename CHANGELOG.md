@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`total_increasing` sensors triggering recorder warning on small dips** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)): Cloud-API rounding noise caused `consumption` and `consumption_lifetime` to step down by 0.1 kWh between polls (e.g. 2917.1 → 2917.0), tripping HA's "state is not strictly increasing" warning on every poll. Added a sensor-level guard that pins downward dips ≤10% to the previous high-water mark — matching HA recorder's reset detection threshold so daily resets, lifetime counter wraps, and inverter replacements (drops >10%) still pass through unchanged.
+
 ## [3.3.0-alpha.1] - 2026-04-09
 
 ### Added
