@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.const import (
+    INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_AC_COUPLE_EN,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_GREEN_EN,
@@ -722,3 +724,150 @@ class TestDSTSwitch:
 
         with pytest.raises(HomeAssistantError, match="Failed to"):
             await switch.async_turn_on()
+
+
+# ── AC Coupling Mode Gating ─────────────────────────────────────────
+
+
+class TestACCouplingModeGating:
+    """Test that AC Coupling Mode switch is gated to EG4_OFFGRID family only."""
+
+    @pytest.mark.asyncio
+    async def test_ac_coupling_created_for_eg4_offgrid(self, hass):
+        """AC Coupling Mode switch IS created for EG4_OFFGRID devices."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
+                    "supports_off_grid": True,
+                },
+            },
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_modes = [e for e in entities if isinstance(e, EG4WorkingModeSwitch)]
+        working_mode_params = {e._mode_config["param"] for e in working_modes}
+        assert "FUNC_AC_COUPLE_EN" in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_ac_coupling_not_created_for_eg4_hybrid(self, hass):
+        """AC Coupling Mode switch is NOT created for EG4_HYBRID devices."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_HYBRID,
+                },
+            },
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_modes = [e for e in entities if isinstance(e, EG4WorkingModeSwitch)]
+        working_mode_params = {e._mode_config["param"] for e in working_modes}
+        assert "FUNC_AC_COUPLE_EN" not in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_ac_coupling_not_created_without_features(self, hass):
+        """AC Coupling Mode switch is NOT created when features are missing."""
+        coordinator = _mock_coordinator(model="FlexBOSS21")
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_modes = [e for e in entities if isinstance(e, EG4WorkingModeSwitch)]
+        working_mode_params = {e._mode_config["param"] for e in working_modes}
+        assert "FUNC_AC_COUPLE_EN" not in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_ac_coupling_local_only_write(self, hass):
+        """AC Coupling Mode uses local named parameter write (reg 179 bit 11)."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            has_local=True,
+            has_http=False,
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
+                    "supports_off_grid": True,
+                },
+            },
+        )
+        mode_config = WORKING_MODES["ac_coupling_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "ac_coupling_mode", mode_config
+        )
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_AC_COUPLE_EN, True, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ac_coupling_no_cloud_methods(self, hass):
+        """AC Coupling Mode has no cloud API methods — cloud-only raises error."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            has_local=False,
+            has_http=True,
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
+                    "supports_off_grid": True,
+                },
+            },
+        )
+        mode_config = WORKING_MODES["ac_coupling_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "ac_coupling_mode", mode_config
+        )
+        _prep(switch)
+
+        # No cloud methods for AC coupling — falls through to named parameter write
+        await switch.async_turn_on()
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_AC_COUPLE_EN, True, serial="1234567890"
+        )
+
+    def test_ac_coupling_is_on_from_params(self):
+        """FUNC_AC_COUPLE_EN parameter drives is_on state."""
+        coordinator = _mock_coordinator(
+            parameters={"FUNC_AC_COUPLE_EN": True},
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
+                },
+            },
+        )
+        mode_config = WORKING_MODES["ac_coupling_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "ac_coupling_mode", mode_config
+        )
+        assert switch.is_on is True
+
+    def test_ac_coupling_is_off_when_param_false(self):
+        """FUNC_AC_COUPLE_EN=False -> is_on False."""
+        coordinator = _mock_coordinator(
+            parameters={"FUNC_AC_COUPLE_EN": False},
+            device_data={
+                "features": {
+                    "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
+                },
+            },
+        )
+        mode_config = WORKING_MODES["ac_coupling_mode"]
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", "ac_coupling_mode", mode_config
+        )
+        assert switch.is_on is False

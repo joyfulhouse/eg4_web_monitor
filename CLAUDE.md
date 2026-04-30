@@ -1,7 +1,104 @@
 # EG4 Web Monitor Home Assistant Integration
 
 ## Project Overview
+
 Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS, batteries) with Home Assistant via local Modbus TCP, WiFi dongle, cloud API, or hybrid connectivity. Supports multi-station architecture with comprehensive device hierarchy and individual battery management.
+
+**Two repos, one project:**
+- **eg4_web_monitor** (this repo) — HA integration: coordinator, entities, config flow, tests
+- **pylxpweb** (`../python/pylxpweb`) — Device/API library: client, transports, device models, registers
+
+Both repos are maintained from this workspace. Changes to pylxpweb require a separate PR + PyPI release before the integration can consume the new version.
+
+## Tech Stack
+
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Language | Python | 3.13+ |
+| Package Manager | uv | Latest |
+| HA Framework | homeassistant | Latest |
+| API Client | pylxpweb | >= 0.9.26 |
+| HTTP | aiohttp | >= 3.13 |
+| Modbus | pymodbus | >= 3.6 |
+| Data Models | Pydantic | >= 2.12 |
+| Type Checking | mypy (strict) | Latest |
+| Linting | ruff | Latest |
+| Testing | pytest + pytest-homeassistant-custom-component | Latest |
+
+## pylxpweb Library Management
+
+### Overview
+
+pylxpweb is our device/API library. It provides:
+- `LuxpowerClient` — async HTTP client with auth, caching, retry
+- Device hierarchy — Station → ParallelGroup → BaseInverter → BatteryBank → Battery
+- Transport layer — HTTP, Modbus TCP, WiFi Dongle, Serial, Hybrid
+- Register maps — 5 inverter families, holding + input registers
+- Data scaling — automatic unit conversion per register type
+
+**Repo**: `joyfulhouse/pylxpweb` at `/Users/bryanli/Projects/joyfulhouse/python/pylxpweb`
+**PyPI**: `pylxpweb`
+**Current version**: 0.9.27
+
+### Development Workflow (Docker Volume Mount)
+
+During development, pylxpweb source is live-mounted into the HA Docker container:
+```
+../python/pylxpweb/src/pylxpweb → /usr/local/lib/python3.13/site-packages/pylxpweb
+```
+Changes to pylxpweb source files are immediately available. Restart the container for import changes.
+
+### Testing pylxpweb
+
+```bash
+cd /Users/bryanli/Projects/joyfulhouse/python/pylxpweb
+uv run pytest tests/ -x --tb=short           # 1699+ tests
+uv run ruff check src/ --fix && uv run ruff format src/
+uv run mypy --strict src/
+```
+
+### Release Process (CI/CD — Do NOT Manually Publish)
+
+1. Bump version in `pyproject.toml`
+2. Update `CHANGELOG.md`
+3. Commit and push to main
+4. Create GitHub release: `gh release create vX.Y.Z --repo joyfulhouse/pylxpweb`
+5. CI pipeline: build → TestPyPI → PyPI (OIDC trusted publishing)
+6. Update `eg4_web_monitor/custom_components/eg4_web_monitor/manifest.json` to require new version
+
+### Cross-Repo Fix Workflow
+
+When a bug fix requires changes to BOTH repos:
+
+1. **Fix pylxpweb first** — branch, implement, test, PR, release
+2. **Wait for PyPI** — verify new version is available
+3. **Update eg4_web_monitor** — bump pylxpweb version in manifest.json, adapt integration code
+4. **Test end-to-end** — Docker container with volume mount to verify
+
+The `/fix-issue` and `/sprint` commands handle this automatically — they detect when an issue touches pylxpweb and flag it for the cross-repo workflow.
+
+### Key Integration Points
+
+```python
+# Client initialization (coordinator.py)
+from pylxpweb import LuxpowerClient
+self.client = LuxpowerClient(username, password, session=ha_session)
+
+# Station loading (coordinator_http.py)
+from pylxpweb.devices import Station
+self.station = await Station.load(self.client, plant_id)
+
+# Transport creation (coordinator_local.py)
+from pylxpweb.transports import create_transport
+transport = create_transport("modbus", host="192.168.1.100", serial="CE12345678")
+
+# Property access (coordinator_mixins.py)
+voltage = inverter.grid_voltage_r  # Auto-scaled via property mixin
+soc = inverter.battery_soc
+
+# Parameter write (switch.py, number.py)
+await coordinator.write_named_parameter("ac_charge_soc_limit", 90, serial)
+```
 
 ## Quality Scale Compliance
 
@@ -433,3 +530,171 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | Discharge Current | 102 | Amps |
 | On-Grid SOC Cutoff | 105 | 10-90% |
 | Off-Grid SOC Cutoff | 106 | 0-100% |
+
+## Development Workflow
+
+### Sprint-Based Issue Resolution
+
+This project uses a sprint workflow for systematic issue resolution. Issues are tracked
+in beads (synced with GitHub) and executed in parallel worktrees.
+
+**The loop**: `/sprint-plan` → approve → `/sprint` → merge → sync
+
+### Slash Commands
+
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `/triage [N]` | Score and label issues | New issues need classification |
+| `/sprint-plan [name]` | Plan sprint: triage, rank, group, create epic | Starting a batch of work |
+| `/sprint [name]` | Execute planned sprint in parallel | After `/sprint-plan` is approved |
+| `/sprint-loop [N]` | Chain N sprint cycles | Autonomous issue processing |
+| `/fix-issue <N>` | Fix single issue end-to-end | One-off bug fix |
+| `/ship-fix` | Simplify → commit → PR → review → comment | Individual bug fix shipping |
+| `/ship` | Merge PRs with review gate + update changelog | Merging completed work |
+| `/ship-pre <stage>` | Pre-release tag (alpha → beta → rc) | Community testing |
+| `/ship-release` | Stable release (consolidate changelog, clean tags) | HACS production deploy |
+| `/quality-check` | Full pre-commit validation | Before any commit |
+
+### Release Lifecycle
+
+```
+/ship (merge PRs)
+  → /ship-pre alpha    (internal testing)
+  → /ship-pre beta     (community testing)
+  → /ship-pre rc       (release candidate — bug fixes only)
+  → /ship-release      (stable — triggers HACS, cleans pre-release tags)
+```
+
+All ship commands update `CHANGELOG.md`. Pre-release changelogs are cumulative.
+`/ship-release` consolidates all alpha/beta/rc entries into one stable section
+and deletes the pre-release tags + GitHub releases.
+
+### Beads Formulas
+
+Two reusable workflow templates:
+
+- **`mol-sprint`** — 6-step sprint: triage → plan → execute → review → merge → retro
+- **`mol-fix-issue`** — 5-step fix: investigate → implement → validate → review → ship
+
+```bash
+bd formula list                   # List formulas
+bd cook mol-sprint --dry-run --var sprint_name=SPRINT-1  # Preview
+bd mol pour mol-sprint --var sprint_name=SPRINT-1        # Execute
+```
+
+### Quality Gates (Non-Negotiable)
+
+Every change must pass before commit:
+```bash
+uv run ruff check custom_components/ --fix && uv run ruff format custom_components/
+uv run mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+uv run pytest tests/ -x --tb=short
+```
+
+### Merge Gate
+
+`pr-merge-guard.sh` hook blocks `gh pr merge` until `.merge-ready` exists:
+1. Run code-simplifier on changed files
+2. Run code-reviewer agent
+3. All quality gates pass
+4. `touch .merge-ready`
+
+### Issue Triage Labels
+
+| Priority | Meaning | Label |
+|----------|---------|-------|
+| P0 | Data loss, security, won't load | `priority:p0` |
+| P1 | Core function broken | `priority:p1` |
+| P2 | Non-critical bugs, features | `priority:p2` (default) |
+| P3 | Polish, cosmetic | `priority:p3` |
+| P4 | Future ideas | `priority:p4` |
+
+| Effort | Time | Label |
+|--------|------|-------|
+| xs | <30 min | `effort:xs` |
+| s | 30min-2hr | `effort:s` |
+| m | 2-4hr | `effort:m` |
+| l | 4-8hr | `effort:l` |
+| xl | >8hr | `effort:xl` |
+
+## Documentation Requirements
+
+### When to Update Docs
+
+| Change | Update |
+|--------|--------|
+| Add/rename/remove sensor | `docs/DATA_MAPPING.md` |
+| New register mapping | `docs/DATA_MAPPING.md` + `docs/reference/MODBUS_DOCS.md` |
+| Architecture decision | New file in `docs/architecture/` |
+| New API endpoint | `docs/reference/PLANT_API_DOCUMENTATION.md` |
+| L/XL feature plan | `docs/plans/<date>-<topic>-design.md` |
+| Sprint results | Beads molecule squash (automatic) |
+| Release | `CHANGELOG.md` |
+
+### Documentation Directory
+
+```
+docs/
+├── DATA_MAPPING.md      — Canonical sensor mapping (ALWAYS consult for sensor work)
+├── architecture/        — Design decisions, implementation guides
+├── reference/           — API docs, Modbus registers, scaling tables
+├── plans/               — Active implementation plans
+│   └── archive/         — Completed plans
+└── claude/              — Active agent investigation artifacts
+    └── archive/         — Historical session notes
+```
+
+See `docs/README.md` for the full directory map and maintenance rules.
+
+### Architecture Documentation
+
+- **[STRUCTURE.md](docs/architecture/STRUCTURE.md)** — Full file layout for both repos, data flow diagram, connection modes
+- **[COMPONENTS.md](docs/architecture/COMPONENTS.md)** — Coordinator mixins, entity classes, pylxpweb integration points, scaling rules, API call budget
+- **[DATA_MAPPING.md](docs/DATA_MAPPING.md)** — Canonical register-to-sensor mapping (Cloud + Local + Hybrid)
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->

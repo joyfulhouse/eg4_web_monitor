@@ -16,11 +16,11 @@ cards:
         entity: sensor.eg4_flexboss21_1234567890_grid_power
         name: Grid
       solar:
-        entity: sensor.eg4_flexboss21_1234567890_pv_power
+        entity: sensor.eg4_flexboss21_1234567890_pv_total_power
         name: Solar
       battery:
         entity: sensor.eg4_flexboss21_1234567890_battery_power
-        state_of_charge: sensor.eg4_flexboss21_1234567890_battery_soc
+        state_of_charge: sensor.eg4_flexboss21_1234567890_state_of_charge
         name: Battery
       home:
         entity: sensor.eg4_flexboss21_1234567890_load_power
@@ -30,7 +30,7 @@ cards:
   - type: horizontal-stack
     cards:
       - type: entity
-        entity: sensor.eg4_flexboss21_1234567890_pv_power
+        entity: sensor.eg4_flexboss21_1234567890_pv_total_power
         name: Solar Production
         icon: mdi:solar-power
       - type: entity
@@ -46,7 +46,7 @@ cards:
   - type: horizontal-stack
     cards:
       - type: gauge
-        entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        entity: sensor.eg4_flexboss21_1234567890_state_of_charge
         name: Battery SOC
         min: 0
         max: 100
@@ -67,17 +67,17 @@ cards:
   - type: horizontal-stack
     cards:
       - type: statistic
-        entity: sensor.eg4_flexboss21_1234567890_daily_pv_generation
+        entity: sensor.eg4_flexboss21_1234567890_yield
         name: Solar Generated Today
         icon: mdi:solar-power
         stat_type: change
       - type: statistic
-        entity: sensor.eg4_flexboss21_1234567890_daily_load_consumption
+        entity: sensor.eg4_flexboss21_1234567890_consumption
         name: Consumed Today
         icon: mdi:home-import-outline
         stat_type: change
       - type: statistic
-        entity: sensor.eg4_flexboss21_1234567890_daily_grid_import
+        entity: sensor.eg4_flexboss21_1234567890_grid_import
         name: Grid Import Today
         icon: mdi:transmission-tower-import
         stat_type: change
@@ -89,7 +89,7 @@ cards:
       title: Power Flow (24h)
     graph_span: 24h
     series:
-      - entity: sensor.eg4_flexboss21_1234567890_pv_power
+      - entity: sensor.eg4_flexboss21_1234567890_pv_total_power
         name: Solar
         color: orange
       - entity: sensor.eg4_flexboss21_1234567890_grid_power
@@ -109,7 +109,7 @@ cards:
       title: Battery SOC (7 days)
     graph_span: 7d
     series:
-      - entity: sensor.eg4_flexboss21_1234567890_battery_soc
+      - entity: sensor.eg4_flexboss21_1234567890_state_of_charge
         name: Battery %
         color: green
 

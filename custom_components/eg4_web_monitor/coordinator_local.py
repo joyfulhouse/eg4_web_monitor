@@ -208,6 +208,7 @@ class LocalTransportMixin(_MixinBase):
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 (64, 16),  # Power settings + AC charge/discharge (64-79)
+                (82, 2),  # Forced discharge power/SOC limit (82-83)
                 (101, 2),  # Charge/discharge current limits (101-102)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
@@ -245,6 +246,8 @@ class LocalTransportMixin(_MixinBase):
                     "HOLD_LEAD_ACID_DISCHARGE_RATE",  # Discharge Current (reg 102)
                     "HOLD_DISCHG_CUT_OFF_SOC_EOD",  # On-Grid SOC (reg 105)
                     "HOLD_SOC_LOW_LIMIT_EPS_DISCHG",  # Off-Grid SOC (reg 125)
+                    "HOLD_FORCED_DISCHG_POWER_CMD",  # Forced Discharge Power (reg 82)
+                    "HOLD_FORCED_DISCHG_SOC_LIMIT",  # Forced Discharge SOC (reg 83)
                     "HOLD_SYSTEM_CHARGE_SOC_LIMIT",  # System Charge SOC (reg 227)
                     "_12K_HOLD_GRID_PEAK_SHAVING_POWER",  # Grid Peak Shaving Power (reg 231)
                 )
@@ -304,8 +307,6 @@ class LocalTransportMixin(_MixinBase):
         # Add computed sensors from inverter properties (for deprecated code path)
         if (val := inverter.consumption_power) is not None:
             device_data["sensors"]["consumption_power"] = val
-        if (val := inverter.total_load_power) is not None:
-            device_data["sensors"]["total_load_power"] = val
         if (val := inverter.battery_power) is not None:
             device_data["sensors"]["battery_power"] = val
         if (val := inverter.rectifier_power) is not None:
@@ -969,8 +970,6 @@ class LocalTransportMixin(_MixinBase):
                 # Computed power sensors from pylxpweb library
                 if (val := inverter.consumption_power) is not None:
                     sensors["consumption_power"] = val
-                if (val := inverter.total_load_power) is not None:
-                    sensors["total_load_power"] = val
                 if (val := inverter.battery_power) is not None:
                     sensors["battery_power"] = val
                 if (val := inverter.rectifier_power) is not None:
@@ -983,11 +982,10 @@ class LocalTransportMixin(_MixinBase):
                 sensors["last_polled"] = dt_util.utcnow()
 
                 _LOGGER.debug(
-                    "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "
+                    "LOCAL: Computed sensors for %s: consumption=%s, "
                     "battery=%s, rectifier=%s, grid_import=%s",
                     serial,
                     sensors.get("consumption_power"),
-                    sensors.get("total_load_power"),
                     sensors.get("battery_power"),
                     sensors.get("rectifier_power"),
                     sensors.get("grid_import_power"),
@@ -1979,6 +1977,13 @@ class LocalTransportMixin(_MixinBase):
             transport = getattr(inverter, "_transport", None) if inverter else None
             if transport:
                 return transport
+
+            # Check Station MID devices (GridBOSS in HYBRID mode)
+            for station_mid in self.station.all_mid_devices:
+                if station_mid.serial_number == serial:
+                    transport = getattr(station_mid, "_transport", None)
+                    if transport:
+                        return transport
 
         # Check LOCAL mode inverter cache
         if serial and self.connection_type == CONNECTION_TYPE_LOCAL:

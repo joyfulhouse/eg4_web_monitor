@@ -14,6 +14,9 @@ from custom_components.eg4_web_monitor.const import (
     THREE_PHASE_ONLY_SENSORS,
     VOLT_WATT_SENSORS,
 )
+from custom_components.eg4_web_monitor.coordinator_mappings import (
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+)
 from custom_components.eg4_web_monitor.sensor import (
     EG4BatteryBankSensor,
     EG4BatterySensor,
@@ -378,6 +381,33 @@ class TestCreateSimpleDeviceSensors:
             coordinator, "GB001", device_data, "gridboss"
         )
         assert len(entities) == 0
+
+    def test_gridboss_excludes_smart_port_dynamic_keys(self):
+        """GridBOSS static creation excludes smart port keys (issue #202).
+
+        Smart port sensors are registered by the late-discovery listener
+        _async_discover_smart_port_sensors(), not by static creation.
+        Including them in both paths creates duplicate unique IDs.
+        """
+        coordinator = _mock_coordinator(devices={})
+        # Include both a normal key and a smart port key
+        device_data = {
+            "type": "gridboss",
+            "model": "GridBOSS",
+            "sensors": {
+                "grid_power": 5000,
+                "smart_load1_power": 100,
+                "ac_couple1_power": 200,
+            },
+        }
+        entities = _create_simple_device_sensors(
+            coordinator, "GB001", device_data, "gridboss"
+        )
+        entity_keys = {e._sensor_key for e in entities}
+        # Normal key should be present
+        assert "grid_power" in entity_keys
+        # Smart port dynamic keys should be excluded
+        assert not entity_keys & GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
 
 # ── _create_station_sensors ──────────────────────────────────────────

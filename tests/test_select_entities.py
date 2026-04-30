@@ -214,7 +214,7 @@ def _mock_gridboss_coordinator(
     coordinator.last_update_success = True
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_request_refresh = AsyncMock()
-    coordinator.write_named_parameter = AsyncMock()
+    coordinator.write_smart_port_mode = AsyncMock(return_value=True)
 
     coordinator.data = {
         "devices": {
@@ -311,10 +311,9 @@ class TestSmartPortModeSelect:
         assert select.name == "Smart Port 3 Mode"
 
     @pytest.mark.asyncio
-    async def test_select_option_local(self):
-        """Local path writes via write_named_parameter."""
+    async def test_select_option_delegates_to_coordinator(self):
+        """Select delegates to coordinator.write_smart_port_mode()."""
         coordinator = _mock_gridboss_coordinator()
-        coordinator.has_local_transport = MagicMock(return_value=True)
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=2)
         select.hass = MagicMock()
@@ -323,21 +322,13 @@ class TestSmartPortModeSelect:
 
         await select.async_select_option("AC Couple")
 
-        coordinator.write_named_parameter.assert_called_once_with(
-            "BIT_MIDBOX_SP_MODE_2", 2, serial="gb123"
-        )
+        coordinator.write_smart_port_mode.assert_called_once_with("gb123", 2, 2)
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_select_option_cloud(self):
-        """Cloud path writes via set_smart_port_mode."""
+    async def test_select_option_smart_load(self):
+        """Smart Load maps to value 1."""
         coordinator = _mock_gridboss_coordinator()
-        coordinator.has_local_transport = MagicMock(return_value=False)
-        result_mock = MagicMock()
-        result_mock.success = True
-        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
-            return_value=result_mock
-        )
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         select.hass = MagicMock()
@@ -346,20 +337,29 @@ class TestSmartPortModeSelect:
 
         await select.async_select_option("Smart Load")
 
-        coordinator.client.api.control.set_smart_port_mode.assert_called_once_with(
-            "gb123", 1, 1
-        )
+        coordinator.write_smart_port_mode.assert_called_once_with("gb123", 1, 1)
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_select_option_cloud_failure(self):
-        """Cloud API failure raises HomeAssistantError."""
+    async def test_select_option_unused(self):
+        """Unused maps to value 0."""
         coordinator = _mock_gridboss_coordinator()
-        coordinator.has_local_transport = MagicMock(return_value=False)
-        result_mock = MagicMock()
-        result_mock.success = False
-        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
-            return_value=result_mock
+        device_data = coordinator.data["devices"]["gb123"]
+        select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=3)
+        select.hass = MagicMock()
+        select.entity_id = "select.test_smart_port_3_mode"
+        select.async_write_ha_state = MagicMock()
+
+        await select.async_select_option("Unused")
+
+        coordinator.write_smart_port_mode.assert_called_once_with("gb123", 3, 0)
+
+    @pytest.mark.asyncio
+    async def test_select_option_failure_raises(self):
+        """Coordinator write failure raises HomeAssistantError."""
+        coordinator = _mock_gridboss_coordinator()
+        coordinator.write_smart_port_mode = AsyncMock(
+            side_effect=HomeAssistantError("No local transport or cloud API available")
         )
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
@@ -367,8 +367,8 @@ class TestSmartPortModeSelect:
         select.entity_id = "select.test_smart_port_1_mode"
         select.async_write_ha_state = MagicMock()
 
-        with pytest.raises(HomeAssistantError, match="Failed to set smart port"):
-            await select.async_select_option("Unused")
+        with pytest.raises(HomeAssistantError, match="No local transport"):
+            await select.async_select_option("Smart Load")
 
     @pytest.mark.asyncio
     async def test_select_invalid_option(self):
@@ -384,16 +384,20 @@ class TestSmartPortModeSelect:
             await select.async_select_option("Invalid")
 
     @pytest.mark.asyncio
-    async def test_select_no_transport(self):
-        """No transport raises HomeAssistantError."""
+    async def test_select_clears_optimistic_state_on_failure(self):
+        """Optimistic state is cleared on write failure."""
         coordinator = _mock_gridboss_coordinator()
-        coordinator.has_local_transport = MagicMock(return_value=False)
-        coordinator.client = None
+        coordinator.write_smart_port_mode = AsyncMock(
+            side_effect=HomeAssistantError("Write failed")
+        )
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         select.hass = MagicMock()
         select.entity_id = "select.test_smart_port_1_mode"
         select.async_write_ha_state = MagicMock()
 
-        with pytest.raises(HomeAssistantError, match="No local transport"):
+        with pytest.raises(HomeAssistantError):
             await select.async_select_option("Smart Load")
+
+        # Optimistic state should be cleared after failure
+        assert select._optimistic_state is None

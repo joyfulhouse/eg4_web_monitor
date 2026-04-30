@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -125,7 +126,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 10 register ranges are read."""
+        """All 11 register ranges are read."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -134,8 +135,8 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 10 register ranges: 20-22, 64-79, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
-        assert mock_transport.read_named_parameters.call_count == 10
+        # 11 register ranges: 20-22, 64-79, 82-83, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
+        assert mock_transport.read_named_parameters.call_count == 11
         assert "PARAM_A" in result
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
@@ -157,10 +158,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 10 ranges attempted despite first failure
-        assert call_count == 10
+        # All 11 ranges attempted despite first failure
+        assert call_count == 11
         # Successful ranges contributed their params
-        assert len(result) == 9  # 10 total - 1 failed
+        assert len(result) == 10  # 11 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
@@ -207,7 +208,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport = MagicMock()
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -243,7 +243,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport_battery = None
         mock_inverter._transport = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -279,7 +278,6 @@ class TestBuildLocalDeviceData:
         mock_inverter._transport_battery = None
         mock_inverter._transport = None
         mock_inverter.consumption_power = 3000
-        mock_inverter.total_load_power = 4000
         mock_inverter.battery_power = 1500
         mock_inverter.rectifier_power = 200
         mock_inverter.power_to_user = 500
@@ -297,7 +295,6 @@ class TestBuildLocalDeviceData:
             )
 
         assert result["sensors"]["consumption_power"] == 3000
-        assert result["sensors"]["total_load_power"] == 4000
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
         assert result["sensors"]["grid_import_power"] == 500
@@ -421,6 +418,52 @@ class TestTransportAccessors:
         result = coordinator.get_local_transport("GRIDBOSS001")
         assert result is None
 
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    def test_get_local_transport_from_station_mid_device(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """HYBRID mode: get_local_transport finds MID device via station (#182)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_transport = MagicMock()
+        mock_mid = MagicMock()
+        mock_mid.serial_number = "GRIDBOSS001"
+        mock_mid._transport = mock_transport
+
+        mock_station = MagicMock()
+        mock_station.all_inverters = []
+        mock_station.all_mid_devices = [mock_mid]
+        coordinator.station = mock_station
+
+        # Inverter lookup returns None (GridBOSS is not an inverter)
+        coordinator.get_inverter_object = MagicMock(return_value=None)
+
+        result = coordinator.get_local_transport("GRIDBOSS001")
+        assert result is mock_transport
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    def test_get_local_transport_station_mid_no_transport(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """HYBRID mode: station MID device without transport returns None."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_mid = MagicMock(spec=[])  # No _transport attribute
+        mock_mid.serial_number = "GRIDBOSS001"
+
+        mock_station = MagicMock()
+        mock_station.all_inverters = []
+        mock_station.all_mid_devices = [mock_mid]
+        coordinator.station = mock_station
+        coordinator.get_inverter_object = MagicMock(return_value=None)
+
+        result = coordinator.get_local_transport("GRIDBOSS001")
+        assert result is None
+
     def test_is_local_only_local_mode(self, hass, local_config_entry):
         """LOCAL mode → is_local_only returns True."""
         local_config_entry.add_to_hass(hass)
@@ -446,6 +489,204 @@ class TestTransportAccessors:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
         assert coordinator.is_local_only() is False
+
+
+# ── write_smart_port_mode ──────────────────────────────────────────────
+
+
+class TestWriteSmartPortMode:
+    """Tests for coordinator.write_smart_port_mode() (#182)."""
+
+    @pytest.mark.asyncio
+    async def test_write_via_local_transport(self, hass, local_config_entry):
+        """Local transport path: writes via transport.write_named_parameters."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = True
+        mock_transport.write_named_parameters = AsyncMock(return_value=True)
+
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        coordinator._mid_device_cache["GB001"] = mock_mid
+
+        result = await coordinator.write_smart_port_mode("GB001", 2, 1)
+
+        assert result is True
+        mock_transport.write_named_parameters.assert_called_once_with(
+            {"BIT_MIDBOX_SP_MODE_2": 1}
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_reconnects_transport(self, hass, local_config_entry):
+        """Reconnects transport if not connected before writing."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = False
+        mock_transport.connect = AsyncMock()
+        mock_transport.write_named_parameters = AsyncMock(return_value=True)
+
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        coordinator._mid_device_cache["GB001"] = mock_mid
+
+        await coordinator.write_smart_port_mode("GB001", 1, 2)
+
+        mock_transport.connect.assert_called_once()
+        mock_transport.write_named_parameters.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_write_via_cloud_api(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Cloud API path: writes via client.api.control.set_smart_port_mode."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
+            return_value=result_mock
+        )
+
+        result = await coordinator.write_smart_port_mode("GB001", 3, 0)
+
+        assert result is True
+        coordinator.client.api.control.set_smart_port_mode.assert_called_once_with(
+            "GB001", 3, 0
+        )
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_local_failure_falls_back_to_cloud(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Local transport failure falls back to cloud API."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = True
+        mock_transport.write_named_parameters = AsyncMock(
+            side_effect=Exception("Modbus timeout")
+        )
+        mock_mid = MagicMock()
+        mock_mid._transport = mock_transport
+        coordinator._mid_device_cache["GB001"] = mock_mid
+
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
+            return_value=result_mock
+        )
+
+        result = await coordinator.write_smart_port_mode("GB001", 4, 2)
+
+        assert result is True
+        coordinator.client.api.control.set_smart_port_mode.assert_called_once_with(
+            "GB001", 4, 2
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_transport_no_client_raises(self, hass, local_config_entry):
+        """No local transport and no cloud API raises HomeAssistantError."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with pytest.raises(HomeAssistantError, match="No local transport or cloud API"):
+            await coordinator.write_smart_port_mode("GB001", 1, 1)
+
+    @pytest.mark.asyncio
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_cloud_failure_raises(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Cloud API returning failure raises HomeAssistantError."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        result_mock = MagicMock()
+        result_mock.success = False
+        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
+            return_value=result_mock
+        )
+
+        with pytest.raises(HomeAssistantError, match="Cloud API failed"):
+            await coordinator.write_smart_port_mode("GB001", 2, 1)
+
+
+# ── get_mid_device_object ──────────────────────────────────────────────
+
+
+class TestGetMidDeviceObject:
+    """Tests for coordinator.get_mid_device_object() (#182)."""
+
+    def test_from_mid_device_cache(self, hass, local_config_entry):
+        """Finds MID device in LOCAL mode cache."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_mid = MagicMock()
+        coordinator._mid_device_cache["GB001"] = mock_mid
+
+        result = coordinator.get_mid_device_object("GB001")
+        assert result is mock_mid
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    def test_from_station_mid_devices(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Finds MID device via station in HYBRID mode."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        mock_mid = MagicMock()
+        mock_mid.serial_number = "GB001"
+
+        mock_station = MagicMock()
+        mock_station.all_mid_devices = [mock_mid]
+        coordinator.station = mock_station
+
+        result = coordinator.get_mid_device_object("GB001")
+        assert result is mock_mid
+
+    def test_not_found_returns_none(self, hass, local_config_entry):
+        """Returns None when MID device not found anywhere."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        result = coordinator.get_mid_device_object("UNKNOWN")
+        assert result is None
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    def test_cache_takes_precedence_over_station(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """LOCAL cache is checked before station (for performance)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        cached_mid = MagicMock()
+        coordinator._mid_device_cache["GB001"] = cached_mid
+
+        station_mid = MagicMock()
+        station_mid.serial_number = "GB001"
+        mock_station = MagicMock()
+        mock_station.all_mid_devices = [station_mid]
+        coordinator.station = mock_station
+
+        # Cache should win
+        result = coordinator.get_mid_device_object("GB001")
+        assert result is cached_mid
 
 
 # ── _attach_local_transports_to_station ──────────────────────────────
@@ -988,7 +1229,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.101"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1080,7 +1320,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1197,7 +1436,6 @@ class TestSharedBatterySecondary:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1284,7 +1522,6 @@ class TestBatteryBankCountSuppression:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1493,7 +1730,6 @@ class TestBatteryRRCacheFallback:
         mock_inverter._transport.host = "192.168.1.100"
         mock_inverter._transport.disconnect = AsyncMock()
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None

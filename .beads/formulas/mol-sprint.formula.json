@@ -1,0 +1,76 @@
+{
+  "formula": "mol-sprint",
+  "name": "mol-sprint",
+  "description": "Sprint cycle: triage open issues, plan a batch, execute fixes in parallel worktrees, review, and merge.",
+  "version": 1,
+  "phase": "liquid",
+  "variables": {
+    "sprint_name": {
+      "description": "Sprint identifier (e.g., SPRINT-42)",
+      "required": true
+    },
+    "max_items": {
+      "description": "Maximum issues to include in this sprint",
+      "default": "5"
+    },
+    "priority_cutoff": {
+      "description": "Maximum priority level to include (0=critical only, 4=all)",
+      "default": "2"
+    }
+  },
+  "steps": [
+    {
+      "id": "triage",
+      "title": "Triage: score and label open issues",
+      "type": "task",
+      "description": "Pull open issues from beads (bd ready), read each issue + GitHub comments, AI-score priority/effort, update beads with priority and labels. Skip issues needing more info from reporter.",
+      "estimate": 30,
+      "labels": ["sprint", "triage"]
+    },
+    {
+      "id": "plan",
+      "title": "Plan: select sprint batch and create epic",
+      "type": "task",
+      "description": "From triaged issues, select up to {{max_items}} issues at priority <= {{priority_cutoff}}. Group by component affinity (config_flow, coordinator, sensors, local transport). Create epic issue as parent. Link selected issues as children. Assign wave numbers for parallel execution.",
+      "depends_on": ["triage"],
+      "estimate": 15,
+      "labels": ["sprint", "planning"]
+    },
+    {
+      "id": "execute",
+      "title": "Execute: fix issues in parallel worktrees",
+      "type": "task",
+      "description": "For each wave: create worktree per issue group (bd worktree create), launch parallel agents to implement fixes. Each agent: read issue, investigate code, implement fix, run tests (uv run pytest), lint (uv run ruff check --fix), type check (uv run mypy). Create PR when done. Merge PRs sequentially between waves to avoid conflicts.",
+      "depends_on": ["plan"],
+      "estimate": 120,
+      "labels": ["sprint", "execution"]
+    },
+    {
+      "id": "review",
+      "title": "Review: code review all PRs",
+      "type": "task",
+      "description": "For each PR from execute phase: run code-reviewer agent, run code-simplifier agent, fix all issues found. Push fixes and re-review until clean.",
+      "depends_on": ["execute"],
+      "estimate": 30,
+      "labels": ["sprint", "review"]
+    },
+    {
+      "id": "merge",
+      "title": "Merge: merge PRs and close issues",
+      "type": "task",
+      "description": "Merge all reviewed PRs sequentially. Close corresponding beads issues. Sync beads to GitHub (GITHUB_TOKEN=$(gh auth token) bd github sync). Clean up worktrees and branches.",
+      "depends_on": ["review"],
+      "estimate": 15,
+      "labels": ["sprint", "merge"]
+    },
+    {
+      "id": "retro",
+      "title": "Retro: summarize sprint results",
+      "type": "task",
+      "description": "Summarize: issues fixed, PRs merged, test results, any issues deferred. Update beads with sprint digest (bd mol squash). Comment on GitHub issues with install/test instructions.",
+      "depends_on": ["merge"],
+      "estimate": 10,
+      "labels": ["sprint", "retro"]
+    }
+  ]
+}

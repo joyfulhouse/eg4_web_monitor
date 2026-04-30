@@ -5,6 +5,34 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`total_increasing` sensors triggering recorder warning on small dips** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)): Cloud-API rounding noise caused `consumption` and `consumption_lifetime` to step down by 0.1 kWh between polls (e.g. 2917.1 → 2917.0), tripping HA's "state is not strictly increasing" warning on every poll. Added a sensor-level guard that pins downward dips ≤10% to the previous high-water mark — matching HA recorder's reset detection threshold so daily resets, lifetime counter wraps, and inverter replacements (drops >10%) still pass through unchanged.
+
+## [3.3.0-alpha.1] - 2026-04-09
+
+### Added
+
+- **Forced discharge power rate and SOC limit controls** ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207)): New number entities for `forced_discharge_power_rate` (register 82, 0-100%) and `forced_discharge_soc_limit` (register 83, 0-100%), enabling automation of discharge intensity for time-of-use rate optimization.
+- **AC charge start/end SOC and voltage controls** ([#204](https://github.com/joyfulhouse/eg4_web_monitor/issues/204)): Four new number entities for controlling AC charge thresholds — `ac_charge_start_soc` (0-90%), `ac_charge_end_soc` (20-100%), `ac_charge_start_voltage` (38.4-52.0V), `ac_charge_end_voltage` (48.0-59.0V).
+
+### Fixed
+
+- **GridBOSS smart port mode write failure** ([#182](https://github.com/joyfulhouse/eg4_web_monitor/issues/182)): Smart Port Mode select entities failed to write in HYBRID mode because `get_local_transport()` couldn't find GridBOSS MID devices via the Station object. Added dedicated `write_smart_port_mode()` method with proper MID device transport lookup.
+- **Split-phase Grid/EPS Voltage showing Unknown** ([#206](https://github.com/joyfulhouse/eg4_web_monitor/issues/206)): Combined `grid_voltage` and `eps_voltage` sensors showed "Unknown" on US split-phase inverters (12kPV, FlexBOSS, etc.) because R-phase registers contain garbage on these systems. Added L1+L2 fallback: when R-phase is None, the combined voltage is computed as `L1 + L2` (~240V for split-phase).
+- **GridBOSS smart port sensors create duplicate unique IDs** ([#202](https://github.com/joyfulhouse/eg4_web_monitor/issues/202)): Smart port sensors were registered by both static entity creation and late-discovery callback, causing "ID already exists" warnings on every startup. Smart port entities are now exclusively created by the late-discovery listener.
+- **AC coupling registers incorrect on EG4_OFFGRID** ([#196](https://github.com/joyfulhouse/eg4_web_monitor/issues/196)): AC couple energy registers were mapped incorrectly for EG4_OFFGRID inverters.
+- **Off-grid mode state change fails on fresh LOCAL-only install** ([#194](https://github.com/joyfulhouse/eg4_web_monitor/issues/194)): Smart port status sensors received raw integer `0` instead of enum string `"unused"` when all ports were unused and no cache existed, causing HA to reject entity state writes and block switch toggles.
+- **Smart Port Status sensors throw ValueError** ([#195](https://github.com/joyfulhouse/eg4_web_monitor/issues/195)): GridBOSS Smart Port Status sensors threw `ValueError: state value '0' not in options list` on every HA startup and refresh when all 4 ports were unused. The `has_nonzero` validation check incorrectly treated all-zeros as a corrupt read, causing raw integers to leak to HA's enum validation.
+- **Redundant total_load_power sensor** ([#191](https://github.com/joyfulhouse/eg4_web_monitor/issues/191)): Removed duplicate sensor that was redundant with `load_power`.
+- **Firmware version resolution**: Local register firmware version is now preferred over cloud API values. Empty firmware reads cache a sentinel to avoid re-reading every poll cycle.
+
+### Changed
+
+- **Example dashboards updated** ([#209](https://github.com/joyfulhouse/eg4_web_monitor/issues/209)): Updated all example dashboard YAML files to use v3.2.0 entity names (`battery_soc` → `state_of_charge`, `daily_pv_generation` → `yield`, `pv_power` → `pv_total_power`, etc.).
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.

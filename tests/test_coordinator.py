@@ -1180,7 +1180,6 @@ class TestDeferredLocalParameters:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1224,7 +1223,6 @@ class TestDeferredLocalParameters:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -1416,7 +1414,6 @@ class TestCacheTTLAdherence:
         mock_inverter._transport_energy = None
         mock_inverter._transport_battery = None
         mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
         mock_inverter.battery_power = None
         mock_inverter.rectifier_power = None
         mock_inverter.power_to_user = None
@@ -3761,7 +3758,7 @@ class TestSmartPortFiltering:
             DeviceProcessingMixin,
         )
 
-        # Port 1 = AC Couple (active, prevents all-zero skip), port 2 = Unused
+        # Port 1 = AC Couple, port 2 = Unused
         mid = self._make_mid_device({1: 2, 2: 0, 3: 0, 4: 0})
         sensors: dict = {
             "smart_load2_power_l1": 10.0,
@@ -3919,42 +3916,92 @@ class TestSmartPortFiltering:
         assert sensors["smart_port3_status"] == "smart_load"
         assert sensors["smart_port4_status"] == "unused"
 
-    def test_all_zeros_no_cache_skips_filtering(self):
-        """When all statuses are 0 with no cache, filtering is skipped."""
+    def test_all_zeros_is_valid_read(self):
+        """All-zeros is a valid read (all ports unused), not corrupt (#195)."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
         )
 
-        # Use unique serial with no cached statuses
-        serial = "TEST_MID_ZEROS_NOCACHE"
+        serial = "TEST_MID_ZEROS_VALID"
         _last_good_smart_port_statuses.pop(serial, None)
 
         mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_port1_status": 0,
+            "smart_port2_status": 0,
+            "smart_port3_status": 0,
+            "smart_port4_status": 0,
             "smart_load1_power_l1": 50.0,
             "ac_couple1_power_l1": 100.0,
         }
 
         DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
 
-        # Power keys preserved (no cache → skip filtering)
-        assert sensors["smart_load1_power_l1"] == 50.0
-        assert sensors["ac_couple1_power_l1"] == 100.0
+        # Status integers converted to string labels (not raw 0)
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # All ports unused → both smart_load and ac_couple keys removed
+        assert "smart_load1_power_l1" not in sensors
+        assert "ac_couple1_power_l1" not in sensors
+        # Cached as a good read
+        assert serial in _last_good_smart_port_statuses
 
-    def test_all_zeros_with_cache_uses_cached_statuses(self):
-        """When all statuses are 0 but cache exists, cached statuses are used."""
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+
+    def test_corrupt_read_no_cache_still_converts_labels(self):
+        """Corrupt read with no cache skips filtering but converts labels (#194, #195)."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_CORRUPT_NOCACHE"
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+        # Port 3 has out-of-range value (corrupt)
+        mid = self._make_mid_device({1: 0, 2: 1, 3: 5, 4: 0}, serial=serial)
+        sensors: dict = {
+            "smart_port1_status": 0,
+            "smart_port2_status": 1,
+            "smart_port3_status": 5,
+            "smart_port4_status": 0,
+            "smart_load1_power_l1": 50.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # Valid integers converted to labels even though filtering was skipped
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "smart_load"
+        # Out-of-range value falls back to "unused" to prevent HA ValueError
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # Power keys preserved (filtering skipped)
+        assert sensors["smart_load1_power_l1"] == 50.0
+
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_corrupt_read_with_cache_uses_cached_statuses(self):
+        """When read is corrupt but cache exists, cached statuses are used."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
         )
 
-        serial = "TEST_MID_ZEROS_CACHED"
+        serial = "TEST_MID_CORRUPT_CACHED"
         # Pre-populate cache: port 1 = AC couple, others unused
         _last_good_smart_port_statuses[serial] = {1: 2, 2: 0, 3: 0, 4: 0}
 
-        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
+        # Corrupt read: port 2 has out-of-range value
+        mid = self._make_mid_device({1: 0, 2: 7, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_load1_power_l1": 50.0,
             "smart_load1_power_l2": 30.0,
@@ -4013,6 +4060,90 @@ class TestCommonVoltageSensors:
     def test_alias_handles_none_values(self):
         """None R-phase values don't create aliases."""
         sensors: dict[str, Any] = {"grid_voltage_r": None, "eps_voltage_r": None}
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert "grid_voltage" not in sensors
+        assert "eps_voltage" not in sensors
+
+    def test_alias_falls_back_to_l1_l2_sum_when_r_phase_none(self):
+        """Split-phase: grid_voltage = L1 + L2 when R-phase is None (US systems)."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": 121.3,
+            "grid_voltage_l2": 119.7,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": 120.0,
+            "eps_voltage_l2": 118.5,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == pytest.approx(241.0)
+        assert sensors["eps_voltage"] == pytest.approx(238.5)
+
+    def test_alias_falls_back_to_l1_l2_sum_when_r_phase_missing(self):
+        """Split-phase: grid_voltage = L1 + L2 when R-phase key is absent."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_l1": 120.5,
+            "grid_voltage_l2": 120.5,
+            "eps_voltage_l1": 119.0,
+            "eps_voltage_l2": 121.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == pytest.approx(241.0)
+        assert sensors["eps_voltage"] == pytest.approx(240.0)
+
+    def test_alias_prefers_r_phase_over_l1_l2(self):
+        """R-phase takes precedence even when L1/L2 are also present."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": 230.0,
+            "grid_voltage_l1": 121.0,
+            "grid_voltage_l2": 119.0,
+            "eps_voltage_r": 228.0,
+            "eps_voltage_l1": 120.0,
+            "eps_voltage_l2": 118.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 230.0
+        assert sensors["eps_voltage"] == 228.0
+
+    def test_alias_uses_single_leg_when_only_l1_present(self):
+        """Only L1 available -- use it as the alias value."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": 120.5,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": 119.0,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 120.5
+        assert sensors["eps_voltage"] == 119.0
+
+    def test_alias_uses_single_leg_when_only_l2_present(self):
+        """Only L2 available -- use it as the alias value."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l2": 121.0,
+            "eps_voltage_r": None,
+            "eps_voltage_l2": 118.5,
+        }
+        features: dict[str, Any] = {"supports_three_phase": False}
+        alias_common_voltage_sensors(sensors, features)
+        assert sensors["grid_voltage"] == 121.0
+        assert sensors["eps_voltage"] == 118.5
+
+    def test_alias_no_fallback_when_l1_l2_both_none(self):
+        """No alias created when R-phase is None and L1/L2 are also None."""
+        sensors: dict[str, Any] = {
+            "grid_voltage_r": None,
+            "grid_voltage_l1": None,
+            "grid_voltage_l2": None,
+            "eps_voltage_r": None,
+            "eps_voltage_l1": None,
+            "eps_voltage_l2": None,
+        }
         features: dict[str, Any] = {"supports_three_phase": False}
         alias_common_voltage_sensors(sensors, features)
         assert "grid_voltage" not in sensors
@@ -4082,7 +4213,6 @@ class TestParameterPreComputation:
             mock_inv._transport_energy = None
             mock_inv._transport_battery = None
             mock_inv.consumption_power = None
-            mock_inv.total_load_power = None
             mock_inv.battery_power = None
             mock_inv.rectifier_power = None
             mock_inv.power_to_user = None
@@ -4166,7 +4296,6 @@ class TestParameterPreComputation:
         mock_inv._transport_energy = None
         mock_inv._transport_battery = None
         mock_inv.consumption_power = None
-        mock_inv.total_load_power = None
         mock_inv.battery_power = None
         mock_inv.rectifier_power = None
         mock_inv.power_to_user = None
@@ -4653,7 +4782,6 @@ class TestHybridTransportExclusiveSensors:
         mock_runtime.inverter_rms_current_t = 4.1
         mock_runtime.battery_current = 12.5
         mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = 2500.0
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4663,7 +4791,6 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["grid_current_l2"] == 4.3
         assert sensors["grid_current_l3"] == 4.1
         assert sensors["battery_current"] == 12.5
-        assert sensors["total_load_power"] == 2500.0
 
     async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""
@@ -4684,7 +4811,7 @@ class TestHybridTransportExclusiveSensors:
         sensors = result["sensors"]
 
         # Verify the transport overlay path didn't run (no _transport_runtime)
-        assert "total_load_power" not in sensors
+        assert "bt_temperature" not in sensors
 
     async def test_transport_runtime_none_values_not_overlaid(
         self, hass, mock_config_entry
@@ -4709,14 +4836,12 @@ class TestHybridTransportExclusiveSensors:
         mock_runtime.inverter_rms_current_t = None
         mock_runtime.battery_current = None
         mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = None
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
 
         # Only non-None values from transport overlay should appear
         assert sensors["grid_current_l1"] == 4.5
-        assert "total_load_power" not in sensors
 
 
 class TestHybridParallelBatteryCountOverride:
@@ -5530,3 +5655,162 @@ class TestRoundRobinTruncatedSerialGuard:
             batteries = [self._make_battery("Batter", index=0)]
             result = coordinator._merge_round_robin_batteries(serial, batteries)
             assert len(result) == 1  # only the original real battery
+
+
+class TestResolveLocalFirmware:
+    """Test _resolve_local_firmware() local-register-preferred firmware resolution."""
+
+    async def test_no_transport_returns_cloud_version(self, hass, mock_config_entry):
+        """Without a local transport, cloud version is returned unchanged."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        del device._transport  # no transport
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        assert "INV001" not in coordinator._firmware_cache
+
+    async def test_cache_hit_returns_cached_value(self, hass, mock_config_entry):
+        """Cached firmware is returned without reading transport."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = "LOCAL-2.0"
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "LOCAL-2.0"
+        device._transport.read_firmware_version.assert_not_called()
+
+    async def test_sentinel_cache_hit_returns_cloud_version(
+        self, hass, mock_config_entry
+    ):
+        """Empty-string sentinel in cache returns cloud version as fallback."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = ""
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+
+    async def test_successful_read_caches_and_returns_local(
+        self, hass, mock_config_entry
+    ):
+        """Successful transport read is cached and returned."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "FAAB-2525"
+        assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
+
+    async def test_transport_without_read_method_caches_sentinel(
+        self, hass, mock_config_entry
+    ):
+        """Transport lacking read_firmware_version permanently caches sentinel."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock(spec=[])  # no methods at all
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        assert coordinator._firmware_cache["INV001"] == ""
+
+    async def test_transient_failure_does_not_cache_sentinel(
+        self, hass, mock_config_entry
+    ):
+        """Exception during read does NOT cache sentinel — allows retry."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(
+            side_effect=OSError("bus stall")
+        )
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        # No sentinel cached — next cycle will retry
+        assert "INV001" not in coordinator._firmware_cache
+
+    async def test_retry_succeeds_after_transient_failure(
+        self, hass, mock_config_entry
+    ):
+        """After a transient failure, next call succeeds and caches."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(
+            side_effect=OSError("bus stall")
+        )
+
+        # First call fails
+        result1 = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result1 == "CLOUD-1.0"
+        assert "INV001" not in coordinator._firmware_cache
+
+        # Second call succeeds
+        device._transport.read_firmware_version = AsyncMock(return_value="FAAB-2525")
+        result2 = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result2 == "FAAB-2525"
+        assert coordinator._firmware_cache["INV001"] == "FAAB-2525"
+
+    async def test_empty_read_caches_sentinel_and_returns_cloud(
+        self, hass, mock_config_entry
+    ):
+        """Empty string from transport read caches sentinel and falls back to cloud."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+        device._transport.read_firmware_version = AsyncMock(return_value="")
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
+        # Empty string cached as sentinel — won't re-read every cycle
+        assert coordinator._firmware_cache["INV001"] == ""
+
+    async def test_unknown_cache_hit_returns_cloud_version(
+        self, hass, mock_config_entry
+    ):
+        """'Unknown' cached by coordinator_local.py is treated as sentinel.
+
+        In HYBRID mode, coordinator_local.py may pre-populate _firmware_cache
+        with 'Unknown' when the transport can't read firmware.  This method
+        should fall back to cloud_version rather than returning 'Unknown'.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._firmware_cache["INV001"] = "Unknown"
+
+        device = MagicMock()
+        device.serial_number = "INV001"
+        device._transport = MagicMock()
+
+        result = await coordinator._resolve_local_firmware(device, "CLOUD-1.0")
+        assert result == "CLOUD-1.0"
