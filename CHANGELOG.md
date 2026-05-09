@@ -5,6 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — v3.2.1 candidate
+
+Patch release on top of v3.2.0. Backports targeted bug fixes without the v3.3.0 feature work (forced discharge / AC charge SOC controls) currently sitting on the alpha line.
+
+### Fixed
+
+- **`total_increasing` sensors triggering recorder warning on small dips** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)): Cloud-API rounding noise caused `consumption` and `consumption_lifetime` to step down by 0.1 kWh between polls (e.g. 2917.1 → 2917.0), tripping HA's "state is not strictly increasing" warning on every poll. Added a sensor-level guard that pins downward dips ≤10% to the previous high-water mark — matching HA recorder's reset detection threshold so daily resets, lifetime counter wraps, and inverter replacements (drops >10%) still pass through unchanged.
+- **Example dashboard entity names** ([#209](https://github.com/joyfulhouse/eg4_web_monitor/issues/209)): Updated `examples/dashboards/*.yaml` to use the v3.2.0 entity names (`battery_soc` → `state_of_charge`, `daily_pv_generation` → `yield`, `pv_power` → `pv_total_power`, etc.).
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.

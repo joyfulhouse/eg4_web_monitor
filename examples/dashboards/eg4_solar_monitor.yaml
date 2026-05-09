@@ -16,9 +16,7 @@ views:
           - type: custom:power-flow-card-plus
             entities:
               battery:
-                entity:
-                  consumption: sensor.18kpv_1234567890_battery_discharge_power
-                  production: sensor.18kpv_1234567890_battery_charge_power
+                entity: sensor.18kpv_1234567890_battery_power
                 state_of_charge: sensor.18kpv_1234567890_state_of_charge
                 name: Battery Bank
                 icon: mdi:battery-high

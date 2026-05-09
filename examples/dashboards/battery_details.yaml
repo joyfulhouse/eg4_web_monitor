@@ -16,7 +16,7 @@ cards:
   - type: horizontal-stack
     cards:
       - type: gauge
-        entity: sensor.eg4_flexboss21_1234567890_battery_soc
+        entity: sensor.eg4_flexboss21_1234567890_state_of_charge
         name: State of Charge
         min: 0
         max: 100
@@ -154,7 +154,7 @@ cards:
       - entity: sensor.eg4_flexboss21_1234567890_battery_power
         name: Power (W)
         yaxis_id: power
-      - entity: sensor.eg4_flexboss21_1234567890_battery_soc
+      - entity: sensor.eg4_flexboss21_1234567890_state_of_charge
         name: SOC (%)
         yaxis_id: soc
     yaxis:
