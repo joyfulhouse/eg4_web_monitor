@@ -2914,6 +2914,176 @@ class TestGridBOSSOverlay:
         assert pg_sensors["load_power"] == pytest.approx(1800.0)
 
 
+class TestACCouplePVAdjustment:
+    """Tests for the shared AC-couple PV adjustment helper (bug M3).
+
+    AC-coupled solar feeds through GridBOSS smart ports, so its production
+    is not visible in inverter PV registers.  When enabled, the helper adds
+    AC-couple smart-port power into pv_total_power.  This must run in BOTH
+    LOCAL and HTTP/HYBRID paths via one shared function.
+    """
+
+    def test_adds_ac_couple_power_when_enabled(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            apply_ac_couple_pv_adjustment,
+        )
+
+        pg = {"pv_total_power": 5500.0}
+        gb = {
+            "smart_port1_status": "ac_couple",
+            "ac_couple1_power_l1": 1500.0,
+            "ac_couple1_power_l2": 1200.0,
+            "smart_port2_status": "unused",
+            "smart_port3_status": "unused",
+            "smart_port4_status": "unused",
+        }
+
+        apply_ac_couple_pv_adjustment(pg, gb, "A", include_ac_couple=True)
+
+        assert pg["pv_total_power"] == pytest.approx(8200.0)
+
+    def test_disabled_leaves_pv_unchanged(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            apply_ac_couple_pv_adjustment,
+        )
+
+        pg = {"pv_total_power": 5500.0}
+        gb = {
+            "smart_port1_status": "ac_couple",
+            "ac_couple1_power_l1": 1500.0,
+            "ac_couple1_power_l2": 1200.0,
+        }
+
+        apply_ac_couple_pv_adjustment(pg, gb, "A", include_ac_couple=False)
+
+        assert pg["pv_total_power"] == pytest.approx(5500.0)
+
+    def test_no_ac_couple_ports_leaves_pv_unchanged(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            apply_ac_couple_pv_adjustment,
+        )
+
+        pg = {"pv_total_power": 5500.0}
+        gb = {
+            "smart_port1_status": "smart_load",
+            "smart_port2_status": "unused",
+        }
+
+        apply_ac_couple_pv_adjustment(pg, gb, "A", include_ac_couple=True)
+
+        assert pg["pv_total_power"] == pytest.approx(5500.0)
+
+    def test_sums_multiple_ac_couple_ports(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            apply_ac_couple_pv_adjustment,
+        )
+
+        pg = {"pv_total_power": 1000.0}
+        gb = {
+            "smart_port1_status": "ac_couple",
+            "ac_couple1_power_l1": 500.0,
+            "ac_couple1_power_l2": 500.0,
+            "smart_port3_status": "ac_couple",
+            "ac_couple3_power_l1": 300.0,
+            "ac_couple3_power_l2": 200.0,
+        }
+
+        apply_ac_couple_pv_adjustment(pg, gb, "A", include_ac_couple=True)
+
+        # 1000 + (500+500) + (300+200) = 2500
+        assert pg["pv_total_power"] == pytest.approx(2500.0)
+
+    @pytest.mark.asyncio
+    async def test_http_path_applies_ac_couple_adjustment(self, hass):
+        """HYBRID mode adds AC-couple power to pv_total_power in HTTP path.
+
+        Regression test for bug M3: before the fix, the HTTP path applied the
+        GridBOSS overlay but never added AC-coupled smart-port power, so
+        HYBRID AC-coupled users saw a low pv_total_power vs LOCAL.
+        """
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Hybrid AC Couple",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_PLANT_ID: "999",
+                CONF_PLANT_NAME: "Hybrid AC Couple",
+                CONF_BASE_URL: "https://test.example.com",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+                CONF_VERIFY_SSL: True,
+                CONF_HTTP_POLLING_INTERVAL: DEFAULT_HTTP_POLLING_INTERVAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            options={CONF_INCLUDE_AC_COUPLE_PV: True},
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.client = MagicMock()
+        coordinator.station = MagicMock()
+
+        mock_group = MagicMock()
+        mock_group.name = "A"
+        mock_group._has_local_energy.return_value = False
+        mock_group._fetch_energy_data = AsyncMock()
+        mock_mid = MagicMock()
+        mock_mid.serial_number = "GB001"
+        mock_mid.refresh = AsyncMock()
+        mock_group.mid_device = mock_mid
+        mock_group.inverters = [MagicMock(serial_number="INV001")]
+        coordinator.station.parallel_groups = [mock_group]
+        coordinator.station.standalone_mid_devices = []
+
+        async def mock_pg_process(group):
+            return {
+                "name": "Parallel Group A",
+                "type": "parallel_group",
+                "first_device_serial": "INV001",
+                "member_serials": ["INV001"],
+                "member_count": 1,
+                "sensors": {
+                    "pv_total_power": 5500.0,
+                    "parallel_group_last_polled": dt_util.utcnow(),
+                },
+                "binary_sensors": {},
+            }
+
+        async def mock_mid_process(mid):
+            return {
+                "name": "GridBOSS",
+                "type": "gridboss",
+                "sensors": {
+                    "smart_port1_status": "ac_couple",
+                    "ac_couple1_power_l1": 1500.0,
+                    "ac_couple1_power_l2": 1200.0,
+                    "smart_port2_status": "unused",
+                    "smart_port3_status": "unused",
+                    "smart_port4_status": "unused",
+                },
+            }
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_parallel_group_object",
+                side_effect=mock_pg_process,
+            ),
+            patch.object(
+                coordinator,
+                "_process_mid_device_object",
+                side_effect=mock_mid_process,
+            ),
+            patch.object(coordinator, "_rebuild_inverter_cache"),
+        ):
+            processed = await coordinator._process_station_data()
+
+        pg_sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        # pv_total_power = inverter sum (5500) + AC couple (1500 + 1200)
+        assert pg_sensors["pv_total_power"] == pytest.approx(8200.0)
+
+
 class TestCoordinatorIntervalLogic:
     """Tests for coordinator interval selection based on connection type."""
 
@@ -4243,6 +4413,137 @@ class TestBatteryBankCurrentKey:
         assert prop_map["current"] == "battery_bank_current"
 
 
+class _FakeCloudBattery:
+    """Minimal stand-in for a pylxpweb Battery object (cloud path).
+
+    Defines ONLY the per-battery attributes the cloud Battery object
+    genuinely exposes, so accessing anything else raises AttributeError
+    (catching shape bugs that MagicMock would silently hide).
+    """
+
+    def __init__(self, min_cell_temp: float, min_cell_voltage: float) -> None:
+        self.min_cell_temp = min_cell_temp
+        self.min_cell_voltage = min_cell_voltage
+
+
+class _FakeCloudBatteryBank:
+    """Minimal stand-in for the pylxpweb cloud BatteryBank object.
+
+    Defines ONLY the properties the cloud BatteryBank genuinely exposes
+    (verified against devices/battery_bank.py).  Notably it does NOT
+    define min_cell_temperature / min_cell_voltage / BMS register fields,
+    so any attempt to read those via getattr() must fall back gracefully
+    rather than raising AttributeError.
+    """
+
+    def __init__(self, batteries: list[_FakeCloudBattery] | None = None) -> None:
+        # Core metrics (always present on cloud BatteryBank)
+        self.voltage = 52.0
+        self.current = 15.5
+        self.soc = 85
+        self.charge_power = 800
+        self.discharge_power = 0
+        self.battery_power = 800
+        self.max_capacity = 200
+        self.current_capacity = 170.0
+        self.remain_capacity = 170
+        self.full_capacity = 200
+        self.capacity_percent = 85
+        self.battery_count = 4
+        self.status = "charging"
+        # Cross-battery diagnostics (computed from self.batteries)
+        self.min_soh = 98
+        self.max_cell_temp = 28.0
+        self.temp_delta = 3.0
+        self.cell_voltage_delta_max = 0.02
+        self.soc_delta = 2
+        self.soh_delta = 1
+        self.voltage_delta = 0.1
+        self.cycle_count_delta = 5
+        # Individual battery modules (used to derive min-cell values)
+        self.batteries = batteries if batteries is not None else []
+
+
+class TestCloudBatteryBankParity:
+    """CLOUD battery-bank extractor reaches LOCAL sensor parity (bug M2).
+
+    The cloud _extract_battery_bank_from_object() must emit every additional
+    sensor the cloud BatteryBank object can actually provide, matching the
+    set LOCAL emits.  Fields the cloud object genuinely lacks (BMS register
+    data) are simply absent; min-cell values are derived from per-battery
+    data when available.
+    """
+
+    def _extract(self, bank: object) -> dict:
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        return DeviceProcessingMixin._extract_battery_bank_from_object(
+            DeviceProcessingMixin(), bank
+        )
+
+    def test_cross_battery_diagnostics_emitted(self):
+        """min_soh, max_cell_temp, temp_delta, cell_voltage_delta_max emitted."""
+        bank = _FakeCloudBatteryBank()
+        result = self._extract(bank)
+        assert result["battery_bank_min_soh"] == 98
+        assert result["battery_bank_max_cell_temp"] == 28.0
+        assert result["battery_bank_temp_delta"] == 3.0
+        assert result["battery_bank_cell_voltage_delta_max"] == 0.02
+
+    def test_min_cell_values_derived_from_per_battery_data(self):
+        """min cell temp/voltage derived from per-battery data when available."""
+        bank = _FakeCloudBatteryBank(
+            batteries=[
+                _FakeCloudBattery(min_cell_temp=21.0, min_cell_voltage=3.250),
+                _FakeCloudBattery(min_cell_temp=19.5, min_cell_voltage=3.211),
+            ]
+        )
+        result = self._extract(bank)
+        # Min across batteries
+        assert result["battery_bank_min_cell_temp"] == pytest.approx(19.5)
+        assert result["battery_bank_min_cell_voltage"] == pytest.approx(3.211)
+
+    def test_min_cell_values_absent_without_per_battery_data(self):
+        """min cell temp/voltage omitted (not AttributeError) when no batteries."""
+        bank = _FakeCloudBatteryBank(batteries=[])
+        result = self._extract(bank)
+        # Cloud BatteryBank has no min_cell_temperature/min_cell_voltage
+        # property and no per-battery data to derive from -> omit.
+        assert "battery_bank_min_cell_temp" not in result
+        assert "battery_bank_min_cell_voltage" not in result
+
+    def test_no_attribute_error_on_missing_bms_fields(self):
+        """Extractor never raises even though cloud bank lacks BMS register fields."""
+        bank = _FakeCloudBatteryBank()
+        # Must not raise AttributeError for bms_* / voltage_inv_sample fields.
+        result = self._extract(bank)
+        # BMS register fields are genuinely unavailable on cloud -> absent.
+        assert "battery_bank_bms_charge_current_limit" not in result
+        assert "battery_bank_bms_discharge_current_limit" not in result
+        assert "battery_bank_bms_charge_voltage_ref" not in result
+        assert "battery_bank_bms_discharge_cutoff" not in result
+        assert "battery_bank_bms_battery_type" not in result
+        assert "battery_bank_voltage_inv_sample" not in result
+
+    def test_cloud_property_map_covers_local_diagnostic_keys(self):
+        """Property map includes all cross-battery diagnostic keys LOCAL emits."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        emitted = set(DeviceProcessingMixin._get_battery_bank_property_map().values())
+        # These are derivable on cloud and were previously missing.
+        for key in (
+            "battery_bank_min_soh",
+            "battery_bank_max_cell_temp",
+            "battery_bank_temp_delta",
+            "battery_bank_cell_voltage_delta_max",
+        ):
+            assert key in emitted, f"{key} missing from cloud property map"
+
+
 class TestBatteryBankBMSCoreKeys:
     """Test BMS CORE keys always present in mapping from bank-level registers."""
 
@@ -5530,3 +5831,291 @@ class TestRoundRobinTruncatedSerialGuard:
             batteries = [self._make_battery("Batter", index=0)]
             result = coordinator._merge_round_robin_batteries(serial, batteries)
             assert len(result) == 1  # only the original real battery
+
+
+class TestPVStringCountFeatureExtraction:
+    """_extract_inverter_features surfaces the model's pv_string_count.
+
+    Uses real pylxpweb InverterFeatures objects (not bare MagicMock) so the
+    feature shape and the downstream _should_create_sensor gating are exercised
+    end-to-end.
+    """
+
+    @staticmethod
+    def _make_inverter(pv_string_count: int):
+        """Build a real-shaped inverter stand-in.
+
+        Mirrors BaseInverter's relevant surface: a real ``_features`` dataclass
+        plus the ``pv_string_count`` property the extractor reads.
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        class _Inverter:
+            def __init__(self, count: int) -> None:
+                self._features = InverterFeatures(pv_string_count=count)
+
+            @property
+            def pv_string_count(self) -> int:
+                return self._features.pv_string_count
+
+        return _Inverter(pv_string_count)
+
+    def test_three_string_model_extracts_count_3(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        inverter = self._make_inverter(3)
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["pv_string_count"] == 3
+
+    def test_zero_string_model_extracts_count_0(self):
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        inverter = self._make_inverter(0)
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["pv_string_count"] == 0
+
+    def test_extracted_count_drives_sensor_creation(self):
+        """The extracted count gates per-string PV sensor creation."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+        from custom_components.eg4_web_monitor.sensor import _should_create_sensor
+
+        # 3-string model: pv1-3 created, pv4-6 not.
+        features3 = DeviceProcessingMixin._extract_inverter_features(
+            self._make_inverter(3)
+        )
+        created3 = {
+            f"pv{n}_voltage"
+            for n in range(1, 7)
+            if _should_create_sensor(f"pv{n}_voltage", features3)
+        }
+        assert created3 == {"pv1_voltage", "pv2_voltage", "pv3_voltage"}
+
+        # 0-string model: no PV sensors.
+        features0 = DeviceProcessingMixin._extract_inverter_features(
+            self._make_inverter(0)
+        )
+        created0 = {
+            f"pv{n}_voltage"
+            for n in range(1, 7)
+            if _should_create_sensor(f"pv{n}_voltage", features0)
+        }
+        assert created0 == set()
+
+        # 5-string model: pv1-5 created, pv6 not.
+        features5 = DeviceProcessingMixin._extract_inverter_features(
+            self._make_inverter(5)
+        )
+        created5 = {
+            f"pv{n}_voltage"
+            for n in range(1, 7)
+            if _should_create_sensor(f"pv{n}_voltage", features5)
+        }
+        assert created5 == {
+            "pv1_voltage",
+            "pv2_voltage",
+            "pv3_voltage",
+            "pv4_voltage",
+            "pv5_voltage",
+        }
+
+
+class TestPV456DataPath:
+    """pv4-6 values must actually flow into coordinator sensor data.
+
+    Count-driven creation (TestPVStringCountFeatureExtraction) makes pv4-6
+    sensor *entities* exist for >3-string models, but they are useless if the
+    coordinator never maps pv4-6 *values*.  These tests assert the DATA, not
+    just _should_create_sensor, using real/spec'd objects (never bare
+    MagicMock, which masks missing attributes).
+    """
+
+    def test_local_runtime_mapping_includes_pv4_6(self):
+        """LOCAL _build_runtime_sensor_mapping maps pv4-6 from RuntimeData."""
+        from pylxpweb.transports.data import InverterRuntimeData
+
+        runtime = InverterRuntimeData(
+            pv1_voltage=350.0,
+            pv1_power=3000,
+            pv4_voltage=361.0,
+            pv4_power=3100.0,
+            pv5_voltage=362.0,
+            pv5_power=3200.0,
+            pv6_voltage=363.0,
+            pv6_power=3300.0,
+        )
+        mapping = _build_runtime_sensor_mapping(runtime)
+
+        assert mapping["pv4_voltage"] == 361.0
+        assert mapping["pv4_power"] == 3100.0
+        assert mapping["pv5_voltage"] == 362.0
+        assert mapping["pv5_power"] == 3200.0
+        assert mapping["pv6_voltage"] == 363.0
+        assert mapping["pv6_power"] == 3300.0
+
+    def test_runtime_keys_include_pv4_6(self):
+        """Static key set must include pv4-6 so they survive parity checks."""
+        for key in (
+            "pv4_voltage",
+            "pv4_power",
+            "pv5_voltage",
+            "pv5_power",
+            "pv6_voltage",
+            "pv6_power",
+        ):
+            assert key in INVERTER_RUNTIME_KEYS
+
+    def test_http_property_map_includes_pv4_6(self):
+        """HTTP property map must map inverter pv4-6 properties to sensor keys."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        property_map = DeviceProcessingMixin._get_inverter_property_map()
+        for key in (
+            "pv4_voltage",
+            "pv4_power",
+            "pv5_voltage",
+            "pv5_power",
+            "pv6_voltage",
+            "pv6_power",
+        ):
+            assert property_map.get(key) == key
+
+    def test_http_map_device_properties_emits_pv4_5_from_inverter(self):
+        """HTTP path emits pv4/pv5 values from a real-shaped inverter object.
+
+        Uses a spec'd stand-in exposing pv4_voltage/pv4_power/pv5_* exactly as
+        the pylxpweb BaseInverter does (NOT a bare MagicMock, which would
+        fabricate any attribute and hide a missing-property bug).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _map_device_properties,
+        )
+
+        class _Inverter:
+            """Real-shaped inverter: only the pv properties under test exist."""
+
+            pv1_voltage = 350.0
+            pv1_power = 3000
+            pv4_voltage = 361.0
+            pv4_power = 3100
+            pv5_voltage = 362.0
+            pv5_power = 3200
+            pv6_voltage = 363.0
+            pv6_power = 3300
+
+        property_map = DeviceProcessingMixin._get_inverter_property_map()
+        sensors = _map_device_properties(_Inverter(), property_map)
+
+        assert sensors["pv4_voltage"] == 361.0
+        assert sensors["pv4_power"] == 3100
+        assert sensors["pv5_voltage"] == 362.0
+        assert sensors["pv5_power"] == 3200
+        assert sensors["pv6_voltage"] == 363.0
+        assert sensors["pv6_power"] == 3300
+
+    def test_pylxpweb_inverter_exposes_pv4_6_properties(self):
+        """pylxpweb BaseInverter must expose pv4-6 voltage/power properties.
+
+        This is the cross-repo contract the HTTP path relies on: the property
+        map reads inverter.pv4_voltage etc. via getattr.
+        """
+        from pylxpweb.devices.inverters._runtime_properties import (
+            InverterRuntimePropertiesMixin,
+        )
+
+        for prop in (
+            "pv4_voltage",
+            "pv4_power",
+            "pv5_voltage",
+            "pv5_power",
+            "pv6_voltage",
+            "pv6_power",
+        ):
+            assert isinstance(
+                getattr(InverterRuntimePropertiesMixin, prop, None), property
+            ), f"BaseInverter missing property {prop}"
+
+    async def test_process_inverter_object_emits_pv4_5_full_path(
+        self, hass, mock_config_entry
+    ):
+        """Full coordinator path: _process_inverter_object emits pv4/pv5 data.
+
+        The other pv4-6 tests stop at _build_runtime_sensor_mapping /
+        _map_device_properties.  This drives the REAL coordinator method
+        (_process_inverter_object) on a real/spec'd inverter whose pv4/pv5
+        runtime properties come from a genuine InverterRuntimeData via the
+        actual pylxpweb InverterRuntimePropertiesMixin (NOT a bare MagicMock,
+        which would fabricate any attribute and hide a regression).  An
+        inverter with pv_string_count=5 must yield device_data["sensors"]
+        containing pv4 and pv5 voltage/power values.
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+        from pylxpweb.devices.inverters._runtime_properties import (
+            InverterRuntimePropertiesMixin,
+        )
+        from pylxpweb.transports.data import InverterRuntimeData
+
+        # Real runtime data with pv4/pv5 (and pv6) populated.
+        runtime = InverterRuntimeData(
+            pv1_voltage=350.0,
+            pv1_power=3000,
+            pv4_voltage=361.0,
+            pv4_power=3100,
+            pv5_voltage=362.0,
+            pv5_power=3200,
+            pv6_voltage=363.0,
+            pv6_power=3300,
+        )
+
+        class _SpecInverter(InverterRuntimePropertiesMixin):
+            """Real-shaped inverter exposing genuine pv4-6 runtime properties.
+
+            pv4_voltage/pv4_power/etc. resolve through the real mixin reading
+            ``_transport_runtime`` — exactly as a local-transport BaseInverter
+            does — so the values under test are not fabricated.
+            """
+
+            # firmware_version is a read-only property on the real mixin —
+            # override with a plain class attribute for the stand-in.
+            serial_number = "5555555555"
+            model = "18kPV"
+            firmware_version = "1.0.0"
+            has_data = True
+
+            def __init__(self, rt: InverterRuntimeData) -> None:
+                self._runtime = None
+                self._transport_runtime = rt
+                # 5-string model drives pv4/pv5 creation.
+                self._features = InverterFeatures(pv_string_count=5)
+
+            @property
+            def pv_string_count(self) -> int:
+                return self._features.pv_string_count
+
+            async def refresh(self) -> None:
+                return None
+
+            async def detect_features(self) -> None:
+                return None
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = _SpecInverter(runtime)
+        result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+
+        assert sensors["pv4_voltage"] == 361.0
+        assert sensors["pv4_power"] == 3100
+        assert sensors["pv5_voltage"] == 362.0
+        assert sensors["pv5_power"] == 3200
+        # pv_string_count surfaced through feature extraction.
+        assert result["features"]["pv_string_count"] == 5

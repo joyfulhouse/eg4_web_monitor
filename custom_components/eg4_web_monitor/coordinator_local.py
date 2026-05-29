@@ -34,6 +34,7 @@ from .const import (
 )
 from .coordinator_mixins import (
     _MixinBase,
+    apply_ac_couple_pv_adjustment,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
 )
@@ -1736,45 +1737,20 @@ class LocalTransportMixin(_MixinBase):
                     consumption,
                 )
 
-                # Add AC couple power to pv_total_power for smart ports in AC couple mode
-                # Smart port status 2 = AC Couple (solar inverter connected)
-                # This is configurable via options (default: disabled)
+                # Add AC couple power to pv_total_power for smart ports in AC
+                # couple mode.  Shared with the HTTP/HYBRID path so both modes
+                # report total solar production consistently.  Configurable via
+                # options (default: disabled).
                 include_ac_couple = self.entry.options.get(
                     CONF_INCLUDE_AC_COUPLE_PV,
                     self.entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, False),
                 )
-                if include_ac_couple:
-                    ac_couple_total = 0.0
-                    for port_num in range(1, 5):  # Ports 1-4
-                        status_key = f"smart_port{port_num}_status"
-                        status = gb_sensors.get(status_key)
-                        if status == "ac_couple":  # AC Couple mode
-                            l1_power = (
-                                gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
-                            )
-                            l2_power = (
-                                gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
-                            )
-                            port_power = float(l1_power) + float(l2_power)
-                            ac_couple_total += port_power
-                            _LOGGER.debug(
-                                "LOCAL: Parallel group %s: AC couple port %d power=%sW",
-                                group_name,
-                                port_num,
-                                port_power,
-                            )
-
-                    if ac_couple_total > 0:
-                        current_pv = group_sensors.get("pv_total_power", 0.0)
-                        group_sensors["pv_total_power"] = current_pv + ac_couple_total
-                        _LOGGER.debug(
-                            "LOCAL: Parallel group %s: pv_total_power=%sW "
-                            "(inverters=%sW + AC couple=%sW)",
-                            group_name,
-                            group_sensors["pv_total_power"],
-                            current_pv,
-                            ac_couple_total,
-                        )
+                apply_ac_couple_pv_adjustment(
+                    group_sensors,
+                    gb_sensors,
+                    group_name,
+                    include_ac_couple=include_ac_couple,
+                )
 
                 break  # Only one MID device per system
 

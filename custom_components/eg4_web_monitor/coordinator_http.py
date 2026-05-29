@@ -31,6 +31,7 @@ from pylxpweb.exceptions import (
 )
 
 from .const import (
+    CONF_INCLUDE_AC_COUPLE_PV,
     CONNECTION_TYPE_HTTP,
     CONNECTION_TYPE_HYBRID,
     DOMAIN,
@@ -42,6 +43,7 @@ from .coordinator_mappings import (
 )
 from .coordinator_mixins import (
     _MixinBase,
+    apply_ac_couple_pv_adjustment,
     apply_gridboss_overlay,
     compute_total_inverter_power_kw,
 )
@@ -633,6 +635,21 @@ class HTTPUpdateMixin(_MixinBase):
                                 group_data.get("sensors", {}),
                                 mid_data.get("sensors", {}),
                                 group.name,
+                            )
+
+                            # Add AC-coupled smart-port power into
+                            # pv_total_power (parity with LOCAL path).  Without
+                            # this, HYBRID AC-coupled users see a low
+                            # pv_total_power.  Configurable via options.
+                            include_ac_couple = self.entry.options.get(
+                                CONF_INCLUDE_AC_COUPLE_PV,
+                                self.entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, False),
+                            )
+                            apply_ac_couple_pv_adjustment(
+                                group_data.get("sensors", {}),
+                                mid_data.get("sensors", {}),
+                                group.name,
+                                include_ac_couple=include_ac_couple,
                             )
 
                         except Exception as e:

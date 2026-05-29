@@ -117,6 +117,34 @@ class TestShouldCreateSensor:
         for key in THREE_PHASE_ONLY_SENSORS:
             assert _should_create_sensor(key, features) is False
 
+    def test_pv_three_string_model_creates_pv1_3_only(self):
+        """A 3-string model (18kPV, FlexBOSS21) -> pv1-3, no pv4-6."""
+        features = {"pv_string_count": 3}
+        for key in ("pv1_voltage", "pv2_power", "pv3_current"):
+            assert _should_create_sensor(key, features) is True
+        for key in ("pv4_voltage", "pv5_power", "pv6_voltage"):
+            assert _should_create_sensor(key, features) is False
+
+    def test_pv_zero_string_model_creates_none(self):
+        """A 0-string model (battery-only / AC-coupled-only) -> no PV sensors."""
+        features = {"pv_string_count": 0}
+        for key in ("pv1_voltage", "pv2_power", "pv3_current", "pv4_voltage"):
+            assert _should_create_sensor(key, features) is False
+
+    def test_pv_five_string_model_creates_pv1_5(self):
+        """A hypothetical 5-string model -> pv1-5, not pv6."""
+        features = {"pv_string_count": 5}
+        for key in ("pv1_voltage", "pv4_power", "pv5_voltage"):
+            assert _should_create_sensor(key, features) is True
+        assert _should_create_sensor("pv6_voltage", features) is False
+
+    def test_pv_count_missing_defaults_to_three(self):
+        """Absent pv_string_count falls back to the residential pv1-3 set."""
+        features = {"supports_split_phase": True}
+        for key in ("pv1_voltage", "pv3_power"):
+            assert _should_create_sensor(key, features) is True
+        assert _should_create_sensor("pv4_voltage", features) is False
+
     def test_discharge_recovery_with_support(self):
         """Discharge recovery sensor created when device supports it."""
         features = {"supports_discharge_recovery_hysteresis": True}

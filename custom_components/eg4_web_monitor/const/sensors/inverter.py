@@ -1182,6 +1182,52 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:solar-panel",
     },
+    # PV strings 4-6 (MPPT 4-6) — only created for inverter models whose
+    # pv_string_count >= 4 (see _should_create_sensor in sensor.py).  Most
+    # residential models (18kPV, FlexBOSS21) are 3-string, so these are unused
+    # there; the definitions exist for any future >3-string model.
+    "pv4_voltage": {
+        "name": "PV4 Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "pv5_voltage": {
+        "name": "PV5 Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "pv6_voltage": {
+        "name": "PV6 Voltage",
+        "unit": UnitOfElectricPotential.VOLT,
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "pv4_power": {
+        "name": "PV4 Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "pv5_power": {
+        "name": "PV5 Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
+    "pv6_power": {
+        "name": "PV6 Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+    },
     # GridBOSS MidBox specific sensors
     "grid_voltage_l1": {
         "name": "Grid Voltage L1",

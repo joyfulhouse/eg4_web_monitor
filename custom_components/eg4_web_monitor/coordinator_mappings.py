@@ -142,6 +142,16 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "pv2_power",
         "pv3_voltage",
         "pv3_power",
+        # PV strings 4-6 (MPPT 4-6) — only materialized for models whose
+        # pv_string_count >= 4/5/6 (gated by _should_create_sensor).  Present
+        # in the static set so the count-driven entities and parity checks see
+        # them; 3-string models simply never create or populate them.
+        "pv4_voltage",
+        "pv4_power",
+        "pv5_voltage",
+        "pv5_power",
+        "pv6_voltage",
+        "pv6_power",
         "pv_total_power",
         "battery_voltage",
         "battery_current",
@@ -500,6 +510,14 @@ def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
         "pv2_power": runtime_data.pv2_power,
         "pv3_voltage": runtime_data.pv3_voltage,
         "pv3_power": runtime_data.pv3_power,
+        # PV strings 4-6 (V23 extended) — only populated for >3-string models;
+        # RuntimeData leaves these None for residential 3-string inverters.
+        "pv4_voltage": runtime_data.pv4_voltage,
+        "pv4_power": runtime_data.pv4_power,
+        "pv5_voltage": runtime_data.pv5_voltage,
+        "pv5_power": runtime_data.pv5_power,
+        "pv6_voltage": runtime_data.pv6_voltage,
+        "pv6_power": runtime_data.pv6_power,
         "pv_total_power": runtime_data.pv_total_power,
         # Battery
         "battery_voltage": runtime_data.battery_voltage,
