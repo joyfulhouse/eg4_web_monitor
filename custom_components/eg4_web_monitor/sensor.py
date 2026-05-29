@@ -1,6 +1,7 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -34,6 +35,15 @@ from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
+# Matches per-string PV sensor keys: pv1_voltage, pv2_power, pv3_current, ...
+# Sensor creation for these is driven by the inverter model's pv_string_count
+# (0..n): a key pvN_* is created only when N <= pv_string_count.
+_PV_STRING_SENSOR = re.compile(r"^pv(\d+)_(?:voltage|power|current)$")
+
+# Default PV string count when the inverter model did not report one
+# (conservative residential norm — keeps the canonical pv1-3 set).
+_DEFAULT_PV_STRING_COUNT = 3
+
 
 def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> bool:
     """Determine if a sensor should be created based on device features.
@@ -51,6 +61,17 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
     # If no features detected, create all sensors (conservative fallback)
     if not features:
         return True
+
+    # Per-string PV sensors are created based on the model's pv_string_count
+    # (0..n).  A 3-string model (18kPV, FlexBOSS21) creates pv1-3 only; a
+    # 0-string model (battery-only / AC-coupled-only) creates none; a 5-string
+    # model would create pv1-5.  The count comes from the inverter model in
+    # pylxpweb (DEVICE_TYPE_CODE_PV_STRING_COUNT) via feature detection.
+    pv_match = _PV_STRING_SENSOR.match(sensor_key)
+    if pv_match:
+        string_index = int(pv_match.group(1))
+        pv_string_count = features.get("pv_string_count", _DEFAULT_PV_STRING_COUNT)
+        return string_index <= int(pv_string_count)
 
     # Check split-phase sensors (only for EG4_OFFGRID series)
     if sensor_key in SPLIT_PHASE_ONLY_SENSORS:

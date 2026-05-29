@@ -143,6 +143,60 @@ def apply_gridboss_overlay(
             )
 
 
+def apply_ac_couple_pv_adjustment(
+    pg_sensors: dict[str, Any],
+    gb_sensors: dict[str, Any],
+    group_name: str,
+    *,
+    include_ac_couple: bool,
+) -> None:
+    """Add AC-coupled smart-port power into the parallel group's pv_total_power.
+
+    AC-coupled solar inverters feed through GridBOSS smart ports, so their
+    production is invisible to the EG4 inverters' own PV registers.  When the
+    user opts in (CONF_INCLUDE_AC_COUPLE_PV), add the AC-couple smart-port
+    power to pv_total_power so total solar production is represented.
+
+    Called from both the LOCAL path and the HTTP path (hybrid mode) so that
+    pv_total_power is consistent regardless of connection mode.
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        gb_sensors: GridBOSS/MID device sensor dict.
+        group_name: Parallel group name for debug logging.
+        include_ac_couple: Whether AC-couple inclusion is enabled.
+    """
+    if not include_ac_couple:
+        return
+
+    ac_couple_total = 0.0
+    for port_num in range(1, 5):  # Ports 1-4
+        # Smart port status 2 = AC Couple (solar inverter connected)
+        if gb_sensors.get(f"smart_port{port_num}_status") != "ac_couple":
+            continue
+        l1_power = gb_sensors.get(f"ac_couple{port_num}_power_l1") or 0
+        l2_power = gb_sensors.get(f"ac_couple{port_num}_power_l2") or 0
+        port_power = float(l1_power) + float(l2_power)
+        ac_couple_total += port_power
+        _LOGGER.debug(
+            "Parallel group %s: AC couple port %d power=%sW",
+            group_name,
+            port_num,
+            port_power,
+        )
+
+    if ac_couple_total > 0:
+        current_pv = float(pg_sensors.get("pv_total_power", 0.0) or 0.0)
+        pg_sensors["pv_total_power"] = current_pv + ac_couple_total
+        _LOGGER.debug(
+            "Parallel group %s: pv_total_power=%sW (inverters=%sW + AC couple=%sW)",
+            group_name,
+            pg_sensors["pv_total_power"],
+            current_pv,
+            ac_couple_total,
+        )
+
+
 def compute_total_inverter_power_kw(
     inverters: Any,
 ) -> float:
@@ -788,6 +842,11 @@ class DeviceProcessingMixin(_MixinBase):
             "pv1_power": "pv1_power",
             "pv2_power": "pv2_power",
             "pv3_power": "pv3_power",
+            # PV strings 4-6 (only present on >3-string models; absent on
+            # residential inverters where the inverter property returns None)
+            "pv4_power": "pv4_power",
+            "pv5_power": "pv5_power",
+            "pv6_power": "pv6_power",
             "battery_power": "battery_power",
             "consumption_power": "consumption_power",
             "inverter_power": "ac_power",
@@ -812,6 +871,10 @@ class DeviceProcessingMixin(_MixinBase):
             "pv1_voltage": "pv1_voltage",
             "pv2_voltage": "pv2_voltage",
             "pv3_voltage": "pv3_voltage",
+            # PV strings 4-6 (only present on >3-string models)
+            "pv4_voltage": "pv4_voltage",
+            "pv5_voltage": "pv5_voltage",
+            "pv6_voltage": "pv6_voltage",
             "battery_voltage": "battery_voltage",
             "grid_voltage_r": "grid_voltage_r",
             "grid_voltage_s": "grid_voltage_s",
@@ -929,6 +992,15 @@ class DeviceProcessingMixin(_MixinBase):
             elif hasattr(inverter_features, attr_name):
                 # Fallback to features object attribute using correct mapping
                 features[prop] = getattr(inverter_features, attr_name, False)
+
+        # PV (MPPT) string count (0..n) drives per-string PV sensor creation.
+        # Explicit per-model value declared in pylxpweb
+        # (DEVICE_TYPE_CODE_PV_STRING_COUNT).  A 3-string model -> pv1-3 only.
+        pv_string_count = getattr(inverter, "pv_string_count", None)
+        if pv_string_count is None:
+            pv_string_count = getattr(inverter_features, "pv_string_count", None)
+        if pv_string_count is not None:
+            features["pv_string_count"] = int(pv_string_count)
 
         return features
 
@@ -1051,6 +1123,30 @@ class DeviceProcessingMixin(_MixinBase):
         """
         property_map = self._get_battery_bank_property_map()
         sensors = _map_device_properties(battery_bank, property_map)
+
+        # Last polled timestamp for battery bank device (parity with LOCAL,
+        # which sets battery_bank_last_polled in _build_battery_bank_sensor_mapping).
+        sensors["battery_bank_last_polled"] = dt_util.utcnow()
+
+        # Derive bank-level minimum cell temperature/voltage from per-battery
+        # data.  The cloud BatteryBank object does NOT expose
+        # min_cell_temperature/min_cell_voltage (those come from Modbus bank
+        # registers in LOCAL mode), but each per-battery Battery object does.
+        # Mirror LOCAL's battery_bank_min_cell_* sensors when CAN/per-battery
+        # data is available; otherwise omit (never fabricate).
+        batteries = getattr(battery_bank, "batteries", None) or []
+        min_cell_temps = [
+            t for b in batteries if (t := getattr(b, "min_cell_temp", None)) is not None
+        ]
+        if min_cell_temps:
+            sensors["battery_bank_min_cell_temp"] = min(min_cell_temps)
+        min_cell_voltages = [
+            v
+            for b in batteries
+            if (v := getattr(b, "min_cell_voltage", None)) is not None
+        ]
+        if min_cell_voltages:
+            sensors["battery_bank_min_cell_voltage"] = min(min_cell_voltages)
 
         # Add battery_status as alias for battery_bank_status for backwards compatibility
         # In v2.2.x, the batStatus field was mapped to battery_status at the inverter level
