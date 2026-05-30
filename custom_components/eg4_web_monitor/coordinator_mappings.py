@@ -6,7 +6,7 @@ key dictionaries used by Home Assistant entities.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.util import dt as dt_util
 
@@ -20,7 +20,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    from pylxpweb.devices import Battery, MIDDevice
+    from pylxpweb.devices import Battery, BatteryBank, MIDDevice
     from pylxpweb.transports.data import (
         BatteryBankData,
         BatteryData,
@@ -694,13 +694,246 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
     }
 
 
+# ---------------------------------------------------------------------------
+# Canonical battery-bank field tables (shared LOCAL/CLOUD/HYBRID adapter).
+#
+# These tables are the SINGLE source of truth for which battery-bank sensors
+# exist and which source attribute feeds each one.  Both the LOCAL path
+# (BatteryBankData transport dataclass) and the CLOUD path (BatteryBank device
+# object) consume them through build_battery_bank_sensors(), and the cloud
+# property map is DERIVED from them — so adding a bank sensor in one place
+# surfaces it in every mode (structural cure for the M2 "fix-one-miss-the-
+# other" duplication).  Behaviour that genuinely differs per source is
+# preserved exactly inside the adapter and documented on each table/helper:
+#   * CLOUD reads computed properties defensively and skips None/"" (parity
+#     with _map_device_properties); LOCAL reads dataclass fields directly and
+#     writes every key (incl. None) to keep the sensors present.
+#   * battery_bank_power priority is reversed (see _compute_bank_power).
+#   * BMS registers are LOCAL-only; cloud min-cell values are derived from
+#     per-battery data (see _derive_cloud_min_cell).
+# ---------------------------------------------------------------------------
+
+# Common bank fields exposed by BOTH BatteryBankData and BatteryBank.
+# sensor_key -> source attribute name.
+_BATTERY_BANK_FIELDS: dict[str, str] = {
+    "battery_bank_soc": "soc",
+    "battery_bank_voltage": "voltage",
+    "battery_bank_current": "current",
+    "battery_bank_max_capacity": "max_capacity",
+    "battery_bank_current_capacity": "current_capacity",
+    "battery_bank_remain_capacity": "remain_capacity",
+    "battery_bank_full_capacity": "full_capacity",
+    "battery_bank_capacity_percent": "capacity_percent",
+    "battery_bank_count": "battery_count",
+    "battery_bank_status": "status",
+    # Bank-level register data (always available, no CAN bus needed)
+    "battery_bank_cycle_count": "cycle_count",
+    "battery_bank_min_soh": "min_soh",
+    "battery_bank_max_cell_temp": "max_cell_temp",
+    "battery_bank_temp_delta": "temp_delta",
+    "battery_bank_cell_voltage_delta_max": "cell_voltage_delta_max",
+}
+
+# CAN-dependent cross-battery diagnostics — require individual battery data
+# (registers 5002+ / cloud per-battery array).  Properties return None when no
+# CAN data is available, so these are None-skipped in BOTH modes (never
+# fabricate; not part of ALL_INVERTER_SENSOR_KEYS).
+_BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS: dict[str, str] = {
+    "battery_bank_soc_delta": "soc_delta",
+    "battery_bank_soh_delta": "soh_delta",
+    "battery_bank_voltage_delta": "voltage_delta",
+    "battery_bank_cycle_count_delta": "cycle_count_delta",
+}
+
+# LOCAL-only Modbus bank registers.  The cloud BatteryBank object does NOT
+# expose these (min-cell values are derived from per-battery data instead — see
+# _derive_cloud_min_cell).  Written unconditionally in LOCAL mode (incl. None)
+# to keep the sensors present.
+_BATTERY_BANK_LOCAL_REGISTER_FIELDS: dict[str, str] = {
+    "battery_bank_min_cell_temp": "min_cell_temperature",
+    "battery_bank_min_cell_voltage": "min_cell_voltage",
+    "battery_bank_bms_charge_current_limit": "bms_charge_current_limit",
+    "battery_bank_bms_discharge_current_limit": "bms_discharge_current_limit",
+    "battery_bank_bms_charge_voltage_ref": "bms_charge_voltage_ref",
+    "battery_bank_bms_discharge_cutoff": "bms_discharge_cutoff",
+    "battery_bank_bms_battery_type": "bms_battery_type",
+    "battery_bank_voltage_inv_sample": "battery_voltage_inv_sample",
+}
+
+
+def get_battery_bank_property_map() -> dict[str, str]:
+    """Cloud battery-bank property map, DERIVED from the canonical tables.
+
+    Maps a pylxpweb BatteryBank property name -> sensor key, for the cross-repo
+    contract test and any other consumer.  Built from the same field tables the
+    adapter uses, so the cloud map can never silently drift from the LOCAL
+    sensor set.  charge_power/discharge_power are intermediates consumed by the
+    power calc; battery_power maps to the final power sensor.
+
+    Returns:
+        Dictionary mapping battery bank property names to sensor keys.
+    """
+    property_map: dict[str, str] = {
+        attr: key
+        for key, attr in {
+            **_BATTERY_BANK_FIELDS,
+            **_BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS,
+        }.items()
+    }
+    property_map["charge_power"] = "_battery_bank_charge_power"
+    property_map["discharge_power"] = "_battery_bank_discharge_power"
+    property_map["battery_power"] = "battery_bank_power"
+    return property_map
+
+
+def _read_bank_value(bank: Any, attr: str, *, defensive: bool) -> Any:
+    """Read *attr* from a battery-bank source object.
+
+    LOCAL transport dataclass fields are plain attributes (safe direct read).
+    CLOUD BatteryBank exposes computed properties that may call float()/int()
+    on not-yet-populated internal data and raise; ``defensive=True`` mirrors
+    _map_device_properties and returns None on TypeError/ValueError/AttributeError.
+    """
+    if not defensive:
+        return getattr(bank, attr, None)
+    try:
+        return getattr(bank, attr, None)
+    except (TypeError, ValueError, AttributeError) as exc:
+        _LOGGER.debug(
+            "battery_bank property %s raised %s: %s", attr, type(exc).__name__, exc
+        )
+        return None
+
+
+def _compute_bank_power(
+    charge: float | None,
+    discharge: float | None,
+    api_power: float | None,
+    *,
+    prefer_api: bool,
+) -> float | None:
+    """Compute battery_bank_power, preserving each source's priority.
+
+    LOCAL prefers the authoritative charge−discharge difference (its
+    battery_power is only a voltage×current fallback).  CLOUD prefers the API's
+    batPower value and falls back to charge−discharge.
+    """
+    charge_discharge = (
+        charge - discharge if charge is not None and discharge is not None else None
+    )
+    if prefer_api:
+        return api_power if api_power is not None else charge_discharge
+    return charge_discharge if charge_discharge is not None else api_power
+
+
+def _derive_cloud_min_cell(bank: Any, sensors: dict[str, Any]) -> None:
+    """Derive bank min cell temp/voltage from per-battery data (CLOUD only).
+
+    The cloud BatteryBank object does not expose min_cell_temperature/
+    min_cell_voltage (those are Modbus bank registers in LOCAL mode), but each
+    per-battery object does.  Mirror LOCAL's battery_bank_min_cell_* sensors
+    when CAN/per-battery data is available; otherwise omit (never fabricate).
+    """
+    batteries = getattr(bank, "batteries", None) or []
+    min_cell_temps = [
+        t for b in batteries if (t := getattr(b, "min_cell_temp", None)) is not None
+    ]
+    if min_cell_temps:
+        sensors["battery_bank_min_cell_temp"] = min(min_cell_temps)
+    min_cell_voltages = [
+        v for b in batteries if (v := getattr(b, "min_cell_voltage", None)) is not None
+    ]
+    if min_cell_voltages:
+        sensors["battery_bank_min_cell_voltage"] = min(min_cell_voltages)
+
+
+def build_battery_bank_sensors(
+    bank: "BatteryBankData | BatteryBank",
+    *,
+    source: Literal["local", "cloud"],
+) -> dict[str, Any]:
+    """Canonical battery-bank sensor adapter for LOCAL/CLOUD/HYBRID.
+
+    Produces the battery-bank sensor dict from either a LOCAL transport
+    ``BatteryBankData`` object (``source="local"``) or a CLOUD ``BatteryBank``
+    device object (``source="cloud"``).  Both paths share the canonical field
+    tables so the common sensor set cannot drift; per-source differences
+    documented on the tables/helpers are preserved exactly.
+
+    The C-rate sensor (``battery_bank_charge_rate``) is computed separately by
+    ``compute_bank_charge_rate()`` at the call site, after this adapter runs.
+
+    Args:
+        bank: ``BatteryBankData`` (LOCAL/HYBRID transport) or ``BatteryBank``
+            (CLOUD device) object.
+        source: ``"local"`` or ``"cloud"`` — selects read semantics.
+
+    Returns:
+        Dictionary mapping sensor keys to values.
+    """
+    is_cloud = source == "cloud"
+    sensors: dict[str, Any] = {}
+
+    # Common fields.  LOCAL writes every key (incl. None) to keep sensors
+    # present; CLOUD skips None/"" exactly like _map_device_properties.
+    for key, attr in _BATTERY_BANK_FIELDS.items():
+        value = _read_bank_value(bank, attr, defensive=is_cloud)
+        if is_cloud and (value is None or value == ""):
+            continue
+        sensors[key] = value
+
+    # CAN cross-battery diagnostics: None-skipped in BOTH modes.
+    for key, attr in _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS.items():
+        value = _read_bank_value(bank, attr, defensive=is_cloud)
+        if value is not None:
+            sensors[key] = value
+
+    # battery_bank_power — source-specific priority.  LOCAL always writes the
+    # key (incl. None); CLOUD writes only when computable.
+    charge = _read_bank_value(bank, "charge_power", defensive=is_cloud)
+    discharge = _read_bank_value(bank, "discharge_power", defensive=is_cloud)
+    api_power = _read_bank_value(bank, "battery_power", defensive=is_cloud)
+    power = _compute_bank_power(charge, discharge, api_power, prefer_api=is_cloud)
+    if not is_cloud or power is not None:
+        sensors["battery_bank_power"] = power
+    if power is None:
+        _LOGGER.warning(
+            "%s battery_bank_power: cannot calculate - "
+            "charge=%s, discharge=%s, battery_power=%s",
+            source.upper(),
+            charge,
+            discharge,
+            api_power,
+        )
+
+    # Source-specific extras.
+    if is_cloud:
+        _derive_cloud_min_cell(bank, sensors)
+    else:
+        for key, attr in _BATTERY_BANK_LOCAL_REGISTER_FIELDS.items():
+            sensors[key] = getattr(bank, attr, None)
+
+    # battery_status backwards-compat alias (v2.2.x mapped batStatus at the
+    # inverter level).  LOCAL always mirrors status (incl. None); CLOUD mirrors
+    # only when present.
+    if not is_cloud:
+        sensors["battery_status"] = sensors.get("battery_bank_status")
+    elif "battery_bank_status" in sensors:
+        sensors["battery_status"] = sensors["battery_bank_status"]
+
+    # Poll timestamp for the battery bank device (both modes).
+    sensors["battery_bank_last_polled"] = dt_util.utcnow()
+
+    return sensors
+
+
 def _build_battery_bank_sensor_mapping(
     battery_data: "BatteryBankData",
 ) -> dict[str, Any]:
-    """Build sensor mapping from battery bank data object.
+    """Build sensor mapping from LOCAL transport battery bank data.
 
-    Computes cross-battery diagnostic metrics directly from the transport
-    BatteryData objects, mirroring BatteryBank's OOP properties for LOCAL mode.
+    Thin wrapper over :func:`build_battery_bank_sensors` (``source="local"``);
+    retained as the LOCAL entry point used by the coordinator and tests.
 
     Args:
         battery_data: BatteryBankData object from pylxpweb transport.
@@ -708,82 +941,7 @@ def _build_battery_bank_sensor_mapping(
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    # Calculate battery_power with fallback:
-    # Primary: charge_power - discharge_power (matches charge/discharge sensors)
-    # Fallback: voltage * current (from battery_power property)
-    charge = battery_data.charge_power
-    discharge = battery_data.discharge_power
-
-    _LOGGER.debug(
-        "LOCAL battery_bank: count=%s, voltage=%s, current=%s, "
-        "charge=%s, discharge=%s, soc=%s, capacity=%s",
-        battery_data.battery_count,
-        battery_data.voltage,
-        battery_data.current,
-        charge,
-        discharge,
-        battery_data.soc,
-        battery_data.max_capacity,
-    )
-
-    battery_power: float | None = None
-    if charge is not None and discharge is not None:
-        battery_power = charge - discharge
-    elif battery_data.battery_power is not None:
-        battery_power = battery_data.battery_power
-    else:
-        _LOGGER.warning(
-            "LOCAL battery_bank_power: cannot calculate - "
-            "voltage=%s, current=%s, charge=%s, discharge=%s",
-            battery_data.voltage,
-            battery_data.current,
-            charge,
-            discharge,
-        )
-
-    sensors: dict[str, Any] = {
-        "battery_bank_soc": battery_data.soc,
-        "battery_bank_voltage": battery_data.voltage,
-        "battery_bank_current": battery_data.current,
-        "battery_bank_power": battery_power,
-        "battery_bank_max_capacity": battery_data.max_capacity,
-        "battery_bank_current_capacity": battery_data.current_capacity,
-        "battery_bank_remain_capacity": battery_data.remain_capacity,
-        "battery_bank_full_capacity": battery_data.full_capacity,
-        "battery_bank_capacity_percent": battery_data.capacity_percent,
-        "battery_bank_count": battery_data.battery_count,
-        "battery_bank_status": battery_data.status,
-        "battery_status": battery_data.status,
-        # Last polled timestamp for battery bank device
-        "battery_bank_last_polled": dt_util.utcnow(),
-        # Bank-level BMS register data (always available, no CAN bus needed)
-        "battery_bank_cycle_count": battery_data.cycle_count,
-        "battery_bank_min_soh": battery_data.min_soh,
-        "battery_bank_max_cell_temp": battery_data.max_cell_temp,
-        "battery_bank_min_cell_temp": battery_data.min_cell_temperature,
-        "battery_bank_temp_delta": battery_data.temp_delta,
-        "battery_bank_cell_voltage_delta_max": battery_data.cell_voltage_delta_max,
-        "battery_bank_min_cell_voltage": battery_data.min_cell_voltage,
-        "battery_bank_bms_charge_current_limit": battery_data.bms_charge_current_limit,
-        "battery_bank_bms_discharge_current_limit": battery_data.bms_discharge_current_limit,
-        "battery_bank_bms_charge_voltage_ref": battery_data.bms_charge_voltage_ref,
-        "battery_bank_bms_discharge_cutoff": battery_data.bms_discharge_cutoff,
-        "battery_bank_bms_battery_type": battery_data.bms_battery_type,
-        "battery_bank_voltage_inv_sample": battery_data.battery_voltage_inv_sample,
-    }
-
-    # CAN-dependent cross-battery diagnostics — require individual battery data
-    # from registers 5002+. Properties return None when no CAN data available,
-    # so only add non-None values (these keys are NOT in ALL_INVERTER_SENSOR_KEYS).
-    can_diagnostic_sensors = {
-        "battery_bank_soc_delta": battery_data.soc_delta,
-        "battery_bank_soh_delta": battery_data.soh_delta,
-        "battery_bank_voltage_delta": battery_data.voltage_delta,
-        "battery_bank_cycle_count_delta": battery_data.cycle_count_delta,
-    }
-    sensors.update({k: v for k, v in can_diagnostic_sensors.items() if v is not None})
-
-    return sensors
+    return build_battery_bank_sensors(battery_data, source="local")
 
 
 def _build_individual_battery_mapping(
