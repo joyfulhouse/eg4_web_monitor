@@ -211,7 +211,9 @@ class TestBuildLocalDeviceData:
 
         # REAL inverter with an empty runtime — computed power properties run for
         # real (all derive to 0 from the empty transport data).
-        inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=InverterRuntimeData())
+        inverter = make_real_inverter(
+            "INV001", "FlexBOSS21", runtime=InverterRuntimeData()
+        )
         inverter._transport_battery = None
         # _transport is the network CONNECTION object (Modbus/Dongle socket), not
         # a pylxpweb data model — a real one needs a live socket.  It is an infra
@@ -314,7 +316,10 @@ class TestBuildLocalDeviceData:
         # total_load_power is a documented ALIAS of consumption_power (a real
         # pylxpweb semantic the old MagicMock hid by asserting a distinct 4000).
         assert result["sensors"]["total_load_power"] == 2000
-        assert result["sensors"]["total_load_power"] == result["sensors"]["consumption_power"]
+        assert (
+            result["sensors"]["total_load_power"]
+            == result["sensors"]["consumption_power"]
+        )
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
         # grid_import_power sensor is sourced from inverter.power_to_user (load_power)
@@ -1442,7 +1447,9 @@ class TestBatteryRRCacheFallback:
         return entry
 
     @staticmethod
-    def _make_mock_inverter(*, battery_count: int, batteries: list[Any]) -> HybridInverter:
+    def _make_mock_inverter(
+        *, battery_count: int, batteries: list[Any]
+    ) -> HybridInverter:
         mock_runtime = InverterRuntimeData(
             parallel_number=0,
             parallel_master_slave=0,
