@@ -1,11 +1,87 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
 import threading
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pylxpweb.devices import HybridInverter, MIDDevice
+from pylxpweb.transports.data import (
+    InverterEnergyData,
+    InverterRuntimeData,
+    MidboxRuntimeData,
+)
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+# =========================================================================
+# Shape-faithful pylxpweb device builders (epic eg4-uqs)
+# =========================================================================
+# A plain MagicMock answers to ANY attribute, so a coordinator test passes even
+# when the real pylxpweb object lacks the attribute the code reads — the exact
+# blindness that let seam drift (e.g. eg4-ohz) ship undetected.
+#
+# These builders return REAL pylxpweb device objects (mock client — the client
+# is only used for API calls, never by the property accessors) with REAL
+# transport dataclasses injected.  The device's @property accessors compute for
+# real, and reading an attribute the class does not define raises AttributeError
+# — so a test fails the moment the integration relies on a non-existent
+# pylxpweb attribute.  ``_map_device_properties`` then gets ``None`` for a
+# missing property (its getattr default), exactly as in production.
+#
+# For pure transport dataclasses (InverterRuntimeData, InverterEnergyData,
+# BatteryData, BatteryBankData, MidboxRuntimeData) construct the REAL dataclass
+# directly in the test — they are trivial to instantiate and carry real field
+# semantics; no helper is needed.
+
+
+def make_real_inverter(
+    serial_number: str = "1234567890",
+    model: str = "FlexBOSS21",
+    *,
+    runtime: InverterRuntimeData | None = None,
+    energy: InverterEnergyData | None = None,
+    client: Any = None,
+) -> HybridInverter:
+    """Build a REAL HybridInverter with injected transport data.
+
+    The client is mocked (only API methods use it); the property accessors read
+    the injected ``InverterRuntimeData`` / ``InverterEnergyData``.  Reading an
+    attribute the real class does not define raises AttributeError.
+    """
+    inverter = HybridInverter(client or MagicMock(), serial_number, model)
+    if runtime is not None:
+        inverter._transport_runtime = runtime
+    if energy is not None:
+        inverter._transport_energy = energy
+    return inverter
+
+
+def make_real_mid(
+    serial_number: str = "0987654321",
+    model: str = "GridBOSS",
+    *,
+    runtime: MidboxRuntimeData | None = None,
+    client: Any = None,
+) -> MIDDevice:
+    """Build a REAL MIDDevice (GridBOSS) with injected runtime data."""
+    mid = MIDDevice(client or MagicMock(), serial_number, model)
+    if runtime is not None:
+        mid._transport_runtime = runtime
+    return mid
+
+
+@pytest.fixture
+def make_real_inverter_factory():
+    """Fixture returning the ``make_real_inverter`` builder."""
+    return make_real_inverter
+
+
+@pytest.fixture
+def make_real_mid_factory():
+    """Fixture returning the ``make_real_mid`` builder."""
+    return make_real_mid
 
 
 def create_mock_station(
