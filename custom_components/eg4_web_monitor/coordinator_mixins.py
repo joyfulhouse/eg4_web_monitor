@@ -203,6 +203,77 @@ def apply_ac_couple_pv_adjustment(
         )
 
 
+def _recompute_consumption_from_balance(
+    pg_sensors: dict[str, Any], group_name: str
+) -> None:
+    """Recompute consumption_power from the energy balance (LOCAL only).
+
+    In MID (GridBOSS) systems the inverters' own grid registers are unreliable,
+    so the energy-balance consumption_power summed from inverters is garbage.
+    Replace it using the MID device's authoritative grid_power (already overlaid
+    onto ``grid_power`` by :func:`apply_gridboss_overlay`).
+
+    Formula: consumption = pv + battery_net + grid_power
+        pv          — inverters' own PV (pv_total_power)
+        battery_net — negative of parallel_battery_power (positive = charging)
+        grid_power  — from the GridBOSS overlay (positive = importing)
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        group_name: Parallel group name for debug logging.
+    """
+    pv = float(pg_sensors.get("pv_total_power", 0.0))
+    bat_power = float(pg_sensors.get("parallel_battery_power", 0.0))
+    grid = float(pg_sensors.get("grid_power", 0.0))
+    battery_net = -bat_power
+    consumption = max(0.0, pv + battery_net + grid)
+    pg_sensors["consumption_power"] = consumption
+    _LOGGER.debug(
+        "LOCAL: Parallel group %s: consumption_power = "
+        "pv(%s) + bat_net(%s) + grid(%s) = %s",
+        group_name,
+        pv,
+        battery_net,
+        grid,
+        consumption,
+    )
+
+
+def apply_gridboss_to_parallel_group(
+    pg_sensors: dict[str, Any],
+    gb_sensors: dict[str, Any],
+    group_name: str,
+    *,
+    include_ac_couple: bool,
+    recompute_consumption: bool,
+) -> None:
+    """Apply the full GridBOSS workflow to a parallel group's sensors.
+
+    Single canonical sequence shared by the HTTP/HYBRID and LOCAL coordinators,
+    so the GridBOSS overlay call sites can no longer diverge (cure for F4):
+
+      1. overlay GridBOSS CT measurements (authoritative grid/consumption);
+      2. (LOCAL only, ``recompute_consumption=True``) recompute
+         consumption_power from the energy balance using the overlaid
+         grid_power — folds the LOCAL-only M3 post-step behind a flag;
+      3. add AC-coupled smart-port PV into pv_total_power when enabled.
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        gb_sensors: GridBOSS/MID device sensor dict.
+        group_name: Parallel group name for debug logging.
+        include_ac_couple: Whether AC-couple PV inclusion is enabled.
+        recompute_consumption: Whether to recompute consumption_power from the
+            energy balance (LOCAL path); the HTTP path keeps the cloud value.
+    """
+    apply_gridboss_overlay(pg_sensors, gb_sensors, group_name)
+    if recompute_consumption:
+        _recompute_consumption_from_balance(pg_sensors, group_name)
+    apply_ac_couple_pv_adjustment(
+        pg_sensors, gb_sensors, group_name, include_ac_couple=include_ac_couple
+    )
+
+
 def compute_total_inverter_power_kw(
     inverters: Any,
 ) -> float:

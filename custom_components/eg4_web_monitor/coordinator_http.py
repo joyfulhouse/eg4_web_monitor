@@ -43,8 +43,7 @@ from .coordinator_mappings import (
 )
 from .coordinator_mixins import (
     _MixinBase,
-    apply_ac_couple_pv_adjustment,
-    apply_gridboss_overlay,
+    apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
 )
 from .utils import clean_battery_display_name
@@ -632,31 +631,24 @@ class HTTPUpdateMixin(_MixinBase):
                                 mid_data
                             )
 
-                            # Apply GridBOSS CT overlay to parallel group.
-                            # GridBOSS CTs are the authoritative source for
-                            # grid and consumption measurements — inverter
-                            # register sums are internal estimates that diverge
-                            # from actual panel readings.  This mirrors the
-                            # overlay in _process_local_parallel_groups().
-                            apply_gridboss_overlay(
-                                group_data.get("sensors", {}),
-                                mid_data.get("sensors", {}),
-                                group.name,
-                            )
-
-                            # Add AC-coupled smart-port power into
-                            # pv_total_power (parity with LOCAL path).  Without
-                            # this, HYBRID AC-coupled users see a low
-                            # pv_total_power.  Configurable via options.
+                            # Apply the canonical GridBOSS workflow to the
+                            # parallel group (overlay + AC-couple PV).  GridBOSS
+                            # CTs are the authoritative source for grid and
+                            # consumption measurements — inverter register sums
+                            # are internal estimates that diverge from actual
+                            # panel readings.  Shared with the LOCAL path; the
+                            # HTTP path keeps the cloud consumption value
+                            # (recompute_consumption=False).
                             include_ac_couple = self.entry.options.get(
                                 CONF_INCLUDE_AC_COUPLE_PV,
                                 self.entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, False),
                             )
-                            apply_ac_couple_pv_adjustment(
+                            apply_gridboss_to_parallel_group(
                                 group_data.get("sensors", {}),
                                 mid_data.get("sensors", {}),
                                 group.name,
                                 include_ac_couple=include_ac_couple,
+                                recompute_consumption=False,
                             )
 
                         except Exception as e:
