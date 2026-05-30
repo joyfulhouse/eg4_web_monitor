@@ -792,17 +792,22 @@ def _read_bank_value(bank: Any, attr: str, *, defensive: bool) -> Any:
     LOCAL transport dataclass fields are plain attributes (safe direct read).
     CLOUD BatteryBank exposes computed properties that may call float()/int()
     on not-yet-populated internal data and raise; ``defensive=True`` mirrors
-    _map_device_properties and returns None on TypeError/ValueError/AttributeError.
+    ``_map_device_properties`` exactly: it returns None on
+    TypeError/ValueError/AttributeError AND treats an empty string as "no data"
+    (the generic mapper skipped both None and "").  Normalising "" -> None here
+    keeps every consumer (common loop, CAN diagnostics, power calc) faithful to
+    the original cloud behaviour without repeating the "" check at each site.
     """
     if not defensive:
         return getattr(bank, attr, None)
     try:
-        return getattr(bank, attr, None)
+        value = getattr(bank, attr, None)
     except (TypeError, ValueError, AttributeError) as exc:
         _LOGGER.debug(
             "battery_bank property %s raised %s: %s", attr, type(exc).__name__, exc
         )
         return None
+    return None if value == "" else value
 
 
 def _compute_bank_power(
@@ -875,10 +880,11 @@ def build_battery_bank_sensors(
     sensors: dict[str, Any] = {}
 
     # Common fields.  LOCAL writes every key (incl. None) to keep sensors
-    # present; CLOUD skips None/"" exactly like _map_device_properties.
+    # present; CLOUD skips None exactly like _map_device_properties (""
+    # already normalised to None by _read_bank_value's defensive read).
     for key, attr in _BATTERY_BANK_FIELDS.items():
         value = _read_bank_value(bank, attr, defensive=is_cloud)
-        if is_cloud and (value is None or value == ""):
+        if is_cloud and value is None:
             continue
         sensors[key] = value
 

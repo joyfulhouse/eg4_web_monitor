@@ -120,6 +120,32 @@ def test_cloud_skips_none_local_writes_all() -> None:
     assert "battery_bank_min_soh" in local
 
 
+def test_cloud_treats_empty_string_as_no_data() -> None:
+    """CLOUD treats "" like None (parity with _map_device_properties' != "" skip).
+
+    Regression guard for the original generic mapper which skipped both None
+    and empty strings.  Applies to the common loop, the CAN diagnostics, AND
+    the battery_bank_power fallback.
+    """
+    bank = _make_cloud_bank()
+    # battery_power == "" must NOT be written as ""; the power calc falls back
+    # to charge - discharge instead.
+    bank.battery_power = ""
+    bank.charge_power = 600
+    bank.discharge_power = 100
+    # A CAN diagnostic of "" must be omitted (not emitted as "").
+    bank.soc_delta = ""
+    # A common field of "" must be omitted too.
+    bank.min_soh = ""
+
+    cloud = build_battery_bank_sensors(bank, source="cloud")
+
+    assert cloud["battery_bank_power"] == 500  # charge - discharge fallback
+    assert cloud["battery_bank_power"] != ""
+    assert "battery_bank_soc_delta" not in cloud
+    assert "battery_bank_min_soh" not in cloud
+
+
 def test_power_priority_preserved_per_source() -> None:
     """LOCAL prefers charge−discharge; CLOUD prefers the authoritative API value."""
     # Divergent inputs: charge−discharge = 500 vs api battery_power = 999.
