@@ -79,7 +79,10 @@ def _cloud_battery_bank_keys() -> set[str]:
     )
 
     values: dict[str, object] = {}
-    for attr in {**_BATTERY_BANK_FIELDS, **_BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS}.values():
+    for attr in {
+        **_BATTERY_BANK_FIELDS,
+        **_BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS,
+    }.values():
         values[attr] = 1
     values["status"] = "Charging"
     values["charge_power"] = 500
