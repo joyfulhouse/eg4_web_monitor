@@ -213,6 +213,9 @@ class TestBuildLocalDeviceData:
         # real (all derive to 0 from the empty transport data).
         inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=InverterRuntimeData())
         inverter._transport_battery = None
+        # _transport is the network CONNECTION object (Modbus/Dongle socket), not
+        # a pylxpweb data model — a real one needs a live socket.  It is an infra
+        # mock by design; transport_host is connection metadata, not device data.
         inverter._transport = MagicMock()
         inverter._transport.host = "192.168.1.100"
 
