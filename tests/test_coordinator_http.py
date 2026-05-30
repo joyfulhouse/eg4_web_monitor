@@ -31,6 +31,9 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
+from pylxpweb.transports.data import MidboxRuntimeData
+
+from tests.conftest import make_real_mid
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -806,14 +809,18 @@ class TestHybridTransportGating:
         hybrid_dongle_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
 
-        mid_device = MagicMock()
-        mid_device.serial_number = "MID001"
-        mid_device.model = "GridBOSS"
-        mid_device.firmware_version = "1.0.0"
+        mid_device = make_real_mid(
+            serial_number="MID001",
+            model="GridBOSS",
+            runtime=MidboxRuntimeData(
+                grid_l1_voltage=122.5,
+                grid_l2_voltage=122.4,
+                grid_frequency=60.0,
+            ),
+        )
+        # refresh() is the call under test — wrap it so we can assert it is
+        # NOT invoked (control-flow mock, not data-producing).
         mid_device.refresh = AsyncMock()
-        # Give it basic properties so processing doesn't error
-        mid_device.grid_voltage = 240.0
-        mid_device.grid_frequency = 60.0
 
         await coordinator._process_mid_device_object(mid_device)
 
