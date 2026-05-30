@@ -4959,15 +4959,12 @@ class TestHybridTransportExclusiveSensors:
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
+        # REAL inverter with NO runtime/transport injected: the real class
+        # defaults _transport_runtime and _transport to None, so the overlay
+        # path is naturally skipped (no MagicMock del-attr gymnastics needed).
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K")
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        # No _transport_runtime at all
-        del mock_inverter._transport_runtime
-        del mock_inverter._transport
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
