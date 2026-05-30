@@ -14,7 +14,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from pylxpweb.devices import HybridInverter
+from pylxpweb.transports.data import (
+    BatteryBankData,
+    BatteryData,
+    InverterEnergyData,
+    InverterRuntimeData,
+)
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from tests.conftest import make_real_inverter, make_transport_spec
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -129,8 +138,8 @@ class TestReadModbusParameters:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(return_value={"PARAM_A": True})
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -152,8 +161,8 @@ class TestReadModbusParameters:
                 raise RuntimeError("range 20 failed")
             return {f"param_{start}": start}
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(side_effect=mock_read)
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -167,10 +176,8 @@ class TestReadModbusParameters:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(
-            side_effect=RuntimeError("all fail")
-        )
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = RuntimeError("all fail")
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -200,24 +207,23 @@ class TestBuildLocalDeviceData:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
+        # REAL inverter with an empty runtime — computed power properties run for
+        # real (all derive to 0 from the empty transport data).
+        inverter = make_real_inverter(
+            "INV001", "FlexBOSS21", runtime=InverterRuntimeData()
+        )
+        inverter._transport_battery = None
+        # _transport is the network CONNECTION object (Modbus/Dongle socket), not
+        # a pylxpweb data model — a real one needs a live socket.  It is an infra
+        # mock by design; transport_host is connection metadata, not device data.
+        inverter._transport = make_transport_spec(host="192.168.1.100")
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={"pv_total_power": 5000},
         ):
             result = coordinator._build_local_device_data(
-                inverter=mock_inverter,
+                inverter=inverter,
                 serial="INV001",
                 model="FlexBOSS21",
                 firmware_version="ARM-1.0",
@@ -237,16 +243,15 @@ class TestBuildLocalDeviceData:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_energy = MagicMock()
-        mock_inverter._transport_battery = None
-        mock_inverter._transport = None
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
+        # REAL inverter with empty runtime + energy transport data.
+        inverter = make_real_inverter(
+            "INV001",
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(),
+            energy=InverterEnergyData(),
+        )
+        inverter._transport_battery = None
+        inverter._transport = None
 
         with (
             patch(
@@ -259,7 +264,7 @@ class TestBuildLocalDeviceData:
             ),
         ):
             result = coordinator._build_local_device_data(
-                inverter=mock_inverter,
+                inverter=inverter,
                 serial="INV001",
                 model="FlexBOSS21",
                 firmware_version="ARM-1.0",
@@ -273,33 +278,48 @@ class TestBuildLocalDeviceData:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter._transport = None
-        mock_inverter.consumption_power = 3000
-        mock_inverter.total_load_power = 4000
-        mock_inverter.battery_power = 1500
-        mock_inverter.rectifier_power = 200
-        mock_inverter.power_to_user = 500
+        # REAL inverter: the computed power properties are exercised for real
+        # from injected transport data, instead of a MagicMock fabricating them.
+        # Physically coherent fixture — grid import is one quantity, so
+        # power_from_grid (consumption energy-balance) == load_power (Ptouser,
+        # the grid_import_power sensor source), both 500, mirroring real modbus
+        # where both derive from the same Ptouser register.
+        #   consumption = pv + (discharge - charge) + import - export
+        #               = 3000 + (0 - 1500) + 500 - 0 = 2000
+        runtime = InverterRuntimeData(
+            pv_total_power=3000,
+            battery_charge_power=1500,
+            battery_discharge_power=0,
+            power_from_grid=500,
+            power_to_grid=0,
+            grid_power=200,  # rectifier_power (Prec) source
+            load_power=500,  # power_to_user (Ptouser) -> grid_import_power sensor
+        )
+        inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=runtime)
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={},
         ):
             result = coordinator._build_local_device_data(
-                inverter=mock_inverter,
+                inverter=inverter,
                 serial="INV001",
                 model="FlexBOSS21",
                 firmware_version="ARM-1.0",
                 connection_type="modbus",
             )
 
-        assert result["sensors"]["consumption_power"] == 3000
-        assert result["sensors"]["total_load_power"] == 4000
+        assert result["sensors"]["consumption_power"] == 2000
+        # total_load_power is a documented ALIAS of consumption_power (a real
+        # pylxpweb semantic the old MagicMock hid by asserting a distinct 4000).
+        assert result["sensors"]["total_load_power"] == 2000
+        assert (
+            result["sensors"]["total_load_power"]
+            == result["sensors"]["consumption_power"]
+        )
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
+        # grid_import_power sensor is sourced from inverter.power_to_user (load_power)
         assert result["sensors"]["grid_import_power"] == 500
 
 
@@ -314,7 +334,7 @@ class TestTransportAccessors:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_inverter = MagicMock()
         mock_inverter._transport = mock_transport
         coordinator._inverter_cache["INV001"] = mock_inverter
@@ -331,7 +351,7 @@ class TestTransportAccessors:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_inverter = MagicMock()
         mock_inverter._transport = mock_transport
         mock_inverter.serial_number = "INV001"
@@ -364,7 +384,7 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_inverter = MagicMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
         coordinator._inverter_cache["INV001"] = mock_inverter
 
         assert coordinator.has_local_transport("INV001") is True
@@ -389,7 +409,7 @@ class TestTransportAccessors:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
         coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
@@ -403,7 +423,7 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_mid = MagicMock()
-        mock_mid._transport = MagicMock()
+        mock_mid._transport = make_transport_spec()
         coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
 
         assert coordinator.has_local_transport("GRIDBOSS001") is True
@@ -569,7 +589,7 @@ class TestAttachForcedTransportRead:
         mock_result.failed_serials = []
 
         mock_inverter = MagicMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
         mock_inverter.serial_number = "1234567890"
         mock_inverter.refresh = AsyncMock()
 
@@ -745,9 +765,8 @@ class TestGridBOSSFirmwareCache:
         coordinator._local_static_phase_done = True
 
         # Build a mock MIDDevice with a transport that returns firmware
-        mock_transport = MagicMock()
-        mock_transport.is_connected = True
-        mock_transport.read_firmware_version = AsyncMock(return_value="IAAB-1600")
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.read_firmware_version.return_value = "IAAB-1600"
 
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
@@ -816,11 +835,8 @@ class TestGridBOSSFirmwareCache:
         # Pre-populate firmware cache (simulates first refresh already done)
         coordinator._firmware_cache["GB002"] = "IAAB-1600"
 
-        mock_transport = MagicMock()
-        mock_transport.is_connected = True
-        mock_transport.read_firmware_version = AsyncMock(
-            return_value="SHOULD-NOT-BE-CALLED"
-        )
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.read_firmware_version.return_value = "SHOULD-NOT-BE-CALLED"
 
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
@@ -963,40 +979,32 @@ class TestSharedBatterySecondary:
         coordinator = EG4DataUpdateCoordinator(hass, parallel_config_entry)
         coordinator._local_static_phase_done = True
 
-        # Mock secondary inverter: role=2, battery_count=0 (shared battery)
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 2
-        mock_runtime.parallel_phase = 0
-        mock_runtime.pv_total_power = 5000
-        mock_runtime.battery_soc = 93
-        mock_runtime.grid_power = 0
-        mock_runtime.battery_current = 15.0
-        mock_runtime.battery_voltage = 53.7
+        # Secondary inverter: role=2, battery_count=0 (shared battery)
+        mock_runtime = InverterRuntimeData(
+            parallel_number=2,
+            parallel_master_slave=2,
+            parallel_phase=0,
+            pv_total_power=5000,
+            battery_soc=93,
+            grid_power=0,
+            battery_current=15.0,
+            battery_voltage=53.7,
+        )
 
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = None  # CAN bus not connected
-        mock_battery_data.batteries = []
+        mock_battery_data = BatteryBankData(
+            battery_count=None,  # CAN bus not connected
+            batteries=[],
+        )
 
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.101"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
+        inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
+        inverter.refresh = AsyncMock()
+        inverter._transport_battery = mock_battery_data
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.101"
+        )
 
         # Pre-populate caches
-        coordinator._inverter_cache["SECONDARY01"] = mock_inverter
+        coordinator._inverter_cache["SECONDARY01"] = inverter
         coordinator._firmware_cache["SECONDARY01"] = "fAAB-2525"
 
         with patch(
@@ -1038,56 +1046,39 @@ class TestSharedBatterySecondary:
         coordinator = EG4DataUpdateCoordinator(hass, parallel_config_entry)
         coordinator._local_static_phase_done = True
 
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 1
-        mock_runtime.parallel_phase = 0
-        mock_runtime.pv_total_power = 8000
-        mock_runtime.battery_soc = 93
-        mock_runtime.grid_power = 0
+        mock_runtime = InverterRuntimeData(
+            parallel_number=2,
+            parallel_master_slave=1,
+            parallel_phase=0,
+            pv_total_power=8000,
+            battery_soc=93,
+            grid_power=0,
+        )
 
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = 4  # CAN bus connected
-        mock_battery_data.voltage = 53.7
-        mock_battery_data.current = 30.0
-        mock_battery_data.soc = 93
-        mock_battery_data.charge_power = 825.0
-        mock_battery_data.discharge_power = 0
-        mock_battery_data.battery_power = 1611.0
-        mock_battery_data.max_capacity = 280.0
-        mock_battery_data.current_capacity = 260.0
-        mock_battery_data.remain_capacity = 260.0
-        mock_battery_data.full_capacity = 280.0
-        mock_battery_data.capacity_percent = 92.9
-        mock_battery_data.status = "Charging"
-        mock_battery_data.min_soh = None
-        mock_battery_data.max_cell_temp = None
-        mock_battery_data.temp_delta = None
-        mock_battery_data.cell_voltage_delta_max = None
-        mock_battery_data.soc_delta = None
-        mock_battery_data.soh_delta = None
-        mock_battery_data.voltage_delta = None
-        mock_battery_data.cycle_count_delta = None
-        mock_battery_data.batteries = [MagicMock(), MagicMock()]
+        mock_battery_data = BatteryBankData(
+            battery_count=4,  # CAN bus connected
+            voltage=53.7,
+            current=30.0,
+            soc=93,
+            charge_power=825.0,
+            discharge_power=0,
+            max_capacity=280.0,
+            current_capacity=260.0,
+            status="Charging",
+            batteries=[
+                BatteryData(battery_index=0, serial_number="BAT0"),
+                BatteryData(battery_index=1, serial_number="BAT1"),
+            ],
+        )
 
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
+        inverter = make_real_inverter("PRIMARY001", "FlexBOSS21", runtime=mock_runtime)
+        inverter.refresh = AsyncMock()
+        inverter._transport_battery = mock_battery_data
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
-        coordinator._inverter_cache["PRIMARY001"] = mock_inverter
+        coordinator._inverter_cache["PRIMARY001"] = inverter
         coordinator._firmware_cache["PRIMARY001"] = "FAAB-2525"
 
         with patch(
@@ -1158,53 +1149,33 @@ class TestSharedBatterySecondary:
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
 
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 0  # No parallel group
-        mock_runtime.parallel_master_slave = 0  # Not a secondary
-        mock_runtime.parallel_phase = 0
+        mock_runtime = InverterRuntimeData(
+            parallel_number=0,  # No parallel group
+            parallel_master_slave=0,  # Not a secondary
+            parallel_phase=0,
+        )
 
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = None  # Temporarily 0
-        mock_battery_data.voltage = 53.7
-        mock_battery_data.current = 0.0
-        mock_battery_data.soc = 50
-        mock_battery_data.charge_power = 0
-        mock_battery_data.discharge_power = 0
-        mock_battery_data.battery_power = 0
-        mock_battery_data.max_capacity = None
-        mock_battery_data.current_capacity = None
-        mock_battery_data.remain_capacity = None
-        mock_battery_data.full_capacity = None
-        mock_battery_data.capacity_percent = None
-        mock_battery_data.status = "Idle"
-        mock_battery_data.min_soh = None
-        mock_battery_data.max_cell_temp = None
-        mock_battery_data.temp_delta = None
-        mock_battery_data.cell_voltage_delta_max = None
-        mock_battery_data.soc_delta = None
-        mock_battery_data.soh_delta = None
-        mock_battery_data.voltage_delta = None
-        mock_battery_data.cycle_count_delta = None
-        mock_battery_data.batteries = []
+        mock_battery_data = BatteryBankData(
+            battery_count=None,  # Temporarily 0
+            voltage=53.7,
+            current=0.0,
+            soc=50,
+            charge_power=0,
+            discharge_power=0,
+            max_capacity=None,
+            current_capacity=None,
+            status="Idle",
+            batteries=[],
+        )
 
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
+        inverter = make_real_inverter("STANDALONE1", "FlexBOSS21", runtime=mock_runtime)
+        inverter.refresh = AsyncMock()
+        inverter._transport_battery = mock_battery_data
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
-        coordinator._inverter_cache["STANDALONE1"] = mock_inverter
+        coordinator._inverter_cache["STANDALONE1"] = inverter
         coordinator._firmware_cache["STANDALONE1"] = "FAAB-2525"
 
         with patch(
@@ -1263,34 +1234,26 @@ class TestBatteryBankCountSuppression:
         return entry
 
     @staticmethod
-    def _make_mock_inverter(*, battery_count: int | None = None) -> MagicMock:
-        """Build a mock inverter with shared-battery secondary defaults."""
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 2
-        mock_runtime.parallel_master_slave = 2
-        mock_runtime.parallel_phase = 0
+    def _make_mock_inverter(*, battery_count: int | None = None) -> HybridInverter:
+        """Build a REAL inverter with shared-battery secondary defaults."""
+        mock_runtime = InverterRuntimeData(
+            parallel_number=2,
+            parallel_master_slave=2,
+            parallel_phase=0,
+        )
 
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = battery_count
-        mock_battery_data.batteries = []
+        mock_battery_data = BatteryBankData(
+            battery_count=battery_count,
+            batteries=[],
+        )
 
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
-        return mock_inverter
+        inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
+        inverter.refresh = AsyncMock()
+        inverter._transport_battery = mock_battery_data
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
+        return inverter
 
     async def test_secondary_no_battery_bank_sensors(self, hass):
         """Secondary with battery_count=0 gets no battery_bank_* sensors."""
@@ -1473,33 +1436,27 @@ class TestBatteryRRCacheFallback:
         return entry
 
     @staticmethod
-    def _make_mock_inverter(*, battery_count: int, batteries: list[Any]) -> MagicMock:
-        mock_runtime = MagicMock()
-        mock_runtime.parallel_number = 0
-        mock_runtime.parallel_master_slave = 0
-        mock_runtime.parallel_phase = 0
+    def _make_mock_inverter(
+        *, battery_count: int, batteries: list[Any]
+    ) -> HybridInverter:
+        mock_runtime = InverterRuntimeData(
+            parallel_number=0,
+            parallel_master_slave=0,
+            parallel_phase=0,
+        )
 
-        mock_battery_data = MagicMock()
-        mock_battery_data.battery_count = battery_count
-        mock_battery_data.batteries = batteries
+        mock_battery_data = BatteryBankData(
+            battery_count=battery_count,
+            batteries=batteries,
+        )
 
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = mock_battery_data
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport.host = "192.168.1.100"
-        mock_inverter._transport.disconnect = AsyncMock()
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
-        mock_inverter.eps_power_l1 = None
-        mock_inverter.eps_power_l2 = None
-        return mock_inverter
+        inverter = make_real_inverter("DONGLE001", "FlexBOSS21", runtime=mock_runtime)
+        inverter.refresh = AsyncMock()
+        inverter._transport_battery = mock_battery_data
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
+        return inverter
 
     async def test_cache_fallback_when_batteries_empty_this_poll(
         self, hass: Any

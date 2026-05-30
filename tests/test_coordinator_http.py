@@ -31,6 +31,9 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
+from pylxpweb.transports.data import BatteryBankData, BatteryData, MidboxRuntimeData
+
+from tests.conftest import make_real_mid, make_transport_spec
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -483,9 +486,9 @@ class TestHybridMode:
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
         inv = _mock_inverter(serial="INV001")
-        mock_transport = MagicMock()
-        mock_transport.transport_type = "modbus"
-        mock_transport.host = "192.168.1.100"
+        mock_transport = make_transport_spec(
+            transport_type="modbus", host="192.168.1.100"
+        )
         inv._transport = mock_transport
 
         coordinator.station = _mock_station([inv])
@@ -806,14 +809,18 @@ class TestHybridTransportGating:
         hybrid_dongle_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
 
-        mid_device = MagicMock()
-        mid_device.serial_number = "MID001"
-        mid_device.model = "GridBOSS"
-        mid_device.firmware_version = "1.0.0"
+        mid_device = make_real_mid(
+            serial_number="MID001",
+            model="GridBOSS",
+            runtime=MidboxRuntimeData(
+                grid_l1_voltage=122.5,
+                grid_l2_voltage=122.4,
+                grid_frequency=60.0,
+            ),
+        )
+        # refresh() is the call under test — wrap it so we can assert it is
+        # NOT invoked (control-flow mock, not data-producing).
         mid_device.refresh = AsyncMock()
-        # Give it basic properties so processing doesn't error
-        mid_device.grid_voltage = 240.0
-        mid_device.grid_frequency = 60.0
 
         await coordinator._process_mid_device_object(mid_device)
 
@@ -919,15 +926,19 @@ class TestBatteryExtraction:
         inv = _mock_inverter(serial="INV001")
         inv._battery_bank = None  # No cloud batteries
 
-        # Transport batteries
-        mock_transport_battery = MagicMock()
-        mock_batt = MagicMock()
-        mock_batt.battery_index = 0
-        mock_batt.voltage = 52.0
-        mock_batt.current = 10.0
-        mock_batt.soc = 85
-        mock_batt.serial_number = "BAT_SN_001"
-        mock_transport_battery.batteries = [mock_batt]
+        # Transport batteries — real BatteryData/BatteryBankData so the
+        # individual-battery read path is exercised against the genuine shape.
+        mock_transport_battery = BatteryBankData(
+            batteries=[
+                BatteryData(
+                    battery_index=0,
+                    voltage=52.0,
+                    current=10.0,
+                    soc=85,
+                    serial_number="BAT_SN_001",
+                )
+            ]
+        )
         inv._transport_battery = mock_transport_battery
 
         coordinator.station = _mock_station([inv])

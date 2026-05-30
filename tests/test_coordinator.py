@@ -69,6 +69,15 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
+from pylxpweb.transports.data import (
+    BatteryBankData,
+    BatteryData,
+    InverterEnergyData,
+    InverterRuntimeData,
+    MidboxRuntimeData,
+)
+
+from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
 
 @pytest.fixture
@@ -1166,24 +1175,23 @@ class TestDeferredLocalParameters:
         """Verify include_parameters=False on first local refresh."""
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_inverter = MagicMock()
+        # Real inverter so _build_runtime_sensor_mapping + computed power
+        # properties resolve against the genuine pylxpweb shape; only refresh
+        # (control flow) is mocked.
+        mock_inverter = make_real_inverter(
+            "1234567890",
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                grid_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            ),
+        )
         mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_runtime.pv_total_power = 0
-        mock_inverter._transport_runtime.battery_soc = 50
-        mock_inverter._transport_runtime.grid_power = 0
-        mock_inverter._transport_runtime.parallel_number = 0
-        mock_inverter._transport_runtime.parallel_master_slave = 0
-        mock_inverter._transport_runtime.parallel_phase = 0
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -1209,25 +1217,22 @@ class TestDeferredLocalParameters:
         coordinator._local_parameters_loaded = True  # Simulate post-first-refresh
         coordinator._include_params_this_cycle = True  # Simulate poll-cycle decision
 
-        mock_inverter = MagicMock()
+        # Real inverter; refresh/detect_features mocked for control-flow asserts.
+        mock_inverter = make_real_inverter(
+            "1234567890",
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                grid_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            ),
+        )
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_runtime.pv_total_power = 0
-        mock_inverter._transport_runtime.battery_soc = 50
-        mock_inverter._transport_runtime.grid_power = 0
-        mock_inverter._transport_runtime.parallel_number = 0
-        mock_inverter._transport_runtime.parallel_master_slave = 0
-        mock_inverter._transport_runtime.parallel_phase = 0
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -1402,24 +1407,21 @@ class TestCacheTTLAdherence:
         modbus_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, modbus_config_entry)
 
-        mock_inverter = MagicMock()
+        # Real inverter; refresh mocked for the force=False control-flow assert.
+        mock_inverter = make_real_inverter(
+            "INV001",
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                grid_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            ),
+        )
         mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
-        mock_inverter._transport_runtime = MagicMock()
-        mock_inverter._transport_runtime.pv_total_power = 0
-        mock_inverter._transport_runtime.battery_soc = 50
-        mock_inverter._transport_runtime.grid_power = 0
-        mock_inverter._transport_runtime.parallel_number = 0
-        mock_inverter._transport_runtime.parallel_master_slave = 0
-        mock_inverter._transport_runtime.parallel_phase = 0
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter.consumption_power = None
-        mock_inverter.total_load_power = None
-        mock_inverter.battery_power = None
-        mock_inverter.rectifier_power = None
-        mock_inverter.power_to_user = None
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["INV001"] = mock_inverter
         coordinator._firmware_cache["INV001"] = "TEST-FW"
@@ -1702,32 +1704,29 @@ class TestStaticLocalData:
 
     def test_static_keys_match_runtime_mapping(self):
         """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys."""
-        mock_runtime = MagicMock()
-        mapping = _build_runtime_sensor_mapping(mock_runtime)
+        mapping = _build_runtime_sensor_mapping(InverterRuntimeData())
         assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
 
     def test_static_keys_match_energy_mapping(self):
         """INVERTER_ENERGY_KEYS matches _build_energy_sensor_mapping keys."""
-        mock_energy = MagicMock()
-        mapping = _build_energy_sensor_mapping(mock_energy)
+        mapping = _build_energy_sensor_mapping(InverterEnergyData())
         assert set(mapping.keys()) == INVERTER_ENERGY_KEYS
 
     def test_static_keys_match_battery_bank_mapping(self):
         """BATTERY_BANK_KEYS matches _build_battery_bank_sensor_mapping keys."""
-        mock_battery = MagicMock()
-        # Ensure diagnostic values are non-None so all keys are present
-        mock_battery.min_soh = 95.0
-        mock_battery.max_cell_temp = 30.0
-        mock_battery.temp_delta = 2.0
-        mock_battery.cell_voltage_delta_max = 0.05
-        mock_battery.soc_delta = 1.0
-        mock_battery.soh_delta = 2.0
-        mock_battery.voltage_delta = 0.1
-        mock_battery.cycle_count_delta = 5
-        mock_battery.charge_power = 500
-        mock_battery.discharge_power = 0
-        mock_battery.battery_power = 500
-        mapping = _build_battery_bank_sensor_mapping(mock_battery)
+        # Real BatteryBankData; two batteries with differing soc/soh/voltage/
+        # cycle_count so the CAN-derived delta properties resolve non-None and
+        # every BATTERY_BANK key is emitted (the diagnostics keys are otherwise
+        # omitted when None).
+        battery_data = BatteryBankData(
+            charge_power=500,
+            discharge_power=0,
+            batteries=[
+                BatteryData(soc=95, soh=98, voltage=53.2, cycle_count=10),
+                BatteryData(soc=94, soh=96, voltage=53.1, cycle_count=5),
+            ],
+        )
+        mapping = _build_battery_bank_sensor_mapping(battery_data)
         # Charge rate key is computed by compute_bank_charge_rate()
         # after the raw mapping, so it appears in the frozenset but not here.
         computed_keys = {
@@ -1737,7 +1736,7 @@ class TestStaticLocalData:
 
     def test_static_keys_match_gridboss_mapping(self):
         """GRIDBOSS_SENSOR_KEYS covers _build_gridboss_sensor_mapping keys + metadata."""
-        mock_mid = MagicMock()
+        mock_mid = make_real_mid("0987654321", "GridBOSS", runtime=MidboxRuntimeData())
         mapping = _build_gridboss_sensor_mapping(mock_mid)
         mapping_keys = set(mapping.keys())
 
@@ -3718,8 +3717,9 @@ class TestMappingKeyConsistency:
 
     def test_gridboss_local_keys_subset_of_static(self):
         """LOCAL _build_gridboss_sensor_mapping() keys ⊆ static + dynamic sets."""
-        # Create a mock MID device where every attribute returns a sentinel
-        mock_mid = MagicMock()
+        # Real MID device so the mapping resolves against the genuine GridBOSS
+        # property surface (a missing property would raise, not be fabricated).
+        mock_mid = make_real_mid("0987654321", "GridBOSS", runtime=MidboxRuntimeData())
         sensors = _build_gridboss_sensor_mapping(mock_mid)
         local_keys = set(sensors.keys())
         allowed = (
@@ -3785,7 +3785,7 @@ class TestMappingKeyConsistency:
             DeviceProcessingMixin,
         )
 
-        mock_mid = MagicMock()
+        mock_mid = make_real_mid("0987654321", "GridBOSS", runtime=MidboxRuntimeData())
         local_keys = set(_build_gridboss_sensor_mapping(mock_mid).keys())
         http_keys = set(DeviceProcessingMixin._get_mid_device_property_map().values())
 
@@ -3798,8 +3798,7 @@ class TestMappingKeyConsistency:
 
     def test_inverter_local_runtime_keys_subset_of_static(self):
         """LOCAL _build_runtime_sensor_mapping() keys ⊆ INVERTER_RUNTIME_KEYS."""
-        mock_runtime = MagicMock()
-        sensors = _build_runtime_sensor_mapping(mock_runtime)
+        sensors = _build_runtime_sensor_mapping(InverterRuntimeData())
         local_keys = set(sensors.keys())
         unknown = local_keys - INVERTER_RUNTIME_KEYS
         assert not unknown, (
@@ -4235,27 +4234,24 @@ class TestParameterPreComputation:
         coordinator = EG4DataUpdateCoordinator(hass, two_device_config_entry)
         coordinator._local_parameters_loaded = True
 
-        # Set up two mock inverters
+        # Set up two REAL inverters (real transport runtime; the computed power
+        # properties resolve for real). refresh/detect_features/_transport stay
+        # control-flow mocks — this test is about parameter-refresh gating.
         for serial in ["1111111111", "2222222222"]:
-            mock_inv = MagicMock()
+            runtime = InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                grid_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            )
+            mock_inv = make_real_inverter(serial, "FlexBOSS21", runtime=runtime)
             mock_inv.refresh = AsyncMock()
             mock_inv.detect_features = AsyncMock()
-            mock_inv._transport = MagicMock()
-            mock_inv._transport.is_connected = True
-            mock_inv._transport_runtime = MagicMock()
-            mock_inv._transport_runtime.pv_total_power = 0
-            mock_inv._transport_runtime.battery_soc = 50
-            mock_inv._transport_runtime.grid_power = 0
-            mock_inv._transport_runtime.parallel_number = 0
-            mock_inv._transport_runtime.parallel_master_slave = 0
-            mock_inv._transport_runtime.parallel_phase = 0
+            mock_inv._transport = make_transport_spec(is_connected=True)
             mock_inv._transport_energy = None
             mock_inv._transport_battery = None
-            mock_inv.consumption_power = None
-            mock_inv.total_load_power = None
-            mock_inv.battery_power = None
-            mock_inv.rectifier_power = None
-            mock_inv.power_to_user = None
             coordinator._inverter_cache[serial] = mock_inv
             coordinator._firmware_cache[serial] = "TEST-FW"
 
@@ -4322,24 +4318,20 @@ class TestParameterPreComputation:
         coordinator = EG4DataUpdateCoordinator(hass, config_entry)
         # _local_parameters_loaded defaults to False
 
-        mock_inv = MagicMock()
+        runtime = InverterRuntimeData(
+            pv_total_power=0,
+            battery_soc=50,
+            grid_power=0,
+            parallel_number=0,
+            parallel_master_slave=0,
+            parallel_phase=0,
+        )
+        mock_inv = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
         mock_inv.refresh = AsyncMock()
-        mock_inv._transport = MagicMock()
-        mock_inv._transport.is_connected = True
-        mock_inv._transport_runtime = MagicMock()
-        mock_inv._transport_runtime.pv_total_power = 0
-        mock_inv._transport_runtime.battery_soc = 50
-        mock_inv._transport_runtime.grid_power = 0
-        mock_inv._transport_runtime.parallel_number = 0
-        mock_inv._transport_runtime.parallel_master_slave = 0
-        mock_inv._transport_runtime.parallel_phase = 0
+        mock_inv.detect_features = AsyncMock()
+        mock_inv._transport = make_transport_spec(is_connected=True)
         mock_inv._transport_energy = None
         mock_inv._transport_battery = None
-        mock_inv.consumption_power = None
-        mock_inv.total_load_power = None
-        mock_inv.battery_power = None
-        mock_inv.rectifier_power = None
-        mock_inv.power_to_user = None
         coordinator._inverter_cache["1111111111"] = mock_inv
         coordinator._firmware_cache["1111111111"] = "TEST-FW"
 
@@ -4375,30 +4367,19 @@ class TestBatteryBankCurrentKey:
 
     def test_battery_bank_current_in_build_mapping(self):
         """_build_battery_bank_sensor_mapping includes battery_bank_current."""
-        mock_battery = MagicMock()
-        mock_battery.soc = 85
-        mock_battery.voltage = 52.0
-        mock_battery.current = 15.5
-        mock_battery.charge_power = 800.0
-        mock_battery.discharge_power = 0.0
-        mock_battery.battery_power = 800.0
-        mock_battery.max_capacity = 200
-        mock_battery.current_capacity = 170
-        mock_battery.remain_capacity = 170
-        mock_battery.full_capacity = 200
-        mock_battery.capacity_percent = 85
-        mock_battery.battery_count = 4
-        mock_battery.status = "charging"
-        mock_battery.soc_delta = 2.0
-        mock_battery.min_soh = 98
-        mock_battery.soh_delta = 1
-        mock_battery.voltage_delta = 0.1
-        mock_battery.cell_voltage_delta_max = 0.02
-        mock_battery.cycle_count_delta = 5
-        mock_battery.max_cell_temp = 28.0
-        mock_battery.temp_delta = 3.0
+        battery_data = BatteryBankData(
+            soc=85,
+            voltage=52.0,
+            current=15.5,
+            charge_power=800.0,
+            discharge_power=0.0,
+            max_capacity=200,
+            current_capacity=170,
+            battery_count=4,
+            status="charging",
+        )
 
-        result = _build_battery_bank_sensor_mapping(mock_battery)
+        result = _build_battery_bank_sensor_mapping(battery_data)
         assert "battery_bank_current" in result
         assert result["battery_bank_current"] == 15.5
 
@@ -4549,33 +4530,29 @@ class TestBatteryBankBMSCoreKeys:
 
     def test_build_mapping_includes_bms_core_sensors(self):
         """BMS CORE keys present in mapping even without CAN bus data."""
-        mock_battery = MagicMock()
-        mock_battery.soc = 85
-        mock_battery.voltage = 52.0
-        mock_battery.current = 15.5
-        mock_battery.charge_power = 800.0
-        mock_battery.discharge_power = 0.0
-        mock_battery.battery_power = 800.0
-        mock_battery.max_capacity = 200
-        mock_battery.current_capacity = 170
-        mock_battery.remain_capacity = 170
-        mock_battery.full_capacity = 200
-        mock_battery.capacity_percent = 85
-        mock_battery.battery_count = 4
-        mock_battery.status = "charging"
-        # CAN-dependent diagnostics return None (need individual batteries)
-        mock_battery.soc_delta = None
-        mock_battery.soh_delta = None
-        mock_battery.voltage_delta = None
-        mock_battery.cycle_count_delta = None
-        # Bank-level BMS registers (always available, CORE keys)
-        mock_battery.min_soh = 100
-        mock_battery.max_cell_temp = 35.0
-        mock_battery.temp_delta = 5.5
-        mock_battery.cell_voltage_delta_max = 0.050
-        mock_battery.cycle_count = 53
+        # Real BatteryBankData with no per-battery list: the bank-level BMS
+        # register fields drive the CORE diagnostics (min_soh←soh, max_cell_temp
+        # ←max_cell_temperature, temp_delta←max-min cell temp, etc.) while the
+        # CAN-derived deltas stay None (no batteries).
+        battery_data = BatteryBankData(
+            soc=85,
+            voltage=52.0,
+            current=15.5,
+            charge_power=800.0,
+            discharge_power=0.0,
+            max_capacity=200,
+            current_capacity=170,
+            battery_count=4,
+            status="charging",
+            soh=100,
+            max_cell_temperature=35.0,
+            min_cell_temperature=29.5,
+            max_cell_voltage=3.350,
+            min_cell_voltage=3.300,
+            cycle_count=53,
+        )
 
-        result = _build_battery_bank_sensor_mapping(mock_battery)
+        result = _build_battery_bank_sensor_mapping(battery_data)
         # BMS CORE keys always present
         assert "battery_bank_min_soh" in result
         assert result["battery_bank_min_soh"] == 100
@@ -4635,64 +4612,69 @@ class TestBatteryBankCANDiagnosticSuppression:
 
     def test_can_keys_added_dynamically_when_data_present(self):
         """CAN diagnostic keys appear in mapping when individual battery data exists."""
-        mock_battery = MagicMock()
-        mock_battery.soc = 85
-        mock_battery.voltage = 52.0
-        mock_battery.current = 15.5
-        mock_battery.charge_power = 800.0
-        mock_battery.discharge_power = 0.0
-        mock_battery.battery_power = 800.0
-        mock_battery.max_capacity = 200
-        mock_battery.current_capacity = 170
-        mock_battery.remain_capacity = 170
-        mock_battery.full_capacity = 200
-        mock_battery.capacity_percent = 85
-        mock_battery.battery_count = 3
-        mock_battery.status = "charging"
-        # CAN-dependent diagnostics return values
-        mock_battery.soc_delta = 2
-        mock_battery.min_soh = 95
-        mock_battery.soh_delta = 3
-        mock_battery.voltage_delta = 0.15
-        mock_battery.cycle_count_delta = 10
-        # BMS fallbacks also present
-        mock_battery.max_cell_temp = 30.0
-        mock_battery.temp_delta = 2.0
-        mock_battery.cell_voltage_delta_max = 0.03
+        # Real BatteryBankData with two differing batteries so every CAN-derived
+        # delta (soc/soh/voltage/cycle_count) resolves non-None.
+        battery_data = BatteryBankData(
+            soc=85,
+            voltage=52.0,
+            current=15.5,
+            charge_power=800.0,
+            discharge_power=0.0,
+            max_capacity=200,
+            current_capacity=170,
+            battery_count=3,
+            status="charging",
+            batteries=[
+                BatteryData(
+                    soc=85,
+                    soh=95,
+                    voltage=52.05,
+                    cycle_count=20,
+                    max_cell_temperature=30.0,
+                    min_cell_temperature=28.0,
+                    max_cell_voltage=3.34,
+                    min_cell_voltage=3.31,
+                ),
+                BatteryData(
+                    soc=83,
+                    soh=92,
+                    voltage=51.90,
+                    cycle_count=10,
+                    max_cell_temperature=29.5,
+                    min_cell_temperature=28.5,
+                    max_cell_voltage=3.33,
+                    min_cell_voltage=3.32,
+                ),
+            ],
+        )
 
-        result = _build_battery_bank_sensor_mapping(mock_battery)
+        result = _build_battery_bank_sensor_mapping(battery_data)
         for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
             assert key in result, f"{key} should be in mapping when CAN data present"
 
     def test_can_keys_absent_when_no_individual_batteries(self):
         """CAN diagnostic keys absent from mapping when no CAN bus data."""
-        mock_battery = MagicMock()
-        mock_battery.soc = 85
-        mock_battery.voltage = 52.0
-        mock_battery.current = 15.5
-        mock_battery.charge_power = 800.0
-        mock_battery.discharge_power = 0.0
-        mock_battery.battery_power = 800.0
-        mock_battery.max_capacity = 200
-        mock_battery.current_capacity = 170
-        mock_battery.remain_capacity = 170
-        mock_battery.full_capacity = 200
-        mock_battery.capacity_percent = 85
-        mock_battery.battery_count = 3
-        mock_battery.status = "Idle"
-        # No CAN data — all cross-battery diagnostics return None
-        mock_battery.soc_delta = None
-        mock_battery.soh_delta = None
-        mock_battery.voltage_delta = None
-        mock_battery.cycle_count_delta = None
-        # Bank-level BMS sensors still available (CORE keys)
-        mock_battery.min_soh = 100
-        mock_battery.max_cell_temp = 28.0
-        mock_battery.temp_delta = 1.5
-        mock_battery.cell_voltage_delta_max = 0.01
-        mock_battery.cycle_count = 53
+        # Real BatteryBankData with no per-battery list: bank-level BMS register
+        # fields supply the CORE keys; CAN-derived deltas resolve to None.
+        battery_data = BatteryBankData(
+            soc=85,
+            voltage=52.0,
+            current=15.5,
+            charge_power=800.0,
+            discharge_power=0.0,
+            max_capacity=200,
+            current_capacity=170,
+            battery_count=3,
+            status="Idle",
+            soh=100,
+            max_cell_temperature=28.0,
+            min_cell_temperature=26.5,
+            max_cell_voltage=3.32,
+            min_cell_voltage=3.31,
+            cycle_count=53,
+        )
 
-        result = _build_battery_bank_sensor_mapping(mock_battery)
+        result = _build_battery_bank_sensor_mapping(battery_data)
         for key in BATTERY_BANK_CAN_DIAGNOSTIC_KEYS:
             assert key not in result, f"{key} should NOT be in mapping without CAN data"
         # Bank-level BMS sensors (CORE keys) should always be present
@@ -4792,9 +4774,11 @@ class TestParallelGroupConsumptionEnergyBalance:
         mock_group.battery_count = 6
         mock_group.first_device_serial = "INV001"
 
-        # Mark inverters as having local transport
+        # Mark inverters as having local transport (real empty energy object is
+        # the truthiness sentinel _has_local_energy() checks; the energy values
+        # themselves come from the parallel-group aggregate above).
         for inv in mock_group.inverters:
-            inv._transport_energy = MagicMock()
+            inv._transport_energy = InverterEnergyData()
 
         result = await coordinator._process_parallel_group_object(mock_group)
         sensors = result["sensors"]
@@ -4938,23 +4922,22 @@ class TestHybridTransportExclusiveSensors:
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
+        # REAL inverter so the FULL base property surface mapped by
+        # _process_inverter_object is exercised against the genuine class shape,
+        # not fabricated by MagicMock.  pv_total_power=2500 makes the real
+        # consumption_power (== total_load_power) compute to 2500.
+        runtime = InverterRuntimeData(
+            temperature_t1=35.0,
+            inverter_rms_current_r=4.5,
+            inverter_rms_current_s=4.3,
+            inverter_rms_current_t=4.1,
+            battery_current=12.5,
+            pv_total_power=2500,
+        )
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-
-        # Transport runtime with Modbus-only data
-        mock_runtime = MagicMock()
-        mock_runtime.temperature_t1 = 35.0
-        mock_runtime.inverter_rms_current_r = 4.5
-        mock_runtime.inverter_rms_current_s = 4.3
-        mock_runtime.inverter_rms_current_t = 4.1
-        mock_runtime.battery_current = 12.5
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = 2500.0
+        mock_inverter._transport = make_transport_spec()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4964,22 +4947,19 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["grid_current_l2"] == 4.3
         assert sensors["grid_current_l3"] == 4.1
         assert sensors["battery_current"] == 12.5
-        assert sensors["total_load_power"] == 2500.0
+        assert sensors["total_load_power"] == 2500
 
     async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
+        # REAL inverter with NO runtime/transport injected: the real class
+        # defaults _transport_runtime and _transport to None, so the overlay
+        # path is naturally skipped (no MagicMock del-attr gymnastics needed).
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K")
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        # No _transport_runtime at all
-        del mock_inverter._transport_runtime
-        del mock_inverter._transport
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4994,23 +4974,20 @@ class TestHybridTransportExclusiveSensors:
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
+        # REAL inverter with a sparse runtime: only inverter_rms_current_r is
+        # set, and NO pv/grid/battery power, so the real consumption_power
+        # (== total_load_power) computes to None and must not be overlaid.
+        runtime = InverterRuntimeData(
+            temperature_t1=None,
+            inverter_rms_current_r=4.5,
+            inverter_rms_current_s=None,
+            inverter_rms_current_t=None,
+            battery_current=None,
+        )
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-
-        # Transport runtime with some None values
-        mock_runtime = MagicMock()
-        mock_runtime.temperature_t1 = None
-        mock_runtime.inverter_rms_current_r = 4.5
-        mock_runtime.inverter_rms_current_s = None
-        mock_runtime.inverter_rms_current_t = None
-        mock_runtime.battery_current = None
-        mock_inverter._transport_runtime = mock_runtime
-        mock_inverter.total_load_power = None
+        mock_inverter._transport = make_transport_spec()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -5518,18 +5495,21 @@ class TestChargeRates:
         *,
         current: float = 0.0,
         max_capacity: float = 280.0,
-    ) -> MagicMock:
-        """Create a minimal mock battery for ``_build_individual_battery_mapping``."""
-        battery = MagicMock()
-        battery.voltage = 50.0
-        battery.current = current
-        battery.power = battery.voltage * current
-        battery.soc = 80
-        battery.soh = 99
-        battery.max_capacity = max_capacity
-        battery.charge_current_limit = 20.0
-        battery.discharge_current_limit = 20.0
-        return battery
+    ) -> BatteryData:
+        """Build a real BatteryData for ``_build_individual_battery_mapping``.
+
+        ``power`` resolves through the real voltage*current property, and the
+        mapping reads every other field against the genuine BatteryData shape.
+        """
+        return BatteryData(
+            voltage=50.0,
+            current=current,
+            soc=80,
+            soh=99,
+            max_capacity=max_capacity,
+            charge_current_limit=20.0,
+            discharge_current_limit=20.0,
+        )
 
     def test_individual_battery_charge_rate(self):
         """Individual battery mapping includes signed charge rate."""
@@ -5720,37 +5700,40 @@ class TestRoundRobinTruncatedSerialGuard:
         voltage: float = 53.0,
         soc: int = 96,
         index: int = 0,
-    ) -> MagicMock:
-        """Build a mock BatteryData with all attributes for mapping."""
-        batt = MagicMock()
-        batt.serial_number = serial
-        batt.voltage = voltage
-        batt.soc = soc
-        batt.battery_index = index
-        batt.current = -5.0
-        batt.power = -260.0
-        batt.soh = 100
-        batt.max_cell_temperature = 26.0
-        batt.min_cell_temperature = 24.0
-        batt.max_cell_num_temp = 1
-        batt.min_cell_num_temp = 3
-        batt.max_cell_voltage = 3.35
-        batt.min_cell_voltage = 3.30
-        batt.max_cell_num_voltage = 2
-        batt.min_cell_num_voltage = 8
-        batt.cell_voltage_delta = 0.05
-        batt.cell_temp_delta = 2.0
-        batt.remaining_capacity = 96.0
-        batt.max_capacity = 100.0
-        batt.capacity_percent = 96.0
-        batt.charge_current_limit = 50.0
-        batt.charge_voltage_ref = 56.0
-        batt.cycle_count = 50
-        batt.firmware_version = "1.0"
-        batt.battery_type = None
-        batt.battery_type_text = None
-        batt.model = "EG4-LL"
-        return batt
+    ) -> BatteryData:
+        """Build a REAL BatteryData for the round-robin merge mapping.
+
+        Only real dataclass FIELDS are set; the computed properties (power,
+        cell_voltage_delta, cell_temp_delta, remaining_capacity,
+        capacity_percent) resolve for real from those fields — so the
+        individual-battery mapping is exercised against the genuine shape
+        instead of a MagicMock fabricating every attribute.
+        """
+        return BatteryData(
+            serial_number=serial,
+            voltage=voltage,
+            soc=soc,
+            battery_index=index,
+            current=-5.0,
+            soh=100,
+            max_cell_temperature=26.0,
+            min_cell_temperature=24.0,
+            max_cell_num_temp=1,
+            min_cell_num_temp=3,
+            max_cell_voltage=3.35,
+            min_cell_voltage=3.30,
+            max_cell_num_voltage=2,
+            min_cell_num_voltage=8,
+            current_capacity=96.0,
+            max_capacity=100.0,
+            charge_current_limit=50.0,
+            charge_voltage_ref=56.0,
+            cycle_count=50,
+            firmware_version="1.0",
+            battery_type=None,
+            battery_type_text=None,
+            model="EG4-LL",
+        )
 
     async def test_truncated_serial_skipped(self, hass, mock_config_entry):
         """A truncated serial is skipped, not cached as a phantom entry."""
