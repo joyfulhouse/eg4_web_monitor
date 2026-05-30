@@ -4930,24 +4930,22 @@ class TestHybridTransportExclusiveSensors:
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-
-        # Real transport runtime with Modbus-only data, so the overlay attrs
-        # resolve against the genuine InverterRuntimeData shape.
-        mock_inverter._transport_runtime = InverterRuntimeData(
+        # REAL inverter so the FULL base property surface mapped by
+        # _process_inverter_object is exercised against the genuine class shape,
+        # not fabricated by MagicMock.  pv_total_power=2500 makes the real
+        # consumption_power (== total_load_power) compute to 2500.
+        runtime = InverterRuntimeData(
             temperature_t1=35.0,
             inverter_rms_current_r=4.5,
             inverter_rms_current_s=4.3,
             inverter_rms_current_t=4.1,
             battery_current=12.5,
+            pv_total_power=2500,
         )
-        mock_inverter.total_load_power = 2500.0
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = MagicMock()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4957,7 +4955,7 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["grid_current_l2"] == 4.3
         assert sensors["grid_current_l3"] == 4.1
         assert sensors["battery_current"] == 12.5
-        assert sensors["total_load_power"] == 2500.0
+        assert sensors["total_load_power"] == 2500
 
     async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""
@@ -4987,23 +4985,20 @@ class TestHybridTransportExclusiveSensors:
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter.serial_number = "1111111111"
-        mock_inverter.model = "LXP-12K"
-        mock_inverter.firmware_version = "1.0.0"
-        mock_inverter.refresh = AsyncMock()
-        mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-
-        # Real transport runtime with some None values (defaults are None).
-        mock_inverter._transport_runtime = InverterRuntimeData(
+        # REAL inverter with a sparse runtime: only inverter_rms_current_r is
+        # set, and NO pv/grid/battery power, so the real consumption_power
+        # (== total_load_power) computes to None and must not be overlaid.
+        runtime = InverterRuntimeData(
             temperature_t1=None,
             inverter_rms_current_r=4.5,
             inverter_rms_current_s=None,
             inverter_rms_current_t=None,
             battery_current=None,
         )
-        mock_inverter.total_load_power = None
+        mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = MagicMock()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -5716,37 +5711,40 @@ class TestRoundRobinTruncatedSerialGuard:
         voltage: float = 53.0,
         soc: int = 96,
         index: int = 0,
-    ) -> MagicMock:
-        """Build a mock BatteryData with all attributes for mapping."""
-        batt = MagicMock()
-        batt.serial_number = serial
-        batt.voltage = voltage
-        batt.soc = soc
-        batt.battery_index = index
-        batt.current = -5.0
-        batt.power = -260.0
-        batt.soh = 100
-        batt.max_cell_temperature = 26.0
-        batt.min_cell_temperature = 24.0
-        batt.max_cell_num_temp = 1
-        batt.min_cell_num_temp = 3
-        batt.max_cell_voltage = 3.35
-        batt.min_cell_voltage = 3.30
-        batt.max_cell_num_voltage = 2
-        batt.min_cell_num_voltage = 8
-        batt.cell_voltage_delta = 0.05
-        batt.cell_temp_delta = 2.0
-        batt.remaining_capacity = 96.0
-        batt.max_capacity = 100.0
-        batt.capacity_percent = 96.0
-        batt.charge_current_limit = 50.0
-        batt.charge_voltage_ref = 56.0
-        batt.cycle_count = 50
-        batt.firmware_version = "1.0"
-        batt.battery_type = None
-        batt.battery_type_text = None
-        batt.model = "EG4-LL"
-        return batt
+    ) -> BatteryData:
+        """Build a REAL BatteryData for the round-robin merge mapping.
+
+        Only real dataclass FIELDS are set; the computed properties (power,
+        cell_voltage_delta, cell_temp_delta, remaining_capacity,
+        capacity_percent) resolve for real from those fields — so the
+        individual-battery mapping is exercised against the genuine shape
+        instead of a MagicMock fabricating every attribute.
+        """
+        return BatteryData(
+            serial_number=serial,
+            voltage=voltage,
+            soc=soc,
+            battery_index=index,
+            current=-5.0,
+            soh=100,
+            max_cell_temperature=26.0,
+            min_cell_temperature=24.0,
+            max_cell_num_temp=1,
+            min_cell_num_temp=3,
+            max_cell_voltage=3.35,
+            min_cell_voltage=3.30,
+            max_cell_num_voltage=2,
+            min_cell_num_voltage=8,
+            current_capacity=96.0,
+            max_capacity=100.0,
+            charge_current_limit=50.0,
+            charge_voltage_ref=56.0,
+            cycle_count=50,
+            firmware_version="1.0",
+            battery_type=None,
+            battery_type_text=None,
+            model="EG4-LL",
+        )
 
     async def test_truncated_serial_skipped(self, hass, mock_config_entry):
         """A truncated serial is skipped, not cached as a phantom entry."""

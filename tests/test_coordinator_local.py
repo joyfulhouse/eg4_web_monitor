@@ -22,6 +22,8 @@ from pylxpweb.transports.data import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from tests.conftest import make_real_inverter
+
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -279,23 +281,27 @@ class TestBuildLocalDeviceData:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_inverter = MagicMock()
-        mock_inverter._transport_runtime = InverterRuntimeData()
-        mock_inverter._transport_energy = None
-        mock_inverter._transport_battery = None
-        mock_inverter._transport = None
-        mock_inverter.consumption_power = 3000
-        mock_inverter.total_load_power = 4000
-        mock_inverter.battery_power = 1500
-        mock_inverter.rectifier_power = 200
-        mock_inverter.power_to_user = 500
+        # REAL inverter: the computed power properties are exercised for real
+        # from injected transport data, instead of a MagicMock fabricating them.
+        # Energy balance: consumption = pv + (discharge - charge) + import - export
+        #   = 3000 + (0 - 1500) + 1500 - 0 = 3000
+        runtime = InverterRuntimeData(
+            pv_total_power=3000,
+            battery_charge_power=1500,
+            battery_discharge_power=0,
+            power_from_grid=1500,
+            power_to_grid=0,
+            grid_power=200,  # rectifier_power (Prec) source
+            load_power=500,  # power_to_user (Ptouser) source
+        )
+        inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=runtime)
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
             return_value={},
         ):
             result = coordinator._build_local_device_data(
-                inverter=mock_inverter,
+                inverter=inverter,
                 serial="INV001",
                 model="FlexBOSS21",
                 firmware_version="ARM-1.0",
@@ -303,7 +309,10 @@ class TestBuildLocalDeviceData:
             )
 
         assert result["sensors"]["consumption_power"] == 3000
-        assert result["sensors"]["total_load_power"] == 4000
+        # total_load_power is a documented ALIAS of consumption_power (a real
+        # pylxpweb semantic the old MagicMock hid by asserting a distinct 4000).
+        assert result["sensors"]["total_load_power"] == 3000
+        assert result["sensors"]["total_load_power"] == result["sensors"]["consumption_power"]
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
         assert result["sensors"]["grid_import_power"] == 500
