@@ -283,16 +283,20 @@ class TestBuildLocalDeviceData:
 
         # REAL inverter: the computed power properties are exercised for real
         # from injected transport data, instead of a MagicMock fabricating them.
-        # Energy balance: consumption = pv + (discharge - charge) + import - export
-        #   = 3000 + (0 - 1500) + 1500 - 0 = 3000
+        # Physically coherent fixture — grid import is one quantity, so
+        # power_from_grid (consumption energy-balance) == load_power (Ptouser,
+        # the grid_import_power sensor source), both 500, mirroring real modbus
+        # where both derive from the same Ptouser register.
+        #   consumption = pv + (discharge - charge) + import - export
+        #               = 3000 + (0 - 1500) + 500 - 0 = 2000
         runtime = InverterRuntimeData(
             pv_total_power=3000,
             battery_charge_power=1500,
             battery_discharge_power=0,
-            power_from_grid=1500,
+            power_from_grid=500,
             power_to_grid=0,
             grid_power=200,  # rectifier_power (Prec) source
-            load_power=500,  # power_to_user (Ptouser) source
+            load_power=500,  # power_to_user (Ptouser) -> grid_import_power sensor
         )
         inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=runtime)
 
@@ -308,13 +312,14 @@ class TestBuildLocalDeviceData:
                 connection_type="modbus",
             )
 
-        assert result["sensors"]["consumption_power"] == 3000
+        assert result["sensors"]["consumption_power"] == 2000
         # total_load_power is a documented ALIAS of consumption_power (a real
         # pylxpweb semantic the old MagicMock hid by asserting a distinct 4000).
-        assert result["sensors"]["total_load_power"] == 3000
+        assert result["sensors"]["total_load_power"] == 2000
         assert result["sensors"]["total_load_power"] == result["sensors"]["consumption_power"]
         assert result["sensors"]["battery_power"] == 1500
         assert result["sensors"]["rectifier_power"] == 200
+        # grid_import_power sensor is sourced from inverter.power_to_user (load_power)
         assert result["sensors"]["grid_import_power"] == 500
 
 
