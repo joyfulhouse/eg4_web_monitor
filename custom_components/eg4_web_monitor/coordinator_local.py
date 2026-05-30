@@ -7,7 +7,7 @@ aggregation, and static entity creation.
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -15,6 +15,11 @@ from homeassistant.util import dt as dt_util
 
 from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.exceptions import LuxpowerDeviceError
+from pylxpweb.transports import (
+    DongleTransport,
+    ModbusSerialTransport,
+    ModbusTransport,
+)
 
 from .const import (
     CONF_GRID_TYPE,
@@ -59,6 +64,15 @@ from .coordinator_mappings import (
 
 _LOGGER = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from pylxpweb.transports.data import BatteryData
+
+# Local network transports that carry the split-phase per-leg-fallback flag.
+# inverter.transport is typed as the generic InverterTransport protocol (which
+# HTTP transports also satisfy and which has no split_phase); narrowing to these
+# concrete local types lets the typed seam verify the split_phase write.
+_LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTransport)
+
 # Derived from energy balance arithmetic; small decreases are normal
 # timing artifacts (not corruption).  Clamped to prevent HA
 # total_increasing warnings.
@@ -76,7 +90,7 @@ class LocalTransportMixin(_MixinBase):
     def _merge_round_robin_batteries(
         self,
         inverter_serial: str,
-        transport_batteries: list[Any],
+        transport_batteries: list["BatteryData"],
     ) -> dict[str, dict[str, Any]]:
         """Merge transport battery slot data into the round-robin cache.
 
@@ -106,8 +120,9 @@ class LocalTransportMixin(_MixinBase):
         new_serials: list[str] = []
 
         for batt in transport_batteries:
-            # Skip batteries with no CAN bus data
-            if batt.voltage is None and batt.soc is None:
+            # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
+            # are non-optional (default 0), so an empty slot reads 0/0 not None.
+            if batt.voltage == 0 and batt.soc == 0:
                 poll_slots_skipped += 1
                 _LOGGER.debug(
                     "RR [%s] slot %d: skipped (no CAN data, voltage=%s soc=%s)",
@@ -278,19 +293,24 @@ class LocalTransportMixin(_MixinBase):
         Returns:
             Dictionary with device data, sensors, and features
         """
+        runtime = inverter.transport_runtime
+        if runtime is None:
+            from pylxpweb.transports.exceptions import TransportReadError
+
+            raise TransportReadError(f"No transport runtime data for {serial}")
         device_data: dict[str, Any] = {
             "type": "inverter",
             "model": model,
             "serial": serial,
             "firmware_version": firmware_version,
-            "sensors": _build_runtime_sensor_mapping(inverter._transport_runtime),
+            "sensors": _build_runtime_sensor_mapping(runtime),
             "batteries": {},
         }
 
-        if energy_data := inverter._transport_energy:
+        if energy_data := inverter.transport_energy:
             device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
 
-        if battery_data := inverter._transport_battery:
+        if battery_data := inverter.transport_battery:
             device_data["sensors"].update(
                 _build_battery_bank_sensor_mapping(battery_data)
             )
@@ -314,7 +334,7 @@ class LocalTransportMixin(_MixinBase):
         if (val := inverter.power_to_user) is not None:
             device_data["sensors"]["grid_import_power"] = val
 
-        transport = getattr(inverter, "_transport", None)
+        transport = inverter.transport
         if transport and hasattr(transport, "host"):
             device_data["sensors"]["transport_host"] = transport.host
 
@@ -403,7 +423,7 @@ class LocalTransportMixin(_MixinBase):
                 )
             firmware_version = self._firmware_cache[serial]
 
-            if inverter._transport_runtime is None:
+            if inverter.transport_runtime is None:
                 raise TransportReadError(
                     f"Failed to read runtime data from {transport_name}"
                 )
@@ -436,7 +456,7 @@ class LocalTransportMixin(_MixinBase):
                 )
                 self._last_available_state = True
 
-            runtime = inverter._transport_runtime
+            runtime = inverter.transport_runtime
             _LOGGER.debug(
                 "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
                 transport_name,
@@ -751,7 +771,7 @@ class LocalTransportMixin(_MixinBase):
             if is_gridboss:
                 mid_device = self._mid_device_cache[serial]
 
-                transport = mid_device._transport
+                transport = mid_device.transport
                 if transport and not transport.is_connected:
                     await transport.connect()
 
@@ -805,7 +825,7 @@ class LocalTransportMixin(_MixinBase):
             else:
                 inverter = self._inverter_cache[serial]
 
-                transport = inverter._transport
+                transport = inverter.transport
                 if transport and not transport.is_connected:
                     await transport.connect()
 
@@ -837,7 +857,7 @@ class LocalTransportMixin(_MixinBase):
 
                 if serial not in self._firmware_cache:
                     fw = "Unknown"
-                    transport = inverter._transport
+                    transport = inverter.transport
                     read_fw = (
                         getattr(transport, "read_firmware_version", None)
                         if transport
@@ -848,8 +868,8 @@ class LocalTransportMixin(_MixinBase):
                     self._firmware_cache[serial] = fw
                 firmware_version = self._firmware_cache[serial]
 
-                runtime_data = inverter._transport_runtime
-                energy_data = inverter._transport_energy
+                runtime_data = inverter.transport_runtime
+                energy_data = inverter.transport_energy
 
                 if runtime_data is None:
                     raise TransportReadError(
@@ -894,7 +914,7 @@ class LocalTransportMixin(_MixinBase):
                         _build_energy_sensor_mapping(energy_data)
                     )
 
-                battery_data = inverter._transport_battery
+                battery_data = inverter.transport_battery
                 if battery_data:
                     # Skip battery bank creation when battery_count is 0.
                     # In parallel systems with shared batteries, the secondary
@@ -1000,7 +1020,7 @@ class LocalTransportMixin(_MixinBase):
                 device_availability[serial] = True
 
                 if include_params:
-                    transport = inverter._transport
+                    transport = inverter.transport
                     if transport:
                         param_data = await self._read_modbus_parameters(transport)
                     else:
@@ -1861,12 +1881,13 @@ class LocalTransportMixin(_MixinBase):
             validation_enabled = self._data_validation_enabled
             modbus_inverters: list[Any] = []
             for inverter in self.station.all_inverters:
-                transport = getattr(inverter, "_transport", None)
+                transport = inverter.transport
                 if transport is not None:
                     inverter.validate_data = validation_enabled
                     # Propagate split-phase config for per-leg power fallback
                     grid_type = self._get_device_grid_type(inverter.serial_number)
-                    transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
+                    if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
+                        transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
                     tt = getattr(transport, "transport_type", "modbus_tcp")
                     self._align_inverter_cache_ttls(inverter, tt)
                     if tt == "modbus_tcp":
@@ -1884,7 +1905,7 @@ class LocalTransportMixin(_MixinBase):
             # cannot be called here because inverter features have not been
             # detected yet — it runs later in _deferred_local_parameter_load().
             for mid in self.station.all_mid_devices:
-                if getattr(mid, "_transport", None) is not None:
+                if mid.transport is not None:
                     mid.validate_data = validation_enabled
 
             # Log hybrid mode status
@@ -1952,21 +1973,21 @@ class LocalTransportMixin(_MixinBase):
         # Check for transport attached to Station device (HYBRID with local_transports)
         if serial and self.station:
             inverter = self.get_inverter_object(serial)
-            transport = getattr(inverter, "_transport", None) if inverter else None
+            transport = inverter.transport if inverter else None
             if transport:
                 return transport
 
         # Check LOCAL mode inverter cache
         if serial and self.connection_type == CONNECTION_TYPE_LOCAL:
             inverter = self._inverter_cache.get(serial)
-            transport = getattr(inverter, "_transport", None) if inverter else None
+            transport = inverter.transport if inverter else None
             if transport:
                 return transport
 
         # Check MID device cache (GridBOSS devices in LOCAL/HYBRID mode)
         if serial:
             mid_device = self._mid_device_cache.get(serial)
-            transport = getattr(mid_device, "_transport", None) if mid_device else None
+            transport = mid_device.transport if mid_device else None
             if transport:
                 return transport
 

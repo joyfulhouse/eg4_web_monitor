@@ -23,13 +23,17 @@ from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from pylxpweb import LuxpowerClient
-    from pylxpweb.devices import Battery, Station
+    from pylxpweb.devices import Battery, BatteryBank, MIDDevice, ParallelGroup, Station
     from pylxpweb.devices.inverters.base import BaseInverter
     from pylxpweb.transports import (
         DongleTransport,
         ModbusSerialTransport,
         ModbusTransport,
     )
+    from pylxpweb.transports.data import BatteryData
+
+    # The device objects accepted by the generic property mapper.
+    _DeviceObject = BaseInverter | Battery | BatteryBank | MIDDevice | ParallelGroup
 
 from pylxpweb.devices.inverters import InverterFamily
 
@@ -296,10 +300,10 @@ if TYPE_CHECKING:
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
         async def _process_parallel_group_object(
-            self, group: Any
+            self, group: "ParallelGroup"
         ) -> dict[str, Any]: ...
         async def _process_mid_device_object(
-            self, mid_device: Any
+            self, mid_device: "MIDDevice"
         ) -> dict[str, Any]: ...
         @staticmethod
         def _extract_inverter_features(
@@ -308,7 +312,7 @@ if TYPE_CHECKING:
         def _extract_battery_from_object(self, battery: Battery) -> dict[str, Any]: ...
         @staticmethod
         def _filter_unused_smart_port_sensors(
-            sensors: dict[str, Any], mid_device: Any
+            sensors: dict[str, Any], mid_device: "MIDDevice"
         ) -> None: ...
         @staticmethod
         def _calculate_gridboss_aggregates(
@@ -317,7 +321,7 @@ if TYPE_CHECKING:
 
         # ── FirmwareUpdateMixin methods ──
         def _extract_firmware_update_info(
-            self, device: BaseInverter
+            self, device: "BaseInverter | MIDDevice"
         ) -> dict[str, Any] | None: ...
 
         # ── ParameterManagementMixin methods ──
@@ -341,7 +345,7 @@ if TYPE_CHECKING:
         def _has_dongle_transport(self) -> bool: ...
         def _get_active_transport_intervals(self) -> list[int]: ...
         def _align_inverter_cache_ttls(
-            self, inverter: Any, transport_type: str
+            self, inverter: "BaseInverter", transport_type: str
         ) -> None: ...
 
         # ── LocalTransportMixin attributes ──
@@ -355,7 +359,7 @@ if TYPE_CHECKING:
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,
-            transport_batteries: list[Any],
+            transport_batteries: list["BatteryData"],
         ) -> dict[str, dict[str, Any]]: ...
 
 else:
@@ -365,7 +369,9 @@ else:
 # ===== Utility Functions =====
 
 
-def _map_device_properties(device: Any, property_map: dict[str, str]) -> dict[str, Any]:
+def _map_device_properties(
+    device: "_DeviceObject", property_map: dict[str, str]
+) -> dict[str, Any]:
     """Map device properties to sensor keys using a property mapping dictionary.
 
     This is a generic utility that extracts properties from any device object
@@ -570,7 +576,7 @@ class DeviceProcessingMixin(_MixinBase):
         # Note: GridBOSS uses a different aggregation strategy — CT summation
         # (L1 + L2) via _safe_sum() in MIDRuntimePropertiesMixin, not energy
         # balance.  See pylxpweb _mid_runtime_properties.py for details.
-        if getattr(inverter, "_transport", None) is not None:
+        if inverter.transport is not None:
             sensors = processed["sensors"]
             sensors["consumption"] = _energy_balance(
                 sensors.get("yield"),
@@ -592,7 +598,7 @@ class DeviceProcessingMixin(_MixinBase):
         # contains real-time Modbus register data for sensors the cloud API
         # does not provide (e.g. bt_temperature reg 108, grid current regs
         # 18/190/191, battery current reg 4).
-        transport_runtime = getattr(inverter, "_transport_runtime", None)
+        transport_runtime = inverter.transport_runtime
         if transport_runtime is not None:
             sensors = processed["sensors"]
             _TRANSPORT_OVERLAY = (
@@ -611,7 +617,7 @@ class DeviceProcessingMixin(_MixinBase):
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
-        transport_energy = getattr(inverter, "_transport_energy", None)
+        transport_energy = inverter.transport_energy
         if transport_energy is not None:
             sensors = processed["sensors"]
             _ENERGY_OVERLAY = (
@@ -674,7 +680,7 @@ class DeviceProcessingMixin(_MixinBase):
         # because the CAN bus is wired only to the primary.  Creating a
         # battery bank device with no actual batteries leads to
         # Unknown/Unavailable entities (issue #169).
-        transport_battery = getattr(inverter, "_transport_battery", None)
+        transport_battery = inverter.transport_battery
         if transport_battery:
             raw_count = getattr(transport_battery, "battery_count", None)
             bank_count = int(raw_count) if raw_count else 0
@@ -786,7 +792,7 @@ class DeviceProcessingMixin(_MixinBase):
         # data from local Modbus already provides FUNC_EPS_EN which the switch
         # entity uses as a fallback. The cloud remoteRead endpoint frequently
         # returns apiBlocked anyway since the dongle relay is often busy.
-        has_local_transport = getattr(inverter, "_transport", None) is not None
+        has_local_transport = inverter.transport is not None
         if not has_local_transport:
             bb_key = f"bb_{serial}"
             last_bb = self._last_status_fetch.get(bb_key, 0.0)
@@ -1226,7 +1232,9 @@ class DeviceProcessingMixin(_MixinBase):
             "temp_delta": "battery_bank_temp_delta",
         }
 
-    async def _process_parallel_group_object(self, group: Any) -> dict[str, Any]:
+    async def _process_parallel_group_object(
+        self, group: "ParallelGroup"
+    ) -> dict[str, Any]:
         """Process parallel group data from group object using properties.
 
         Args:
@@ -1266,8 +1274,7 @@ class DeviceProcessingMixin(_MixinBase):
         # This mirrors the individual inverter override at line ~507.
         # See: eg4_web_monitor issue #163
         if any(
-            getattr(inv, "_transport_energy", None) is not None
-            for inv in getattr(group, "inverters", [])
+            inv.transport_energy is not None for inv in getattr(group, "inverters", [])
         ):
             sensors = processed["sensors"]
             sensors["consumption"] = _energy_balance(
@@ -1326,7 +1333,9 @@ class DeviceProcessingMixin(_MixinBase):
             "battery_count": "parallel_battery_count",
         }
 
-    async def _process_mid_device_object(self, mid_device: Any) -> dict[str, Any]:
+    async def _process_mid_device_object(
+        self, mid_device: "MIDDevice"
+    ) -> dict[str, Any]:
         """Process GridBOSS/MID device data from device object using properties.
 
         Args:
@@ -1513,7 +1522,7 @@ class DeviceProcessingMixin(_MixinBase):
 
     @staticmethod
     def _filter_unused_smart_port_sensors(
-        sensors: dict[str, Any], mid_device: Any
+        sensors: dict[str, Any], mid_device: "MIDDevice"
     ) -> None:
         """Filter smart port sensors based on port status from the MID device.
 
@@ -1571,7 +1580,7 @@ class DeviceProcessingMixin(_MixinBase):
                 firmware = getattr(mid_device, "firmware_version", "unknown")
                 has_transport = (
                     hasattr(mid_device, "_transport")
-                    and mid_device._transport is not None
+                    and mid_device.transport is not None
                 )
                 _LOGGER.warning(
                     "Invalid Smart Port status values detected for MID device %s "
@@ -2228,7 +2237,7 @@ class BackgroundTaskMixin(_MixinBase):
 
         # Cached inverter transports (LOCAL/HYBRID with local_transports config)
         for serial, inverter in self._inverter_cache.items():
-            transport = getattr(inverter, "_transport", None)
+            transport = inverter.transport
             if transport is not None and getattr(transport, "is_connected", False):
                 try:
                     await transport.disconnect()
@@ -2242,7 +2251,7 @@ class BackgroundTaskMixin(_MixinBase):
 
         # Cached MID device transports (GridBOSS in LOCAL/HYBRID mode)
         for serial, mid_device in self._mid_device_cache.items():
-            transport = getattr(mid_device, "_transport", None)
+            transport = mid_device.transport
             if transport is not None and getattr(transport, "is_connected", False):
                 try:
                     await transport.disconnect()
@@ -2274,7 +2283,7 @@ class FirmwareUpdateMixin(_MixinBase):
     """Mixin for firmware update information extraction."""
 
     def _extract_firmware_update_info(
-        self, device: "BaseInverter"
+        self, device: "BaseInverter | MIDDevice"
     ) -> dict[str, Any] | None:
         """Extract firmware update information from device object.
 

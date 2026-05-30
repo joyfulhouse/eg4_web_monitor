@@ -146,12 +146,19 @@ class HTTPUpdateMixin(_MixinBase):
             all_devices.extend(self.station.all_mid_devices)
 
         for device in all_devices:
-            transport = getattr(device, "_transport", None)
+            transport = device.transport
             if transport is None:
                 no_transport.append(device)
                 continue
-            host = getattr(transport, "_host", "")
-            port = getattr(transport, "_port", 0)
+            # Group by the PUBLIC host/port (network transports — TCP dongle).
+            # A transport without a network endpoint (e.g. serial) can't share
+            # one, so it refreshes on its own rather than collapsing into a
+            # bogus ":0" group (the eg4-xi7 silent-default bug).
+            host = getattr(transport, "host", None)
+            port = getattr(transport, "port", None)
+            if host is None or port is None:
+                no_transport.append(device)
+                continue
             endpoint = f"{host}:{port}"
             endpoint_groups.setdefault(endpoint, []).append(device)
 
@@ -230,7 +237,7 @@ class HTTPUpdateMixin(_MixinBase):
                 device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
                     serial
                 )
-            transport = getattr(device, "_transport", None) if device else None
+            transport = device.transport if device else None
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")
                 label = _get_transport_label(transport_type)
@@ -698,7 +705,7 @@ class HTTPUpdateMixin(_MixinBase):
             )
 
             # Get transport battery data (local Modbus real-time values)
-            transport_battery = getattr(inverter, "_transport_battery", None)
+            transport_battery = inverter.transport_battery
             transport_batteries = (
                 transport_battery.batteries
                 if transport_battery and hasattr(transport_battery, "batteries")
@@ -737,7 +744,11 @@ class HTTPUpdateMixin(_MixinBase):
                 # Overlay transport real-time data matched by serial
                 transport_matched = 0
                 for batt in transport_batteries:
-                    if batt.voltage is None and batt.soc is None:
+                    # Skip ghost batteries (no real data) — matches pylxpweb's
+                    # canonical ghost definition (BatteryData voltage/soc are
+                    # non-optional, defaulting to 0, so an empty 5002+ slot reads
+                    # 0/0 rather than None).
+                    if batt.voltage == 0 and batt.soc == 0:
                         continue
                     bat_serial: str = getattr(batt, "serial_number", "") or ""
                     if not bat_serial or bat_serial not in cloud_by_serial:

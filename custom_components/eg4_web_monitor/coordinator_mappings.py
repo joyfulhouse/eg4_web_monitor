@@ -6,7 +6,7 @@ key dictionaries used by Home Assistant entities.
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.util import dt as dt_util
 
@@ -18,6 +18,15 @@ from .const import (
     INVERTER_FAMILY_DEFAULT_MODELS,
     LEGACY_FAMILY_MAP,
 )
+
+if TYPE_CHECKING:
+    from pylxpweb.devices import Battery, MIDDevice
+    from pylxpweb.transports.data import (
+        BatteryBankData,
+        BatteryData,
+        InverterEnergyData,
+        InverterRuntimeData,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -490,7 +499,9 @@ PARALLEL_GROUP_GRIDBOSS_KEYS: frozenset[str] = frozenset(
 )
 
 
-def _build_runtime_sensor_mapping(runtime_data: Any) -> dict[str, Any]:
+def _build_runtime_sensor_mapping(
+    runtime_data: "InverterRuntimeData",
+) -> dict[str, Any]:
     """Build sensor mapping from runtime data object.
 
     This helper extracts runtime data from a transport's RuntimeData object
@@ -633,7 +644,7 @@ def _energy_balance(
     return max(0.0, result)
 
 
-def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
+def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str, Any]:
     """Build sensor mapping from energy data object.
 
     This helper extracts energy data from a transport's EnergyData object
@@ -683,7 +694,9 @@ def _build_energy_sensor_mapping(energy_data: Any) -> dict[str, Any]:
     }
 
 
-def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
+def _build_battery_bank_sensor_mapping(
+    battery_data: "BatteryBankData",
+) -> dict[str, Any]:
     """Build sensor mapping from battery bank data object.
 
     Computes cross-battery diagnostic metrics directly from the transport
@@ -773,7 +786,9 @@ def _build_battery_bank_sensor_mapping(battery_data: Any) -> dict[str, Any]:
     return sensors
 
 
-def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
+def _build_individual_battery_mapping(
+    battery: "Battery | BatteryData",
+) -> dict[str, Any]:
     """Build sensor mapping from a BatteryData or Battery object.
 
     Works with both pylxpweb transport BatteryData (LOCAL/HYBRID overlay)
@@ -845,7 +860,7 @@ def _build_individual_battery_mapping(battery: Any) -> dict[str, Any]:
     return sensors
 
 
-def _build_gridboss_sensor_mapping(mid_device: Any) -> dict[str, Any]:
+def _build_gridboss_sensor_mapping(mid_device: "MIDDevice") -> dict[str, Any]:
     """Build sensor mapping from MIDDevice object for GridBOSS.
 
     Extracts data from a MIDDevice's runtime properties (provided by
