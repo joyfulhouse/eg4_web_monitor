@@ -31,7 +31,7 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
-from pylxpweb.transports.data import MidboxRuntimeData
+from pylxpweb.transports.data import BatteryBankData, BatteryData, MidboxRuntimeData
 
 from tests.conftest import make_real_mid
 
@@ -926,15 +926,19 @@ class TestBatteryExtraction:
         inv = _mock_inverter(serial="INV001")
         inv._battery_bank = None  # No cloud batteries
 
-        # Transport batteries
-        mock_transport_battery = MagicMock()
-        mock_batt = MagicMock()
-        mock_batt.battery_index = 0
-        mock_batt.voltage = 52.0
-        mock_batt.current = 10.0
-        mock_batt.soc = 85
-        mock_batt.serial_number = "BAT_SN_001"
-        mock_transport_battery.batteries = [mock_batt]
+        # Transport batteries — real BatteryData/BatteryBankData so the
+        # individual-battery read path is exercised against the genuine shape.
+        mock_transport_battery = BatteryBankData(
+            batteries=[
+                BatteryData(
+                    battery_index=0,
+                    voltage=52.0,
+                    current=10.0,
+                    soc=85,
+                    serial_number="BAT_SN_001",
+                )
+            ]
+        )
         inv._transport_battery = mock_transport_battery
 
         coordinator.station = _mock_station([inv])

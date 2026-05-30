@@ -4237,27 +4237,25 @@ class TestParameterPreComputation:
         coordinator = EG4DataUpdateCoordinator(hass, two_device_config_entry)
         coordinator._local_parameters_loaded = True
 
-        # Set up two mock inverters
+        # Set up two REAL inverters (real transport runtime; the computed power
+        # properties resolve for real). refresh/detect_features/_transport stay
+        # control-flow mocks — this test is about parameter-refresh gating.
         for serial in ["1111111111", "2222222222"]:
-            mock_inv = MagicMock()
+            runtime = InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                grid_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            )
+            mock_inv = make_real_inverter(serial, "FlexBOSS21", runtime=runtime)
             mock_inv.refresh = AsyncMock()
             mock_inv.detect_features = AsyncMock()
             mock_inv._transport = MagicMock()
             mock_inv._transport.is_connected = True
-            mock_inv._transport_runtime = MagicMock()
-            mock_inv._transport_runtime.pv_total_power = 0
-            mock_inv._transport_runtime.battery_soc = 50
-            mock_inv._transport_runtime.grid_power = 0
-            mock_inv._transport_runtime.parallel_number = 0
-            mock_inv._transport_runtime.parallel_master_slave = 0
-            mock_inv._transport_runtime.parallel_phase = 0
             mock_inv._transport_energy = None
             mock_inv._transport_battery = None
-            mock_inv.consumption_power = None
-            mock_inv.total_load_power = None
-            mock_inv.battery_power = None
-            mock_inv.rectifier_power = None
-            mock_inv.power_to_user = None
             coordinator._inverter_cache[serial] = mock_inv
             coordinator._firmware_cache[serial] = "TEST-FW"
 
@@ -4324,24 +4322,21 @@ class TestParameterPreComputation:
         coordinator = EG4DataUpdateCoordinator(hass, config_entry)
         # _local_parameters_loaded defaults to False
 
-        mock_inv = MagicMock()
+        runtime = InverterRuntimeData(
+            pv_total_power=0,
+            battery_soc=50,
+            grid_power=0,
+            parallel_number=0,
+            parallel_master_slave=0,
+            parallel_phase=0,
+        )
+        mock_inv = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
         mock_inv.refresh = AsyncMock()
+        mock_inv.detect_features = AsyncMock()
         mock_inv._transport = MagicMock()
         mock_inv._transport.is_connected = True
-        mock_inv._transport_runtime = MagicMock()
-        mock_inv._transport_runtime.pv_total_power = 0
-        mock_inv._transport_runtime.battery_soc = 50
-        mock_inv._transport_runtime.grid_power = 0
-        mock_inv._transport_runtime.parallel_number = 0
-        mock_inv._transport_runtime.parallel_master_slave = 0
-        mock_inv._transport_runtime.parallel_phase = 0
         mock_inv._transport_energy = None
         mock_inv._transport_battery = None
-        mock_inv.consumption_power = None
-        mock_inv.total_load_power = None
-        mock_inv.battery_power = None
-        mock_inv.rectifier_power = None
-        mock_inv.power_to_user = None
         coordinator._inverter_cache["1111111111"] = mock_inv
         coordinator._firmware_cache["1111111111"] = "TEST-FW"
 
@@ -4784,9 +4779,11 @@ class TestParallelGroupConsumptionEnergyBalance:
         mock_group.battery_count = 6
         mock_group.first_device_serial = "INV001"
 
-        # Mark inverters as having local transport
+        # Mark inverters as having local transport (real empty energy object is
+        # the truthiness sentinel _has_local_energy() checks; the energy values
+        # themselves come from the parallel-group aggregate above).
         for inv in mock_group.inverters:
-            inv._transport_energy = MagicMock()
+            inv._transport_energy = InverterEnergyData()
 
         result = await coordinator._process_parallel_group_object(mock_group)
         sensors = result["sensors"]
