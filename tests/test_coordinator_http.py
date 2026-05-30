@@ -33,7 +33,7 @@ from pylxpweb.exceptions import (
 )
 from pylxpweb.transports.data import BatteryBankData, BatteryData, MidboxRuntimeData
 
-from tests.conftest import make_real_mid
+from tests.conftest import make_real_mid, make_transport_spec
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -486,9 +486,9 @@ class TestHybridMode:
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
         inv = _mock_inverter(serial="INV001")
-        mock_transport = MagicMock()
-        mock_transport.transport_type = "modbus"
-        mock_transport.host = "192.168.1.100"
+        mock_transport = make_transport_spec(
+            transport_type="modbus", host="192.168.1.100"
+        )
         inv._transport = mock_transport
 
         coordinator.station = _mock_station([inv])

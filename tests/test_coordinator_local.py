@@ -23,7 +23,7 @@ from pylxpweb.transports.data import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from tests.conftest import make_real_inverter
+from tests.conftest import make_real_inverter, make_transport_spec
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -138,8 +138,8 @@ class TestReadModbusParameters:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(return_value={"PARAM_A": True})
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -161,8 +161,8 @@ class TestReadModbusParameters:
                 raise RuntimeError("range 20 failed")
             return {f"param_{start}": start}
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(side_effect=mock_read)
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -176,10 +176,8 @@ class TestReadModbusParameters:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
-        mock_transport.read_named_parameters = AsyncMock(
-            side_effect=RuntimeError("all fail")
-        )
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = RuntimeError("all fail")
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
@@ -218,8 +216,7 @@ class TestBuildLocalDeviceData:
         # _transport is the network CONNECTION object (Modbus/Dongle socket), not
         # a pylxpweb data model — a real one needs a live socket.  It is an infra
         # mock by design; transport_host is connection metadata, not device data.
-        inverter._transport = MagicMock()
-        inverter._transport.host = "192.168.1.100"
+        inverter._transport = make_transport_spec(host="192.168.1.100")
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
@@ -337,7 +334,7 @@ class TestTransportAccessors:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_inverter = MagicMock()
         mock_inverter._transport = mock_transport
         coordinator._inverter_cache["INV001"] = mock_inverter
@@ -354,7 +351,7 @@ class TestTransportAccessors:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_inverter = MagicMock()
         mock_inverter._transport = mock_transport
         mock_inverter.serial_number = "INV001"
@@ -387,7 +384,7 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_inverter = MagicMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
         coordinator._inverter_cache["INV001"] = mock_inverter
 
         assert coordinator.has_local_transport("INV001") is True
@@ -412,7 +409,7 @@ class TestTransportAccessors:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_transport = MagicMock()
+        mock_transport = make_transport_spec()
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
         coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
@@ -426,7 +423,7 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_mid = MagicMock()
-        mock_mid._transport = MagicMock()
+        mock_mid._transport = make_transport_spec()
         coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
 
         assert coordinator.has_local_transport("GRIDBOSS001") is True
@@ -592,7 +589,7 @@ class TestAttachForcedTransportRead:
         mock_result.failed_serials = []
 
         mock_inverter = MagicMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
         mock_inverter.serial_number = "1234567890"
         mock_inverter.refresh = AsyncMock()
 
@@ -768,9 +765,8 @@ class TestGridBOSSFirmwareCache:
         coordinator._local_static_phase_done = True
 
         # Build a mock MIDDevice with a transport that returns firmware
-        mock_transport = MagicMock()
-        mock_transport.is_connected = True
-        mock_transport.read_firmware_version = AsyncMock(return_value="IAAB-1600")
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.read_firmware_version.return_value = "IAAB-1600"
 
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
@@ -839,11 +835,8 @@ class TestGridBOSSFirmwareCache:
         # Pre-populate firmware cache (simulates first refresh already done)
         coordinator._firmware_cache["GB002"] = "IAAB-1600"
 
-        mock_transport = MagicMock()
-        mock_transport.is_connected = True
-        mock_transport.read_firmware_version = AsyncMock(
-            return_value="SHOULD-NOT-BE-CALLED"
-        )
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.read_firmware_version.return_value = "SHOULD-NOT-BE-CALLED"
 
         mock_mid = MagicMock()
         mock_mid._transport = mock_transport
@@ -1006,10 +999,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = MagicMock()
-        inverter._transport.is_connected = True
-        inverter._transport.host = "192.168.1.101"
-        inverter._transport.disconnect = AsyncMock()
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.101"
+        )
 
         # Pre-populate caches
         coordinator._inverter_cache["SECONDARY01"] = inverter
@@ -1082,10 +1074,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("PRIMARY001", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = MagicMock()
-        inverter._transport.is_connected = True
-        inverter._transport.host = "192.168.1.100"
-        inverter._transport.disconnect = AsyncMock()
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
         coordinator._inverter_cache["PRIMARY001"] = inverter
         coordinator._firmware_cache["PRIMARY001"] = "FAAB-2525"
@@ -1180,10 +1171,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("STANDALONE1", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = MagicMock()
-        inverter._transport.is_connected = True
-        inverter._transport.host = "192.168.1.100"
-        inverter._transport.disconnect = AsyncMock()
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
         coordinator._inverter_cache["STANDALONE1"] = inverter
         coordinator._firmware_cache["STANDALONE1"] = "FAAB-2525"
@@ -1260,10 +1250,9 @@ class TestBatteryBankCountSuppression:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = MagicMock()
-        inverter._transport.is_connected = True
-        inverter._transport.host = "192.168.1.100"
-        inverter._transport.disconnect = AsyncMock()
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
         return inverter
 
     async def test_secondary_no_battery_bank_sensors(self, hass):
@@ -1464,10 +1453,9 @@ class TestBatteryRRCacheFallback:
         inverter = make_real_inverter("DONGLE001", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = MagicMock()
-        inverter._transport.is_connected = True
-        inverter._transport.host = "192.168.1.100"
-        inverter._transport.disconnect = AsyncMock()
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
         return inverter
 
     async def test_cache_fallback_when_batteries_empty_this_poll(

@@ -77,7 +77,7 @@ from pylxpweb.transports.data import (
     MidboxRuntimeData,
 )
 
-from tests.conftest import make_real_inverter, make_real_mid
+from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
 
 @pytest.fixture
@@ -1191,8 +1191,7 @@ class TestDeferredLocalParameters:
             ),
         )
         mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -1233,8 +1232,7 @@ class TestDeferredLocalParameters:
         )
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -1423,8 +1421,7 @@ class TestCacheTTLAdherence:
             ),
         )
         mock_inverter.refresh = AsyncMock()
-        mock_inverter._transport = MagicMock()
-        mock_inverter._transport.is_connected = True
+        mock_inverter._transport = make_transport_spec(is_connected=True)
 
         coordinator._inverter_cache["INV001"] = mock_inverter
         coordinator._firmware_cache["INV001"] = "TEST-FW"
@@ -4252,8 +4249,7 @@ class TestParameterPreComputation:
             mock_inv = make_real_inverter(serial, "FlexBOSS21", runtime=runtime)
             mock_inv.refresh = AsyncMock()
             mock_inv.detect_features = AsyncMock()
-            mock_inv._transport = MagicMock()
-            mock_inv._transport.is_connected = True
+            mock_inv._transport = make_transport_spec(is_connected=True)
             mock_inv._transport_energy = None
             mock_inv._transport_battery = None
             coordinator._inverter_cache[serial] = mock_inv
@@ -4333,8 +4329,7 @@ class TestParameterPreComputation:
         mock_inv = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
         mock_inv.refresh = AsyncMock()
         mock_inv.detect_features = AsyncMock()
-        mock_inv._transport = MagicMock()
-        mock_inv._transport.is_connected = True
+        mock_inv._transport = make_transport_spec(is_connected=True)
         mock_inv._transport_energy = None
         mock_inv._transport_battery = None
         coordinator._inverter_cache["1111111111"] = mock_inv
@@ -4942,7 +4937,7 @@ class TestHybridTransportExclusiveSensors:
         mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]
@@ -4992,7 +4987,7 @@ class TestHybridTransportExclusiveSensors:
         mock_inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
-        mock_inverter._transport = MagicMock()
+        mock_inverter._transport = make_transport_spec()
 
         result = await coordinator._process_inverter_object(mock_inverter)
         sensors = result["sensors"]

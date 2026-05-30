@@ -2,10 +2,11 @@
 
 import threading
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import pytest
 from pylxpweb.devices import HybridInverter, MIDDevice
+from pylxpweb.transports import ModbusTransport
 from pylxpweb.transports.data import (
     InverterEnergyData,
     InverterRuntimeData,
@@ -82,6 +83,30 @@ def make_real_inverter_factory():
 def make_real_mid_factory():
     """Fixture returning the ``make_real_mid`` builder."""
     return make_real_mid
+
+
+def make_transport_spec(**attrs: Any) -> Any:
+    """Build a shape-faithful stand-in for a pylxpweb network transport.
+
+    The transport is the network CONNECTION object (Modbus/Dongle socket); a
+    real connected one needs a live socket, so tests cannot use it directly.
+    Unlike the device classes, ModbusTransport exposes ``host`` / ``is_connected``
+    / ``split_phase`` and the read/connect coroutines at the CLASS level, so
+    ``create_autospec(spec_set=True)`` gives a stand-in that is BOTH controllable
+    (set host/is_connected/...) AND shape-faithful (reading or setting an
+    attribute the real transport does not define raises AttributeError).  Use
+    this instead of a bare MagicMock so a renamed transport attribute fails CI.
+    """
+    spec = create_autospec(ModbusTransport, spec_set=True, instance=True)
+    if attrs:
+        spec.configure_mock(**attrs)
+    return spec
+
+
+@pytest.fixture
+def make_transport_spec_factory():
+    """Fixture returning the ``make_transport_spec`` helper."""
+    return make_transport_spec
 
 
 def create_mock_station(
