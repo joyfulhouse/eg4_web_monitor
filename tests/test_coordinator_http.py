@@ -33,7 +33,7 @@ from pylxpweb.exceptions import (
 )
 from pylxpweb.transports.data import BatteryBankData, BatteryData, MidboxRuntimeData
 
-from tests.conftest import make_real_mid, make_transport_spec
+from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -485,7 +485,7 @@ class TestHybridMode:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
-        inv = _mock_inverter(serial="INV001")
+        inv = make_real_inverter(serial_number="INV001")
         mock_transport = make_transport_spec(
             transport_type="modbus", host="192.168.1.100"
         )
@@ -520,8 +520,8 @@ class TestHybridMode:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
-        inv = _mock_inverter(serial="INV001")
-        inv._transport = None
+        inv = make_real_inverter(serial_number="INV001")
+        # Real inverter has _transport=None by default → .transport returns None.
         coordinator.station = _mock_station([inv])
         # Clear local caches to ensure no fallback
         coordinator._inverter_cache = {}
@@ -844,7 +844,8 @@ class TestBatteryExtraction:
         http_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
 
-        inv = _mock_inverter(serial="INV001", battery_count=2)
+        inv = make_real_inverter(serial_number="INV001")
+        # Real inverter has transport_battery=None → cloud-only path is taken.
         mock_batt1 = MagicMock()
         mock_batt1.battery_index = 0
         mock_batt1.battery_key = "Battery_ID_01"
@@ -861,11 +862,20 @@ class TestBatteryExtraction:
         mock_batt2.current = 9.5
         mock_batt2.soc = 82
 
-        inv._battery_bank.batteries = [mock_batt1, mock_batt2]
+        # Cloud battery metadata lives on the inverter's _battery_bank; the leaf
+        # battery objects are metadata stand-ins (the inverter itself is real).
+        battery_bank = MagicMock()
+        battery_bank.battery_count = 2
+        battery_bank.batteries = [mock_batt1, mock_batt2]
+        inv._battery_bank = battery_bank
         coordinator.station = _mock_station([inv])
         # Populate inverter cache so get_inverter_object() finds the inverter
         # (normally done by _rebuild_inverter_cache in _async_update_http_data)
         coordinator._inverter_cache = {"INV001": inv}
+        # Seed parameters so _process_station_data does not schedule the
+        # background parameter refresh (which would call the real inverter's
+        # refresh() — unrelated to battery extraction under test).
+        coordinator.data = {"parameters": {"INV001": {}}}
 
         with patch.object(
             coordinator,
@@ -923,11 +933,12 @@ class TestBatteryExtraction:
         http_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
 
-        inv = _mock_inverter(serial="INV001")
+        inv = make_real_inverter(serial_number="INV001")
         inv._battery_bank = None  # No cloud batteries
 
         # Transport batteries — real BatteryData/BatteryBankData so the
         # individual-battery read path is exercised against the genuine shape.
+        # Set on the real inverter so .transport_battery returns it.
         mock_transport_battery = BatteryBankData(
             batteries=[
                 BatteryData(
@@ -943,6 +954,10 @@ class TestBatteryExtraction:
 
         coordinator.station = _mock_station([inv])
         coordinator._inverter_cache = {"INV001": inv}
+        # Seed parameters so _process_station_data does not schedule the
+        # background parameter refresh (which would call the real inverter's
+        # refresh() — unrelated to battery extraction under test).
+        coordinator.data = {"parameters": {"INV001": {}}}
 
         mock_mapping = {"battery_voltage": 52.0, "battery_soc": 85}
         with (

@@ -36,22 +36,12 @@ from custom_components.eg4_web_monitor.coordinator_mixins import DeviceProcessin
 # keep this set SHRINKING.  Tracked in beads (see issue refs).
 # -------------------------------------------------------------------------
 KNOWN_SEAM_GAPS: dict[tuple[str, str], str] = {
-    # Cloud-only metadata: the EG4 cloud returns powerRatingText / hasRuntimeData
-    # (wired via const/sensors/mappings.py), but the pylxpweb inverter DEVICE
-    # exposes no such property, so the device-object path yields None.  Tracked
-    # for seam consolidation (eg4-2iw).
-    ("inverter", "power_rating_text"): "cloud-only metadata; not a device property",
-    (
-        "inverter",
-        "has_runtime_data",
-    ): "cloud-only flag; not an inverter device property",
-    # BatteryBank exposes cycle_count_delta but not a bank-level cycle_count;
-    # the battery_bank_cycle_count sensor is populated from the local reg-106
-    # path instead.  Tracked for seam consolidation (eg4-2iw).
-    (
-        "battery_bank",
-        "cycle_count",
-    ): "BatteryBank has no cycle_count property (only _delta)",
+    # Empty: the prior gaps (inverter.power_rating_text / has_runtime_data,
+    # battery_bank.cycle_count) were closed in eg4-ohz by exposing honest
+    # device properties on pylxpweb, so the device-object path now resolves
+    # them for real.  Keep this set SHRINKING — add an entry only with a
+    # tracking issue, and `test_known_seam_gaps_are_still_gaps` guards against
+    # stale entries pylxpweb has since provided.
 }
 
 # (label, property_map, target pylxpweb class the map is applied to)

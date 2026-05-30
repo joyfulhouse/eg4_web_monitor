@@ -20,10 +20,11 @@ from pylxpweb.transports.data import (
     BatteryData,
     InverterEnergyData,
     InverterRuntimeData,
+    MidboxRuntimeData,
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from tests.conftest import make_real_inverter, make_transport_spec
+from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -335,9 +336,9 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_transport = make_transport_spec()
-        mock_inverter = MagicMock()
-        mock_inverter._transport = mock_transport
-        coordinator._inverter_cache["INV001"] = mock_inverter
+        inv = make_real_inverter(serial_number="INV001")
+        inv._transport = mock_transport
+        coordinator._inverter_cache["INV001"] = inv
 
         result = coordinator.get_local_transport("INV001")
         assert result is mock_transport
@@ -352,9 +353,8 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
         mock_transport = make_transport_spec()
-        mock_inverter = MagicMock()
+        mock_inverter = make_real_inverter(serial_number="INV001")
         mock_inverter._transport = mock_transport
-        mock_inverter.serial_number = "INV001"
 
         mock_station = MagicMock()
         mock_station.all_inverters = [mock_inverter]
@@ -410,9 +410,9 @@ class TestTransportAccessors:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_transport = make_transport_spec()
-        mock_mid = MagicMock()
-        mock_mid._transport = mock_transport
-        coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
+        mid = make_real_mid(serial_number="GRIDBOSS001")
+        mid._transport = mock_transport
+        coordinator._mid_device_cache["GRIDBOSS001"] = mid
 
         result = coordinator.get_local_transport("GRIDBOSS001")
         assert result is mock_transport
@@ -431,12 +431,13 @@ class TestTransportAccessors:
     def test_get_local_transport_mid_device_no_transport(
         self, hass, local_config_entry
     ):
-        """MID device without _transport attribute returns None."""
+        """MID device without an attached transport returns None."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
-        mock_mid = MagicMock(spec=[])  # No attributes
-        coordinator._mid_device_cache["GRIDBOSS001"] = mock_mid
+        # No transport assigned → real .transport property returns None
+        mid = make_real_mid(serial_number="GRIDBOSS001")
+        coordinator._mid_device_cache["GRIDBOSS001"] = mid
 
         result = coordinator.get_local_transport("GRIDBOSS001")
         assert result is None
@@ -764,16 +765,18 @@ class TestGridBOSSFirmwareCache:
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
 
-        # Build a mock MIDDevice with a transport that returns firmware
+        # Build a real MIDDevice with a transport that returns firmware.
+        # read_firmware_version is async on the real transport, so the autospec
+        # returns a coroutine — set its awaited result, not a plain return value.
         mock_transport = make_transport_spec(is_connected=True)
         mock_transport.read_firmware_version.return_value = "IAAB-1600"
 
-        mock_mid = MagicMock()
+        # Inject real runtime so has_data is True (the MIDDevice property reads
+        # _transport_runtime). The MIDDevice.firmware_version property would
+        # return "" here (the bug scenario) — firmware must come from transport.
+        mock_mid = make_real_mid(serial_number="GB001", runtime=MidboxRuntimeData())
         mock_mid._transport = mock_transport
-        mock_mid.has_data = True
         mock_mid.refresh = AsyncMock()
-        # MIDDevice.firmware_version property returns None (the bug scenario)
-        mock_mid.firmware_version = None
 
         coordinator._mid_device_cache["GB001"] = mock_mid
 

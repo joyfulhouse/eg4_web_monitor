@@ -418,19 +418,19 @@ class TestCoordinatorCleanup:
         """
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        # Simulate cached inverter with an open transport
-        mock_transport_1 = MagicMock()
-        mock_transport_1.is_connected = True
+        # Simulate cached inverter with an open transport.  Real inverter so the
+        # public ``.transport`` accessor returns the assigned transport (a bare
+        # MagicMock's ``.transport`` would return an unrelated auto-child mock).
+        mock_transport_1 = make_transport_spec(is_connected=True)
         mock_transport_1.disconnect = AsyncMock()
-        mock_inv = MagicMock()
+        mock_inv = make_real_inverter("INV001", "FlexBOSS21")
         mock_inv._transport = mock_transport_1
         coordinator._inverter_cache["INV001"] = mock_inv
 
         # Simulate cached MID device with an open transport
-        mock_transport_2 = MagicMock()
-        mock_transport_2.is_connected = True
+        mock_transport_2 = make_transport_spec(is_connected=True)
         mock_transport_2.disconnect = AsyncMock()
-        mock_mid = MagicMock()
+        mock_mid = make_real_mid("MID001", "GridBOSS")
         mock_mid._transport = mock_transport_2
         coordinator._mid_device_cache["MID001"] = mock_mid
 
@@ -1342,7 +1342,10 @@ class TestCacheTTLAdherence:
         modbus_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, modbus_config_entry)
 
-        mock_inverter = MagicMock()
+        # Real inverter so set_cache_ttls() actually mutates the cache-TTL
+        # attributes (on a MagicMock it is a no-op stub and the asserts never see
+        # the new values).
+        mock_inverter = make_real_inverter("INV001", "FlexBOSS21")
         coordinator._align_inverter_cache_ttls(mock_inverter, "modbus_tcp")
 
         expected = timedelta(seconds=coordinator._modbus_interval)
@@ -1355,7 +1358,7 @@ class TestCacheTTLAdherence:
         dongle_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, dongle_config_entry)
 
-        mock_inverter = MagicMock()
+        mock_inverter = make_real_inverter("INV001", "FlexBOSS21")
         coordinator._align_inverter_cache_ttls(mock_inverter, "wifi_dongle")
 
         expected = timedelta(seconds=coordinator._dongle_interval)
@@ -1392,12 +1395,12 @@ class TestCacheTTLAdherence:
         entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
 
-        mock_modbus = MagicMock()
+        mock_modbus = make_real_inverter("INV001", "FlexBOSS21")
         coordinator._align_inverter_cache_ttls(mock_modbus, "modbus_tcp")
         assert mock_modbus._runtime_cache_ttl == timedelta(seconds=3)
         assert mock_modbus._battery_cache_ttl == timedelta(seconds=3)
 
-        mock_dongle = MagicMock()
+        mock_dongle = make_real_inverter("INV001", "FlexBOSS21")
         coordinator._align_inverter_cache_ttls(mock_dongle, "wifi_dongle")
         assert mock_dongle._runtime_cache_ttl == timedelta(seconds=15)
         assert mock_dongle._battery_cache_ttl == timedelta(seconds=15)
@@ -4738,7 +4741,10 @@ class TestParallelGroupConsumptionEnergyBalance:
 
         mock_group = MagicMock()
         mock_group.name = "A"
-        mock_group.inverters = [MagicMock(serial_number="INV001")]
+        # Real inverter so the injected ``InverterEnergyData()`` is what the
+        # public ``.transport_energy`` accessor returns (a bare MagicMock would
+        # return a truthy auto-child mock regardless of what we inject).
+        mock_group.inverters = [make_real_inverter("INV001", "FlexBOSS21")]
         mock_group.mid_device = None
 
         # Simulate _has_local_energy() = True  →  wrong consumption from pylxpweb
@@ -4797,7 +4803,10 @@ class TestParallelGroupConsumptionEnergyBalance:
 
         mock_group = MagicMock()
         mock_group.name = "A"
-        mock_group.inverters = [MagicMock(serial_number="INV001")]
+        # Real inverter so the public ``.transport_energy`` accessor honestly
+        # returns None (a bare MagicMock's ``.transport_energy`` would be a
+        # truthy auto-child mock, falsely triggering the energy-balance override).
+        mock_group.inverters = [make_real_inverter("INV001", "FlexBOSS21")]
         mock_group.mid_device = None
 
         # Cloud API provides correct consumption
@@ -6076,12 +6085,33 @@ class TestPV456DataPath:
             def __init__(self, rt: InverterRuntimeData) -> None:
                 self._runtime = None
                 self._transport_runtime = rt
+                self._transport = None
+                self._transport_energy = None
+                self._transport_battery = None
                 # 5-string model drives pv4/pv5 creation.
                 self._features = InverterFeatures(pv_string_count=5)
 
             @property
             def pv_string_count(self) -> int:
                 return self._features.pv_string_count
+
+            # Public transport accessors mirror the real BaseInverter (trivial
+            # passthroughs) — _process_inverter_object reads all four.
+            @property
+            def transport(self) -> Any:
+                return self._transport
+
+            @property
+            def transport_runtime(self) -> InverterRuntimeData | None:
+                return self._transport_runtime
+
+            @property
+            def transport_energy(self) -> Any:
+                return self._transport_energy
+
+            @property
+            def transport_battery(self) -> Any:
+                return self._transport_battery
 
             async def refresh(self) -> None:
                 return None

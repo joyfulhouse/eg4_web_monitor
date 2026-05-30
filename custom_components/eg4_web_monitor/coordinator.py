@@ -528,7 +528,9 @@ class EG4DataUpdateCoordinator(
             intervals.append(self._dongle_interval)
         return intervals
 
-    def _align_inverter_cache_ttls(self, inverter: Any, transport_type: str) -> None:
+    def _align_inverter_cache_ttls(
+        self, inverter: BaseInverter, transport_type: str
+    ) -> None:
         """Set inverter cache TTLs to match coordinator's configured intervals.
 
         pylxpweb's ``set_transport_cache_ttls()`` uses hardcoded values, but the
@@ -549,9 +551,7 @@ class EG4DataUpdateCoordinator(
         if interval is None:
             return
         ttl = timedelta(seconds=interval)
-        inverter._runtime_cache_ttl = ttl
-        inverter._energy_cache_ttl = ttl
-        inverter._battery_cache_ttl = ttl
+        inverter.set_cache_ttls(runtime=ttl, energy=ttl, battery=ttl)
 
     def _should_poll_transport(self, transport_type: str) -> bool:
         """Check whether enough time has elapsed to poll this transport type.
