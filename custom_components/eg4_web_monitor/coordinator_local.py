@@ -39,8 +39,7 @@ from .const import (
 )
 from .coordinator_mixins import (
     _MixinBase,
-    apply_ac_couple_pv_adjustment,
-    apply_gridboss_overlay,
+    apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
 )
 from .coordinator_mappings import (
@@ -1727,49 +1726,24 @@ class LocalTransportMixin(_MixinBase):
                     continue
                 has_mid_device = True
                 gb_sensors = device_data.get("sensors", {})
-                apply_gridboss_overlay(group_sensors, gb_sensors, group_name)
 
-                # Recompute consumption_power from energy balance using the
-                # MID device's authoritative grid_power (from CTs).  The
-                # inverters' own grid registers are unreliable in MID systems,
-                # so their energy-balance consumption_power (already summed
-                # above) is garbage.  We replace it here.
-                #
-                # Formula: consumption = pv + battery_net + grid_power
-                #   pv_total_power  — from inverters (they know their own PV)
-                #   battery_net     — negative of parallel_battery_power
-                #     (parallel_battery_power: positive=charging, so negate for consumption)
-                #   grid_power      — from MID overlay (positive = importing)
-                pv = float(group_sensors.get("pv_total_power", 0.0))
-                bat_power = float(group_sensors.get("parallel_battery_power", 0.0))
-                # grid_power already replaced by overlay above
-                grid = float(group_sensors.get("grid_power", 0.0))
-                battery_net = -bat_power
-                consumption = max(0.0, pv + battery_net + grid)
-                group_sensors["consumption_power"] = consumption
-                _LOGGER.debug(
-                    "LOCAL: Parallel group %s: consumption_power = "
-                    "pv(%s) + bat_net(%s) + grid(%s) = %s",
-                    group_name,
-                    pv,
-                    battery_net,
-                    grid,
-                    consumption,
-                )
-
-                # Add AC couple power to pv_total_power for smart ports in AC
-                # couple mode.  Shared with the HTTP/HYBRID path so both modes
-                # report total solar production consistently.  Configurable via
-                # options (default: disabled).
+                # Apply the canonical GridBOSS workflow to the parallel group.
+                # The MID device has grid CTs and is the authoritative source
+                # for grid interaction — inverters don't see actual grid
+                # import/export, so LOCAL recomputes consumption_power from the
+                # energy balance (recompute_consumption=True).  Shared with the
+                # HTTP/HYBRID path so the overlay/AC-couple sequence cannot
+                # diverge.  AC-couple PV inclusion is configurable via options.
                 include_ac_couple = self.entry.options.get(
                     CONF_INCLUDE_AC_COUPLE_PV,
                     self.entry.data.get(CONF_INCLUDE_AC_COUPLE_PV, False),
                 )
-                apply_ac_couple_pv_adjustment(
+                apply_gridboss_to_parallel_group(
                     group_sensors,
                     gb_sensors,
                     group_name,
                     include_ac_couple=include_ac_couple,
+                    recompute_consumption=True,
                 )
 
                 break  # Only one MID device per system

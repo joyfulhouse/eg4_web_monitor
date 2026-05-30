@@ -45,7 +45,9 @@ from .coordinator_mappings import (
     _safe_float,
     _write_charge_rate,
     alias_common_voltage_sensors,
+    build_battery_bank_sensors,
     compute_bank_charge_rate,
+    get_battery_bank_property_map,
 )
 from .utils import clean_battery_display_name
 
@@ -199,6 +201,77 @@ def apply_ac_couple_pv_adjustment(
             current_pv,
             ac_couple_total,
         )
+
+
+def _recompute_consumption_from_balance(
+    pg_sensors: dict[str, Any], group_name: str
+) -> None:
+    """Recompute consumption_power from the energy balance (LOCAL only).
+
+    In MID (GridBOSS) systems the inverters' own grid registers are unreliable,
+    so the energy-balance consumption_power summed from inverters is garbage.
+    Replace it using the MID device's authoritative grid_power (already overlaid
+    onto ``grid_power`` by :func:`apply_gridboss_overlay`).
+
+    Formula: consumption = pv + battery_net + grid_power
+        pv          — inverters' own PV (pv_total_power)
+        battery_net — negative of parallel_battery_power (positive = charging)
+        grid_power  — from the GridBOSS overlay (positive = importing)
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        group_name: Parallel group name for debug logging.
+    """
+    pv = float(pg_sensors.get("pv_total_power", 0.0))
+    bat_power = float(pg_sensors.get("parallel_battery_power", 0.0))
+    grid = float(pg_sensors.get("grid_power", 0.0))
+    battery_net = -bat_power
+    consumption = max(0.0, pv + battery_net + grid)
+    pg_sensors["consumption_power"] = consumption
+    _LOGGER.debug(
+        "LOCAL: Parallel group %s: consumption_power = "
+        "pv(%s) + bat_net(%s) + grid(%s) = %s",
+        group_name,
+        pv,
+        battery_net,
+        grid,
+        consumption,
+    )
+
+
+def apply_gridboss_to_parallel_group(
+    pg_sensors: dict[str, Any],
+    gb_sensors: dict[str, Any],
+    group_name: str,
+    *,
+    include_ac_couple: bool,
+    recompute_consumption: bool,
+) -> None:
+    """Apply the full GridBOSS workflow to a parallel group's sensors.
+
+    Single canonical sequence shared by the HTTP/HYBRID and LOCAL coordinators,
+    so the GridBOSS overlay call sites can no longer diverge (cure for F4):
+
+      1. overlay GridBOSS CT measurements (authoritative grid/consumption);
+      2. (LOCAL only, ``recompute_consumption=True``) recompute
+         consumption_power from the energy balance using the overlaid
+         grid_power — folds the LOCAL-only M3 post-step behind a flag;
+      3. add AC-coupled smart-port PV into pv_total_power when enabled.
+
+    Args:
+        pg_sensors: Parallel group sensor dict (modified in place).
+        gb_sensors: GridBOSS/MID device sensor dict.
+        group_name: Parallel group name for debug logging.
+        include_ac_couple: Whether AC-couple PV inclusion is enabled.
+        recompute_consumption: Whether to recompute consumption_power from the
+            energy balance (LOCAL path); the HTTP path keeps the cloud value.
+    """
+    apply_gridboss_overlay(pg_sensors, gb_sensors, group_name)
+    if recompute_consumption:
+        _recompute_consumption_from_balance(pg_sensors, group_name)
+    apply_ac_couple_pv_adjustment(
+        pg_sensors, gb_sensors, group_name, include_ac_couple=include_ac_couple
+    )
 
 
 def compute_total_inverter_power_kw(
@@ -1119,118 +1192,32 @@ class DeviceProcessingMixin(_MixinBase):
             )
 
     def _extract_battery_bank_from_object(self, battery_bank: Any) -> dict[str, Any]:
-        """Extract sensor data from BatteryBank object using properties.
+        """Extract sensor data from a CLOUD BatteryBank object.
+
+        Thin wrapper over the shared :func:`build_battery_bank_sensors`
+        (``source="cloud"``); retained as the CLOUD/HYBRID entry point used by
+        the coordinator and tests.
 
         Args:
-            battery_bank: BatteryBank object from pylxpweb
+            battery_bank: BatteryBank object from pylxpweb.
 
         Returns:
-            Dictionary of sensor_key -> value mappings
+            Dictionary of sensor_key -> value mappings.
         """
-        property_map = self._get_battery_bank_property_map()
-        sensors = _map_device_properties(battery_bank, property_map)
-
-        # Last polled timestamp for battery bank device (parity with LOCAL,
-        # which sets battery_bank_last_polled in _build_battery_bank_sensor_mapping).
-        sensors["battery_bank_last_polled"] = dt_util.utcnow()
-
-        # Derive bank-level minimum cell temperature/voltage from per-battery
-        # data.  The cloud BatteryBank object does NOT expose
-        # min_cell_temperature/min_cell_voltage (those come from Modbus bank
-        # registers in LOCAL mode), but each per-battery Battery object does.
-        # Mirror LOCAL's battery_bank_min_cell_* sensors when CAN/per-battery
-        # data is available; otherwise omit (never fabricate).
-        batteries = getattr(battery_bank, "batteries", None) or []
-        min_cell_temps = [
-            t for b in batteries if (t := getattr(b, "min_cell_temp", None)) is not None
-        ]
-        if min_cell_temps:
-            sensors["battery_bank_min_cell_temp"] = min(min_cell_temps)
-        min_cell_voltages = [
-            v
-            for b in batteries
-            if (v := getattr(b, "min_cell_voltage", None)) is not None
-        ]
-        if min_cell_voltages:
-            sensors["battery_bank_min_cell_voltage"] = min(min_cell_voltages)
-
-        # Add battery_status as alias for battery_bank_status for backwards compatibility
-        # In v2.2.x, the batStatus field was mapped to battery_status at the inverter level
-        # This maintains the sensor for users upgrading from v2.2.x
-        if "battery_bank_status" in sensors:
-            sensors["battery_status"] = sensors["battery_bank_status"]
-
-        # Calculate battery_bank_power if not available from API (batPower is optional)
-        # Formula: charge_power - discharge_power (positive = charging, negative = discharging)
-        # charge/discharge are intermediate values (prefixed with _) not exposed as sensors
-        battery_power = sensors.get("battery_bank_power")
-        charge = sensors.pop("_battery_bank_charge_power", None)
-        discharge = sensors.pop("_battery_bank_discharge_power", None)
-
-        if battery_power is not None:
-            _LOGGER.debug(
-                "HTTP battery_bank_power: from API batPower=%s "
-                "(charge=%s, discharge=%s)",
-                battery_power,
-                charge,
-                discharge,
-            )
-        elif charge is not None and discharge is not None:
-            sensors["battery_bank_power"] = charge - discharge
-            _LOGGER.debug(
-                "HTTP battery_bank_power: using charge-discharge fallback: "
-                "charge=%s, discharge=%s, result=%s",
-                charge,
-                discharge,
-                sensors["battery_bank_power"],
-            )
-        else:
-            _LOGGER.warning(
-                "HTTP battery_bank_power: cannot calculate - "
-                "batPower=%s, charge=%s, discharge=%s",
-                battery_power,
-                charge,
-                discharge,
-            )
-
-        return sensors
+        return build_battery_bank_sensors(battery_bank, source="cloud")
 
     @staticmethod
     def _get_battery_bank_property_map() -> dict[str, str]:
         """Get battery bank property mapping dictionary.
 
+        Derived from the canonical battery-bank field tables (see
+        :func:`get_battery_bank_property_map`) so the cloud map cannot drift
+        from the LOCAL sensor set.
+
         Returns:
-            Dictionary mapping battery bank property names to sensor keys
+            Dictionary mapping battery bank property names to sensor keys.
         """
-        return {
-            # Core metrics
-            "voltage": "battery_bank_voltage",
-            "current": "battery_bank_current",
-            "soc": "battery_bank_soc",
-            "charge_power": "_battery_bank_charge_power",
-            "discharge_power": "_battery_bank_discharge_power",
-            "battery_power": "battery_bank_power",
-            # Capacity metrics
-            "max_capacity": "battery_bank_max_capacity",
-            "current_capacity": "battery_bank_current_capacity",
-            "remain_capacity": "battery_bank_remain_capacity",
-            "full_capacity": "battery_bank_full_capacity",
-            "capacity_percent": "battery_bank_capacity_percent",
-            # Status and metadata
-            "battery_count": "battery_bank_count",
-            "status": "battery_bank_status",
-            # Bank-level BMS register data (always available, no CAN bus needed)
-            "cycle_count": "battery_bank_cycle_count",
-            # Cross-battery diagnostics (pylxpweb >= 0.6.7)
-            "soc_delta": "battery_bank_soc_delta",
-            "min_soh": "battery_bank_min_soh",
-            "soh_delta": "battery_bank_soh_delta",
-            "voltage_delta": "battery_bank_voltage_delta",
-            "cell_voltage_delta_max": "battery_bank_cell_voltage_delta_max",
-            "cycle_count_delta": "battery_bank_cycle_count_delta",
-            "max_cell_temp": "battery_bank_max_cell_temp",
-            "temp_delta": "battery_bank_temp_delta",
-        }
+        return get_battery_bank_property_map()
 
     async def _process_parallel_group_object(
         self, group: "ParallelGroup"
