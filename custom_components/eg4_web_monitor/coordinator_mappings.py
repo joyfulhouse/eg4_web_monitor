@@ -21,6 +21,7 @@ from .const import (
 
 if TYPE_CHECKING:
     from pylxpweb.devices import Battery, BatteryBank, MIDDevice
+    from pylxpweb.devices.inverters import InverterFeatures
     from pylxpweb.transports.data import (
         BatteryBankData,
         BatteryData,
@@ -1205,6 +1206,45 @@ def _apply_grid_type_override(features: dict[str, Any], grid_type: str) -> None:
         features["supports_three_phase"] = True
 
 
+def _features_dict_from_inverter_features(feat: "InverterFeatures") -> dict[str, Any]:
+    """Map a pylxpweb ``InverterFeatures`` instance to the integration feature dict.
+
+    Single source of truth for translating pylxpweb's canonical
+    ``InverterFeatures`` capability flags into the keys consumed by
+    ``_should_create_sensor`` (``supports_*``, ``pv_string_count``) and the
+    diagnostic feature sensors (``inverter_family``, ``grid_type``,
+    ``device_type_code``). Both the static-data path (:func:`_features_from_family`)
+    and the live detection path (``DeviceProcessingMixin._extract_inverter_features``)
+    route through this function, so the two always agree for a given device.
+
+    Args:
+        feat: pylxpweb ``InverterFeatures`` instance (from ``detect_features()``
+            or ``from_device_type_code``/``from_family``).
+
+    Returns:
+        Feature dict for ``_should_create_sensor`` filtering and diagnostics.
+    """
+    from pylxpweb.devices.inverters import InverterFamily
+
+    family = feat.model_family
+    return {
+        "inverter_family": (
+            family.value if isinstance(family, InverterFamily) else str(family)
+        ),
+        "grid_type": str(feat.grid_type.value),
+        "device_type_code": feat.device_type_code,
+        "supports_split_phase": feat.split_phase,
+        "supports_three_phase": feat.three_phase_capable,
+        "supports_off_grid": feat.off_grid_capable,
+        "supports_parallel": feat.parallel_support,
+        "supports_volt_watt_curve": feat.volt_watt_curve,
+        "supports_grid_peak_shaving": feat.grid_peak_shaving,
+        "supports_drms": feat.drms_support,
+        "supports_discharge_recovery_hysteresis": feat.discharge_recovery_hysteresis,
+        "pv_string_count": int(feat.pv_string_count),
+    }
+
+
 def _features_from_family(
     family_str: str | None,
     device_type_code: int | None = None,
@@ -1213,82 +1253,46 @@ def _features_from_family(
     """Derive feature flags from inverter family and device type code.
 
     Used by the static-data first refresh to provide correct feature-based
-    sensor filtering without reading Modbus registers. The four feature
-    keys control which phase-specific and capability-specific sensors are
-    created by _should_create_sensor() in sensor.py.
+    sensor filtering without reading Modbus registers, before pylxpweb's
+    register-based ``detect_features()`` runs on the first real poll.
+
+    Capabilities are sourced from pylxpweb's canonical ``InverterFeatures`` (via
+    :meth:`InverterFeatures.from_family`) and mapped through
+    :func:`_features_dict_from_inverter_features` — the same mapper the live
+    detection path uses — so the static and live paths agree for a given device.
+    The only integration-specific layer is the optional user-selected grid-type
+    override.
 
     Args:
-        family_str: Inverter family from config (e.g., "EG4_HYBRID", "EG4_OFFGRID", "LXP").
+        family_str: Inverter family from config (e.g. "EG4_HYBRID", "EG4_OFFGRID",
+            "LXP"). Legacy names ("SNA", "PV_SERIES", "LXP_EU", "LXP_LV") are
+            accepted.
         device_type_code: Raw device type code from register 19, stored in config
-            during discovery. Used to distinguish LXP-EU (12, three-phase) from
-            LXP-LB (44, single/split-phase).
-        grid_type: User-selected grid type override. When provided, overrides
-            the hardcoded split/three-phase flags. None means no override
-            (backward compatible with existing configs).
+            during discovery. Disambiguates families that need it (LXP-EU vs
+            LXP-LB).
+        grid_type: User-selected grid type override. When provided, overrides the
+            phase flags. None means no override (backward compatible).
 
     Returns:
-        Feature dict suitable for _should_create_sensor() filtering.
-        Empty dict when family is unknown (conservative: creates all sensors).
+        Feature dict suitable for ``_should_create_sensor`` filtering. Empty dict
+        when the family is unknown or cannot be resolved without a device type
+        code (conservative: creates all sensors).
     """
-    if not family_str:
+    family = _parse_inverter_family(family_str)
+    if family is None:
         return {}
 
-    # Normalise legacy names (e.g., "SNA" → "EG4_OFFGRID")
-    mapped = LEGACY_FAMILY_MAP.get(family_str, family_str)
+    from pylxpweb.devices.inverters import InverterFeatures
 
-    # Feature mapping mirrors pylxpweb FAMILY_DEFAULT_FEATURES.
-    # Only the four keys used by _should_create_sensor() are needed here.
-    features: dict[str, Any] = {}
+    feat = InverterFeatures.from_family(family, device_type_code)
+    if feat is None:
+        return {}
 
-    # EG4_OFFGRID (12000XP, 6000XP): US split-phase, discharge recovery
-    if mapped == "EG4_OFFGRID":
-        features = {
-            "inverter_family": mapped,
-            "supports_split_phase": True,
-            "supports_three_phase": False,
-            "supports_discharge_recovery_hysteresis": True,
-            "supports_volt_watt_curve": False,
-        }
+    features = _features_dict_from_inverter_features(feat)
 
-    # EG4_HYBRID (18kPV, 12kPV, FlexBOSS): US split-phase, volt-watt
-    # US market — L1/L2 registers valid, R/S/T registers contain garbage
-    elif mapped == "EG4_HYBRID":
-        features = {
-            "inverter_family": mapped,
-            "supports_split_phase": True,
-            "supports_three_phase": False,
-            "supports_discharge_recovery_hysteresis": False,
-            "supports_volt_watt_curve": True,
-        }
-
-    # LXP family: device_type_code distinguishes EU from LB variants.
-    # - LXP-EU (device_type_code 12): three-phase, no split-phase
-    # - LXP-LB (device_type_code 44): NOT three-phase, volt-watt capable
-    #   LXP-LB includes US (split-phase) and BR (single-phase) variants;
-    #   the us_version flag from HOLD_MODEL determines split vs single,
-    #   but we can safely rule out three-phase from device_type_code alone.
-    elif mapped == "LXP" and device_type_code == 12:  # DEVICE_TYPE_CODE_LXP_EU
-        features = {
-            "inverter_family": mapped,
-            "supports_split_phase": False,
-            "supports_three_phase": True,
-            "supports_discharge_recovery_hysteresis": False,
-            "supports_volt_watt_curve": True,
-        }
-    elif mapped == "LXP" and device_type_code == 44:  # DEVICE_TYPE_CODE_LXP_BR/LXP_LB
-        features = {
-            "inverter_family": mapped,
-            "supports_split_phase": True,
-            "supports_three_phase": False,
-            "supports_discharge_recovery_hysteresis": False,
-            "supports_volt_watt_curve": True,
-        }
-
-    # Unknown family or LXP without device_type_code → conservative fallback
-    # creates all sensors; real feature detection after Modbus reads refines.
-
-    # Apply user-selected grid type override once, regardless of family branch
-    if features and grid_type:
+    # The only integration-specific layer on top of pylxpweb's canonical
+    # capabilities: apply the user-selected grid-type override when present.
+    if grid_type:
         _apply_grid_type_override(features, grid_type)
 
     return features

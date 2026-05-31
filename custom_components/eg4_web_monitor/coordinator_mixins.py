@@ -35,13 +35,12 @@ if TYPE_CHECKING:
     # The device objects accepted by the generic property mapper.
     _DeviceObject = BaseInverter | Battery | BatteryBank | MIDDevice | ParallelGroup
 
-from pylxpweb.devices.inverters import InverterFamily
-
 from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
 from .coordinator_mappings import (
     _apply_grid_type_override,
     _build_battery_bank_sensor_mapping,
     _energy_balance,
+    _features_dict_from_inverter_features,
     _safe_float,
     _write_charge_rate,
     alias_common_voltage_sensors,
@@ -1015,73 +1014,24 @@ class DeviceProcessingMixin(_MixinBase):
 
     @staticmethod
     def _extract_inverter_features(inverter: "BaseInverter") -> dict[str, Any]:
-        """Extract feature capabilities from inverter object.
+        """Extract feature capabilities from a detected inverter object.
 
-        This method extracts the detected features from a pylxpweb inverter
-        object after detect_features() has been called. The features are used
-        for capability-based sensor filtering.
+        Reads the pylxpweb ``InverterFeatures`` populated by ``detect_features()``
+        and maps it to the integration feature dict via the shared
+        :func:`_features_dict_from_inverter_features` mapper — the same mapper the
+        static-data path (:func:`_features_from_family`) uses — so the live and
+        static feature paths always agree for a given device.
 
         Args:
-            inverter: BaseInverter object with features detected
+            inverter: BaseInverter object with features detected.
 
         Returns:
-            Dictionary of feature flags for sensor filtering
+            Feature dict for sensor filtering, or empty when features are absent.
         """
-        features: dict[str, Any] = {}
-
-        # Get the features object if available
         inverter_features = getattr(inverter, "_features", None)
         if inverter_features is None:
-            return features
-
-        # Extract inverter family (EG4_OFFGRID, EG4_HYBRID, LXP, etc.)
-        if hasattr(inverter_features, "model_family"):
-            family = inverter_features.model_family
-            features["inverter_family"] = (
-                family.value if isinstance(family, InverterFamily) else str(family)
-            )
-        else:
-            features["inverter_family"] = InverterFamily.UNKNOWN.value
-
-        # Extract grid type
-        if hasattr(inverter_features, "grid_type"):
-            features["grid_type"] = str(inverter_features.grid_type.value)
-
-        # Extract device type code for debugging
-        if hasattr(inverter_features, "device_type_code"):
-            features["device_type_code"] = inverter_features.device_type_code
-
-        # Extract boolean capability flags using supports_* properties
-        # Maps feature key to InverterFeatures attribute name
-        # Some attributes don't follow simple "supports_X" -> "X" pattern
-        capability_mapping: dict[str, str] = {
-            "supports_split_phase": "split_phase",
-            "supports_three_phase": "three_phase_capable",
-            "supports_off_grid": "off_grid_capable",
-            "supports_parallel": "parallel_support",
-            "supports_volt_watt_curve": "volt_watt_curve",
-            "supports_grid_peak_shaving": "grid_peak_shaving",
-            "supports_drms": "drms_support",
-            "supports_discharge_recovery_hysteresis": "discharge_recovery_hysteresis",
-        }
-
-        for prop, attr_name in capability_mapping.items():
-            if hasattr(inverter, prop):
-                features[prop] = getattr(inverter, prop, False)
-            elif hasattr(inverter_features, attr_name):
-                # Fallback to features object attribute using correct mapping
-                features[prop] = getattr(inverter_features, attr_name, False)
-
-        # PV (MPPT) string count (0..n) drives per-string PV sensor creation.
-        # Explicit per-model value declared in pylxpweb
-        # (DEVICE_TYPE_CODE_PV_STRING_COUNT).  A 3-string model -> pv1-3 only.
-        pv_string_count = getattr(inverter, "pv_string_count", None)
-        if pv_string_count is None:
-            pv_string_count = getattr(inverter_features, "pv_string_count", None)
-        if pv_string_count is not None:
-            features["pv_string_count"] = int(pv_string_count)
-
-        return features
+            return {}
+        return _features_dict_from_inverter_features(inverter_features)
 
     def _extract_battery_from_object(self, battery: "Battery") -> dict[str, Any]:
         """Extract sensor data from Battery object using properties.
