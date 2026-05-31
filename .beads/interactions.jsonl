@@ -1,0 +1,4 @@
+{"id":"int-9da94f4a","kind":"field_change","created_at":"2026-04-06T18:37:59.240053Z","actor":"bryanli","issue_id":"eg4-1775497212644-112-388d38fb","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-e5750bdc","kind":"field_change","created_at":"2026-04-06T18:42:16.811001Z","actor":"bryanli","issue_id":"eg4-1775497213366-118-70ff7fa9","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-06227459","kind":"field_change","created_at":"2026-04-06T18:47:43.22275Z","actor":"bryanli","issue_id":"eg4-1775497213601-120-11784d2b","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-57468201","kind":"field_change","created_at":"2026-04-06T18:47:53.304813Z","actor":"bryanli","issue_id":"eg4-1775497214254-125-cdce411f","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}

@@ -132,15 +132,19 @@ For users who want faster updates and local-only operation, you can connect dire
 
 #### Hardware Requirements
 
+The following is our tested and validated setup. Other RS485 adapters and cables may work, but this is what we use and recommend:
+
 - **RS485 to Ethernet Adapter** - Choose one:
-  - **Waveshare RS485 to ETH (B)** - 1 channel (~$25) - [Amazon](https://amzn.to/3NPanIx)
-  - **Waveshare RS485 to ETH (B) 4CH** - 4 channels (~$45) - [Amazon](https://amzn.to/45whonI) - *Best for multiple inverters*
+  - **Waveshare 2-CH RS485 to ETH** - 2 channels (~$25) - [Amazon](https://amzn.to/3OU5JcV)
+  - **Waveshare 4-CH RS485 to POE ETH** - 4 channels, PoE (~$45) - [Amazon](https://amzn.to/4rYvLub) - *Best for multiple inverters*
 - **RS485 cable** - 2-wire twisted pair, options:
   - Use spare CAT5/CAT6 cable (1 twisted pair)
-  - **Shielded RS485 cable** (recommended for long runs) - [Amazon](https://amzn.to/4sSOUyp)
+  - **Shielded RS485 cable** (recommended for long runs) - [Amazon](https://amzn.to/40nMOcW)
+- **Ferrule crimping tool** - For clean, reliable RS485 terminal connections - [Amazon](https://amzn.to/4ri3Kwg)
 - **Ethernet cable** - To connect adapter to your network
+- **Network switch** - Any managed switch works; we use [Ubiquiti UniFi switches](https://ui.com/us/switching) which are compact, magnetic-mount, and fit nicely in a [conduit box](https://www.currentconnected.com/product/eg4-powerpro-electrical-conduit-box/)
 
-> **Tip:** The 4-channel version allows you to connect multiple inverters or other RS485 devices (like energy meters) to a single adapter. For cable runs over 50 feet, use shielded cable to reduce interference.
+> **Tip:** The 4-channel PoE version allows you to connect multiple inverters or other RS485 devices (like energy meters) to a single adapter and powers the adapter over Ethernet — no separate power supply needed. For cable runs over 50 feet, use shielded cable to reduce interference.
 
 #### Wiring Diagram
 

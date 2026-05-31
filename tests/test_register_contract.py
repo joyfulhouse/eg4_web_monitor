@@ -95,3 +95,29 @@ def test_known_seam_gaps_are_still_gaps() -> None:
                 f"{label}.{attr} now exists on {cls.__name__}; drop it from KNOWN_SEAM_GAPS"
             )
     assert not resolved, "Stale KNOWN_SEAM_GAPS entries:\n  " + "\n  ".join(resolved)
+
+
+def test_bms_permission_attrs_exist_on_bank_classes() -> None:
+    """Seam guard for the encoder-based BMS permission table (issue #232).
+
+    The reg-95 permission flags bypass ``get_battery_bank_property_map()`` (a
+    bool->enum encoder cannot be a flat attr->key entry), so the generic
+    property-map contract above does not cover them.  Assert their source
+    attributes resolve on BOTH bank classes the adapter reads from, so a future
+    pylxpweb rename/removal fails CI here instead of going silently unavailable.
+    """
+    from pylxpweb.transports.data import BatteryBankData
+
+    from custom_components.eg4_web_monitor.coordinator_mappings import (
+        _BATTERY_BANK_BMS_PERMISSION_FIELDS,
+    )
+
+    offenders = [
+        attr
+        for _key, attr, _encode in _BATTERY_BANK_BMS_PERMISSION_FIELDS
+        if not hasattr(BatteryBank, attr) or not hasattr(BatteryBankData, attr)
+    ]
+    assert not offenders, (
+        "BMS permission source attrs missing from a bank class (seam drift):\n  "
+        + "\n  ".join(sorted(offenders))
+    )

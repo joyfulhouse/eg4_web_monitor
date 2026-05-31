@@ -708,16 +708,22 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
 # exist and which source attribute feeds each one.  Both the LOCAL path
 # (BatteryBankData transport dataclass) and the CLOUD path (BatteryBank device
 # object) consume them through build_battery_bank_sensors(), and the cloud
-# property map is DERIVED from them — so adding a bank sensor in one place
-# surfaces it in every mode (structural cure for the M2 "fix-one-miss-the-
-# other" duplication).  Behaviour that genuinely differs per source is
-# preserved exactly inside the adapter and documented on each table/helper:
+# property map is DERIVED from the passthrough tables — so adding a passthrough
+# bank sensor in one place surfaces it in every mode (structural cure for the M2
+# "fix-one-miss-the-other" duplication).  Behaviour that genuinely differs per
+# source is preserved exactly inside the adapter and documented on each
+# table/helper:
 #   * CLOUD reads computed properties defensively and skips None/"" (parity
 #     with _map_device_properties); LOCAL reads dataclass fields directly and
 #     writes every key (incl. None) to keep the sensors present.
 #   * battery_bank_power priority is reversed (see _compute_bank_power).
-#   * BMS registers are LOCAL-only; cloud min-cell values are derived from
-#     per-battery data (see _derive_cloud_min_cell).
+#   * BMS *numeric limit* registers (charge/discharge current, voltage ref,
+#     cutoff, type) are LOCAL-only (_BATTERY_BANK_LOCAL_REGISTER_FIELDS); cloud
+#     min-cell values are derived from per-battery data (_derive_cloud_min_cell).
+#   * BMS *permission/request flags* (reg 95 bits, issue #232) ARE both-mode:
+#     they need a bool->enum encoder so they live in the separate
+#     _BATTERY_BANK_BMS_PERMISSION_FIELDS table (NOT the derived property map),
+#     and CLOUD gets them via the BatteryBank's parent-inverter delegation.
 # ---------------------------------------------------------------------------
 
 # Common bank fields exposed by BOTH BatteryBankData and BatteryBank.
@@ -752,10 +758,13 @@ _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS: dict[str, str] = {
     "battery_bank_cycle_count_delta": "cycle_count_delta",
 }
 
-# LOCAL-only Modbus bank registers.  The cloud BatteryBank object does NOT
-# expose these (min-cell values are derived from per-battery data instead — see
-# _derive_cloud_min_cell).  Written unconditionally in LOCAL mode (incl. None)
-# to keep the sensors present.
+# LOCAL-only Modbus bank registers (numeric BMS limits + min-cell values).  The
+# cloud BatteryBank object does NOT expose these (cloud min-cell values are
+# derived from per-battery data instead — see _derive_cloud_min_cell).  Written
+# unconditionally in LOCAL mode (incl. None) to keep the sensors present.
+# NOTE: only LOCAL-exclusive registers belong here.  A new BMS field the cloud
+# can also supply (like the reg-95 permission flags) goes in a both-mode table
+# (see _BATTERY_BANK_BMS_PERMISSION_FIELDS), not here.
 _BATTERY_BANK_LOCAL_REGISTER_FIELDS: dict[str, str] = {
     "battery_bank_min_cell_temp": "min_cell_temperature",
     "battery_bank_min_cell_voltage": "min_cell_voltage",
@@ -772,10 +781,16 @@ def get_battery_bank_property_map() -> dict[str, str]:
     """Cloud battery-bank property map, DERIVED from the canonical tables.
 
     Maps a pylxpweb BatteryBank property name -> sensor key, for the cross-repo
-    contract test and any other consumer.  Built from the same field tables the
-    adapter uses, so the cloud map can never silently drift from the LOCAL
-    sensor set.  charge_power/discharge_power are intermediates consumed by the
-    power calc; battery_power maps to the final power sensor.
+    contract test and any other consumer.  Built from the two PASSTHROUGH field
+    tables the adapter uses, so the cloud map can never silently drift from the
+    LOCAL sensor set.  charge_power/discharge_power are intermediates consumed by
+    the power calc; battery_power maps to the final power sensor.
+
+    Scope: this covers only the passthrough tables.  The encoder-based
+    _BATTERY_BANK_BMS_PERMISSION_FIELDS (reg 95 flags, issue #232) is NOT here —
+    its bool->enum encoding can't be expressed as a flat attr->key map — and is
+    seam-guarded separately by test_register_contract.py and the
+    test_bms_permission_* adapter tests.
 
     Returns:
         Dictionary mapping battery bank property names to sensor keys.
