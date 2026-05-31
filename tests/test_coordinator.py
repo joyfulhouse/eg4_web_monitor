@@ -5917,6 +5917,76 @@ class TestPVStringCountFeatureExtraction:
         }
 
 
+class TestStaticLiveFeatureAgreement:
+    """Static and live feature-detection paths agree per known device (eg4-xi8).
+
+    The static-data path (``_features_from_family``, no Modbus reads) and the
+    live path (``_extract_inverter_features``, after ``detect_features()``) now
+    both source capabilities from pylxpweb's ``InverterFeatures`` via the shared
+    ``_features_dict_from_inverter_features`` mapper.  This guards against either
+    path re-introducing a divergent, hand-rolled feature table — exactly the
+    duplication eg4-xi8 removed.  The comparison uses the family-default layer
+    (``from_device_type_code``) that the static path replicates; runtime probing
+    only ever refines this further and is covered by the detect_features tests.
+    """
+
+    # (family string as stored in config, device_type_code) for every known device.
+    KNOWN_DEVICES = [
+        ("EG4_OFFGRID", 54),  # 12000XP / 6000XP
+        ("EG4_HYBRID", 2092),  # 18kPV / 12kPV
+        ("EG4_HYBRID", 10284),  # FlexBOSS21 / FlexBOSS18
+        ("LXP", 12),  # LXP-EU (three-phase)
+        ("LXP", 44),  # LXP-LB (split-phase)
+    ]
+
+    @staticmethod
+    def _make_inverter(device_type_code: int):
+        """Inverter stand-in carrying a real InverterFeatures for the code."""
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        class _Inverter:
+            def __init__(self, dtc: int) -> None:
+                self._features = InverterFeatures.from_device_type_code(dtc)
+
+        return _Inverter(device_type_code)
+
+    @pytest.mark.parametrize(("family_str", "device_type_code"), KNOWN_DEVICES)
+    def test_static_matches_live(self, family_str, device_type_code):
+        """Static and live paths derive identical feature dicts for a device."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        static = _features_from_family(family_str, device_type_code)
+        live = DeviceProcessingMixin._extract_inverter_features(
+            self._make_inverter(device_type_code)
+        )
+
+        assert static == live
+        # Known devices are never the conservative empty fallback.
+        assert static != {}
+        assert static["inverter_family"] != ""
+        assert "pv_string_count" in static
+
+    def test_grid_override_layers_on_static_only(self):
+        """The user grid-type override is the only static-path-specific layer."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        # Without override, static == live.
+        static = _features_from_family("LXP", 12)
+        live = DeviceProcessingMixin._extract_inverter_features(self._make_inverter(12))
+        assert static == live
+
+        # LXP-EU defaults to three-phase; a user split-phase override flips only
+        # the phase flags on the static path, diverging from the raw live path.
+        overridden = _features_from_family("LXP", 12, grid_type="split_phase")
+        assert overridden["supports_split_phase"] is True
+        assert overridden["supports_three_phase"] is False
+        assert overridden != live
+
+
 class TestPV456DataPath:
     """pv4-6 values must actually flow into coordinator sensor data.
 
