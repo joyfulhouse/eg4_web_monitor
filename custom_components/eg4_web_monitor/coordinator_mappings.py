@@ -6,6 +6,7 @@ key dictionaries used by Home Assistant entities.
 """
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.util import dt as dt_util
@@ -270,6 +271,11 @@ BATTERY_BANK_CORE_KEYS: frozenset[str] = frozenset(
         "battery_bank_bms_battery_type",  # reg 80
         "battery_bank_voltage_inv_sample",  # reg 107
         "battery_bank_charge_rate",
+        # BMS permission/request flags (reg 95 bitmap / cloud bmsCharge, #232).
+        # Enum states; available in both LOCAL and CLOUD via the parent inverter.
+        "battery_bank_charge_allowed",  # reg 95 bit 0x01 / bmsCharge
+        "battery_bank_discharge_allowed",  # reg 95 bit 0x02 / bmsDischarge
+        "battery_bank_force_charge",  # reg 95 bit 0x20 / bmsForceCharge
     }
 )
 
@@ -853,6 +859,38 @@ def _derive_cloud_min_cell(bank: Any, sensors: dict[str, Any]) -> None:
         sensors["battery_bank_min_cell_voltage"] = min(min_cell_voltages)
 
 
+def _bms_permission_state(value: bool | None) -> str | None:
+    """Map a BMS allow-charge / allow-discharge flag to its enum sensor state.
+
+    Returns display-ready English values (matching the codebase convention of
+    English status strings, e.g. battery_bank_status="Charging"); ``None`` keeps
+    the entity ``unavailable`` when the flag is unknown.
+    """
+    if value is None:
+        return None
+    return "Allowed" if value else "Blocked"
+
+
+def _bms_force_charge_state(value: bool | None) -> str | None:
+    """Map the BMS force-charge request flag to its enum sensor state."""
+    if value is None:
+        return None
+    return "Requested" if value else "Idle"
+
+
+# BMS permission/request flags (issue #232): sensor key -> (bank source attr,
+# bool->enum-state encoder).  Both BatteryBankData (LOCAL, reg 95 decode) and
+# BatteryBank (CLOUD, parent-inverter delegation) expose these attrs, so the
+# flags surface in every mode.
+_BATTERY_BANK_BMS_PERMISSION_FIELDS: tuple[
+    tuple[str, str, Callable[[bool | None], str | None]], ...
+] = (
+    ("battery_bank_charge_allowed", "allow_charge", _bms_permission_state),
+    ("battery_bank_discharge_allowed", "allow_discharge", _bms_permission_state),
+    ("battery_bank_force_charge", "force_charge", _bms_force_charge_state),
+)
+
+
 def build_battery_bank_sensors(
     bank: "BatteryBankData | BatteryBank",
     *,
@@ -888,6 +926,17 @@ def build_battery_bank_sensors(
         if is_cloud and value is None:
             continue
         sensors[key] = value
+
+    # BMS permission/request flags (issue #232).  Available in BOTH modes:
+    # LOCAL decodes input register 95 onto BatteryBankData; CLOUD's BatteryBank
+    # delegates to its parent inverter's bmsCharge/bmsDischarge/bmsForceCharge.
+    # Encoded as enum states.  LOCAL writes every key (incl. None) to keep the
+    # entity present; CLOUD skips None (parity with the common loop).
+    for perm_key, perm_attr, encode in _BATTERY_BANK_BMS_PERMISSION_FIELDS:
+        state = encode(_read_bank_value(bank, perm_attr, defensive=is_cloud))
+        if is_cloud and state is None:
+            continue
+        sensors[perm_key] = state
 
     # CAN cross-battery diagnostics: None-skipped in BOTH modes.
     for key, attr in _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS.items():

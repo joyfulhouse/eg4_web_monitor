@@ -22,9 +22,16 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS,
     _BATTERY_BANK_FIELDS,
     _BATTERY_BANK_LOCAL_REGISTER_FIELDS,
+    BATTERY_BANK_CORE_KEYS,
     _compute_bank_power,
     build_battery_bank_sensors,
     get_battery_bank_property_map,
+)
+
+_BMS_PERMISSION_KEYS = (
+    "battery_bank_charge_allowed",
+    "battery_bank_discharge_allowed",
+    "battery_bank_force_charge",
 )
 
 
@@ -159,3 +166,54 @@ def test_power_priority_preserved_per_source() -> None:
     # Nothing computable -> None (LOCAL still writes the key; CLOUD omits it).
     assert _compute_bank_power(None, None, None, prefer_api=True) is None
     assert _compute_bank_power(None, None, None, prefer_api=False) is None
+
+
+# ---------------------------------------------------------------------------
+# BMS permission/request flags (reg 95 bitmap / cloud bmsCharge, issue #232)
+# ---------------------------------------------------------------------------
+
+
+def test_bms_permission_keys_are_core_keys() -> None:
+    """The three flags are part of the static bank sensor set (every mode)."""
+    for key in _BMS_PERMISSION_KEYS:
+        assert key in BATTERY_BANK_CORE_KEYS
+
+
+def test_bms_permission_local_enum_encoding() -> None:
+    """LOCAL decodes BatteryBankData flags into enum states."""
+    bank = BatteryBankData(allow_charge=True, allow_discharge=False, force_charge=True)
+    local = build_battery_bank_sensors(bank, source="local")
+    assert local["battery_bank_charge_allowed"] == "Allowed"
+    assert local["battery_bank_discharge_allowed"] == "Blocked"
+    assert local["battery_bank_force_charge"] == "Requested"
+
+
+def test_bms_permission_local_writes_none_when_absent() -> None:
+    """LOCAL writes the key (incl. None) so the entity stays present."""
+    local = build_battery_bank_sensors(BatteryBankData(), source="local")
+    for key in _BMS_PERMISSION_KEYS:
+        assert key in local
+        assert local[key] is None
+
+
+def test_bms_permission_cloud_enum_encoding() -> None:
+    """CLOUD reads the delegated flags off the BatteryBank object."""
+    bank = _make_cloud_bank()
+    bank.allow_charge = True
+    bank.allow_discharge = True
+    bank.force_charge = False
+    cloud = build_battery_bank_sensors(bank, source="cloud")
+    assert cloud["battery_bank_charge_allowed"] == "Allowed"
+    assert cloud["battery_bank_discharge_allowed"] == "Allowed"
+    assert cloud["battery_bank_force_charge"] == "Idle"
+
+
+def test_bms_permission_cloud_skips_none() -> None:
+    """CLOUD omits the keys when the parent inverter can't supply the flags."""
+    bank = _make_cloud_bank()
+    bank.allow_charge = None
+    bank.allow_discharge = None
+    bank.force_charge = None
+    cloud = build_battery_bank_sensors(bank, source="cloud")
+    for key in _BMS_PERMISSION_KEYS:
+        assert key not in cloud

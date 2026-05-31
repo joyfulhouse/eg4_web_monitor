@@ -756,6 +756,27 @@ From `_build_battery_bank_sensor_mapping()`, sourced from regular registers:
 etc.) require individual battery data from the 5002+ register range. When
 batteries don't communicate on 5002+, these sensors return None.
 
+### BMS Permission/Request Flags (register 95 bitmap, issue #232)
+
+Input register 95 is a BMS permission/request **bitmap** (not the legacy
+idle/standby/active enum). pylxpweb `decode_bms_permissions()` splits it into
+three flags, validated against the cloud API booleans. The integration encodes
+each as an `enum` sensor on the **battery-bank device** (both modes via
+`build_battery_bank_sensors`).
+
+| HA Sensor Key | Reg 95 bit | Cloud field | States |
+|---------------|-----------|-------------|--------|
+| `battery_bank_charge_allowed` | `0x01` | `bmsCharge` | Allowed / Blocked |
+| `battery_bank_discharge_allowed` | `0x02` | `bmsDischarge` | Allowed / Blocked |
+| `battery_bank_force_charge` | `0x20` | `bmsForceCharge` | Requested / Idle |
+
+- **LOCAL/HYBRID:** decoded from reg 95 onto `BatteryBankData` (and
+  `InverterRuntimeData` / `BaseInverter.bms_allow_charge` etc.).
+- **CLOUD:** the `BatteryBank` device delegates to its parent inverter's
+  `bmsCharge` / `bmsDischarge` / `bmsForceCharge` runtime booleans.
+- `battery_bank_force_charge` (BMS calibration request) is **read-only** and
+  distinct from the writable "Forced Charge" control (holding reg 21 bit 11).
+
 ---
 
 ## 8. Parallel Group Data

@@ -734,6 +734,29 @@ SENSOR_TYPES = {
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
+    # BMS permission/request flags (reg 95 bitmap / cloud bmsCharge, issue #232).
+    # Read-only BMS state; distinct from the writable "Forced Charge" control.
+    "battery_bank_charge_allowed": {
+        "name": "BMS Charge Allowed",
+        "icon": "mdi:battery-arrow-up",
+        "device_class": "enum",
+        "options": ["Allowed", "Blocked"],
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_discharge_allowed": {
+        "name": "BMS Discharge Allowed",
+        "icon": "mdi:battery-arrow-down",
+        "device_class": "enum",
+        "options": ["Allowed", "Blocked"],
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_force_charge": {
+        "name": "BMS Force Charge Request",
+        "icon": "mdi:battery-alert",
+        "device_class": "enum",
+        "options": ["Requested", "Idle"],
+        "entity_category": "diagnostic",
+    },
     # Cross-battery diagnostics (pylxpweb >= 0.6.7)
     "battery_bank_soc_delta": {
         "name": "Battery Bank SOC Delta",

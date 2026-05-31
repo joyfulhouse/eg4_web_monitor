@@ -5,6 +5,16 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **BMS permission/request sensors** ([#232](https://github.com/joyfulhouse/eg4_web_monitor/issues/232)): three battery-bank diagnostic sensors surfacing the BMS's charge/discharge/force-charge state, available in cloud, local, and hybrid modes:
+  - **BMS Charge Allowed** and **BMS Discharge Allowed** (Allowed / Blocked) — cleared when the bank is full / empty respectively
+  - **BMS Force Charge Request** (Requested / Idle) — the BMS requesting a full calibration charge; read-only, distinct from the writable Forced Charge control
+
+  Decoded from input register 95 (bitmap `0x01`/`0x02`/`0x20`) in local/hybrid and from the cloud `bmsCharge`/`bmsDischarge`/`bmsForceCharge` fields — the local decode was validated against the cloud values on live hardware. Requires `pylxpweb>=0.9.32`.
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.

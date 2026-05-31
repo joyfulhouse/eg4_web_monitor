@@ -74,6 +74,7 @@ def _local_battery_bank_keys() -> set[str]:
 def _cloud_battery_bank_keys() -> set[str]:
     """Battery-bank keys produced by the CLOUD path (fully populated)."""
     from custom_components.eg4_web_monitor.coordinator_mappings import (
+        _BATTERY_BANK_BMS_PERMISSION_FIELDS,
         _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS,
         _BATTERY_BANK_FIELDS,
     )
@@ -84,6 +85,10 @@ def _cloud_battery_bank_keys() -> set[str]:
         **_BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS,
     }.values():
         values[attr] = 1
+    # BMS permission/request flags (issue #232) are both-mode: the cloud
+    # BatteryBank delegates them to its parent inverter, so expose them here.
+    for _key, perm_attr, _encode in _BATTERY_BANK_BMS_PERMISSION_FIELDS:
+        values[perm_attr] = True
     values["status"] = "Charging"
     values["charge_power"] = 500
     values["discharge_power"] = 0
