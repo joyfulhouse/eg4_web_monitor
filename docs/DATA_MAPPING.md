@@ -208,17 +208,53 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 ### Consumption Energy
 
-`consumption` and `consumption_lifetime` are **NOT** read from registers.
+Per-inverter `consumption` / `consumption_lifetime` are **NOT** read from a single
+register — they are derived, because there is no reliable per-inverter load-energy
+source:
 
-- Cloud API provides `todayLoad` / `totalLoad` (server-computed)
-- LOCAL mode computes via energy balance in `coordinator_mappings._energy_balance()`:
+- **CLOUD mode**: `consumption_lifetime` = cloud `totalUsage` (server-computed).
+- **LOCAL / HYBRID mode** (transport present): computed via energy balance in
+  `coordinator_mappings._energy_balance()`:
 
 ```
 consumption = yield + discharge + grid_import - charge - grid_export
 ```
 
-Register 32 (`Erec_day`, AC charge from grid) is NOT consumption. Registers 48-49
-(`Erec_all`) are lifetime AC charge energy, not consumption.
+#### Register semantics (pylxpweb fields, since eg4-8oq)
+
+| Reg(s) | pylxpweb field | Meaning |
+|--------|----------------|---------|
+| 171 | `load_energy_today` | `Eload_day` — firmware load-energy counter |
+| 172-173 | `load_energy_total` | `Eload_all` — firmware lifetime load energy (32-bit) |
+| 32 | `ac_charge_energy_today` | `Erec_day` — AC charge **from grid** (NOT consumption) |
+| 48-49 | `ac_charge_energy_total` | `Erec_all` — lifetime AC charge from grid (NOT consumption) |
+
+Before eg4-8oq, `Erec` (regs 32/48-49) was mis-aliased to `load_energy_*`. That
+alias is removed: `load_energy_*` now holds the real `Eload` registers, and `Erec`
+has its own `ac_charge_energy_*` fields.
+
+#### Why consumption is NOT taken from the `Eload` register (eg4-05k, validated 2026-05-30)
+
+The firmware `Eload` register is **not** a reliable per-inverter consumption proxy,
+and the cloud `totalUsage` is itself per-inverter inconsistent. Live read of a
+parallel master/slave pair (4524850115 GridBOSS group):
+
+| Inverter (role) | `Eload_all` (reg 172) | cloud `totalUsage` | energy_balance |
+|-----------------|----------------------|--------------------|----------------|
+| 52842P0581 (master) | 142.9 | **142.9** (= Eload) | 4341.9 |
+| 4512670118 (slave) | 22449.7 | **6137.8** (≈ balance) | 6138.5 |
+
+Cloud `totalUsage` matches `Eload` for the master but the energy **balance** for the
+slave — **no single local formula matches cloud for both**. The master's `Eload`
+(142.9) is an implausibly-low firmware counter the cloud mirrors; the slave's
+`Eload` (22449.7) matches nothing physical. Switching consumption to `Eload` would
+regress the slave.
+
+**Decision**: keep `energy_balance` as the per-inverter LOCAL/HYBRID estimate (best
+physical approximation). Per-inverter "consumption" is inherently ambiguous in a
+parallel group; the authoritative household figure is the **parallel-group** level
+consumption (GridBOSS CT overlay: `ups + load`, see `apply_gridboss_overlay`). Exact
+per-inverter cloud↔local parity is not achievable and is not pursued.
 
 ---
 
