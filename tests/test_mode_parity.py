@@ -143,6 +143,31 @@ def test_inverter_sensor_mappings_are_mode_independent() -> None:
     assert runtime_keys | energy_keys <= ALL_INVERTER_SENSOR_KEYS
 
 
+def test_pv_current_wired_across_modes() -> None:
+    """#243: derived PV current surfaces in every mode.
+
+    No EG4 register or cloud field exposes PV current; pylxpweb derives it as
+    power / voltage.  The integration must therefore carry pvN_current on the
+    LOCAL runtime mapping, the cloud/hybrid property map, the static key set,
+    and SENSOR_TYPES so all three connection modes create the sensors.
+    """
+    from custom_components.eg4_web_monitor.const.sensors.inverter import (
+        SENSOR_TYPES,
+    )
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+
+    runtime_keys = set(_build_runtime_sensor_mapping(InverterRuntimeData()))
+    property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+
+    for key in ("pv1_current", "pv2_current", "pv3_current"):
+        assert key in runtime_keys, f"{key} missing from LOCAL runtime mapping"
+        assert key in property_map, f"{key} missing from cloud/hybrid property map"
+        assert key in ALL_INVERTER_SENSOR_KEYS, f"{key} missing from static key set"
+        assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
+
+
 def test_battery_bank_keys_match_canonical_static_set() -> None:
     """LOCAL battery-bank output matches the static BATTERY_BANK_KEYS contract."""
     # battery_bank_charge_rate is computed by compute_bank_charge_rate() after
