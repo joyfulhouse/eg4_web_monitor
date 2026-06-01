@@ -1281,6 +1281,66 @@ class TestDeferredLocalParameters:
         mock_inverter.detect_features.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
+    async def test_split_phase_aggregate_voltage_aliased_without_params(
+        self, hass, local_config_entry
+    ):
+        """#243: aggregate eps_voltage/grid_voltage derive on a NON-param poll.
+
+        The aggregate alias needs the three-phase feature flag.  detect_features()
+        runs only on param-refresh polls, but the resulting InverterFeatures
+        persist on the cached inverter — so the active poll path must read those
+        cached features and apply the alias on EVERY cycle.  Before the fix the
+        alias was absent from this path AND features were read only on param
+        polls, so split-phase models showed 'unknown' for the aggregate while the
+        L1/L2 legs populated.
+        """
+        from pylxpweb.devices.inverters._features import (
+            InverterFamily,
+            InverterFeatures,
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._local_parameters_loaded = True
+        coordinator._include_params_this_cycle = False  # NON-param poll
+
+        inverter = make_real_inverter(
+            "1234567890",
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(
+                eps_voltage_r=246.4,
+                eps_l1_voltage=123.1,
+                eps_l2_voltage=123.5,
+                grid_voltage_r=240.2,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            ),
+        )
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        # Features previously detected and cached on the inverter (split-phase).
+        inverter._features = InverterFeatures.from_family(InverterFamily.EG4_HYBRID)
+        inverter._transport = make_transport_spec(is_connected=True)
+        coordinator._inverter_cache["1234567890"] = inverter
+        coordinator._firmware_cache["1234567890"] = "TEST-FW"
+
+        processed: dict[str, Any] = {"devices": {}, "parameters": {}}
+        device_availability: dict[str, bool] = {}
+        config = local_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
+        await coordinator._process_single_local_device(
+            config, processed, device_availability
+        )
+
+        sensors = processed["devices"]["1234567890"]["sensors"]
+        # Aggregate voltages aliased from the R-phase even on a non-param poll.
+        assert sensors["eps_voltage"] == 246.4
+        assert sensors["grid_voltage"] == 240.2
+        # Per-leg split-phase sensors still present.
+        assert sensors["eps_voltage_l1"] == 123.1
+        assert sensors["eps_voltage_l2"] == 123.5
+        # Expensive feature detection is NOT re-run on a non-param poll.
+        inverter.detect_features.assert_not_called()
+
 
 class TestCacheTTLAdherence:
     """Tests for per-transport cache TTL alignment (issue #148).
@@ -4957,6 +5017,42 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["grid_current_l3"] == 4.1
         assert sensors["battery_current"] == 12.5
         assert sensors["total_load_power"] == 2500
+
+    async def test_transport_runtime_populates_split_phase_l1_l2(
+        self, hass, mock_config_entry
+    ):
+        """#243: per-leg grid/EPS L1/L2 voltages overlay from the Modbus
+        transport in HYBRID.
+
+        The cloud API has no per-leg voltage field, so in HYBRID these are only
+        available from the attached local transport.  They must overlay into the
+        cloud-base sensor dict so HYBRID reaches LOCAL parity; pure CLOUD has no
+        transport_runtime and so leaves them absent.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(
+            grid_l1_voltage=120.1,
+            grid_l2_voltage=120.4,
+            eps_l1_voltage=121.2,
+            eps_l2_voltage=121.5,
+            pv_total_power=0,
+        )
+        mock_inverter = make_real_inverter(
+            "1111111111", "FlexBOSS21", runtime=runtime
+        )
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        assert sensors["grid_voltage_l1"] == 120.1
+        assert sensors["grid_voltage_l2"] == 120.4
+        assert sensors["eps_voltage_l1"] == 121.2
+        assert sensors["eps_voltage_l2"] == 121.5
 
     async def test_no_transport_runtime_skips_overlay(self, hass, mock_config_entry):
         """Without _transport_runtime, overlay is skipped entirely."""

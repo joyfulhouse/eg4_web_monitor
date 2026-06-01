@@ -679,6 +679,15 @@ class DeviceProcessingMixin(_MixinBase):
                 ("grid_current_l2", "inverter_rms_current_s"),
                 ("grid_current_l3", "inverter_rms_current_t"),
                 ("battery_current", "battery_current"),
+                # Split-phase per-leg voltages (Modbus regs 12/13 grid, 127/128
+                # EPS).  The cloud API has no per-leg field, so in HYBRID these
+                # are only available from the local transport — surface them here
+                # so HYBRID matches LOCAL parity (issue #243).  Pure CLOUD has no
+                # transport_runtime, so they stay correctly absent there.
+                ("grid_voltage_l1", "grid_l1_voltage"),
+                ("grid_voltage_l2", "grid_l2_voltage"),
+                ("eps_voltage_l1", "eps_l1_voltage"),
+                ("eps_voltage_l2", "eps_l2_voltage"),
             )
             for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
                 value = getattr(transport_runtime, runtime_attr, None)
@@ -953,6 +962,14 @@ class DeviceProcessingMixin(_MixinBase):
             "pv4_voltage": "pv4_voltage",
             "pv5_voltage": "pv5_voltage",
             "pv6_voltage": "pv6_voltage",
+            # PV string currents — DERIVED (power / voltage) by the inverter
+            # property; no EG4 register or cloud field exists (issue #243).
+            "pv1_current": "pv1_current",
+            "pv2_current": "pv2_current",
+            "pv3_current": "pv3_current",
+            "pv4_current": "pv4_current",
+            "pv5_current": "pv5_current",
+            "pv6_current": "pv6_current",
             "battery_voltage": "battery_voltage",
             "grid_voltage_r": "grid_voltage_r",
             "grid_voltage_s": "grid_voltage_s",

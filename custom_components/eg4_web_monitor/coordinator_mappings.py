@@ -163,6 +163,14 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "pv6_voltage",
         "pv6_power",
         "pv_total_power",
+        # Per-string PV currents — DERIVED (power / voltage), gated by
+        # pv_string_count like the voltage/power keys above (issue #243).
+        "pv1_current",
+        "pv2_current",
+        "pv3_current",
+        "pv4_current",
+        "pv5_current",
+        "pv6_current",
         "battery_voltage",
         "battery_current",
         "state_of_charge",
@@ -531,6 +539,14 @@ def _build_runtime_sensor_mapping(
         "pv6_voltage": runtime_data.pv6_voltage,
         "pv6_power": runtime_data.pv6_power,
         "pv_total_power": runtime_data.pv_total_power,
+        # PV string currents — DERIVED (power / voltage) in pylxpweb; no EG4
+        # firmware register or cloud field exists for them (issue #243).
+        "pv1_current": runtime_data.pv1_current,
+        "pv2_current": runtime_data.pv2_current,
+        "pv3_current": runtime_data.pv3_current,
+        "pv4_current": runtime_data.pv4_current,
+        "pv5_current": runtime_data.pv5_current,
+        "pv6_current": runtime_data.pv6_current,
         # Battery
         "battery_voltage": runtime_data.battery_voltage,
         "battery_current": runtime_data.battery_current,

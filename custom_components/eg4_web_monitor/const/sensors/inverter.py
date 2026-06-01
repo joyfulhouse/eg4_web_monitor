@@ -1228,6 +1228,59 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:solar-panel",
     },
+    # PV string currents.  EG4 firmware exposes no PV-current register and the
+    # cloud API no PV-current field, so pylxpweb DERIVES these as power / voltage
+    # (the same way Solar Assistant and the EG4 portal present them) — see
+    # issue #243.  pvN_current keys are gated by pv_string_count exactly like
+    # pvN_voltage/pvN_power (3-string models only create pv1-3_current).
+    "pv1_current": {
+        "name": "PV1 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
+    "pv2_current": {
+        "name": "PV2 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
+    "pv3_current": {
+        "name": "PV3 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
+    "pv4_current": {
+        "name": "PV4 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
+    "pv5_current": {
+        "name": "PV5 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
+    "pv6_current": {
+        "name": "PV6 Current",
+        "unit": UnitOfElectricCurrent.AMPERE,
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:solar-panel",
+        "suggested_display_precision": 2,
+    },
     # GridBOSS MidBox specific sensors
     "grid_voltage_l1": {
         "name": "Grid Voltage L1",

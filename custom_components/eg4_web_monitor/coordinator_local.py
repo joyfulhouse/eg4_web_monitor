@@ -835,10 +835,28 @@ class LocalTransportMixin(_MixinBase):
                 await inverter.refresh(include_parameters=include_params)
 
                 features: dict[str, Any] = {}
-                if include_params and hasattr(inverter, "detect_features"):
-                    try:
-                        await inverter.detect_features()
-                        features = self._extract_inverter_features(inverter)
+                if hasattr(inverter, "detect_features"):
+                    # detect_features() reads holding registers and is therefore
+                    # throttled to parameter-refresh polls; it persists the
+                    # InverterFeatures on the (cached) inverter object.
+                    # _extract_inverter_features() just reads that cached state,
+                    # so run it on EVERY poll — the sensor mapping/gating and the
+                    # voltage alias below need the feature flags on every cycle,
+                    # not only on param-refresh cycles.  Previously features were
+                    # populated solely on param polls, leaving the aggregate
+                    # eps_voltage/grid_voltage alias starved on the common path
+                    # so it never fired (issue #243).
+                    if include_params:
+                        try:
+                            await inverter.detect_features()
+                        except Exception as e:
+                            _LOGGER.warning(
+                                "LOCAL: Could not detect features for %s: %s",
+                                serial,
+                                e,
+                            )
+                    features = self._extract_inverter_features(inverter)
+                    if include_params and features:
                         _LOGGER.debug(
                             "LOCAL: Detected features for %s: family=%s, "
                             "split_phase=%s, three_phase=%s",
@@ -846,12 +864,6 @@ class LocalTransportMixin(_MixinBase):
                             features.get("inverter_family"),
                             features.get("supports_split_phase"),
                             features.get("supports_three_phase"),
-                        )
-                    except Exception as e:
-                        _LOGGER.warning(
-                            "LOCAL: Could not detect features for %s: %s",
-                            serial,
-                            e,
                         )
 
                 if serial not in self._firmware_cache:
@@ -1001,6 +1013,17 @@ class LocalTransportMixin(_MixinBase):
                 # Add last_polled timestamp so users can see when data was last fetched
                 # (not just when it last changed)
                 sensors["last_polled"] = dt_util.utcnow()
+
+                # Derive phase-neutral aggregate voltages (grid_voltage,
+                # eps_voltage) from the R-phase registers for non-three-phase
+                # configs.  This active multi-transport poll path builds the
+                # sensor dict inline, unlike the deprecated single-device path
+                # (_build_local_device_data), so the alias must be applied here
+                # too.  Without it, split-phase models (18kPV/FlexBOSS) report
+                # "unknown" for the aggregate EPS/grid voltage even though the
+                # per-leg L1/L2 sensors populate correctly (issue #243).
+                if features:
+                    alias_common_voltage_sensors(sensors, features)
 
                 _LOGGER.debug(
                     "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "
