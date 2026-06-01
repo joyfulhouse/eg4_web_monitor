@@ -97,6 +97,32 @@ _GRIDBOSS_PG_OVERLAY: dict[str, str] = {
     # the simple key-to-key overlay cannot handle.
 }
 
+# Per-inverter grid per-leg voltage keys (input regs 193/194).  EG4 US
+# split-phase inverters (18kPV, FlexBOSS, 12kPV) do NOT populate these — the
+# inverter measures only aggregate grid voltage (reg 12 ≈ 240 V); the real
+# per-leg grid voltage comes from the GridBOSS CTs (already surfaced on the
+# GridBOSS and parallel-group entities).  Confirmed firmware-zero on live
+# 18kPV and FlexBOSS21 across the entire 193-204 block (issue #243 follow-up).
+_INVERTER_DEAD_GRID_LEG_KEYS: tuple[str, ...] = ("grid_voltage_l1", "grid_voltage_l2")
+
+
+def drop_dead_inverter_grid_legs(sensors: dict[str, Any]) -> None:
+    """Drop per-inverter grid per-leg voltage when it reads 0/None.
+
+    A live grid leg is never truly 0 V, so a 0/None reading on regs 193/194
+    means the inverter firmware isn't populating it — publish nothing rather
+    than a misleading 0, leaving the entity unavailable.  A genuine non-zero
+    reading still flows through unchanged, so this asserts nothing about other
+    topologies (e.g. a hypothetical grid-direct install without a GridBOSS).
+
+    Inverter-scoped: callers apply this only to inverter sensor dicts, never to
+    GridBOSS or parallel-group sensors, whose grid_voltage_l1/l2 come from the
+    authoritative CT registers (GridBOSS regs 4/5).
+    """
+    for key in _INVERTER_DEAD_GRID_LEG_KEYS:
+        if not sensors.get(key):  # None, 0, or 0.0 — never a live grid leg
+            sensors.pop(key, None)
+
 
 def apply_gridboss_overlay(
     pg_sensors: dict[str, Any],
@@ -711,6 +737,12 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
+
+        # Drop per-inverter grid per-leg voltage when it reads 0/None.  In
+        # HYBRID it is only ever set by the transport overlay above (the cloud
+        # API has no inverter grid L1/L2 field), and EG4 split-phase firmware
+        # leaves regs 193/194 at 0 — see drop_dead_inverter_grid_legs (#243).
+        drop_dead_inverter_grid_legs(processed["sensors"])
 
         # Add firmware_version as diagnostic sensor
         processed["sensors"]["firmware_version"] = firmware_version

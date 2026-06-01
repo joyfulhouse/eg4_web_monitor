@@ -151,11 +151,22 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 |-----|----------------|-------|------|----------------|---------------|
 | 127 | `eps_l1_voltage` | ÷10 | V | `eps_l1_voltage` | `eps_voltage_l1` |
 | 128 | `eps_l2_voltage` | ÷10 | V | `eps_l2_voltage` | `eps_voltage_l2` |
-| 193 | `grid_l1_voltage` | ÷10 | V | `grid_l1_voltage` | `grid_voltage_l1` |
-| 194 | `grid_l2_voltage` | ÷10 | V | `grid_l2_voltage` | `grid_voltage_l2` |
+| 193 | `grid_l1_voltage` | ÷10 | V | `grid_l1_voltage` | `grid_voltage_l1` (suppressed when 0) |
+| 194 | `grid_l2_voltage` | ÷10 | V | `grid_l2_voltage` | `grid_voltage_l2` (suppressed when 0) |
 
-> **Note:** Regs 193-194 return 0 on 18kPV/FlexBOSS firmware. GridBOSS reads
-> correct grid L1/L2 voltages from its own register map (regs 4-5).
+> **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
+> firmware-zero on EG4 US split-phase inverters — confirmed live across the full
+> block on both 18kPV (dtc 2092) and FlexBOSS21 (dtc 10284) while producing. The
+> inverter measures only **aggregate** grid voltage (reg 12 ≈ 240 V) and its own
+> per-leg **EPS** output (regs 127/128); per-leg **grid** voltage is a GridBOSS
+> CT measurement (GridBOSS regs 4/5) and is not plumbed to the inverter at all
+> (EG4's cloud API has no inverter grid-per-leg field — `gridL1RmsVolt` lives only
+> on `MidboxData`). The coordinator therefore **drops per-inverter
+> `grid_voltage_l1/l2` when the register reads 0/None**
+> (`drop_dead_inverter_grid_legs`) so the entity stays unavailable instead of
+> publishing a misleading 0; a genuine non-zero reading still flows through, so no
+> claim is made about other topologies. Real per-leg grid voltage is published on
+> the **GridBOSS** and **parallel-group** entities (issue #243 follow-up).
 
 **Three-Phase Registers (LXP only):**
 
