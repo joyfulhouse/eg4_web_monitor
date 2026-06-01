@@ -376,3 +376,50 @@ class TestLateDeviceSensorRegistration:
             last_entities = mock_add_entities.call_args_list[-1][0][0]
             registered_keys = {e._sensor_key for e in last_entities}
             assert "grid_voltage_t" not in registered_keys
+
+    async def test_setup_filtered_sensor_late_registers_when_features_resolve(
+        self, hass, hybrid_config_entry, mock_coordinator_http_only
+    ):
+        """#243 follow-up: a sensor filtered out at setup (features not yet
+        resolved) is NOT stranded — it late-registers once features allow it.
+
+        Regression guard for the FlexBOSS21 missing real eps_voltage_l1/l2: the
+        late-registration ``known`` set must be seeded with only the keys that
+        passed the feature filter at setup, so a split-phase key present but
+        filtered (supports_split_phase=False at the time) stays eligible for
+        registration once feature detection resolves.  The previous behavior
+        pre-seeded every present key as "known", permanently stranding such
+        sensors until a manual integration reload.
+        """
+        device = mock_coordinator_http_only.data["devices"]["1234567890"]
+        # Split-phase initially DISABLED → per-leg key filtered at setup
+        device["features"] = {
+            "supports_split_phase": False,
+            "supports_three_phase": False,
+        }
+        # Real split-phase-only sensor present in data from the first update
+        device["sensors"]["eps_voltage_l1"] = 120.6
+
+        hybrid_config_entry.add_to_hass(hass)
+        hybrid_config_entry.runtime_data = mock_coordinator_http_only
+        mock_add_entities = MagicMock()
+
+        await async_setup_entry(hass, hybrid_config_entry, mock_add_entities)
+
+        # Filtered out at setup (split-phase unsupported at the time)
+        setup_keys = {
+            e._sensor_key
+            for call in mock_add_entities.call_args_list
+            for e in call[0][0]
+        }
+        assert "eps_voltage_l1" not in setup_keys
+
+        # Feature detection resolves: split-phase now supported
+        device["features"]["supports_split_phase"] = True
+
+        # Third listener (index 2) is _async_discover_device_sensors
+        mock_coordinator_http_only._listeners[2]()
+
+        # The previously-filtered sensor now late-registers (not stranded)
+        late_keys = {e._sensor_key for e in mock_add_entities.call_args_list[-1][0][0]}
+        assert "eps_voltage_l1" in late_keys

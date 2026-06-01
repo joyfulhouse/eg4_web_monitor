@@ -318,7 +318,23 @@ async def async_setup_entry(
     known_device_sensor_keys: dict[str, set[str]] = {}
     for serial, device_data in coordinator.data.get("devices", {}).items():
         dtype = device_data.get("type", "unknown")
-        if dtype in ("inverter", "gridboss"):
+        if dtype == "inverter":
+            # Seed with only the keys for which an entity was actually created
+            # (i.e. that passed the feature filter), NOT every key present.  A
+            # key filtered out at setup — e.g. a split-phase per-leg sensor seen
+            # before feature detection resolved supports_split_phase — must stay
+            # eligible for late registration once features settle.  Pre-seeding
+            # every key as "known" is exactly what stranded the FlexBOSS21's real
+            # eps_voltage_l1/l2 sensors until a manual reload (issue #243).
+            features = device_data.get("features")
+            known_device_sensor_keys[serial] = {
+                k
+                for k in device_data.get("sensors", {})
+                if k in SENSOR_TYPES
+                and not k.startswith("battery_bank_")
+                and _should_create_sensor(k, features)
+            }
+        elif dtype == "gridboss":
             known_device_sensor_keys[serial] = {
                 k for k in device_data.get("sensors", {}) if k in SENSOR_TYPES
             }

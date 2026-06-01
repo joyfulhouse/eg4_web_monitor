@@ -41,6 +41,7 @@ from .coordinator_mixins import (
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
+    drop_dead_inverter_grid_legs,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -351,6 +352,11 @@ class LocalTransportMixin(_MixinBase):
                 features,
             )
             alias_common_voltage_sensors(device_data["sensors"], features)
+
+        # Drop per-inverter grid per-leg voltage when it reads 0/None (regs
+        # 193/194 are firmware-zero on EG4 split-phase; real per-leg grid
+        # voltage comes from the GridBOSS CTs — issue #243).
+        drop_dead_inverter_grid_legs(device_data["sensors"])
 
         return device_data
 
@@ -1024,6 +1030,11 @@ class LocalTransportMixin(_MixinBase):
                 # per-leg L1/L2 sensors populate correctly (issue #243).
                 if features:
                     alias_common_voltage_sensors(sensors, features)
+
+                # Drop per-inverter grid per-leg voltage when it reads 0/None.
+                # EG4 split-phase firmware leaves regs 193/194 at 0; the real
+                # per-leg grid voltage comes from the GridBOSS CTs (#243).
+                drop_dead_inverter_grid_legs(sensors)
 
                 _LOGGER.debug(
                     "LOCAL: Computed sensors for %s: consumption=%s, total_load=%s, "

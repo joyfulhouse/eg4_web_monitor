@@ -5039,9 +5039,7 @@ class TestHybridTransportExclusiveSensors:
             eps_l2_voltage=121.5,
             pv_total_power=0,
         )
-        mock_inverter = make_real_inverter(
-            "1111111111", "FlexBOSS21", runtime=runtime
-        )
+        mock_inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
         mock_inverter._transport = make_transport_spec()
@@ -5100,6 +5098,95 @@ class TestHybridTransportExclusiveSensors:
         # Only non-None values from transport overlay should appear
         assert sensors["grid_current_l1"] == 4.5
         assert "total_load_power" not in sensors
+
+    async def test_dead_grid_legs_suppressed_when_zero(self, hass, mock_config_entry):
+        """#243 follow-up: per-inverter grid L1/L2 of 0 (firmware-dead regs
+        193/194) are dropped in HYBRID, while real EPS L1/L2 are kept.
+
+        EG4 US split-phase inverters never populate grid per-leg voltage (only
+        the aggregate, reg 12); a live grid leg is never 0 V.  The real per-leg
+        grid voltage comes from the GridBOSS CTs, so a 0 here must not publish a
+        misleading 0 — it stays absent so the entity reads unavailable.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(
+            grid_l1_voltage=0.0,  # firmware-dead reg 193
+            grid_l2_voltage=0.0,  # firmware-dead reg 194
+            eps_l1_voltage=120.6,  # real reg 127
+            eps_l2_voltage=120.9,  # real reg 128
+            pv_total_power=0,
+        )
+        mock_inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        # Dead grid legs suppressed (no misleading 0)
+        assert "grid_voltage_l1" not in sensors
+        assert "grid_voltage_l2" not in sensors
+        # Real EPS per-leg untouched
+        assert sensors["eps_voltage_l1"] == 120.6
+        assert sensors["eps_voltage_l2"] == 120.9
+
+    async def test_nonzero_grid_legs_pass_through(self, hass, mock_config_entry):
+        """#243 follow-up: a genuine non-zero grid L1/L2 still flows through.
+
+        The suppress logic only drops 0/None — it asserts nothing about other
+        topologies (e.g. a hypothetical grid-direct install whose firmware does
+        populate regs 193/194).
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(
+            grid_l1_voltage=121.3,
+            grid_l2_voltage=121.1,
+            pv_total_power=0,
+        )
+        mock_inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.detect_features = AsyncMock()
+        mock_inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(mock_inverter)
+        sensors = result["sensors"]
+
+        assert sensors["grid_voltage_l1"] == 121.3
+        assert sensors["grid_voltage_l2"] == 121.1
+
+    def test_drop_dead_inverter_grid_legs_helper(self):
+        """Unit test for the inverter grid-leg suppression helper."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            drop_dead_inverter_grid_legs,
+        )
+
+        # 0 / 0.0 / None are dropped; unrelated keys untouched
+        sensors = {
+            "grid_voltage_l1": 0.0,
+            "grid_voltage_l2": None,
+            "eps_voltage_l1": 120.0,
+            "grid_voltage": 240.0,
+        }
+        drop_dead_inverter_grid_legs(sensors)
+        assert "grid_voltage_l1" not in sensors
+        assert "grid_voltage_l2" not in sensors
+        assert sensors["eps_voltage_l1"] == 120.0
+        assert sensors["grid_voltage"] == 240.0
+
+        # Non-zero readings are preserved
+        nonzero = {"grid_voltage_l1": 121.3, "grid_voltage_l2": 121.1}
+        drop_dead_inverter_grid_legs(nonzero)
+        assert nonzero == {"grid_voltage_l1": 121.3, "grid_voltage_l2": 121.1}
+
+        # Absent keys are a no-op (no KeyError)
+        unrelated = {"foo": 1}
+        drop_dead_inverter_grid_legs(unrelated)
+        assert unrelated == {"foo": 1}
 
 
 class TestHybridParallelBatteryCountOverride:
