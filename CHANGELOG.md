@@ -5,6 +5,13 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0-beta.5] - 2026-06-02
+
+### Fixed
+
+- **Daily consumption never reset to zero in LOCAL mode** ([#227](https://github.com/joyfulhouse/eg4_web_monitor/issues/227)): In local/dongle/Modbus modes the computed `consumption`/`consumption_lifetime` sensors were pinned at their daily peak by an unbounded monotonic clamp in the coordinator — they only rose when surpassing the previous peak and never reset at midnight. Cloud and hybrid were unaffected. Removed the clamp and rely on Home Assistant's `total_increasing` state class, which detects meter resets natively.
+- **`total_increasing` sensors triggering recorder warning on small dips** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)): Energy-balance rounding noise caused `consumption` and `consumption_lifetime` to step down by 0.1 kWh between polls (e.g. 2917.1 → 2917.0), tripping HA's "state is not strictly increasing" warning. Added a sensor-level guard that pins downward dips ≤10% to the previous high-water mark — matching HA recorder's reset-detection threshold so daily resets, lifetime counter wraps, and inverter replacements (drops >10%) still pass through unchanged. Paired with the #227 fix, midnight resets pass through while rounding jitter is suppressed.
+
 ## [3.3.0-beta.1] - 2026-05-31
 
 ### Added
