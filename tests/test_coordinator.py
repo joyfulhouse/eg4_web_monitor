@@ -2565,6 +2565,44 @@ class TestParallelGroupAggregationMath:
         assert total_consumption == 7600  # 2800 + 4800
 
     @pytest.mark.asyncio
+    async def test_midnight_reset_consumption_not_clamped(self, hass, local_entry):
+        """Regression #227: daily consumption must reset to zero at midnight.
+
+        The removed ``_clamp_computed_energy`` held computed consumption at its
+        daily peak and rejected any decrease, so the midnight drop-to-zero never
+        reached Home Assistant.  HA's ``total_increasing`` state class detects
+        meter resets natively, so the integration must publish the decrease as-is
+        instead of pinning the sensor to the previous (peak) value.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, local_entry)
+        # Previous cycle = yesterday's accumulated peak.
+        coordinator.data = {
+            "devices": {
+                "parallel_group_a": {
+                    "sensors": {"consumption": 50.0, "consumption_lifetime": 5000.0}
+                },
+                "MASTER001": {
+                    "sensors": {"consumption": 25.0, "consumption_lifetime": 2500.0}
+                },
+                "SLAVE002": {
+                    "sensors": {"consumption": 25.0, "consumption_lifetime": 2500.0}
+                },
+            }
+        }
+        # Midnight: per-inverter daily consumption resets to 0; lifetime climbs.
+        processed = self._make_processed(
+            {"consumption": 0.0, "consumption_lifetime": 2500.1},
+            {"consumption": 0.0, "consumption_lifetime": 2500.1},
+        )
+        await coordinator._process_local_parallel_groups(processed)
+
+        sensors = processed["devices"]["parallel_group_a"]["sensors"]
+        # Daily consumption reflects the reset — NOT held at the previous peak.
+        assert sensors["consumption"] == 0.0
+        # Lifetime counter continues to accumulate (sum of both inverters).
+        assert sensors["consumption_lifetime"] == pytest.approx(5000.2)
+
+    @pytest.mark.asyncio
     async def test_mixed_grid_state_one_importing_one_exporting(
         self, hass, local_entry
     ):
@@ -5469,111 +5507,6 @@ class TestStaticParallelGroupDeviceRegistration:
         assert device is not None
         assert device.name == "Parallel Group A"
         assert device.model == "Parallel Group"
-
-
-class TestComputedEnergyClamp:
-    """Test _clamp_computed_energy for consumption/consumption_lifetime."""
-
-    @pytest.fixture
-    def coordinator_with_prev_consumption(self, hass):
-        """Coordinator with previous cycle's consumption data."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - Clamp Test",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [
-                    {
-                        "serial": "INV001",
-                        "host": "192.168.1.100",
-                        "port": 502,
-                        "transport_type": "modbus_tcp",
-                        "inverter_family": "EG4_HYBRID",
-                        "model": "FlexBOSS21",
-                    },
-                ],
-            },
-            entry_id="clamp_test",
-        )
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
-        coordinator.data = {
-            "devices": {
-                "INV001": {
-                    "sensors": {
-                        "consumption": 24.9,
-                        "consumption_lifetime": 4885.0,
-                    }
-                },
-                "parallel_group_a": {
-                    "sensors": {
-                        "consumption": 49.8,
-                        "consumption_lifetime": 9770.0,
-                    }
-                },
-            }
-        }
-        return coordinator
-
-    def test_decreasing_consumption_clamped(self, coordinator_with_prev_consumption):
-        """Consumption that decreased is clamped to previous value."""
-        sensors = {"consumption": 24.8, "consumption_lifetime": 4884.9}
-        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
-        assert sensors["consumption"] == 24.9
-        assert sensors["consumption_lifetime"] == 4885.0
-
-    def test_increasing_consumption_passes(self, coordinator_with_prev_consumption):
-        """Consumption that increased is not clamped."""
-        sensors = {"consumption": 25.1, "consumption_lifetime": 4886.0}
-        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
-        assert sensors["consumption"] == 25.1
-        assert sensors["consumption_lifetime"] == 4886.0
-
-    def test_equal_consumption_passes(self, coordinator_with_prev_consumption):
-        """Equal consumption values are not clamped."""
-        sensors = {"consumption": 24.9, "consumption_lifetime": 4885.0}
-        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
-        assert sensors["consumption"] == 24.9
-        assert sensors["consumption_lifetime"] == 4885.0
-
-    def test_parallel_group_clamped(self, coordinator_with_prev_consumption):
-        """PG consumption also gets clamped."""
-        sensors = {"consumption": 49.7, "consumption_lifetime": 9769.5}
-        coordinator_with_prev_consumption._clamp_computed_energy(
-            "parallel_group_a", sensors
-        )
-        assert sensors["consumption"] == 49.8
-        assert sensors["consumption_lifetime"] == 9770.0
-
-    def test_first_cycle_no_clamp(self, hass):
-        """First cycle (no previous data) does not clamp."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="EG4 - First Cycle",
-            data={
-                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
-                CONF_DST_SYNC: False,
-                CONF_LIBRARY_DEBUG: False,
-                CONF_LOCAL_TRANSPORTS: [],
-            },
-            entry_id="first_cycle_clamp",
-        )
-        coordinator = EG4DataUpdateCoordinator(hass, entry)
-        coordinator.data = None  # First cycle
-
-        sensors = {"consumption": 24.8, "consumption_lifetime": 4884.9}
-        coordinator._clamp_computed_energy("INV001", sensors)
-        # Values unchanged — no previous data to clamp against
-        assert sensors["consumption"] == 24.8
-        assert sensors["consumption_lifetime"] == 4884.9
-
-    def test_none_values_not_clamped(self, coordinator_with_prev_consumption):
-        """None values (unavailable) are not clamped."""
-        sensors = {"consumption": None, "consumption_lifetime": None}
-        coordinator_with_prev_consumption._clamp_computed_energy("INV001", sensors)
-        assert sensors["consumption"] is None
-        assert sensors["consumption_lifetime"] is None
 
 
 class TestChargeRates:

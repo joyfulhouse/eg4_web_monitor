@@ -73,11 +73,6 @@ if TYPE_CHECKING:
 # concrete local types lets the typed seam verify the split_phase write.
 _LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTransport)
 
-# Derived from energy balance arithmetic; small decreases are normal
-# timing artifacts (not corruption).  Clamped to prevent HA
-# total_increasing warnings.
-_COMPUTED_ENERGY_KEYS = frozenset({"consumption", "consumption_lifetime"})
-
 # Minimum battery serial length to consider valid.  Shorter serials are
 # likely truncated register reads from incomplete CAN bus transfers and
 # are skipped to avoid creating phantom battery entities.
@@ -590,39 +585,6 @@ class LocalTransportMixin(_MixinBase):
             model="Parallel Group",
         )
 
-    def _clamp_computed_energy(
-        self,
-        device_id: str,
-        sensors: dict[str, Any],
-    ) -> None:
-        """Clamp computed energy values so they never decrease.
-
-        Small decreases are normal timing artifacts from reading multiple
-        registers at different instants.  Clamping prevents HA
-        total_increasing state class warnings.
-        """
-        if not self.data:
-            return
-        prev_sensors = (
-            self.data.get("devices", {}).get(device_id, {}).get("sensors", {})
-        )
-        if not prev_sensors:
-            return
-
-        for key in _COMPUTED_ENERGY_KEYS:
-            prev = prev_sensors.get(key)
-            curr = sensors.get(key)
-            if prev is not None and curr is not None and curr < prev:
-                _LOGGER.debug(
-                    "Clamping %s for %s: %.1f -> %.1f (keeping %.1f)",
-                    key,
-                    device_id,
-                    prev,
-                    curr,
-                    prev,
-                )
-                sensors[key] = prev
-
     async def _process_single_local_device(
         self,
         config: dict[str, Any],
@@ -1046,8 +1008,6 @@ class LocalTransportMixin(_MixinBase):
                     sensors.get("rectifier_power"),
                     sensors.get("grid_import_power"),
                 )
-
-                self._clamp_computed_energy(serial, sensors)
 
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
@@ -1796,9 +1756,7 @@ class LocalTransportMixin(_MixinBase):
                                 group_sensors[vkey] = val
                         break
 
-            # Clamp computed energy values before storing the parallel group.
             group_device_id = f"parallel_group_{group_name.lower()}"
-            self._clamp_computed_energy(group_device_id, group_sensors)
 
             group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
