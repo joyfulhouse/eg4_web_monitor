@@ -185,6 +185,7 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "grid_power",
         "grid_export_power",
         "ac_power",
+        "power_factor",
         "eps_voltage_r",
         "eps_voltage_s",
         "eps_voltage_t",
@@ -246,6 +247,28 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "eps_energy_today_l2",
         "eps_energy_total_l1",
         "eps_energy_total_l2",
+        # Granular per-string / per-component energy (regs 28-37 / 40+),
+        # disabled-by-default, LOCAL/HYBRID only.
+        "pv1_yield",
+        "pv2_yield",
+        "pv3_yield",
+        "pv4_yield",
+        "pv5_yield",
+        "pv6_yield",
+        "pv1_yield_lifetime",
+        "pv2_yield_lifetime",
+        "pv3_yield_lifetime",
+        "pv4_yield_lifetime",
+        "pv5_yield_lifetime",
+        "pv6_yield_lifetime",
+        "inverter_energy",
+        "inverter_energy_lifetime",
+        "ac_charge_energy",
+        "ac_charge_energy_lifetime",
+        "eps_energy",
+        "eps_energy_lifetime",
+        "generator_energy",
+        "generator_energy_lifetime",
     }
 )
 
@@ -572,6 +595,9 @@ def _build_runtime_sensor_mapping(
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,
+        # Power factor (Modbus reg 19, 0.0-1.0). Also available from cloud "pf"
+        # via the inverter property map; surfaced here so LOCAL exposes it too.
+        "power_factor": runtime_data.power_factor,
         # Note: load_power removed - register 27 (pToUser) is grid import, NOT consumption
         # Use consumption_power sensor instead (computed from energy balance)
         # EPS/Backup - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
@@ -714,6 +740,29 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
         "eps_energy_today_l2": energy_data.eps_l2_energy_today,
         "eps_energy_total_l1": energy_data.eps_l1_energy_total,
         "eps_energy_total_l2": energy_data.eps_l2_energy_total,
+        # Granular per-string / per-component energy (regs 28-37 daily, 40+
+        # lifetime).  Disabled-by-default sensors; LOCAL/HYBRID only (the cloud
+        # energy endpoint returns only aggregates).  pv4-6 gated by string count.
+        "pv1_yield": energy_data.pv1_energy_today,
+        "pv2_yield": energy_data.pv2_energy_today,
+        "pv3_yield": energy_data.pv3_energy_today,
+        "pv4_yield": energy_data.pv4_energy_today,
+        "pv5_yield": energy_data.pv5_energy_today,
+        "pv6_yield": energy_data.pv6_energy_today,
+        "pv1_yield_lifetime": energy_data.pv1_energy_total,
+        "pv2_yield_lifetime": energy_data.pv2_energy_total,
+        "pv3_yield_lifetime": energy_data.pv3_energy_total,
+        "pv4_yield_lifetime": energy_data.pv4_energy_total,
+        "pv5_yield_lifetime": energy_data.pv5_energy_total,
+        "pv6_yield_lifetime": energy_data.pv6_energy_total,
+        "inverter_energy": energy_data.inverter_energy_today,
+        "inverter_energy_lifetime": energy_data.inverter_energy_total,
+        "ac_charge_energy": energy_data.ac_charge_energy_today,
+        "ac_charge_energy_lifetime": energy_data.ac_charge_energy_total,
+        "eps_energy": energy_data.eps_energy_today,
+        "eps_energy_lifetime": energy_data.eps_energy_total,
+        "generator_energy": energy_data.generator_energy_today,
+        "generator_energy_lifetime": energy_data.generator_energy_total,
     }
 
 

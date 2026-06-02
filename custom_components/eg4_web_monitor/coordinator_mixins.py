@@ -732,6 +732,29 @@ class DeviceProcessingMixin(_MixinBase):
                 ("eps_energy_today_l2", "eps_l2_energy_today"),
                 ("eps_energy_total_l1", "eps_l1_energy_total"),
                 ("eps_energy_total_l2", "eps_l2_energy_total"),
+                # Granular per-string / per-component energy — register-backed,
+                # absent from the cloud energy endpoint, so overlaid from the
+                # local transport in HYBRID (disabled-by-default sensors, #243).
+                ("pv1_yield", "pv1_energy_today"),
+                ("pv2_yield", "pv2_energy_today"),
+                ("pv3_yield", "pv3_energy_today"),
+                ("pv4_yield", "pv4_energy_today"),
+                ("pv5_yield", "pv5_energy_today"),
+                ("pv6_yield", "pv6_energy_today"),
+                ("pv1_yield_lifetime", "pv1_energy_total"),
+                ("pv2_yield_lifetime", "pv2_energy_total"),
+                ("pv3_yield_lifetime", "pv3_energy_total"),
+                ("pv4_yield_lifetime", "pv4_energy_total"),
+                ("pv5_yield_lifetime", "pv5_energy_total"),
+                ("pv6_yield_lifetime", "pv6_energy_total"),
+                ("inverter_energy", "inverter_energy_today"),
+                ("inverter_energy_lifetime", "inverter_energy_total"),
+                ("ac_charge_energy", "ac_charge_energy_today"),
+                ("ac_charge_energy_lifetime", "ac_charge_energy_total"),
+                ("eps_energy", "eps_energy_today"),
+                ("eps_energy_lifetime", "eps_energy_total"),
+                ("generator_energy", "generator_energy_today"),
+                ("generator_energy_lifetime", "generator_energy_total"),
             )
             for sensor_key, energy_attr in _ENERGY_OVERLAY:
                 value = getattr(transport_energy, energy_attr, None)
