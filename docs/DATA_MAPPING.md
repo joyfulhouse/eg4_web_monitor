@@ -217,55 +217,89 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 56-57 | `grid_export_energy_total` | ÷10 | kWh | `grid_export_lifetime` |
 | 58-59 | `grid_import_energy_total` | ÷10 | kWh | `grid_import_lifetime` |
 
-### Consumption Energy
+### Consumption vs Load Energy (two distinct meters)
 
-Per-inverter `consumption` / `consumption_lifetime` are **NOT** read from a single
-register — they are derived, because there is no reliable per-inverter load-energy
-source:
+The integration exposes **two different energy meters** that are easy to confuse.
+They measure different things, do **not** sum to each other, and the EG4 cloud itself
+reports them as two separate numbers on two different screens (per-inverter usage vs.
+the station "Consumption" card).
 
-- **CLOUD mode**: `consumption_lifetime` = cloud `totalUsage` (server-computed).
-- **LOCAL / HYBRID mode** (transport present): computed via energy balance in
-  `coordinator_mappings._energy_balance()`:
+| Meter | HA sensor keys | Device level | Scope | Source |
+|-------|----------------|--------------|-------|--------|
+| **Load Energy** | `load_energy`, `load_energy_lifetime` | per-inverter | Inverter-served load (Eload) | regs 171/172, raw |
+| **Consumption** | `consumption`, `consumption_lifetime` | inverter (standalone) + parallel-group | Whole-home consumption | energy balance / GridBOSS CT / cloud group |
 
-```
-consumption = yield + discharge + grid_import - charge - grid_export
-```
+#### Load Energy (`load_energy` / `load_energy_lifetime`) — regs 171/172
 
-#### Register semantics (pylxpweb fields, since eg4-8oq)
+Energy the inverter delivered to its own load output, read **verbatim** from the
+`Eload` registers (scale ÷10):
 
-| Reg(s) | pylxpweb field | Meaning |
-|--------|----------------|---------|
-| 171 | `load_energy_today` | `Eload_day` — firmware load-energy counter |
-| 172-173 | `load_energy_total` | `Eload_all` — firmware lifetime load energy (32-bit) |
-| 32 | `ac_charge_energy_today` | `Erec_day` — AC charge **from grid** (NOT consumption) |
-| 48-49 | `ac_charge_energy_total` | `Erec_all` — lifetime AC charge from grid (NOT consumption) |
+| Reg(s) | pylxpweb field | Canonical | HA Sensor Key |
+|--------|----------------|-----------|---------------|
+| 171 | `load_energy_today` | `Eload_day` | `load_energy` |
+| 172-173 | `load_energy_total` | `Eload_all` (32-bit) | `load_energy_lifetime` |
 
-Before eg4-8oq, `Erec` (regs 32/48-49) was mis-aliased to `load_energy_*`. That
-alias is removed: `load_energy_*` now holds the real `Eload` registers, and `Erec`
-has its own `ac_charge_energy_*` fields.
+- **Reliable and exact.** Validated 2026-06-02 against the cloud's per-inverter
+  `todayUsage`/`totalUsage` — matches to the decimal in all modes (the cloud
+  `InverterEnergyData` builder also maps `todayUsage` → `load_energy_today`).
+- In a **parallel group** a master can read **0** while importing tens of kWh — it
+  passes grid power through the parallel bus and serves no backup load directly. This
+  is correct, not a bug.
+- pylxpweb's `energy_today_usage`/`energy_lifetime_usage` return the transport register
+  (LOCAL/HYBRID) or the cloud value (CLOUD) uniformly, so the sensor is identical
+  across modes.
 
-#### Why consumption is NOT taken from the `Eload` register (eg4-05k, validated 2026-05-30)
+#### Consumption (`consumption` / `consumption_lifetime`) — whole-home
 
-The firmware `Eload` register is **not** a reliable per-inverter consumption proxy,
-and the cloud `totalUsage` is itself per-inverter inconsistent. Live read of a
-parallel master/slave pair (4524850115 GridBOSS group):
+Whole-home consumption, **including grid-direct loads** that never flow through an
+inverter's Eload. There is **no single register** for it; it is derived per mode:
 
-| Inverter (role) | `Eload_all` (reg 172) | cloud `totalUsage` | energy_balance |
-|-----------------|----------------------|--------------------|----------------|
-| 52842P0581 (master) | 142.9 | **142.9** (= Eload) | 4341.9 |
-| 4512670118 (slave) | 22449.7 | **6137.8** (≈ balance) | 6138.5 |
+- **CLOUD / HYBRID**: cloud group `todayUsage`/`totalUsage` at the parallel-group level
+  (= the cloud "Consumption" card); per-inverter cloud `totalUsage` for a standalone
+  inverter.
+- **LOCAL** (transport present): energy balance via
+  `coordinator_mappings._energy_balance()` —
 
-Cloud `totalUsage` matches `Eload` for the master but the energy **balance** for the
-slave — **no single local formula matches cloud for both**. The master's `Eload`
-(142.9) is an implausibly-low firmware counter the cloud mirrors; the slave's
-`Eload` (22449.7) matches nothing physical. Switching consumption to `Eload` would
-regress the slave.
+  ```
+  consumption = yield + discharge + grid_import − charge − grid_export
+  ```
 
-**Decision**: keep `energy_balance` as the per-inverter LOCAL/HYBRID estimate (best
-physical approximation). Per-inverter "consumption" is inherently ambiguous in a
-parallel group; the authoritative household figure is the **parallel-group** level
-consumption (GridBOSS CT overlay: `ups + load`, see `apply_gridboss_overlay`). Exact
-per-inverter cloud↔local parity is not achievable and is not pursued.
+  with the GridBOSS CT overlay (`ups + load`, `apply_gridboss_overlay`) providing the
+  authoritative whole-home figure at the parallel-group level.
+
+> ⚠️ **Energy balance is reliable for _today_ but NOT for _lifetime_.** Validated
+> 2026-06-02: per-inverter `energy_balance` lifetime summed to ~10.6 MWh vs. the true
+> 34.71 MWh (cloud group) — the lifetime component registers wrap near 6553.5 kWh
+> (16-bit ÷10). Whole-home **lifetime** must come from the cloud group (CLOUD/HYBRID)
+> or GridBOSS UPS+Load CT totals (LOCAL) — never per-inverter `energy_balance`.
+
+#### Why they are separate (validated 2026-06-02: FlexBOSS21 + 18kPV + GridBOSS)
+
+| Quantity | today | lifetime |
+|----------|-------|----------|
+| reg 171/172 Eload — 18kPV (slave) | 20.9 | 22609.7 |
+| reg 171/172 Eload — FlexBOSS21 (master) | 0.0 | 142.9 |
+| per-inverter Eload **SUM** | 20.9 | 22.75 MWh |
+| cloud GROUP `todayUsage`/`totalUsage` (= **Consumption**) | 41.8 | **34.71 MWh** |
+
+The ~12 MWh lifetime gap between the per-inverter Eload sum and the whole-home figure
+is grid-direct / GridBOSS-Load-port load. Per-inverter `Eload` and whole-home
+`Consumption` are **different scopes** — surfacing them under one `consumption` sensor
+was the root of long-standing confusion (eg4-d49). Local `Eload` (regs 171/172) is
+exact; the earlier "Eload unreliable" finding (eg4-05k) was really _"Eload ≠
+whole-home"_, which the two-meter split now resolves. The non-breaking change **adds**
+`load_energy`; existing `consumption` entities are unchanged.
+
+#### Erec is a third, different register (neither consumption nor load)
+
+| Reg(s) | pylxpweb field | Meaning | HA Sensor Key |
+|--------|----------------|---------|---------------|
+| 32 | `ac_charge_energy_today` | `Erec_day` — AC charge **from grid** | `ac_charge_energy` |
+| 48-49 | `ac_charge_energy_total` | `Erec_all` — lifetime AC charge from grid | `ac_charge_energy_lifetime` |
+
+Before eg4-8oq, `Erec` (regs 32/48-49) was mis-aliased to `load_energy_*`. That alias
+is removed: `load_energy_*` holds the real `Eload` registers (surfaced as Load Energy),
+and `Erec` has its own `ac_charge_energy_*` fields.
 
 ---
 

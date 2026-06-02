@@ -242,6 +242,11 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "grid_import_lifetime",
         "grid_export_lifetime",
         "consumption_lifetime",
+        # Load Energy (Eload, regs 171/172) — per-inverter served load.  NOT
+        # added to PARALLEL_GROUP_SENSOR_KEYS: it is inverter-scoped only (the
+        # group carries whole-home `consumption`).
+        "load_energy",
+        "load_energy_lifetime",
         # EPS per-leg energy (split-phase, regs 133-138)
         "eps_energy_today_l1",
         "eps_energy_today_l2",
@@ -699,8 +704,16 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
     This helper extracts energy data from a transport's EnergyData object
     and maps it to sensor keys matching SENSOR_TYPES definitions in const.py.
 
-    Consumption is computed from energy balance rather than reading the
-    ``load_energy_*`` registers, which are actually Erec (AC charge from grid).
+    Two distinct meters are surfaced (see docs/DATA_MAPPING.md
+    "Consumption vs Load Energy"):
+
+    * ``load_energy``/``load_energy_lifetime`` — the inverter-served load
+      (Eload, regs 171/172).  Raw register, equals the cloud's per-inverter
+      ``todayUsage``/``totalUsage`` exactly.  In a parallel group a master can
+      read 0 while the home draws power (grid-direct loads bypass it).
+    * ``consumption``/``consumption_lifetime`` — whole-home consumption, derived
+      from the energy balance because Eload does NOT include grid-direct loads.
+      (``ac_charge_energy_*`` carries Erec, the AC-charge-from-grid register.)
 
     Args:
         energy_data: EnergyData object from pylxpweb transport.
@@ -735,6 +748,11 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
             energy_data.charge_energy_total,
             energy_data.grid_export_total,
         ),
+        # Load Energy (Eload, regs 171/172) — inverter-served load, raw register.
+        # Equals the cloud per-inverter todayUsage/totalUsage exactly.  Separate
+        # meter from whole-home `consumption` above.
+        "load_energy": energy_data.load_energy_today,
+        "load_energy_lifetime": energy_data.load_energy_total,
         # EPS per-leg energy (split-phase, regs 133-138)
         "eps_energy_today_l1": energy_data.eps_l1_energy_today,
         "eps_energy_today_l2": energy_data.eps_l2_energy_today,

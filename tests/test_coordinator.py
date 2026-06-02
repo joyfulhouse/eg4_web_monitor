@@ -1775,6 +1775,72 @@ class TestStaticLocalData:
         mapping = _build_energy_sensor_mapping(InverterEnergyData())
         assert set(mapping.keys()) == INVERTER_ENERGY_KEYS
 
+    def test_load_energy_mapped_from_eload_registers(self):
+        """load_energy/load_energy_lifetime come straight from Eload regs 171/172.
+
+        These are the raw inverter-served-load registers and must be passed
+        through verbatim (they equal the cloud's per-inverter todayUsage/
+        totalUsage exactly), NOT recomputed.
+        """
+        energy = InverterEnergyData(
+            load_energy_today=8.5,
+            load_energy_total=22609.7,
+        )
+        mapping = _build_energy_sensor_mapping(energy)
+        assert mapping["load_energy"] == 8.5
+        assert mapping["load_energy_lifetime"] == 22609.7
+
+    def test_load_energy_is_distinct_from_whole_home_consumption(self):
+        """load_energy (Eload) and consumption (energy balance) are separate meters.
+
+        With grid-direct load present, Eload (reg 171) understates whole-home
+        consumption.  load_energy must report Eload verbatim while consumption
+        reports the larger energy-balance figure — they must not collapse to the
+        same value.
+        """
+        energy = InverterEnergyData(
+            load_energy_today=8.5,  # Eload — inverter-served load only
+            pv_energy_today=3.0,
+            discharge_energy_today=2.0,
+            grid_import_today=10.0,  # large grid-direct draw bypassing Eload
+            charge_energy_today=1.0,
+            grid_export_today=0.0,
+        )
+        mapping = _build_energy_sensor_mapping(energy)
+        # load_energy = raw Eload
+        assert mapping["load_energy"] == 8.5
+        # consumption = energy balance = 3 + 2 + 10 - 1 - 0 = 14.0 (whole-home)
+        assert mapping["consumption"] == 14.0
+        assert mapping["load_energy"] != mapping["consumption"]
+
+    def test_load_energy_is_inverter_scoped_not_group(self):
+        """load_energy is per-inverter only; the group carries whole-home consumption.
+
+        Eload is meaningful per inverter (a group master can read 0 while the
+        home draws power), so it must NOT appear at the parallel-group level,
+        where only whole-home `consumption` belongs.
+        """
+        assert "load_energy" in INVERTER_ENERGY_KEYS
+        assert "load_energy_lifetime" in INVERTER_ENERGY_KEYS
+        assert "load_energy" in ALL_INVERTER_SENSOR_KEYS
+        assert "load_energy" not in PARALLEL_GROUP_SENSOR_KEYS
+        assert "load_energy_lifetime" not in PARALLEL_GROUP_SENSOR_KEYS
+        # The group still carries whole-home consumption.
+        assert "consumption" in PARALLEL_GROUP_SENSOR_KEYS
+
+    def test_load_energy_sensor_types_defined(self):
+        """load_energy sensors are defined, enabled by default, total_increasing."""
+        from custom_components.eg4_web_monitor.const.sensors.inverter import (
+            SENSOR_TYPES,
+        )
+
+        for key in ("load_energy", "load_energy_lifetime"):
+            assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
+            assert SENSOR_TYPES[key]["device_class"] == "energy"
+            assert SENSOR_TYPES[key]["state_class"] == "total_increasing"
+            # Primary meter — enabled by default (no enabled_default override).
+            assert SENSOR_TYPES[key].get("enabled_default", True) is True
+
     def test_static_keys_match_battery_bank_mapping(self):
         """BATTERY_BANK_KEYS matches _build_battery_bank_sensor_mapping keys."""
         # Real BatteryBankData; two batteries with differing soc/soh/voltage/

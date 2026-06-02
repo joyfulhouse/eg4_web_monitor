@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Per-inverter Load Energy sensors** (`Load Energy` / `Load Energy (Lifetime)`): the inverter-served load read straight from the `Eload` registers (171/172), matching the EG4 cloud's per-inverter `todayUsage`/`totalUsage` exactly in every mode (validated to the decimal on live hardware). This is a **separate meter** from whole-home **Consumption**: in a parallel group a master inverter can read `0` Load Energy while the home still draws power — grid-direct loads bypass the inverter — and the per-inverter Eload sum sits far below whole-home consumption (the cloud reports them as two distinct numbers, on two different screens). Non-breaking: existing `consumption`/`consumption_lifetime` entities are unchanged and `consumption` remains the whole-home figure (energy balance / GridBOSS CT overlay / cloud group). No new dependency. See [DATA_MAPPING.md → "Consumption vs Load Energy"](docs/DATA_MAPPING.md).
+
 ## [3.3.0-beta.5] - 2026-06-02
 
 ### Fixed
