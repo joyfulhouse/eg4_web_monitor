@@ -163,6 +163,84 @@ def test_pv_current_wired_across_modes() -> None:
         assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
 
 
+def test_power_factor_wired_across_modes() -> None:
+    """#243 follow-up: power factor surfaces in every mode.
+
+    Power factor is dual-source — Modbus reg 19 (LOCAL, and HYBRID via the
+    inverter property reading transport first) and the cloud ``pf`` field
+    (CLOUD).  It must therefore be on the LOCAL runtime mapping, the
+    cloud/hybrid property map, the static key set, and SENSOR_TYPES so all
+    three connection modes create the sensor.
+    """
+    from custom_components.eg4_web_monitor.const.sensors.inverter import (
+        SENSOR_TYPES,
+    )
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+
+    runtime_keys = set(_build_runtime_sensor_mapping(InverterRuntimeData()))
+    property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+
+    assert "power_factor" in runtime_keys, "missing from LOCAL runtime mapping"
+    assert "power_factor" in property_map, "missing from cloud/hybrid property map"
+    assert "power_factor" in ALL_INVERTER_SENSOR_KEYS, "missing from static key set"
+    assert "power_factor" in SENSOR_TYPES, "missing from SENSOR_TYPES"
+
+
+def test_granular_energy_disabled_by_default_and_local_only() -> None:
+    """#243: granular per-string/per-component energy is added register-backed,
+    disabled-by-default (noise control), and LOCAL/HYBRID only.
+
+    These come from Modbus regs 28-37/40+. The cloud energy endpoint returns
+    only aggregates, so they must NOT be in the cloud inverter property map; and
+    to avoid dashboard noise they ship disabled-by-default.
+    """
+    from custom_components.eg4_web_monitor.const.sensors.inverter import (
+        SENSOR_TYPES,
+    )
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+    from custom_components.eg4_web_monitor.sensor import _should_create_sensor
+
+    granular = [
+        "pv1_yield",
+        "pv2_yield",
+        "pv3_yield",
+        "pv1_yield_lifetime",
+        "pv2_yield_lifetime",
+        "pv3_yield_lifetime",
+        "inverter_energy",
+        "inverter_energy_lifetime",
+        "ac_charge_energy",
+        "ac_charge_energy_lifetime",
+        "eps_energy",
+        "eps_energy_lifetime",
+        "generator_energy",
+        "generator_energy_lifetime",
+    ]
+    energy_keys = set(_build_energy_sensor_mapping(InverterEnergyData()))
+    property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+
+    for key in granular:
+        assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
+        assert SENSOR_TYPES[key].get("enabled_default") is False, (
+            f"{key} must be disabled-by-default"
+        )
+        assert key in energy_keys, f"{key} missing from LOCAL energy mapping"
+        assert key in ALL_INVERTER_SENSOR_KEYS, f"{key} missing from static set"
+        assert key not in property_map, (
+            f"{key} should be LOCAL/HYBRID only, not in the cloud property map"
+        )
+
+    # PV4-6 yield are gated by pv_string_count, like pv4-6 power/current.
+    feats3 = {"pv_string_count": 3}
+    assert _should_create_sensor("pv3_yield", feats3) is True
+    assert _should_create_sensor("pv4_yield", feats3) is False
+    assert _should_create_sensor("pv4_yield_lifetime", feats3) is False
+
+
 def test_battery_bank_keys_match_canonical_static_set() -> None:
     """LOCAL battery-bank output matches the static BATTERY_BANK_KEYS contract."""
     # battery_bank_charge_rate is computed by compute_bank_charge_rate() after

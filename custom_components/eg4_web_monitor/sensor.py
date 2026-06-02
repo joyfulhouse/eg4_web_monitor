@@ -35,10 +35,13 @@ from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
-# Matches per-string PV sensor keys: pv1_voltage, pv2_power, pv3_current, ...
+# Matches per-string PV sensor keys: pv1_voltage, pv2_power, pv3_current,
+# pv1_yield, pv1_yield_lifetime, ...
 # Sensor creation for these is driven by the inverter model's pv_string_count
 # (0..n): a key pvN_* is created only when N <= pv_string_count.
-_PV_STRING_SENSOR = re.compile(r"^pv(\d+)_(?:voltage|power|current)$")
+_PV_STRING_SENSOR = re.compile(
+    r"^pv(\d+)_(?:voltage|power|current|yield)(?:_lifetime)?$"
+)
 
 # Default PV string count when the inverter model did not report one
 # (conservative residential norm — keeps the canonical pv1-3 set).

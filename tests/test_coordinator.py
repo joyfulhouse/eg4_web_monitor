@@ -3882,7 +3882,6 @@ class TestMappingKeyConsistency:
 
         # HTTP-only keys not in ALL_INVERTER_SENSOR_KEYS (LOCAL static set)
         http_only_keys = {
-            "power_factor",
             "power_rating",
             "inverter_power_rating",
             "status_text",
