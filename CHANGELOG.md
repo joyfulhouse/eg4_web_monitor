@@ -5,6 +5,8 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.
@@ -116,7 +118,7 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 - Requires `pymodbus>=3.6.0`
 - Requires `pyserial>=3.5`
 
-## [3.1.1] - 2025-01-11
+## [3.1.1] - 2026-01-11
 
 ### Added
 
@@ -136,7 +138,7 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 
 - Requires `pylxpweb>=0.5.7` (adds aggregate battery properties to ParallelGroup)
 
-## [3.1.0] - 2025-01-11
+## [3.1.0] - 2026-01-11
 
 ### Added
 
@@ -170,7 +172,7 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 - Requires `pylxpweb>=0.5.6`
 - Requires `pymodbus>=3.6.0` (for local Modbus connection)
 
-## [3.0.0] - 2024-12-15
+## [3.0.0] - 2026-01-07
 
 ### Breaking Changes
 
@@ -211,7 +213,8 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 
 - Requires `pylxpweb>=0.4.4`
 
-[3.2.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.2.0
+[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.1.8...v3.2.0
 [3.1.1]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.1
 [3.1.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.0
 [3.0.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.0.0
