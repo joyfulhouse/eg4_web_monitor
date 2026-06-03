@@ -2,7 +2,7 @@
   "domain": "eg4_web_monitor",
   "name": "EG4 Web Monitor",
   "after_dependencies": ["network", "recorder"],
-  "codeowners": ["@joyfulhouse"],
+  "codeowners": ["@btli"],
   "config_flow": true,
   "documentation": "https://github.com/joyfulhouse/eg4_web_monitor",
   "integration_type": "device",
