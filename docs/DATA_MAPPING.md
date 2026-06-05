@@ -363,10 +363,20 @@ if reg1 & 0x100:
 
 | Reg | HA Entity Key | Entity Type | Unit | Range |
 |-----|---------------|-------------|------|-------|
-| 64 | `pv_charge_power` | number | % | 0-100 |
+| 64 | `charge_power_percent` | (unmapped) | % | 0-100 |
 | 65 | `discharge_power_percent` | number | % | 0-100 |
 | 66 | `ac_charge_power` | number | W | 0-15000 |
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
+| 74 | `pv_charge_power` | number | kW | 0-15 |
+
+> **`pv_charge_power` targets register 74** (`HOLD_FORCED_CHG_POWER_CMD`, the
+> forced/PV-charge-priority power command), stored in **100W units** (0-150 =
+> 0-15 kW) — same encoding as AC charge power (reg 66). The cloud path uses kW
+> directly; the local/Modbus path scales kW×10 on write and ÷10 on read.
+> Register 64 (`charge_power_percent`, a 0-100% limit) is **not** the PV charge
+> power control and is currently unmapped to any entity. The local path
+> previously mis-targeted reg 64 with a lossy kW↔% conversion (the "set 1 →
+> reads 0" bounce); see issue history.
 
 ### Battery Control Registers
 

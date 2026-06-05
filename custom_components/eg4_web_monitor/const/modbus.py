@@ -32,7 +32,12 @@ PARAM_HOLD_PV_INPUT_MODE = "HOLD_PV_INPUT_MODE"
 PARAM_HOLD_START_PV_VOLT = "HOLD_START_PV_VOLT"
 
 # Direct value parameter names
-PARAM_HOLD_CHG_POWER_PERCENT = "HOLD_CHG_POWER_PERCENT_CMD"
+PARAM_HOLD_CHG_POWER_PERCENT = "HOLD_CHG_POWER_PERCENT_CMD"  # reg 64: charge power %
+# reg 74: forced/PV charge (ChgFirst) power command, 100W units (0-150 = 0-15 kW).
+# This is the register the "PV Charge Power" control targets — same one the cloud
+# path uses. (Local path historically mis-targeted reg 64 % with a lossy kW<->%
+# conversion.)
+PARAM_HOLD_FORCED_CHG_POWER = "HOLD_FORCED_CHG_POWER_CMD"
 PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"
 PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"

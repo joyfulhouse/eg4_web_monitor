@@ -31,8 +31,8 @@ from .const import (
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
     PARAM_HOLD_CHARGE_CURRENT,
-    PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
+    PARAM_HOLD_FORCED_CHG_POWER,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
     PARAM_HOLD_START_PV_VOLT,
@@ -422,7 +422,7 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
 
 
 class PVChargePowerNumber(EG4BaseNumberEntity):
-    """Number entity for PV Charge Power control (stored as percentage)."""
+    """Number entity for PV Charge Power control (reg 74, 100W units)."""
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
@@ -441,48 +441,24 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current PV charge power (percentage -> kW, params-first).
+        """Return the current PV charge power in kW.
 
-        Reads params first (fresher). Inverter fallback rejects 0 (means unset).
+        The forced/PV charge power lives in holding register 74
+        (``HOLD_FORCED_CHG_POWER_CMD``), stored in 100W units (0-150 = 0-15 kW)
+        — the same encoding as AC charge power (reg 66). Local params hold the
+        raw 100W value (scaled ÷10 here); the cloud ``pv_charge_power_limit``
+        property already returns kW.
         """
-        if self._optimistic_value is not None:
-            return int(self._optimistic_value)
-
-        try:
-
-            def _pct_to_kw(pct_value: Any) -> int | None:
-                power_kw = int(float(pct_value) / 100.0 * 15)
-                return power_kw if 0 <= power_kw <= 15 else None
-
-            if self.coordinator.is_local_only():
-                params = self._parameter_data
-                if params:
-                    pct = params.get(PARAM_HOLD_CHG_POWER_PERCENT)
-                    if pct is not None:
-                        return _pct_to_kw(pct)
-                return None
-
-            # HTTP/Hybrid: params first (fresh every cycle)
-            params = self._parameter_data
-            if params:
-                pct = params.get(PARAM_HOLD_CHG_POWER_PERCENT)
-                if pct is not None:
-                    result = _pct_to_kw(pct)
-                    if result is not None:
-                        return result
-
-            # Fall back to inverter (rejects 0 as "no limit set")
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                pl = inverter.pv_charge_power_limit
-                if pl is not None and 0 < pl <= 15:
-                    return int(pl)
-        except (ValueError, TypeError, AttributeError):
-            pass
-        return None
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_CHG_POWER,
+            value_min=0,
+            value_max=15,
+            inverter_attr="pv_charge_power_limit",
+            param_transform=lambda v: float(v) / 10.0,
+        )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the PV charge power (converts kW to percentage for register)."""
+        """Set the PV charge power (kW -> reg 74 in 100W units; cloud takes kW)."""
         int_value = int(value)
         if int_value < 0 or int_value > 15:
             raise HomeAssistantError(
@@ -494,8 +470,8 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             )
         await self._write_parameter(
             value,
-            local_param=PARAM_HOLD_CHG_POWER_PERCENT,
-            local_value=int(int_value / 15.0 * 100),
+            local_param=PARAM_HOLD_FORCED_CHG_POWER,
+            local_value=int(int_value * 10),
             cloud_method="set_pv_charge_power",
             cloud_kwargs={"power_kw": int_value},
             label=f"PV charge power to {int_value} kW",
