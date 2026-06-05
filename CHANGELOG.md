@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-06-05
+
+Stable release consolidating the `3.3.0-beta.1`–`3.3.0-beta.8` cycle. Detailed beta notes are retained below.
+
+### Added
+
+- **Per-inverter Load Energy sensors** (`Eload` regs 171/172) — the inverter-served load, a separate meter from whole-home Consumption (see beta.6).
+- **BMS permission/request sensors** ([#232](https://github.com/joyfulhouse/eg4_web_monitor/issues/232)) — BMS charge/discharge/force-charge state in all modes (see beta.1).
+- **Power factor, GridBOSS smart-load current, granular energy** ([#243](https://github.com/joyfulhouse/eg4_web_monitor/issues/243)).
+
+### Fixed
+
+- **PV Charge Power did not stick on Modbus/hybrid inverters** ("set 1 kW → reads 0" bounce): the local path wrote register 64 (a 0-100% limit) with a lossy `kW↔%` conversion. It now targets register **74** (`HOLD_FORCED_CHG_POWER_CMD`, 100W units) in kW like AC charge power; the cloud path was already correct. Hardware-verified: FlexBOSS reg74=20→2.0 kW, 18kPV reg74=120→12.0 kW.
+- **Daily consumption never reset in LOCAL mode** ([#227](https://github.com/joyfulhouse/eg4_web_monitor/issues/227)) and **`total_increasing` dip warnings** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)) (see beta.5).
+- **EPS/grid aggregate voltage, PV input current, hybrid L1/L2** ([#243](https://github.com/joyfulhouse/eg4_web_monitor/issues/243)).
+
+### Changed
+
+- Minimum `pylxpweb` raised to **0.9.35** (adds register 74 to the local register map).
+
+## [3.3.0-beta.6] - 2026-06-02
+
+### Added
+
+- **Per-inverter Load Energy sensors** (`Load Energy` / `Load Energy (Lifetime)`): the inverter-served load read straight from the `Eload` registers (171/172), matching the EG4 cloud's per-inverter `todayUsage`/`totalUsage` exactly in every mode (validated to the decimal on live hardware). This is a **separate meter** from whole-home **Consumption**: in a parallel group a master inverter can read `0` Load Energy while the home still draws power — grid-direct loads bypass the inverter — and the per-inverter Eload sum sits far below whole-home consumption (the cloud reports them as two distinct numbers, on two different screens). Non-breaking: existing `consumption`/`consumption_lifetime` entities are unchanged and `consumption` remains the whole-home figure (energy balance / GridBOSS CT overlay / cloud group). No new dependency. See [DATA_MAPPING.md → "Consumption vs Load Energy"](docs/DATA_MAPPING.md).
+
+## [3.3.0-beta.5] - 2026-06-02
+
+### Fixed
+
+- **Daily consumption never reset to zero in LOCAL mode** ([#227](https://github.com/joyfulhouse/eg4_web_monitor/issues/227)): In local/dongle/Modbus modes the computed `consumption`/`consumption_lifetime` sensors were pinned at their daily peak by an unbounded monotonic clamp in the coordinator — they only rose when surpassing the previous peak and never reset at midnight. Cloud and hybrid were unaffected. Removed the clamp and rely on Home Assistant's `total_increasing` state class, which detects meter resets natively.
+- **`total_increasing` sensors triggering recorder warning on small dips** ([#218](https://github.com/joyfulhouse/eg4_web_monitor/issues/218)): Energy-balance rounding noise caused `consumption` and `consumption_lifetime` to step down by 0.1 kWh between polls (e.g. 2917.1 → 2917.0), tripping HA's "state is not strictly increasing" warning. Added a sensor-level guard that pins downward dips ≤10% to the previous high-water mark — matching HA recorder's reset-detection threshold so daily resets, lifetime counter wraps, and inverter replacements (drops >10%) still pass through unchanged. Paired with the #227 fix, midnight resets pass through while rounding jitter is suppressed.
+
+## [3.3.0-beta.1] - 2026-05-31
+
+### Added
+
+- **BMS permission/request sensors** ([#232](https://github.com/joyfulhouse/eg4_web_monitor/issues/232)): three battery-bank diagnostic sensors surfacing the BMS's charge/discharge/force-charge state, available in cloud, local, and hybrid modes:
+  - **BMS Charge Allowed** and **BMS Discharge Allowed** (Allowed / Blocked) — cleared when the bank is full / empty respectively
+  - **BMS Force Charge Request** (Requested / Idle) — the BMS requesting a full calibration charge; read-only, distinct from the writable Forced Charge control
+
+  Decoded from input register 95 (bitmap `0x01`/`0x02`/`0x20`) in local/hybrid and from the cloud `bmsCharge`/`bmsDischarge`/`bmsForceCharge` fields — the local decode was validated against the cloud values on live hardware. Requires `pylxpweb>=0.9.32`.
+
 ## [3.2.0] - 2026-03-09
 
 The biggest release in the integration's history: 279 commits, 43 beta/RC releases, and contributions from the community. Local polling is no longer experimental — it's production-ready across all four connection modes with full entity parity validated in Docker.
@@ -213,7 +256,11 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 
 - Requires `pylxpweb>=0.4.4`
 
-[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.2.0...v3.3.0
+[3.3.0-beta.6]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0-beta.5...v3.3.0-beta.6
+[3.3.0-beta.5]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0-beta.1...v3.3.0-beta.5
+[3.3.0-beta.1]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.2.0...v3.3.0-beta.1
 [3.2.0]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.1.8...v3.2.0
 [3.1.1]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.1
 [3.1.0]: https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.1.0

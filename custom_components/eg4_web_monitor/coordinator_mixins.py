@@ -664,12 +664,27 @@ class DeviceProcessingMixin(_MixinBase):
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
 
-        # Override consumption with energy balance when transport data is present.
-        # pylxpweb's energy_today_usage/energy_lifetime_usage properties read from
-        # load_energy registers (Erec = AC charge from grid) when transport data
-        # is attached.  The cloud API's totalUsage is server-computed and correct,
-        # but there is no equivalent Modbus register.  Energy balance mirrors how
-        # consumption_power is already computed in pylxpweb for instantaneous power.
+        # Load Energy (Eload, regs 171/172) — the inverter-served load.  This is
+        # a SEPARATE meter from whole-home `consumption` (overridden below).
+        # energy_today_usage/energy_lifetime_usage return the transport register
+        # (LOCAL/HYBRID) or the cloud todayUsage/totalUsage (CLOUD) uniformly —
+        # and both equal Eload per inverter.  getattr keeps this consistent with
+        # _map_device_properties' defensive access.  See docs/DATA_MAPPING.md.
+        processed["sensors"]["load_energy"] = getattr(
+            inverter, "energy_today_usage", None
+        )
+        processed["sensors"]["load_energy_lifetime"] = getattr(
+            inverter, "energy_lifetime_usage", None
+        )
+
+        # Override `consumption` with the energy balance when transport data is
+        # present.  The property map above set `consumption` from
+        # energy_today_usage (Eload, regs 171/172) — but Eload is the
+        # inverter-served load, which omits grid-direct loads and so understates
+        # whole-home consumption in a parallel/GridBOSS setup.  Energy balance
+        # (pv + discharge + import − charge − export) is the whole-home figure and
+        # mirrors how consumption_power is computed in pylxpweb.  (Eload itself is
+        # still surfaced verbatim as `load_energy` above.)
         #
         # Note: GridBOSS uses a different aggregation strategy — CT summation
         # (L1 + L2) via _safe_sum() in MIDRuntimePropertiesMixin, not energy

@@ -21,7 +21,8 @@ Project-specific reference material:
 | [reference/MODBUS_DOCS.md](reference/MODBUS_DOCS.md) | Modbus register documentation |
 | [reference/SCALING_VALIDATION.md](reference/SCALING_VALIDATION.md) | Sensor scaling validation notes |
 
-See also the [automation and dashboard examples](../examples/).
+See also the [automation and dashboard examples](../examples/) and the
+[API response samples](../samples/).
 
 ---
 

@@ -653,6 +653,18 @@ SENSOR_TYPES = {
         "state_class": "total_increasing",
         "icon": "mdi:home-lightning-bolt",
     },
+    # Load Energy (Eload, reg 171) — energy this inverter delivered to its own
+    # load output.  A DIFFERENT meter from "Consumption" (whole-home): in a
+    # parallel group a master can read 0 while the home still draws power, because
+    # grid-direct loads bypass the inverter.  Equals the cloud's per-inverter
+    # todayUsage.  See docs/DATA_MAPPING.md "Consumption vs Load Energy".
+    "load_energy": {
+        "name": "Load Energy",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:home-lightning-bolt-outline",
+    },
     "grid_export": {
         "name": "Grid Export",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
@@ -695,6 +707,15 @@ SENSOR_TYPES = {
         "device_class": "energy",
         "state_class": "total_increasing",
         "icon": "mdi:home-lightning-bolt",
+    },
+    # Load Energy lifetime (Eload_all, reg 172) — equals the cloud's per-inverter
+    # totalUsage exactly.  Distinct from whole-home "Consumption (Lifetime)".
+    "load_energy_lifetime": {
+        "name": "Load Energy (Lifetime)",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "icon": "mdi:home-lightning-bolt-outline",
     },
     "grid_export_lifetime": {
         "name": "Grid Export (Lifetime)",
@@ -906,6 +927,29 @@ SENSOR_TYPES = {
     "battery_bank_status": {
         "name": "Battery Bank Status",
         "icon": "mdi:information",
+        "entity_category": "diagnostic",
+    },
+    # BMS permission/request flags (reg 95 bitmap / cloud bmsCharge, issue #232).
+    # Read-only BMS state; distinct from the writable "Forced Charge" control.
+    "battery_bank_charge_allowed": {
+        "name": "BMS Charge Allowed",
+        "icon": "mdi:battery-arrow-up",
+        "device_class": "enum",
+        "options": ["Allowed", "Blocked"],
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_discharge_allowed": {
+        "name": "BMS Discharge Allowed",
+        "icon": "mdi:battery-arrow-down",
+        "device_class": "enum",
+        "options": ["Allowed", "Blocked"],
+        "entity_category": "diagnostic",
+    },
+    "battery_bank_force_charge": {
+        "name": "BMS Force Charge Request",
+        "icon": "mdi:battery-alert",
+        "device_class": "enum",
+        "options": ["Requested", "Idle"],
         "entity_category": "diagnostic",
     },
     # Cross-battery diagnostics (pylxpweb >= 0.6.7)

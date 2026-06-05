@@ -6,6 +6,7 @@ key dictionaries used by Home Assistant entities.
 """
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.util import dt as dt_util
@@ -241,6 +242,11 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "grid_import_lifetime",
         "grid_export_lifetime",
         "consumption_lifetime",
+        # Load Energy (Eload, regs 171/172) — per-inverter served load.  NOT
+        # added to PARALLEL_GROUP_SENSOR_KEYS: it is inverter-scoped only (the
+        # group carries whole-home `consumption`).
+        "load_energy",
+        "load_energy_lifetime",
         # EPS per-leg energy (split-phase, regs 133-138)
         "eps_energy_today_l1",
         "eps_energy_today_l2",
@@ -301,6 +307,11 @@ BATTERY_BANK_CORE_KEYS: frozenset[str] = frozenset(
         "battery_bank_bms_battery_type",  # reg 80
         "battery_bank_voltage_inv_sample",  # reg 107
         "battery_bank_charge_rate",
+        # BMS permission/request flags (reg 95 bitmap / cloud bmsCharge, #232).
+        # Enum states; available in both LOCAL and CLOUD via the parent inverter.
+        "battery_bank_charge_allowed",  # reg 95 bit 0x01 / bmsCharge
+        "battery_bank_discharge_allowed",  # reg 95 bit 0x02 / bmsDischarge
+        "battery_bank_force_charge",  # reg 95 bit 0x20 / bmsForceCharge
     }
 )
 
@@ -693,8 +704,16 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
     This helper extracts energy data from a transport's EnergyData object
     and maps it to sensor keys matching SENSOR_TYPES definitions in const.py.
 
-    Consumption is computed from energy balance rather than reading the
-    ``load_energy_*`` registers, which are actually Erec (AC charge from grid).
+    Two distinct meters are surfaced (see docs/DATA_MAPPING.md
+    "Consumption vs Load Energy"):
+
+    * ``load_energy``/``load_energy_lifetime`` — the inverter-served load
+      (Eload, regs 171/172).  Raw register, equals the cloud's per-inverter
+      ``todayUsage``/``totalUsage`` exactly.  In a parallel group a master can
+      read 0 while the home draws power (grid-direct loads bypass it).
+    * ``consumption``/``consumption_lifetime`` — whole-home consumption, derived
+      from the energy balance because Eload does NOT include grid-direct loads.
+      (``ac_charge_energy_*`` carries Erec, the AC-charge-from-grid register.)
 
     Args:
         energy_data: EnergyData object from pylxpweb transport.
@@ -729,6 +748,11 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
             energy_data.charge_energy_total,
             energy_data.grid_export_total,
         ),
+        # Load Energy (Eload, regs 171/172) — inverter-served load, raw register.
+        # Equals the cloud per-inverter todayUsage/totalUsage exactly.  Separate
+        # meter from whole-home `consumption` above.
+        "load_energy": energy_data.load_energy_today,
+        "load_energy_lifetime": energy_data.load_energy_total,
         # EPS per-leg energy (split-phase, regs 133-138)
         "eps_energy_today_l1": energy_data.eps_l1_energy_today,
         "eps_energy_today_l2": energy_data.eps_l2_energy_today,
@@ -767,16 +791,22 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
 # exist and which source attribute feeds each one.  Both the LOCAL path
 # (BatteryBankData transport dataclass) and the CLOUD path (BatteryBank device
 # object) consume them through build_battery_bank_sensors(), and the cloud
-# property map is DERIVED from them — so adding a bank sensor in one place
-# surfaces it in every mode (structural cure for the M2 "fix-one-miss-the-
-# other" duplication).  Behaviour that genuinely differs per source is
-# preserved exactly inside the adapter and documented on each table/helper:
+# property map is DERIVED from the passthrough tables — so adding a passthrough
+# bank sensor in one place surfaces it in every mode (structural cure for the M2
+# "fix-one-miss-the-other" duplication).  Behaviour that genuinely differs per
+# source is preserved exactly inside the adapter and documented on each
+# table/helper:
 #   * CLOUD reads computed properties defensively and skips None/"" (parity
 #     with _map_device_properties); LOCAL reads dataclass fields directly and
 #     writes every key (incl. None) to keep the sensors present.
 #   * battery_bank_power priority is reversed (see _compute_bank_power).
-#   * BMS registers are LOCAL-only; cloud min-cell values are derived from
-#     per-battery data (see _derive_cloud_min_cell).
+#   * BMS *numeric limit* registers (charge/discharge current, voltage ref,
+#     cutoff, type) are LOCAL-only (_BATTERY_BANK_LOCAL_REGISTER_FIELDS); cloud
+#     min-cell values are derived from per-battery data (_derive_cloud_min_cell).
+#   * BMS *permission/request flags* (reg 95 bits, issue #232) ARE both-mode:
+#     they need a bool->enum encoder so they live in the separate
+#     _BATTERY_BANK_BMS_PERMISSION_FIELDS table (NOT the derived property map),
+#     and CLOUD gets them via the BatteryBank's parent-inverter delegation.
 # ---------------------------------------------------------------------------
 
 # Common bank fields exposed by BOTH BatteryBankData and BatteryBank.
@@ -811,10 +841,13 @@ _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS: dict[str, str] = {
     "battery_bank_cycle_count_delta": "cycle_count_delta",
 }
 
-# LOCAL-only Modbus bank registers.  The cloud BatteryBank object does NOT
-# expose these (min-cell values are derived from per-battery data instead — see
-# _derive_cloud_min_cell).  Written unconditionally in LOCAL mode (incl. None)
-# to keep the sensors present.
+# LOCAL-only Modbus bank registers (numeric BMS limits + min-cell values).  The
+# cloud BatteryBank object does NOT expose these (cloud min-cell values are
+# derived from per-battery data instead — see _derive_cloud_min_cell).  Written
+# unconditionally in LOCAL mode (incl. None) to keep the sensors present.
+# NOTE: only LOCAL-exclusive registers belong here.  A new BMS field the cloud
+# can also supply (like the reg-95 permission flags) goes in a both-mode table
+# (see _BATTERY_BANK_BMS_PERMISSION_FIELDS), not here.
 _BATTERY_BANK_LOCAL_REGISTER_FIELDS: dict[str, str] = {
     "battery_bank_min_cell_temp": "min_cell_temperature",
     "battery_bank_min_cell_voltage": "min_cell_voltage",
@@ -831,10 +864,16 @@ def get_battery_bank_property_map() -> dict[str, str]:
     """Cloud battery-bank property map, DERIVED from the canonical tables.
 
     Maps a pylxpweb BatteryBank property name -> sensor key, for the cross-repo
-    contract test and any other consumer.  Built from the same field tables the
-    adapter uses, so the cloud map can never silently drift from the LOCAL
-    sensor set.  charge_power/discharge_power are intermediates consumed by the
-    power calc; battery_power maps to the final power sensor.
+    contract test and any other consumer.  Built from the two PASSTHROUGH field
+    tables the adapter uses, so the cloud map can never silently drift from the
+    LOCAL sensor set.  charge_power/discharge_power are intermediates consumed by
+    the power calc; battery_power maps to the final power sensor.
+
+    Scope: this covers only the passthrough tables.  The encoder-based
+    _BATTERY_BANK_BMS_PERMISSION_FIELDS (reg 95 flags, issue #232) is NOT here —
+    its bool->enum encoding can't be expressed as a flat attr->key map — and is
+    seam-guarded separately by test_register_contract.py and the
+    test_bms_permission_* adapter tests.
 
     Returns:
         Dictionary mapping battery bank property names to sensor keys.
@@ -918,6 +957,38 @@ def _derive_cloud_min_cell(bank: Any, sensors: dict[str, Any]) -> None:
         sensors["battery_bank_min_cell_voltage"] = min(min_cell_voltages)
 
 
+def _bms_permission_state(value: bool | None) -> str | None:
+    """Map a BMS allow-charge / allow-discharge flag to its enum sensor state.
+
+    Returns display-ready English values (matching the codebase convention of
+    English status strings, e.g. battery_bank_status="Charging"); ``None`` keeps
+    the entity ``unavailable`` when the flag is unknown.
+    """
+    if value is None:
+        return None
+    return "Allowed" if value else "Blocked"
+
+
+def _bms_force_charge_state(value: bool | None) -> str | None:
+    """Map the BMS force-charge request flag to its enum sensor state."""
+    if value is None:
+        return None
+    return "Requested" if value else "Idle"
+
+
+# BMS permission/request flags (issue #232): sensor key -> (bank source attr,
+# bool->enum-state encoder).  Both BatteryBankData (LOCAL, reg 95 decode) and
+# BatteryBank (CLOUD, parent-inverter delegation) expose these attrs, so the
+# flags surface in every mode.
+_BATTERY_BANK_BMS_PERMISSION_FIELDS: tuple[
+    tuple[str, str, Callable[[bool | None], str | None]], ...
+] = (
+    ("battery_bank_charge_allowed", "allow_charge", _bms_permission_state),
+    ("battery_bank_discharge_allowed", "allow_discharge", _bms_permission_state),
+    ("battery_bank_force_charge", "force_charge", _bms_force_charge_state),
+)
+
+
 def build_battery_bank_sensors(
     bank: "BatteryBankData | BatteryBank",
     *,
@@ -953,6 +1024,17 @@ def build_battery_bank_sensors(
         if is_cloud and value is None:
             continue
         sensors[key] = value
+
+    # BMS permission/request flags (issue #232).  Available in BOTH modes:
+    # LOCAL decodes input register 95 onto BatteryBankData; CLOUD's BatteryBank
+    # delegates to its parent inverter's bmsCharge/bmsDischarge/bmsForceCharge.
+    # Encoded as enum states.  LOCAL writes every key (incl. None) to keep the
+    # entity present; CLOUD skips None (parity with the common loop).
+    for perm_key, perm_attr, encode in _BATTERY_BANK_BMS_PERMISSION_FIELDS:
+        state = encode(_read_bank_value(bank, perm_attr, defensive=is_cloud))
+        if is_cloud and state is None:
+            continue
+        sensors[perm_key] = state
 
     # CAN cross-battery diagnostics: None-skipped in BOTH modes.
     for key, attr in _BATTERY_BANK_CAN_DIAGNOSTIC_FIELDS.items():

@@ -7,7 +7,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.const import (
     PARAM_HOLD_AC_CHARGE_POWER,
-    PARAM_HOLD_CHG_POWER_PERCENT,
+    PARAM_HOLD_FORCED_CHG_POWER,
 )
 from custom_components.eg4_web_monitor.number import (
     async_setup_entry,
@@ -258,37 +258,86 @@ class TestReadParamValueParamsFirst:
         assert entity.native_value == 80
 
 
-# ── PVChargePowerNumber (custom native_value) ────────────────────────
+# ── PVChargePowerNumber (reg 74, 100W units) ─────────────────────────
 
 
 class TestPVChargePowerNativeValue:
-    """Test PVChargePower's custom native_value (strict 0 < inverter check)."""
+    """PV Charge Power reads reg 74 (HOLD_FORCED_CHG_POWER_CMD) in 100W units."""
 
-    def test_from_params_pct_to_kw(self):
-        """Parameter percentage converted to kW."""
+    def test_from_params_100w_units_to_kw(self):
+        """Local param raw 100W units scaled to kW (reg 74 raw 120 -> 12 kW)."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={PARAM_HOLD_CHG_POWER_PERCENT: 100},  # 100% of 15kW = 15
+            parameters={PARAM_HOLD_FORCED_CHG_POWER: 120},
         )
         entity = PVChargePowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 15
+        assert entity.native_value == 12
 
-    def test_from_inverter_rejects_zero(self):
-        """Inverter value of 0 is rejected (means 'unset')."""
+    def test_no_bounce_low_value(self):
+        """Regression for the set-1-reads-0 bounce: raw 10 -> 1 kW (not 0)."""
         coordinator = _mock_coordinator(
-            inverter_attrs={"pv_charge_power_limit": 0},
+            local_only=True,
+            parameters={PARAM_HOLD_FORCED_CHG_POWER: 10},
         )
         entity = PVChargePowerNumber(coordinator, "1234567890")
-        # 0 is rejected -> falls to params -> None
-        assert entity.native_value is None
+        assert entity.native_value == 1
 
     def test_from_inverter_positive_value(self):
-        """Positive inverter value returned as int."""
+        """Cloud pv_charge_power_limit is already kW and returned directly."""
         coordinator = _mock_coordinator(
             inverter_attrs={"pv_charge_power_limit": 10},
         )
         entity = PVChargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 10
+
+    def test_zero_kw_is_valid(self):
+        """0 kW (reg 74 = 0) is a valid setting, not 'unset'."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={PARAM_HOLD_FORCED_CHG_POWER: 0},
+        )
+        entity = PVChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 0
+
+    def test_hybrid_out_of_range_inverter_falls_back_to_params(self):
+        """If the inverter attr holds a raw 100W value (>15), the >15 guard
+
+        rejects it and the local param (raw 100W) is used with ÷10 scaling.
+        Guards against double-scaling: result must be 12, never 1.2 or None.
+        """
+        coordinator = _mock_coordinator(
+            has_local=True,
+            inverter_attrs={"pv_charge_power_limit": 120},  # raw, out of kW range
+            parameters={PARAM_HOLD_FORCED_CHG_POWER: 120},  # raw 100W units
+        )
+        entity = PVChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 12
+
+    @pytest.mark.asyncio
+    async def test_write_local_targets_reg74_in_100w_units(self):
+        """Local write of 1 kW resolves to reg 74 param with raw 10 (1 kW)."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = PVChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(1)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == PARAM_HOLD_FORCED_CHG_POWER
+        assert call_args[0][1] == 10  # 1 kW -> 100W units
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_passes_kw(self):
+        """Cloud write passes integer kW to set_pv_charge_power."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = PVChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(2)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_pv_charge_power.assert_called_once_with(power_kw=2)
 
 
 # ── _write_parameter (via ACChargeSOCLimitNumber) ────────────────────
