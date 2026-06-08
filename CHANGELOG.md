@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.1] - 2026-06-08
+
+### Added
+
+- **Battery control mode — SOC vs Voltage** ([#48](https://github.com/joyfulhouse/eg4_web_monitor/issues/48)): choose whether the inverter governs battery charge/discharge limits by **State-of-Charge (closed-loop / BMS lithium)** or **Voltage (open-loop / lead-acid / no BMS comms)**, mirroring the inverter's own register-179 regime bits (bit 9 charge, bit 10 discharge). Works in cloud, local, and hybrid modes.
+  - Two new **select** entities per inverter — **Battery Charge Control** and **Battery Discharge Control** (`SOC` / `Voltage`) — read and write the live regime and are fully automatable.
+  - Five new **voltage-limit number** entities (the open-loop counterparts of the existing SOC limits): **System Charge Voltage Limit** (reg 228), **On-Grid Cut-Off Voltage** (reg 169), **Off-Grid Cut-Off Voltage** (reg 100), **AC Charge Start Voltage** (reg 158), **AC Charge End Voltage** (reg 159).
+  - **Configure → Battery Charge/Discharge Control Mode** options: pre-filled from the inverter's live regime; changing them reconfigures the inverter and gates which limit entities are enabled by default to reduce clutter.
+- **Entity decluttering by regime**: limit controls for the non-selected regime are created but **disabled by default** (SOC is the default, preserving existing behavior). The active controls expose an `is_effective` attribute and log a non-blocking warning if you set a limit that the current regime ignores.
+
+### Fixed
+
+- **Voltage limits read 10× low in cloud/hybrid mode**: the cloud API returns battery voltages already scaled (e.g. `59.5 V`) while local Modbus returns raw decivolts (`595`); a blind ÷10 produced `5.95 V`. Reads are now magnitude-normalized so both transports agree. (Pre-existing latent issue surfaced while adding the voltage entities.)
+- **On-Grid Cut-Off Voltage showed "unknown" in cloud**: the cloud exposes register 169 as `HOLD_ON_GRID_EOD_VOLTAGE`; the mapping used a non-canonical spelling. Confirmed against a live cloud register read.
+
+### Changed
+
+- Minimum `pylxpweb` raised to **0.9.36b1** (dual cloud/transport battery-control methods, `BatteryControlMode`, register 228 definition, and the register-169 cloud name fix).
+
+### Notes
+
+- In a **parallel group**, the inverter firmware syncs the battery control regime across all inverters; setting it on one propagates to the group. The integration writes all inverters and refreshes them together so the per-inverter entities stay consistent.
+
 ## [3.3.0] - 2026-06-05
 
 Stable release consolidating the `3.3.0-beta.1`–`3.3.0-beta.8` cycle. Detailed beta notes are retained below.

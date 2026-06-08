@@ -22,6 +22,21 @@ CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"
 CONF_DATA_VALIDATION = "data_validation"
 
+# Battery control regime: whether charge/discharge limits are governed by
+# State-of-Charge (closed-loop) or battery Voltage (open-loop). Backed by the
+# inverter's register 179 bit 9 (charge) / bit 10 (discharge). These gate which
+# limit control entities are enabled by default to reduce entity clutter.
+CONF_CHARGE_CONTROL_MODE = "charge_control_mode"
+CONF_DISCHARGE_CONTROL_MODE = "discharge_control_mode"
+
+# Battery control mode values (must match pylxpweb BatteryControlMode values)
+CONTROL_MODE_SOC = "soc"
+CONTROL_MODE_VOLTAGE = "voltage"
+
+# Default to SOC (closed-loop) — preserves the historical behavior where only
+# the SOC limit entities were created/enabled.
+DEFAULT_CONTROL_MODE = CONTROL_MODE_SOC
+
 # Options flow configuration keys (configurable via UI after setup)
 CONF_SENSOR_UPDATE_INTERVAL = "sensor_update_interval"
 CONF_HTTP_POLLING_INTERVAL = "http_polling_interval"

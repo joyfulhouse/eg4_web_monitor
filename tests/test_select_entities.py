@@ -53,7 +53,7 @@ class TestSelectPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_setup_with_inverter(self, hass):
-        """FlexBOSS inverter creates OperatingModeSelect and PVInputModeSelect."""
+        """FlexBOSS inverter creates operating, PV input, and battery control selects."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -61,10 +61,12 @@ class TestSelectPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 2
+        assert len(entities) == 4
         type_names = [type(e).__name__ for e in entities]
         assert "EG4OperatingModeSelect" in type_names
         assert "EG4PVInputModeSelect" in type_names
+        assert "EG4BatteryChargeControlSelect" in type_names
+        assert "EG4BatteryDischargeControlSelect" in type_names
 
     @pytest.mark.asyncio
     async def test_setup_creates_gridboss_selects(self, hass):

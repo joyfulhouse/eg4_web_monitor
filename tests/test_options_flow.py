@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
@@ -303,3 +303,85 @@ class TestDataValidationOption:
                 break
         else:
             pytest.fail("CONF_DATA_VALIDATION not found in schema")
+
+
+class TestOptionsBatteryControlMode:
+    """The control-mode pickers pre-fill safely and write only when known."""
+
+    def _make_flow(self, *, options, parameters):
+        from unittest.mock import MagicMock, PropertyMock
+
+        from custom_components.eg4_web_monitor._config_flow.options import (
+            EG4OptionsFlow,
+        )
+
+        flow = EG4OptionsFlow.__new__(EG4OptionsFlow)
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {"INV1": {"type": "inverter"}},
+            "parameters": {"INV1": parameters},
+        }
+        coordinator.get_live_control_mode = MagicMock(
+            side_effect=lambda s, discharge=False: "voltage"
+        )
+        mock_entry = MagicMock()
+        mock_entry.data = {CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL}
+        mock_entry.options = options
+        mock_entry.runtime_data = coordinator
+        type(flow).config_entry = PropertyMock(return_value=mock_entry)
+        return flow, coordinator
+
+    def test_prefill_uses_live_when_reg179_polled(self):
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        flow, _ = self._make_flow(
+            options={
+                CONF_CHARGE_CONTROL_MODE: "soc",
+                CONF_DISCHARGE_CONTROL_MODE: "soc",
+            },
+            parameters={
+                "FUNC_BAT_CHARGE_CONTROL": True,
+                "FUNC_BAT_DISCHARGE_CONTROL": True,
+            },
+        )
+        assert flow._current_control_modes() == ("voltage", "voltage")
+
+    def test_prefill_keeps_stored_when_reg179_unpolled(self):
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        flow, coordinator = self._make_flow(
+            options={
+                CONF_CHARGE_CONTROL_MODE: "voltage",
+                CONF_DISCHARGE_CONTROL_MODE: "voltage",
+            },
+            parameters={},  # reg 179 not yet polled
+        )
+        # Must show the stored mode, NOT a misleading live/SOC default.
+        assert flow._current_control_modes() == ("voltage", "voltage")
+        coordinator.get_live_control_mode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_skips_write_when_reg179_unpolled(self):
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        flow, coordinator = self._make_flow(
+            options={},
+            parameters={},  # unknown live regime
+        )
+        coordinator.async_write_battery_control_mode = AsyncMock()
+        await flow._apply_battery_control_mode(
+            {
+                CONF_CHARGE_CONTROL_MODE: "voltage",
+                CONF_DISCHARGE_CONTROL_MODE: "voltage",
+            }
+        )
+        coordinator.async_write_battery_control_mode.assert_not_called()

@@ -35,9 +35,16 @@ from pylxpweb.devices import Battery, Station
 from pylxpweb.devices.inverters.base import BaseInverter
 from .const import (
     CONF_BASE_URL,
+    CONF_CHARGE_CONTROL_MODE,
     CONF_CONNECTION_TYPE,
     CONF_DATA_VALIDATION,
+    CONF_DISCHARGE_CONTROL_MODE,
     CONF_DONGLE_HOST,
+    CONTROL_MODE_SOC,
+    CONTROL_MODE_VOLTAGE,
+    DEFAULT_CONTROL_MODE,
+    PARAM_FUNC_BAT_CHARGE_CONTROL,
+    PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DONGLE_UPDATE_INTERVAL,
@@ -630,6 +637,78 @@ class EG4DataUpdateCoordinator(
             raise HomeAssistantError(
                 f"Failed to write parameter {parameter}: {err}"
             ) from err
+
+    # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
+
+    def get_configured_control_modes(self) -> tuple[str, str]:
+        """Return the configured ``(charge_mode, discharge_mode)`` for entity gating.
+
+        Reads the stored options, defaulting to SOC (closed-loop) so existing
+        installs keep their historical behavior (only SOC limit controls
+        enabled). Used to compute ``entity_registry_enabled_default``.
+        """
+        options = self.entry.options
+        charge = options.get(CONF_CHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        discharge = options.get(CONF_DISCHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        return str(charge), str(discharge)
+
+    def get_live_control_mode(self, serial: str, *, discharge: bool = False) -> str:
+        """Return the live battery control regime for a device from polled params.
+
+        Reads register 179 bit 9 (charge) or bit 10 (discharge) as surfaced in
+        ``data["parameters"][serial]``. Returns ``CONTROL_MODE_VOLTAGE`` or
+        ``CONTROL_MODE_SOC``; defaults to SOC when the parameter is not (yet)
+        available. This reflects what the inverter is actually honoring, used
+        for the "is this control effective?" indicator and config pre-fill.
+        """
+        params = (self.data or {}).get("parameters", {}).get(serial, {})
+        key = (
+            PARAM_FUNC_BAT_DISCHARGE_CONTROL
+            if discharge
+            else PARAM_FUNC_BAT_CHARGE_CONTROL
+        )
+        raw = params.get(key)
+        if raw is None:
+            return CONTROL_MODE_SOC
+        return CONTROL_MODE_VOLTAGE if bool(raw) else CONTROL_MODE_SOC
+
+    async def async_write_battery_control_mode(
+        self, serial: str, charge_mode: str, discharge_mode: str
+    ) -> None:
+        """Write the battery charge/discharge control regime to the inverter.
+
+        Sets register 179 bit 9 (charge) and bit 10 (discharge): SOC clears the
+        bit, Voltage sets it. Routes through the local transport when available,
+        else the cloud function-control API.
+
+        Raises:
+            HomeAssistantError: If no write path is available or a write fails.
+        """
+        charge_voltage = charge_mode == CONTROL_MODE_VOLTAGE
+        discharge_voltage = discharge_mode == CONTROL_MODE_VOLTAGE
+
+        if self.has_local_transport(serial):
+            await self.write_named_parameter(
+                PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage, serial=serial
+            )
+            await self.write_named_parameter(
+                PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
+            )
+        elif self.client is not None:
+            charge_result = await self.client.api.control.control_function(
+                serial, PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage
+            )
+            discharge_result = await self.client.api.control.control_function(
+                serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
+            )
+            if not (charge_result.success and discharge_result.success):
+                raise HomeAssistantError(
+                    f"Failed to set battery control mode for {serial}"
+                )
+        else:
+            raise HomeAssistantError(
+                "No local transport or cloud API available to set battery control mode."
+            )
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.

@@ -135,7 +135,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 10 register ranges are read."""
+        """All 12 register ranges are read."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -144,8 +144,9 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 10 register ranges: 20-22, 64-79, 101-102, 105-106, 110, 125, 179, 227, 231-232, 233
-        assert mock_transport.read_named_parameters.call_count == 10
+        # 12 register ranges: 20-22, 64-79, 100-102, 105-106, 110, 125, 158-159,
+        # 169, 179, 227-228, 231-232, 233
+        assert mock_transport.read_named_parameters.call_count == 12
         assert "PARAM_A" in result
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
@@ -167,10 +168,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 10 ranges attempted despite first failure
-        assert call_count == 10
+        # All 12 ranges attempted despite first failure
+        assert call_count == 12
         # Successful ranges contributed their params
-        assert len(result) == 9  # 10 total - 1 failed
+        assert len(result) == 11  # 12 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
@@ -1556,3 +1557,90 @@ class TestBatteryRRCacheFallback:
         device = processed["devices"][serial]
         # No fallback possible — batteries stays empty
         assert device["batteries"] == {}
+
+
+class TestBatteryControlModeMethods:
+    """Coordinator helpers for the battery control regime (SOC vs Voltage)."""
+
+    async def test_get_configured_control_modes_default_soc(
+        self, hass, local_config_entry
+    ):
+        """No stored options → SOC for both (migration-safe)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        assert coordinator.get_configured_control_modes() == ("soc", "soc")
+
+    async def test_get_configured_control_modes_from_options(self, hass):
+        """Stored options are returned verbatim."""
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="t",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            options={
+                CONF_CHARGE_CONTROL_MODE: "voltage",
+                CONF_DISCHARGE_CONTROL_MODE: "soc",
+            },
+            entry_id="ctrl_modes",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        assert coordinator.get_configured_control_modes() == ("voltage", "soc")
+
+    async def test_get_live_control_mode(self, hass, local_config_entry):
+        """Live regime is read from reg-179 bits in params; missing → SOC."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.data = {
+            "parameters": {
+                "INV001": {
+                    "FUNC_BAT_CHARGE_CONTROL": True,
+                    "FUNC_BAT_DISCHARGE_CONTROL": False,
+                }
+            }
+        }
+        assert coordinator.get_live_control_mode("INV001") == "voltage"
+        assert coordinator.get_live_control_mode("INV001", discharge=True) == "soc"
+        assert coordinator.get_live_control_mode("UNKNOWN") == "soc"
+
+    async def test_async_write_battery_control_mode_local(
+        self, hass, local_config_entry
+    ):
+        """Local write sets both reg-179 bits via named parameters."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock()
+
+        await coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+
+        calls = coordinator.write_named_parameter.call_args_list
+        assert calls[0][0][0] == "FUNC_BAT_CHARGE_CONTROL"
+        assert calls[0][0][1] is True
+        assert calls[1][0][0] == "FUNC_BAT_DISCHARGE_CONTROL"
+        assert calls[1][0][1] is False
+
+    async def test_async_write_battery_control_mode_cloud(
+        self, hass, local_config_entry
+    ):
+        """Cloud write uses the atomic function-control API for each bit."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=False)
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(return_value=result)
+
+        await coordinator.async_write_battery_control_mode("INV001", "soc", "voltage")
+
+        calls = coordinator.client.api.control.control_function.call_args_list
+        assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
+        assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)

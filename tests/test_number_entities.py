@@ -45,6 +45,10 @@ def _mock_coordinator(
     coordinator.async_refresh = AsyncMock()
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
+    coordinator.async_write_battery_control_mode = AsyncMock()
+    # Battery control regime helpers (used by regime-gated control entities)
+    coordinator.get_configured_control_modes = MagicMock(return_value=("soc", "soc"))
+    coordinator.get_live_control_mode = MagicMock(return_value="soc")
 
     coordinator.data = {
         "devices": {serial: {"type": "inverter", "model": model}},
@@ -88,7 +92,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 10 number entities."""
+        """FlexBOSS inverter creates 15 number entities (10 base + 5 voltage)."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -96,11 +100,17 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 10
+        assert len(entities) == 15
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
         assert "PVStartVoltageNumber" in type_names
+        # New voltage limit controls
+        assert "SystemChargeVoltLimitNumber" in type_names
+        assert "OnGridCutoffVoltageNumber" in type_names
+        assert "OffGridCutoffVoltageNumber" in type_names
+        assert "ACChargeStartVoltageNumber" in type_names
+        assert "ACChargeEndVoltageNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):

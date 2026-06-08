@@ -62,3 +62,25 @@ SOC_LIMIT_STEP = 1
 SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
 SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
+
+# =============================================================================
+# Battery Voltage Limits (V) — open-loop (Voltage) control mode
+# =============================================================================
+# Registers store decivolts (value ×10). Ranges sized for 48 V LiFePO4 / lead-acid
+# banks with margin. AC charge start/stop voltages are whole-volt only (firmware
+# rejects fractional volts).
+
+# System charge voltage ceiling (reg 228)
+SYSTEM_CHARGE_VOLT_LIMIT_MIN = 40.0
+SYSTEM_CHARGE_VOLT_LIMIT_MAX = 64.0
+SYSTEM_CHARGE_VOLT_LIMIT_STEP = 0.1
+
+# On-grid / Off-grid end-of-discharge cutoff voltage (regs 169 / 100)
+CUTOFF_VOLTAGE_MIN = 40.0
+CUTOFF_VOLTAGE_MAX = 58.0
+CUTOFF_VOLTAGE_STEP = 0.1
+
+# AC charge start/stop voltage (regs 158 / 159) — whole volts only
+AC_CHARGE_VOLTAGE_MIN = 38
+AC_CHARGE_VOLTAGE_MAX = 60
+AC_CHARGE_VOLTAGE_STEP = 1

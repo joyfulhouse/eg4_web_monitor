@@ -45,3 +45,27 @@ PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"
 PARAM_HOLD_OFFGRID_DISCHG_SOC = "HOLD_SOC_LOW_LIMIT_EPS_DISCHG"
 PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT = "HOLD_SYSTEM_CHARGE_SOC_LIMIT"
+
+# =============================================================================
+# Battery control regime (register 179 bits 9/10) and voltage limits
+# =============================================================================
+# Regime selector bit fields (0 = SOC mode, 1 = Voltage mode).
+PARAM_FUNC_BAT_CHARGE_CONTROL = "FUNC_BAT_CHARGE_CONTROL"  # reg 179 bit 9
+PARAM_FUNC_BAT_DISCHARGE_CONTROL = "FUNC_BAT_DISCHARGE_CONTROL"  # reg 179 bit 10
+
+# Voltage limit parameter names (read + local write via transport name map).
+# Values are decivolts (×10). AC charge start/stop use the cloud-aliased
+# "...BATTERY_VOLTAGE" names that read_named_parameters surfaces.
+PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT = "HOLD_SYSTEM_CHARGE_VOLT_LIMIT"  # reg 228
+PARAM_HOLD_ONGRID_EOD_VOLTAGE = "HOLD_ON_GRID_EOD_VOLTAGE"  # reg 169 (cloud-confirmed name)
+PARAM_HOLD_OFFGRID_EOD_VOLTAGE = "HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT"  # reg 100
+PARAM_HOLD_AC_CHARGE_START_VOLTAGE = "HOLD_AC_CHARGE_START_BATTERY_VOLTAGE"  # reg 158
+PARAM_HOLD_AC_CHARGE_END_VOLTAGE = "HOLD_AC_CHARGE_END_BATTERY_VOLTAGE"  # reg 159
+
+# Raw register addresses (cloud writes via control.write_parameters key by address,
+# avoiding the read/write name aliasing on AC charge voltage).
+REG_SYSTEM_CHARGE_VOLT_LIMIT = 228
+REG_ONGRID_EOD_VOLTAGE = 169
+REG_OFFGRID_EOD_VOLTAGE = 100
+REG_AC_CHARGE_START_VOLTAGE = 158
+REG_AC_CHARGE_END_VOLTAGE = 159

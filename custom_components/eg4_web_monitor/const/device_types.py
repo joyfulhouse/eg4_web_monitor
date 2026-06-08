@@ -19,6 +19,8 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+from .config_keys import CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE
+
 # =============================================================================
 # Device Types
 # =============================================================================
@@ -177,3 +179,82 @@ VOLT_WATT_SENSORS: frozenset[str] = frozenset(
         "volt_watt_p4",
     }
 )
+
+# =============================================================================
+# Battery Control Regime Classification (SOC vs Voltage limit controls)
+# =============================================================================
+# These map a control entity's unique-id suffix to the side (charge/discharge)
+# and regime (SOC/Voltage) it belongs to. They drive both the default-enabled
+# state of the entity and the runtime "is this control currently effective?"
+# indicator. Keys must match the unique-id suffixes used in number.py.
+
+# Charge-side controls gated by the charge control mode (reg 179 bit 9)
+CHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
+    {
+        "system_charge_soc_limit",
+        "ac_charge_soc_limit",
+    }
+)
+CHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
+    {
+        "system_charge_volt_limit",
+        "ac_charge_start_voltage",
+        "ac_charge_end_voltage",
+    }
+)
+
+# Discharge-side controls gated by the discharge control mode (reg 179 bit 10)
+DISCHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
+    {
+        "on_grid_soc_cutoff",
+        "off_grid_soc_cutoff",
+    }
+)
+DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
+    {
+        "on_grid_cutoff_voltage",
+        "off_grid_cutoff_voltage",
+    }
+)
+
+# All regime-gated control entity keys (used by tests for drift prevention)
+REGIME_GATED_CONTROLS: frozenset[str] = (
+    CHARGE_SOC_CONTROLS
+    | CHARGE_VOLTAGE_CONTROLS
+    | DISCHARGE_SOC_CONTROLS
+    | DISCHARGE_VOLTAGE_CONTROLS
+)
+
+
+def control_side_and_mode(key: str) -> tuple[str, str] | None:
+    """Return ``(side, mode)`` for a regime-gated control, else ``None``.
+
+    ``side`` is ``"charge"`` or ``"discharge"``; ``mode`` is
+    :data:`CONTROL_MODE_SOC` or :data:`CONTROL_MODE_VOLTAGE`. Controls that are
+    not regime-gated (power, current, etc.) return ``None`` (always shown).
+    """
+    if key in CHARGE_SOC_CONTROLS:
+        return ("charge", CONTROL_MODE_SOC)
+    if key in CHARGE_VOLTAGE_CONTROLS:
+        return ("charge", CONTROL_MODE_VOLTAGE)
+    if key in DISCHARGE_SOC_CONTROLS:
+        return ("discharge", CONTROL_MODE_SOC)
+    if key in DISCHARGE_VOLTAGE_CONTROLS:
+        return ("discharge", CONTROL_MODE_VOLTAGE)
+    return None
+
+
+def is_control_active(key: str, charge_mode: str, discharge_mode: str) -> bool:
+    """Whether a regime-gated control is active under the given modes.
+
+    A charge-side control is active when its regime matches ``charge_mode``; a
+    discharge-side control when its regime matches ``discharge_mode``. Non-gated
+    controls are always active. Used both for ``entity_registry_enabled_default``
+    (configured modes) and the live "is_effective" attribute (live modes).
+    """
+    classification = control_side_and_mode(key)
+    if classification is None:
+        return True
+    side, mode = classification
+    active_mode = charge_mode if side == "charge" else discharge_mode
+    return mode == active_mode

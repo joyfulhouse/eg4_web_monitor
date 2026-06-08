@@ -219,12 +219,14 @@ class LocalTransportMixin(_MixinBase):
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 (64, 16),  # Power settings + AC charge/discharge (64-79)
-                (101, 2),  # Charge/discharge current limits (101-102)
+                (100, 3),  # Off-grid cutoff voltage (100), charge/discharge current (101-102)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
-                (179, 1),  # Extended functions (FUNC_GRID_PEAK_SHAVING, etc.)
-                (227, 1),  # System charge SOC limit (HOLD_SYSTEM_CHARGE_SOC_LIMIT)
+                (158, 2),  # AC charge start/stop voltage (158-159)
+                (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
+                (179, 1),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
+                (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
             ]
