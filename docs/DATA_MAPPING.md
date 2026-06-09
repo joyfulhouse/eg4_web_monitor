@@ -394,11 +394,12 @@ if reg1 & 0x100:
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
 | 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
+| 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
+| 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
 
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
-> `FUNC_AC_COUPLING_FUNCTION`, `FUNC_BAT_CHARGE_CONTROL`, etc.) but only bit 7 has been
-> confirmed via live toggle testing. Other bits have placeholder names (`FUNC_179_BIT0` etc.)
-> until verified.
+> `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 7, 9, and 10 are confirmed via live toggle
+> testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
 
 Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
@@ -415,6 +416,37 @@ Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 > bit 1 has been confirmed via live toggle testing. Bit 12 is observed set (possibly
 > `FUNC_QUICK_CHARGE_CTRL`). This was the root cause of issue #153 — beta.31 shipped with
 > `pylxpweb>=0.9.4` in manifest but these register mappings only exist in 0.9.5.
+
+### Battery Charge/Discharge Control Mode (SOC vs Voltage)
+
+The charge/discharge regulation regime (register 179 bits 9/10 above) selects which
+battery-limit registers are active. The integration exposes both the SOC and Voltage
+limits as Number entities, enabling only the active mode's limits by default. Added in
+integration 3.4.0 / pylxpweb 0.9.36b1.
+
+| Reg | EG4 Param Key | HA Entity Key | Side / Mode | Unit | Range |
+|-----|---------------|---------------|-------------|------|-------|
+| 67  | `HOLD_AC_CHARGE_SOC_LIMIT` | `ac_charge_soc_limit` | charge / SOC | % | 0-100 |
+| 227 | `HOLD_SYSTEM_CHARGE_SOC_LIMIT` | `system_charge_soc_limit` | charge / SOC | % | 10-101 |
+| 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | `system_charge_volt_limit` | charge / Voltage | V | 40-64 |
+| 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | `ac_charge_start_voltage` | charge / Voltage | V | 38-60 |
+| 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | `ac_charge_end_voltage` | charge / Voltage | V | 38-60 |
+| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-90 |
+| 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
+| 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
+| 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
+
+> **Voltage scaling:** local Modbus returns raw decivolts (e.g. `595`) while the cloud
+> API returns already-scaled volts (e.g. `59.5`); the Number entities normalize by
+> magnitude (a value ≥ 100 is decivolts and is divided by 10). Reg 159's cloud param
+> key is `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` (the holding-register `api_param_key`
+> `HOLD_AC_CHARGE_END_VOLTAGE` is aliased to it).
+>
+> **EG4 web UI labels:** some of these registers appear under different names on the
+> EG4 monitor — e.g. *"Back Up Volt(V)"* is reg 159 (`ac_charge_end_voltage`, the
+> voltage twin of the AC-charge SOC limit, active in battery-backup/voltage mode) and
+> *"System Charge Volt Limit(V)"* is reg 228. The full label cross-reference lives in
+> [CONFIGURATION.md](CONFIGURATION.md#battery-control-mode-soc-vs-voltage).
 
 ---
 

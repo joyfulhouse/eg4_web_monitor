@@ -119,10 +119,15 @@ and WiFi dongle setup, options (refresh intervals), and reconfiguration.
   individual cell monitoring.
 
 The integration exposes switches (quick charge, battery backup/EPS, DST, working
-modes), selects (operating mode, GridBOSS smart port modes), numbers (SOC limit,
-AC/PV charge power, charge/discharge currents, PV start voltage, peak shaving),
-and a refresh-data button, plus a `eg4_web_monitor.refresh_data` service action.
-The full entity and control catalog is documented in
+modes), selects (operating mode, GridBOSS smart port modes, battery charge/discharge
+control mode), numbers (SOC and voltage limits, AC/PV charge power, charge/discharge
+currents, PV start voltage, peak shaving), and a refresh-data button, plus a
+`eg4_web_monitor.refresh_data` service action. Batteries can be regulated by **SOC**
+(default) or **Voltage** — see
+[Battery control mode](docs/CONFIGURATION.md#battery-control-mode-soc-vs-voltage)
+for the SOC-vs-Voltage limits and the EG4-label cross-reference (e.g. EG4's
+*"Back Up Volt(V)"* = the **AC Charge End Voltage** entity). The full entity and
+control catalog is documented in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and every register-to-sensor and
 API-to-sensor mapping is in [docs/DATA_MAPPING.md](docs/DATA_MAPPING.md).
 

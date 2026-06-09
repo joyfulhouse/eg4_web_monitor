@@ -183,16 +183,62 @@ parameter sync.
 
 - **Operating Mode** — Normal or Standby.
 - **GridBOSS Smart Port Mode (1–4)** — Off, Smart Load, or AC Couple per port.
+- **Battery Charge Control** / **Battery Discharge Control** — regulate the battery
+  by **SOC** (closed-loop, default) or **Voltage** (open-loop). See
+  [Battery control mode](#battery-control-mode-soc-vs-voltage) below.
 
 ### Numbers
 
 - System Charge SOC Limit (%)
+- AC Charge SOC Limit (%), On-Grid SOC Cut-Off (%), Off-Grid SOC Cut-Off (%)
+- System Charge Voltage Limit (V), AC Charge Start / End Voltage (V),
+  On-Grid / Off-Grid Cut-Off Voltage (V) — voltage-mode limits (see below)
 - AC Charge Power (0.1 kW increments)
 - PV Charge Power
 - PV Start Voltage threshold
 - Grid Peak Shaving Power
 - Battery Charge Current
 - Battery Discharge Current
+
+### Battery control mode (SOC vs Voltage)
+
+Two selects — **Battery Charge Control** and **Battery Discharge Control** — set how
+the inverter regulates the battery: by **State of Charge** (closed-loop, the default
+and existing behavior) or by **Voltage** (open-loop, for lead-acid or no-BMS packs).
+They mirror the inverter's own setting (register 179, bit 9 = charge, bit 10 =
+discharge; `0` = SOC, `1` = Voltage), so **changing a select writes to the inverter**
+— and the inverter propagates the change to every unit in a parallel group.
+
+To reduce clutter, the limit entities for the **active** mode are enabled by default
+and the other mode's limits are created but disabled. (Changing a select only sets
+this initial default; Home Assistant keeps any manual enable/disable you make, so
+enable any disabled limit yourself if you want it.)
+
+Some EG4 web UI labels differ from the Home Assistant entity names — match them here
+(or by the **EG4 param key**, shown on the EG4 cloud *Parameter Read* page):
+
+| EG4 web UI label | Home Assistant entity | Reg | EG4 param key | Enabled by default when |
+|---|---|---|---|---|
+| — | **Battery Charge Control** (select) | 179·b9 | `FUNC_BAT_CHARGE_CONTROL` | always |
+| — | **Battery Discharge Control** (select) | 179·b10 | `FUNC_BAT_DISCHARGE_CONTROL` | always |
+| **System Charge Volt Limit(V)** | System Charge Voltage Limit | 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | Charge = Voltage |
+| **Back Up Volt(V)** | AC Charge End Voltage | 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | Charge = Voltage |
+| — | AC Charge Start Voltage | 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | Charge = Voltage |
+| — | System Charge SOC Limit | 227 | `HOLD_SYSTEM_CHARGE_SOC_LIMIT` | Charge = SOC |
+| — | AC Charge SOC Limit | 67 | `HOLD_AC_CHARGE_SOC_LIMIT` | Charge = SOC |
+| — | On-Grid Cut-Off Voltage | 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | Discharge = Voltage |
+| — | Off-Grid Cut-Off Voltage | 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | Discharge = Voltage |
+| — | On-Grid SOC Cut-Off | 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | Discharge = SOC |
+| — | Off-Grid SOC Cut-Off | 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | Discharge = SOC |
+
+> EG4 web UI labels are filled in where confirmed; **—** means the exact EG4 wording
+> isn't mapped yet — cross-reference by param key or register. To contribute a
+> confirmed label, open an issue or PR.
+
+**Periodic balancing (Voltage mode):** set **Battery Charge Control** to *Voltage*,
+then raise **System Charge Voltage Limit** (the absorption/balance target) and
+**AC Charge End Voltage** — EG4's *"Back Up Volt(V)"*, the battery voltage at which
+grid/AC charging stops. Both are writable and automatable from Home Assistant.
 
 ### Buttons
 
