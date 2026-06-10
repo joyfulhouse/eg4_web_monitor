@@ -341,9 +341,16 @@ _BATTERY_ATTR_TO_CANONICAL = {
 
 
 def _runtime_canonical(attr: str) -> str | None:
-    """Resolve a runtime OR energy dataclass attr to its canonical register."""
+    """Resolve a runtime OR energy dataclass attr to its canonical register.
+
+    Computed dataclass fields (pylxpweb derives them from several registers)
+    resolve to a stable ``derived:`` pseudo-canonical instead of ``None`` —
+    a path reading a derived value while another path reads a real register
+    IS a divergence and must surface in the comparison rather than being
+    silently skipped.
+    """
     if attr in _RUNTIME_COMPUTED_ATTRS or attr in _ENERGY_COMPUTED_ATTRS:
-        return None
+        return f"derived:{attr}"
     return _RUNTIME_ATTR_TO_CANONICAL.get(attr) or _ENERGY_ATTR_TO_CANONICAL.get(attr)
 
 
@@ -624,11 +631,15 @@ def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
         cloud_canonical = _cloud_canonical(cloud_field) if cloud_field else None
 
         local_attr = local_map.get(key)
-        local_canonical = (
-            _runtime_canonical(local_attr)
-            if local_attr and local_attr != DERIVED
-            else None
-        )
+        # DERIVED = the LOCAL table computes the value inline (energy balance,
+        # sums).  Resolve it to a pseudo-canonical so a real-register feed on
+        # another path is reported as the divergence it is.
+        if local_attr == DERIVED:
+            local_canonical: str | None = "derived:local-computation"
+        elif local_attr:
+            local_canonical = _runtime_canonical(local_attr)
+        else:
+            local_canonical = None
 
         resolved = {
             label: canonical
@@ -715,8 +726,10 @@ def test_local_only_inverter_keys_have_no_cloud_field() -> None:
     local_map = {**LOCAL_RUNTIME_MAP, **LOCAL_ENERGY_MAP}
 
     for key, attr in local_map.items():
+        # A key the cloud map now feeds (or a derived value) is no longer
+        # "local-only": deliberately do NOT consume its allowlist entry, so
+        # a fixed divergence fails below as STALE and the entry is removed.
         if attr == DERIVED or key in CLOUD_INVERTER_BY_KEY:
-            stale_candidates.pop(key, None) if key in CLOUD_INVERTER_BY_KEY else None
             continue
         canonical = _runtime_canonical(attr)
         if canonical is None:
