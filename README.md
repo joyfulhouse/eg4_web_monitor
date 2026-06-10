@@ -131,6 +131,45 @@ control catalog is documented in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and every register-to-sensor and
 API-to-sensor mapping is in [docs/DATA_MAPPING.md](docs/DATA_MAPPING.md).
 
+## Importing Historical Energy Data
+
+If you install the integration on an existing EG4 system, Home Assistant only
+has energy history from the install date forward. The
+`eg4_web_monitor.import_historical_data` service backfills plant-level **daily**
+energy history from the EG4 cloud into Home Assistant long-term statistics:
+PV yield, consumption, grid import, grid export, battery charge, and battery
+discharge (whichever of these the cloud returns for your system).
+
+```yaml
+action: eg4_web_monitor.import_historical_data
+data:
+  config_entry: YOUR_CONFIG_ENTRY_ID   # pick the plant in the UI selector
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"               # optional, defaults to today
+  dry_run: true                        # preview first — no data is written
+response_variable: import_result
+```
+
+How it behaves:
+
+- **Separate statistics, not sensor history.** Data is written as *external
+  statistics* with IDs like `eg4_web_monitor:plant_12345_yield`. These can
+  never collide with (or modify) your live sensors' recorded history. To use
+  them, open **Settings → Dashboards → Energy** and select the imported
+  statistics as additional sources, or chart them with any statistics card.
+- **Daily resolution.** One value per day, placed at local midnight. Hourly
+  views of the Energy dashboard show the whole day in the first hour; daily,
+  monthly, and yearly views are accurate.
+- **Idempotent.** Re-running the same or overlapping ranges does not double
+  count — rows are overwritten and cumulative sums are recomputed from the
+  earliest imported day.
+- **Bounded and opt-in.** Requires cloud credentials (Cloud or Hybrid mode),
+  a maximum range of 2 years per call (run multiple calls for older history),
+  and roughly one cloud request per month per inverter/parallel group.
+- **Dry run.** With `dry_run: true` the service fetches and reports what it
+  would import (per-series day counts and kWh totals) without writing
+  anything. The service returns a summary as response data either way.
+
 ## Automation Examples
 
 ### Charge batteries during off-peak hours

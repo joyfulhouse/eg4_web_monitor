@@ -1,0 +1,526 @@
+"""Historical energy import service for the EG4 Web Monitor integration.
+
+Implements the ``eg4_web_monitor.import_historical_data`` service: a
+user-triggered, opt-in, idempotent backfill of plant-level daily energy
+series from the EG4 cloud into Home Assistant long-term statistics.
+
+Design notes:
+
+- Data source: ``LuxpowerClient.analytics.get_month_daily_energy()`` —
+  one cloud request per calendar month per inverter/parallel group,
+  returning all daily energy series at once.
+- Statistics are written as EXTERNAL statistics
+  (``eg4_web_monitor:plant_{plant_id}_{series}``) via
+  ``async_add_external_statistics``. External statistic IDs use a ``:``
+  separator and therefore can never collide with the live sensors'
+  entity statistics.
+- One statistics row per day, placed at local midnight (station timezone
+  when known, otherwise the Home Assistant timezone). The recorder
+  requires row starts at the top of an hour; midnight satisfies this.
+- Idempotency: the recorder upserts rows on (statistic_id, start), and
+  this module recomputes the cumulative ``sum`` across ALL known rows
+  (existing + new) from the earliest point, so overlapping re-imports
+  converge to the same result instead of double counting.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
+
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
+)
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    statistics_during_period,
+)
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import UnitOfEnergy
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.recorder import get_instance
+from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import EnergyConverter
+
+from .const import (
+    CONF_CONNECTION_TYPE,
+    CONF_PLANT_NAME,
+    CONNECTION_TYPE_HTTP,
+    CONNECTION_TYPE_HYBRID,
+    DOMAIN,
+)
+from .services import _get_station_timezone
+
+if TYPE_CHECKING:
+    from .coordinator import EG4DataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+SERVICE_IMPORT_HISTORICAL_DATA = "import_historical_data"
+
+# Hard bound on the requested range (two years, leap-safe).
+MAX_RANGE_DAYS = 731
+
+# Delay between cloud requests to stay gentle on the EG4 API.
+FETCH_DELAY_SECONDS = 0.5
+
+IMPORT_HISTORICAL_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required("config_entry"): cv.string,
+        vol.Required("start_date"): cv.date,
+        vol.Optional("end_date"): cv.date,
+        vol.Optional("dry_run", default=False): cv.boolean,
+    }
+)
+
+
+@dataclass(frozen=True)
+class SeriesSpec:
+    """One importable plant-level energy series."""
+
+    key: str
+    """Statistic ID suffix and response key."""
+
+    label: str
+    """Human-readable name suffix for the statistic."""
+
+    attr: str
+    """Primary ``DailyEnergyHistoryEntry`` kWh property."""
+
+    fallback_attr: str | None = None
+    """Fallback property used only when the primary has no data at all."""
+
+
+SERIES_SPECS: tuple[SeriesSpec, ...] = (
+    # eInvDay matches the live "yield" sensor (todayYielding). If the cloud
+    # rows do not carry eInvDay, fall back to PV string totals.
+    SeriesSpec("yield", "PV yield", "inverter_kwh", "pv_kwh"),
+    SeriesSpec("consumption", "Consumption", "consumption_kwh"),
+    SeriesSpec("grid_import", "Grid import", "import_kwh"),
+    SeriesSpec("grid_export", "Grid export", "export_kwh"),
+    SeriesSpec("battery_charge", "Battery charge", "charge_kwh"),
+    SeriesSpec("battery_discharge", "Battery discharge", "discharge_kwh"),
+)
+
+# All entry properties that need accumulating (primary + fallback attrs).
+_ACCUMULATED_ATTRS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        attr
+        for spec in SERIES_SPECS
+        for attr in (spec.attr, spec.fallback_attr)
+        if attr is not None
+    )
+)
+
+
+async def async_import_historical_data(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Handle the import_historical_data service call.
+
+    Fetches plant-level daily energy history from the EG4 cloud and writes
+    it as external long-term statistics. Safe to re-run for overlapping
+    ranges (idempotent upsert + full sum recompute).
+    """
+    entry = _resolve_entry(hass, call.data["config_entry"])
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
+    client = _require_cloud_client(coordinator)
+    start_date, end_date = _validate_range(
+        call.data["start_date"], call.data.get("end_date")
+    )
+    dry_run = bool(call.data["dry_run"])
+
+    fetch_method = getattr(client.analytics, "get_month_daily_energy", None)
+    if not callable(fetch_method):
+        raise ServiceValidationError(
+            "The installed pylxpweb library does not provide the energy "
+            "history API required by this service",
+            translation_domain=DOMAIN,
+            translation_key="history_api_unavailable",
+        )
+
+    units = _collect_units(coordinator)
+    plant_slug = _plant_slug(coordinator)
+    plant_name = entry.data.get(CONF_PLANT_NAME) or entry.title
+
+    _LOGGER.info(
+        "Importing historical energy for plant %s from %s to %s "
+        "(%d unit(s), dry_run=%s)",
+        plant_slug,
+        start_date.isoformat(),
+        end_date.isoformat(),
+        len(units),
+        dry_run,
+    )
+
+    day_values, api_calls = await _fetch_daily_values(
+        fetch_method, units, start_date, end_date
+    )
+
+    requested_days = (end_date - start_date).days + 1
+    series_summary: dict[str, Any] = {}
+
+    for spec in SERIES_SPECS:
+        values = day_values.get(spec.attr) or {}
+        source_attr = spec.attr
+        if not values and spec.fallback_attr is not None:
+            values = day_values.get(spec.fallback_attr) or {}
+            source_attr = spec.fallback_attr
+
+        statistic_id = f"{DOMAIN}:plant_{plant_slug}_{spec.key}"
+
+        if not values:
+            series_summary[spec.key] = {
+                "statistic_id": statistic_id,
+                "imported_days": 0,
+                "skipped_days": requested_days,
+                "total_kwh": 0.0,
+                "status": "no_data",
+            }
+            continue
+
+        rows_written = await _merge_and_write(
+            hass,
+            statistic_id,
+            f"{plant_name} {spec.label}",
+            values,
+            coordinator,
+            dry_run=dry_run,
+        )
+
+        series_summary[spec.key] = {
+            "statistic_id": statistic_id,
+            "imported_days": len(values),
+            "skipped_days": requested_days - len(values),
+            "total_kwh": round(sum(values.values()), 3),
+            "source_field": source_attr,
+            "rows_written": 0 if dry_run else rows_written,
+            "status": "dry_run" if dry_run else "imported",
+        }
+
+    _LOGGER.info(
+        "Historical import %s for plant %s: %d cloud call(s), series=%s",
+        "previewed (dry run)" if dry_run else "completed",
+        plant_slug,
+        api_calls,
+        {key: info["imported_days"] for key, info in series_summary.items()},
+    )
+
+    if not call.return_response:
+        return None
+
+    return {
+        "config_entry": entry.entry_id,
+        "plant_id": coordinator.plant_id,
+        "dry_run": dry_run,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "requested_days": requested_days,
+        "units_queried": len(units),
+        "api_calls": api_calls,
+        "series": series_summary,
+    }
+
+
+def _resolve_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry:
+    """Resolve and validate the targeted config entry."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != DOMAIN:
+        raise ServiceValidationError(
+            f"Config entry {entry_id} not found",
+            translation_domain=DOMAIN,
+            translation_key="entry_not_found",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    if entry.state != ConfigEntryState.LOADED:
+        raise ServiceValidationError(
+            f"Config entry {entry_id} is not loaded",
+            translation_domain=DOMAIN,
+            translation_key="entry_not_loaded",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    return entry
+
+
+def _require_cloud_client(coordinator: EG4DataUpdateCoordinator) -> Any:
+    """Return the cloud client or raise if this entry has no cloud access."""
+    connection_type = coordinator.entry.data.get(CONF_CONNECTION_TYPE)
+    if (
+        connection_type not in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID)
+        or coordinator.client is None
+    ):
+        raise ServiceValidationError(
+            "Historical import requires cloud credentials "
+            "(HTTP or Hybrid connection mode)",
+            translation_domain=DOMAIN,
+            translation_key="cloud_required",
+        )
+    return coordinator.client
+
+
+def _validate_range(start_date: date, end_date: date | None) -> tuple[date, date]:
+    """Validate and normalize the requested date range."""
+    today = dt_util.now().date()
+    if end_date is None or end_date > today:
+        end_date = today
+
+    if start_date > today or start_date > end_date:
+        raise ServiceValidationError(
+            f"Invalid date range: {start_date.isoformat()} to {end_date.isoformat()}",
+            translation_domain=DOMAIN,
+            translation_key="invalid_date_range",
+            translation_placeholders={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            },
+        )
+
+    range_days = (end_date - start_date).days + 1
+    if range_days > MAX_RANGE_DAYS:
+        raise ServiceValidationError(
+            f"Date range of {range_days} days exceeds the maximum of "
+            f"{MAX_RANGE_DAYS} days (2 years)",
+            translation_domain=DOMAIN,
+            translation_key="date_range_too_large",
+            translation_placeholders={
+                "range_days": str(range_days),
+                "max_days": str(MAX_RANGE_DAYS),
+            },
+        )
+
+    return start_date, end_date
+
+
+def _collect_units(
+    coordinator: EG4DataUpdateCoordinator,
+) -> list[tuple[str, bool]]:
+    """Collect (serial, parallel) query units covering the whole plant.
+
+    Each parallel group becomes one parallel-aggregate query (server-side
+    aggregation, matching the EG4 app); a single-inverter group and each
+    standalone inverter become plain per-inverter queries. GridBOSS/MID
+    devices are never queried (they have no energy history endpoint).
+    """
+    station = coordinator.station
+    if station is None:
+        raise ServiceValidationError(
+            "Cloud station data is not loaded yet; try again shortly",
+            translation_domain=DOMAIN,
+            translation_key="station_not_ready",
+        )
+
+    units: list[tuple[str, bool]] = []
+    for group in getattr(station, "parallel_groups", None) or []:
+        inverters = getattr(group, "inverters", None) or []
+        serials = [
+            serial
+            for inverter in inverters
+            if (serial := getattr(inverter, "serial_number", None))
+        ]
+        if not serials:
+            continue
+        # Prefer the group's designated first device (what the EG4 app
+        # queries the parallel aggregate with); fall back to any member.
+        first_serial = getattr(group, "first_device_serial", None) or serials[0]
+        units.append((first_serial, len(serials) > 1))
+
+    for inverter in getattr(station, "standalone_inverters", None) or []:
+        serial = getattr(inverter, "serial_number", None)
+        if serial:
+            units.append((serial, False))
+
+    if not units:
+        raise ServiceValidationError(
+            "No inverters found for this plant",
+            translation_domain=DOMAIN,
+            translation_key="no_devices",
+        )
+    return units
+
+
+def _plant_slug(coordinator: EG4DataUpdateCoordinator) -> str:
+    """Build a statistic-ID-safe slug from the plant ID."""
+    raw = str(coordinator.plant_id or "").lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    if not slug:
+        raise ServiceValidationError(
+            "This config entry has no plant ID",
+            translation_domain=DOMAIN,
+            translation_key="station_not_ready",
+        )
+    return slug
+
+
+def _iter_months(start_date: date, end_date: date) -> list[tuple[int, int]]:
+    """List (year, month) tuples covering the inclusive date range."""
+    months: list[tuple[int, int]] = []
+    year, month = start_date.year, start_date.month
+    while (year, month) <= (end_date.year, end_date.month):
+        months.append((year, month))
+        month += 1
+        if month == 13:
+            year, month = year + 1, 1
+    return months
+
+
+async def _fetch_daily_values(
+    fetch_method: Any,
+    units: list[tuple[str, bool]],
+    start_date: date,
+    end_date: date,
+) -> tuple[dict[str, dict[date, float]], int]:
+    """Fetch and accumulate per-day kWh values for every tracked attribute.
+
+    Values are summed across query units (parallel groups + standalone
+    inverters). Days outside the requested range, in the future, or with
+    no data for an attribute are omitted from that attribute's map.
+
+    Returns:
+        Tuple of (attr -> {day -> kWh} maps, number of cloud calls made).
+    """
+    accumulated: dict[str, dict[date, float]] = {
+        attr: {} for attr in _ACCUMULATED_ATTRS
+    }
+    today = dt_util.now().date()
+    months = _iter_months(start_date, end_date)
+    api_calls = 0
+
+    for serial, parallel in units:
+        for year, month in months:
+            try:
+                history = await fetch_method(serial, year, month, parallel=parallel)
+            except Exception as err:
+                raise HomeAssistantError(
+                    f"Failed to fetch energy history for {serial} "
+                    f"({year}-{month:02d}): {err}"
+                ) from err
+            api_calls += 1
+
+            for entry in getattr(history, "days", None) or []:
+                try:
+                    day = date(year, month, int(entry.day))
+                except (TypeError, ValueError):
+                    continue
+                if day < start_date or day > end_date or day > today:
+                    continue
+                for attr in _ACCUMULATED_ATTRS:
+                    value = getattr(entry, attr, None)
+                    if value is None:
+                        continue
+                    # Energy totals cannot be negative; the cloud
+                    # occasionally returns small negative consumption
+                    # values (the EG4 app clamps them too).
+                    kwh = max(0.0, float(value))
+                    day_map = accumulated[attr]
+                    day_map[day] = day_map.get(day, 0.0) + kwh
+
+            await asyncio.sleep(FETCH_DELAY_SECONDS)
+
+    return accumulated, api_calls
+
+
+async def _merge_and_write(
+    hass: HomeAssistant,
+    statistic_id: str,
+    name: str,
+    new_day_values: dict[date, float],
+    coordinator: EG4DataUpdateCoordinator,
+    *,
+    dry_run: bool,
+) -> int:
+    """Merge new daily values with existing rows and write statistics.
+
+    The cumulative sum is recomputed across the FULL merged series from its
+    earliest row, so re-imports and overlapping ranges always converge to
+    consistent, monotonic sums. The recorder upserts on
+    (statistic_id, start), making the whole operation idempotent.
+
+    Returns:
+        Number of statistics rows that would be (or were) written.
+    """
+    tz = _get_station_timezone(coordinator) or dt_util.DEFAULT_TIME_ZONE
+
+    new_rows: dict[datetime, float] = {}
+    for day, kwh in new_day_values.items():
+        local_midnight = datetime(day.year, day.month, day.day, tzinfo=tz)
+        new_rows[dt_util.as_utc(local_midnight)] = kwh
+
+    existing_rows = await _load_existing_rows(hass, statistic_id)
+    merged = {**existing_rows, **new_rows}
+
+    statistics: list[StatisticData] = []
+    running_sum = 0.0
+    for start in sorted(merged):
+        state = merged[start]
+        running_sum += state
+        # The recorder requires top-of-the-hour timestamps in the
+        # representation it receives (it converts to UTC itself). Local
+        # midnight satisfies this for every timezone — including
+        # half-hour-offset zones where the UTC representation would not.
+        statistics.append(
+            {"start": start.astimezone(tz), "state": state, "sum": running_sum}
+        )
+
+    if dry_run:
+        _LOGGER.debug(
+            "Dry run: would write %d rows for %s (%d new/updated)",
+            len(statistics),
+            statistic_id,
+            len(new_rows),
+        )
+        return len(statistics)
+
+    metadata: StatisticMetaData = {
+        "has_sum": True,
+        "mean_type": StatisticMeanType.NONE,
+        "name": name,
+        "source": DOMAIN,
+        "statistic_id": statistic_id,
+        "unit_class": EnergyConverter.UNIT_CLASS,
+        "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+    }
+    async_add_external_statistics(hass, metadata, statistics)
+
+    _LOGGER.debug(
+        "Wrote %d rows for %s (%d new/updated, %d pre-existing)",
+        len(statistics),
+        statistic_id,
+        len(new_rows),
+        len(existing_rows),
+    )
+    return len(statistics)
+
+
+async def _load_existing_rows(
+    hass: HomeAssistant, statistic_id: str
+) -> dict[datetime, float]:
+    """Load all existing rows (start -> state) for an external statistic."""
+    recorder = get_instance(hass)
+    stats = await recorder.async_add_executor_job(
+        statistics_during_period,
+        hass,
+        dt_util.utc_from_timestamp(0),
+        None,
+        {statistic_id},
+        "hour",
+        None,
+        {"state"},
+    )
+
+    existing: dict[datetime, float] = {}
+    for row in stats.get(statistic_id, []):
+        state = row.get("state")
+        start_ts = row.get("start")
+        if state is None or start_ts is None:
+            continue
+        existing[dt_util.utc_from_timestamp(float(start_ts))] = float(state)
+    return existing

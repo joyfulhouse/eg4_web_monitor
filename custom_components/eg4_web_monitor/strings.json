@@ -752,6 +752,28 @@
           "description": "The configuration entry ID to reconcile. If not provided, all {brand_name} Web Monitor integrations with cloud credentials will be reconciled."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Import Historical Data",
+      "description": "Import plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the {brand_name} cloud into Home Assistant long-term statistics. Data is written as separate external statistics that can be selected in the Energy dashboard; existing sensor history is never modified. Re-running the same or overlapping ranges is safe.",
+      "fields": {
+        "config_entry": {
+          "name": "Config Entry",
+          "description": "The {brand_name} Web Monitor configuration entry (plant) to import history for."
+        },
+        "start_date": {
+          "name": "Start Date",
+          "description": "First day to import (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "Last day to import (YYYY-MM-DD). Defaults to today. Maximum range: 2 years."
+        },
+        "dry_run": {
+          "name": "Dry Run",
+          "description": "Preview what would be imported without writing any statistics."
+        }
+      }
     }
   },
   "exceptions": {
@@ -766,6 +788,24 @@
     },
     "invalid_date_format": {
       "message": "Invalid date format. Please use YYYY-MM-DD format."
+    },
+    "cloud_required": {
+      "message": "Historical import requires cloud credentials (HTTP or Hybrid connection mode)."
+    },
+    "station_not_ready": {
+      "message": "Cloud station data is not loaded yet. Wait for the integration to finish its first refresh and try again."
+    },
+    "no_devices": {
+      "message": "No inverters were found for this plant."
+    },
+    "invalid_date_range": {
+      "message": "Invalid date range: {start_date} to {end_date}. The start date must not be in the future or after the end date."
+    },
+    "date_range_too_large": {
+      "message": "Date range of {range_days} days exceeds the maximum of {max_days} days (2 years). Import the history in smaller chunks."
+    },
+    "history_api_unavailable": {
+      "message": "The installed pylxpweb library does not provide the energy history API required by this service. Update the integration so its required pylxpweb version is installed."
     }
   },
   "issues": {
