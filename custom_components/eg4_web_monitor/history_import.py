@@ -17,10 +17,21 @@ Design notes:
 - One statistics row per day, placed at local midnight (station timezone
   when known, otherwise the Home Assistant timezone). The recorder
   requires row starts at the top of an hour; midnight satisfies this.
+- Timezone preference: the cloud reports station timezones as fixed
+  offsets ("GMT -8") with no DST rules — under DST those would drift
+  daily rows to 01:00 local. Because the HA instance lives at the plant
+  in essentially all deployments, Home Assistant's configured (IANA,
+  DST-aware) timezone is preferred whenever the station timezone is a
+  fixed offset or cannot be parsed. Genuine IANA station timezones are
+  used as-is.
 - Idempotency: the recorder upserts rows on (statistic_id, start), and
   this module recomputes the cumulative ``sum`` across ALL known rows
   (existing + new) from the earliest point, so overlapping re-imports
   converge to the same result instead of double counting.
+- Concurrency: imports for the same plant serialize on a per-plant
+  asyncio.Lock held across the whole read-recompute-write section —
+  without it, two concurrent imports would each snapshot stale history
+  and write undercounted sums.
 """
 
 from __future__ import annotations
@@ -72,6 +83,12 @@ MAX_RANGE_DAYS = 731
 
 # Delay between cloud requests to stay gentle on the EG4 API.
 FETCH_DELAY_SECONDS = 0.5
+
+# Per-plant import locks: concurrent service calls for the same plant must
+# serialize across the whole read-recompute-write section, or each call
+# would snapshot stale history and write undercounted sums. Keyed by plant
+# slug (the statistic-ID namespace, shared even across duplicate entries).
+_IMPORT_LOCKS: dict[str, asyncio.Lock] = {}
 
 IMPORT_HISTORICAL_DATA_SCHEMA = vol.Schema(
     {
@@ -139,7 +156,9 @@ async def async_import_historical_data(
     )
     dry_run = bool(call.data["dry_run"])
 
-    fetch_method = getattr(client.analytics, "get_month_daily_energy", None)
+    fetch_method = getattr(
+        getattr(client, "analytics", None), "get_month_daily_energy", None
+    )
     if not callable(fetch_method):
         raise ServiceValidationError(
             "The installed pylxpweb library does not provide the energy "
@@ -148,64 +167,69 @@ async def async_import_historical_data(
             translation_key="history_api_unavailable",
         )
 
-    units = _collect_units(coordinator)
     plant_slug = _plant_slug(coordinator)
     plant_name = entry.data.get(CONF_PLANT_NAME) or entry.title
 
-    _LOGGER.info(
-        "Importing historical energy for plant %s from %s to %s "
-        "(%d unit(s), dry_run=%s)",
-        plant_slug,
-        start_date.isoformat(),
-        end_date.isoformat(),
-        len(units),
-        dry_run,
-    )
+    # Serialize concurrent imports for the same plant: the sum recompute
+    # in _merge_and_write must see every previously submitted row.
+    lock = _IMPORT_LOCKS.setdefault(plant_slug, asyncio.Lock())
+    async with lock:
+        units = _collect_units(coordinator)
 
-    day_values, api_calls = await _fetch_daily_values(
-        fetch_method, units, start_date, end_date
-    )
-
-    requested_days = (end_date - start_date).days + 1
-    series_summary: dict[str, Any] = {}
-
-    for spec in SERIES_SPECS:
-        values = day_values.get(spec.attr) or {}
-        source_attr = spec.attr
-        if not values and spec.fallback_attr is not None:
-            values = day_values.get(spec.fallback_attr) or {}
-            source_attr = spec.fallback_attr
-
-        statistic_id = f"{DOMAIN}:plant_{plant_slug}_{spec.key}"
-
-        if not values:
-            series_summary[spec.key] = {
-                "statistic_id": statistic_id,
-                "imported_days": 0,
-                "skipped_days": requested_days,
-                "total_kwh": 0.0,
-                "status": "no_data",
-            }
-            continue
-
-        rows_written = await _merge_and_write(
-            hass,
-            statistic_id,
-            f"{plant_name} {spec.label}",
-            values,
-            coordinator,
-            dry_run=dry_run,
+        _LOGGER.info(
+            "Importing historical energy for plant %s from %s to %s "
+            "(%d unit(s), dry_run=%s)",
+            plant_slug,
+            start_date.isoformat(),
+            end_date.isoformat(),
+            len(units),
+            dry_run,
         )
 
-        series_summary[spec.key] = {
-            "statistic_id": statistic_id,
-            "imported_days": len(values),
-            "skipped_days": requested_days - len(values),
-            "total_kwh": round(sum(values.values()), 3),
-            "source_field": source_attr,
-            "rows_written": 0 if dry_run else rows_written,
-            "status": "dry_run" if dry_run else "imported",
-        }
+        day_values, api_calls = await _fetch_daily_values(
+            fetch_method, units, start_date, end_date
+        )
+
+        requested_days = (end_date - start_date).days + 1
+        series_summary: dict[str, Any] = {}
+
+        for spec in SERIES_SPECS:
+            values = day_values.get(spec.attr) or {}
+            source_attr = spec.attr
+            if not values and spec.fallback_attr is not None:
+                values = day_values.get(spec.fallback_attr) or {}
+                source_attr = spec.fallback_attr
+
+            statistic_id = f"{DOMAIN}:plant_{plant_slug}_{spec.key}"
+
+            if not values:
+                series_summary[spec.key] = {
+                    "statistic_id": statistic_id,
+                    "imported_days": 0,
+                    "skipped_days": requested_days,
+                    "total_kwh": 0.0,
+                    "status": "no_data",
+                }
+                continue
+
+            rows_written = await _merge_and_write(
+                hass,
+                statistic_id,
+                f"{plant_name} {spec.label}",
+                values,
+                coordinator,
+                dry_run=dry_run,
+            )
+
+            series_summary[spec.key] = {
+                "statistic_id": statistic_id,
+                "imported_days": len(values),
+                "skipped_days": requested_days - len(values),
+                "total_kwh": round(sum(values.values()), 3),
+                "source_field": source_attr,
+                "rows_written": 0 if dry_run else rows_written,
+                "status": "dry_run" if dry_run else "imported",
+            }
 
     _LOGGER.info(
         "Historical import %s for plant %s: %d cloud call(s), series=%s",
@@ -428,6 +452,35 @@ async def _fetch_daily_values(
     return accumulated, api_calls
 
 
+def _is_fixed_offset_timezone(tz: Any) -> bool:
+    """Return True for zones without DST rules.
+
+    ``_get_station_timezone()`` parses cloud strings like "GMT -8" into
+    ``Etc/GMT±N`` zoneinfo zones; plain ``datetime.timezone`` offsets have
+    no ``key`` attribute at all. Genuine IANA zones (e.g.
+    "America/Los_Angeles", "Asia/Kathmandu") keep their own key and are
+    not considered fixed.
+    """
+    key = getattr(tz, "key", None)
+    return key is None or str(key).startswith("Etc/")
+
+
+def _resolve_statistics_timezone(coordinator: EG4DataUpdateCoordinator) -> Any:
+    """Pick the timezone used to place daily statistics rows.
+
+    Prefer Home Assistant's configured (IANA, DST-aware) timezone whenever
+    the station timezone is unknown, unparsable (e.g. "GMT +5:30"), or a
+    fixed offset — fixed offsets would drift daily rows to 01:00 local
+    for half the year under DST. The HA instance lives at the plant in
+    essentially all deployments, so its timezone is the best DST-aware
+    proxy. A genuine IANA station timezone is used as-is.
+    """
+    station_tz = _get_station_timezone(coordinator)
+    if station_tz is None or _is_fixed_offset_timezone(station_tz):
+        return dt_util.DEFAULT_TIME_ZONE
+    return station_tz
+
+
 async def _merge_and_write(
     hass: HomeAssistant,
     statistic_id: str,
@@ -447,7 +500,7 @@ async def _merge_and_write(
     Returns:
         Number of statistics rows that would be (or were) written.
     """
-    tz = _get_station_timezone(coordinator) or dt_util.DEFAULT_TIME_ZONE
+    tz = _resolve_statistics_timezone(coordinator)
 
     new_rows: dict[datetime, float] = {}
     for day, kwh in new_day_values.items():

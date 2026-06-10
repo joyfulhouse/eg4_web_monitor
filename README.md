@@ -159,7 +159,11 @@ How it behaves:
   statistics as additional sources, or chart them with any statistics card.
 - **Daily resolution.** One value per day, placed at local midnight. Hourly
   views of the Energy dashboard show the whole day in the first hour; daily,
-  monthly, and yearly views are accurate.
+  monthly, and yearly views are accurate. Because the EG4 cloud reports
+  station timezones as fixed offsets (e.g. "GMT -8") without DST rules,
+  day boundaries use Home Assistant's configured timezone (your HA
+  instance normally lives at the plant); a genuine IANA station timezone
+  is honored as-is.
 - **Idempotent.** Re-running the same or overlapping ranges does not double
   count — rows are overwritten and cumulative sums are recomputed from the
   earliest imported day.

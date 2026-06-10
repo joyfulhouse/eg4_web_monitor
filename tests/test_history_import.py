@@ -1,5 +1,7 @@
 """Tests for the import_historical_data service (history_import.py)."""
 
+import asyncio
+import zoneinfo
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -356,6 +358,22 @@ class TestStationAndUnits:
         """A pylxpweb without the history API raises a clean error."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         mock_coordinator.client.analytics = SimpleNamespace()  # no method
+
+        with pytest.raises(ServiceValidationError, match="pylxpweb"):
+            await async_import_historical_data(
+                hass,
+                _call(
+                    {"config_entry": "test_entry_id", "start_date": date(2025, 1, 1)}
+                ),
+            )
+
+    async def test_missing_analytics_namespace(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator
+    ):
+        """A pylxpweb without the analytics namespace raises a clean error."""
+        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
+        # Old client object with no analytics attribute at all
+        mock_coordinator.client = SimpleNamespace()
 
         with pytest.raises(ServiceValidationError, match="pylxpweb"):
             await async_import_historical_data(
@@ -801,6 +819,12 @@ class TestMergeAndIdempotency:
         # Consecutive local midnights are 24h apart
         delta = rows[1]["start"] - rows[0]["start"]
         assert delta.total_seconds() == 86400
+        # A genuine IANA station timezone is used as-is (no HA-tz fallback):
+        # the rows sit at Kathmandu midnight, not HA-timezone midnight.
+        expected = dt_util.as_utc(
+            datetime(2025, 1, 1, tzinfo=zoneinfo.ZoneInfo("Asia/Kathmandu"))
+        )
+        assert rows[0]["start"] == expected
 
     async def test_dry_run_merge_does_not_write(
         self, hass: HomeAssistant, mock_coordinator
@@ -827,6 +851,260 @@ class TestMergeAndIdempotency:
 
         assert rows == 1
         mock_add.assert_not_called()
+
+
+class TestTimezoneResolution:
+    """Station timezone handling for daily row placement."""
+
+    async def test_station_gmt_offset_prefers_ha_timezone(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Fixed-offset cloud zones ("GMT -8") defer to HA's DST-aware tz."""
+        await hass.config.async_set_time_zone("America/Los_Angeles")
+        mock_coordinator.station.timezone = "GMT -8"
+        la = zoneinfo.ZoneInfo("America/Los_Angeles")
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics"
+            ) as mock_add,
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=AsyncMock(return_value={}),
+            ),
+        ):
+            await _merge_and_write(
+                hass,
+                "eg4_web_monitor:plant_12345_yield",
+                "Test Plant PV yield",
+                {date(2025, 1, 15): 1.0, date(2025, 7, 15): 2.0},
+                mock_coordinator,
+                dry_run=False,
+            )
+
+        rows = mock_add.call_args.args[2]
+        # Winter (PST, -8) and summer (PDT, -7) rows both at LA local midnight
+        assert rows[0]["start"] == dt_util.as_utc(datetime(2025, 1, 15, tzinfo=la))
+        assert rows[1]["start"] == dt_util.as_utc(datetime(2025, 7, 15, tzinfo=la))
+        # The fixed Etc/GMT+8 zone would have drifted the summer row to
+        # 01:00 local (one hour later in UTC)
+        fixed = dt_util.get_time_zone("Etc/GMT+8")
+        assert rows[1]["start"] != dt_util.as_utc(datetime(2025, 7, 15, tzinfo=fixed))
+
+    async def test_station_gmt_half_hour_string_falls_back_to_ha_tz(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Unparsable "GMT +5:30" strings fall back to the HA timezone."""
+        await hass.config.async_set_time_zone("America/Los_Angeles")
+        mock_coordinator.station.timezone = "GMT +5:30"
+        la = zoneinfo.ZoneInfo("America/Los_Angeles")
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics"
+            ) as mock_add,
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=AsyncMock(return_value={}),
+            ),
+        ):
+            await _merge_and_write(
+                hass,
+                "eg4_web_monitor:plant_12345_yield",
+                "Test Plant PV yield",
+                {date(2025, 1, 1): 5.0},
+                mock_coordinator,
+                dry_run=False,
+            )
+
+        rows = mock_add.call_args.args[2]
+        assert rows[0]["start"] == dt_util.as_utc(datetime(2025, 1, 1, tzinfo=la))
+        assert rows[0]["start"].minute == 0
+
+    async def test_dst_transition_days_have_single_midnight_rows(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """23h/25h DST-transition days produce exactly one row at midnight."""
+        await hass.config.async_set_time_zone("America/Los_Angeles")
+        mock_coordinator.station.timezone = "GMT -8"
+        la = zoneinfo.ZoneInfo("America/Los_Angeles")
+
+        # US 2025: spring forward Mar 9 (23h day), fall back Nov 2 (25h day)
+        spring = {date(2025, 3, 8): 1.0, date(2025, 3, 9): 2.0, date(2025, 3, 10): 3.0}
+        fall = {date(2025, 11, 1): 1.0, date(2025, 11, 2): 2.0, date(2025, 11, 3): 3.0}
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics"
+            ) as mock_add,
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=AsyncMock(return_value={}),
+            ),
+        ):
+            await _merge_and_write(
+                hass,
+                "eg4_web_monitor:plant_12345_yield",
+                "Test Plant PV yield",
+                spring,
+                mock_coordinator,
+                dry_run=False,
+            )
+            await _merge_and_write(
+                hass,
+                "eg4_web_monitor:plant_12345_yield",
+                "Test Plant PV yield",
+                fall,
+                mock_coordinator,
+                dry_run=False,
+            )
+
+        spring_rows = mock_add.call_args_list[0].args[2]
+        fall_rows = mock_add.call_args_list[1].args[2]
+        assert len(spring_rows) == 3
+        assert len(fall_rows) == 3
+
+        for rows, days in ((spring_rows, sorted(spring)), (fall_rows, sorted(fall))):
+            for row, day in zip(rows, days, strict=True):
+                assert row["start"] == dt_util.as_utc(
+                    datetime(day.year, day.month, day.day, tzinfo=la)
+                )
+                assert row["start"].minute == 0
+
+        # Compare absolute instants via timestamp(): subtracting aware
+        # datetimes that share a tzinfo uses wall-clock arithmetic and
+        # would hide the DST shift.
+        spring_deltas = [
+            b["start"].timestamp() - a["start"].timestamp()
+            for a, b in zip(spring_rows, spring_rows[1:], strict=False)
+        ]
+        fall_deltas = [
+            b["start"].timestamp() - a["start"].timestamp()
+            for a, b in zip(fall_rows, fall_rows[1:], strict=False)
+        ]
+        assert spring_deltas == [24 * 3600, 23 * 3600]  # spring-forward day
+        assert fall_deltas == [24 * 3600, 25 * 3600]  # fall-back day
+
+
+class TestConcurrency:
+    """Per-plant lock serializes concurrent imports."""
+
+    async def test_concurrent_imports_for_same_plant_serialize(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator
+    ):
+        """Concurrent disjoint-range imports equal the serial result.
+
+        Without the per-plant lock, both calls snapshot empty history at
+        the suspension point inside _load_existing_rows and the February
+        sums would restart at zero instead of continuing from January.
+        """
+        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
+
+        def fetch_side_effect(serial, year, month, *, parallel=False):
+            if month == 1:
+                return _month_history(
+                    2025,
+                    1,
+                    [_day_entry(1, inverter_kwh=1.0), _day_entry(2, inverter_kwh=2.0)],
+                )
+            return _month_history(
+                2025,
+                2,
+                [_day_entry(1, inverter_kwh=3.0), _day_entry(2, inverter_kwh=4.0)],
+            )
+
+        fetch = mock_coordinator.client.analytics.get_month_daily_energy
+        fetch.side_effect = fetch_side_effect
+
+        # In-memory statistics store backing both seams, so each import
+        # observes whatever previous imports actually submitted.
+        store: dict[tuple, tuple] = {}
+
+        def fake_add(hass_, metadata, rows):
+            for row in rows:
+                store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(hass_, statistic_id):
+            # Snapshot first, then suspend before returning — mirroring the
+            # real recorder executor (DB read, then resume on the event
+            # loop). Without the per-plant lock, the other import writes
+            # during this suspension and the snapshot is stale.
+            snapshot = {
+                start: state
+                for (sid, start), (state, _sum) in store.items()
+                if sid == statistic_id
+            }
+            await asyncio.sleep(0)
+            return snapshot
+
+        def call_jan():
+            return _call(
+                {
+                    "config_entry": "test_entry_id",
+                    "start_date": date(2025, 1, 1),
+                    "end_date": date(2025, 1, 31),
+                }
+            )
+
+        def call_feb():
+            return _call(
+                {
+                    "config_entry": "test_entry_id",
+                    "start_date": date(2025, 2, 1),
+                    "end_date": date(2025, 2, 28),
+                }
+            )
+
+        def patches():
+            return (
+                patch(
+                    "custom_components.eg4_web_monitor.history_import."
+                    "async_add_external_statistics",
+                    side_effect=fake_add,
+                ),
+                patch(
+                    "custom_components.eg4_web_monitor.history_import."
+                    "_load_existing_rows",
+                    new=fake_load,
+                ),
+                patch(
+                    "custom_components.eg4_web_monitor.history_import."
+                    "FETCH_DELAY_SECONDS",
+                    0,
+                ),
+            )
+
+        # Serial ground truth
+        add_patch, load_patch, delay_patch = patches()
+        with add_patch, load_patch, delay_patch:
+            await async_import_historical_data(hass, call_jan())
+            await async_import_historical_data(hass, call_feb())
+        store_serial = dict(store)
+        store.clear()
+
+        # Concurrent run must converge to the identical final rows
+        add_patch, load_patch, delay_patch = patches()
+        with add_patch, load_patch, delay_patch:
+            await asyncio.gather(
+                async_import_historical_data(hass, call_jan()),
+                async_import_historical_data(hass, call_feb()),
+            )
+
+        assert store == store_serial
+
+        # Recompute math: February sums continue from January's total
+        yield_id = "eg4_web_monitor:plant_12345_yield"
+        ordered = sorted(
+            (start, values) for (sid, start), values in store.items() if sid == yield_id
+        )
+        assert [state for _, (state, _sum) in ordered] == [1.0, 2.0, 3.0, 4.0]
+        assert [running for _, (_state, running) in ordered] == [1.0, 3.0, 6.0, 10.0]
 
 
 class TestLoadExistingRows:
