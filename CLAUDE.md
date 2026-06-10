@@ -433,4 +433,4 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | Charge Current | 101 | Amps |
 | Discharge Current | 102 | Amps |
 | On-Grid SOC Cutoff | 105 | 10-90% |
-| Off-Grid SOC Cutoff | 106 | 0-100% |
+| Off-Grid SOC Cutoff | 125 | 0-100% |
