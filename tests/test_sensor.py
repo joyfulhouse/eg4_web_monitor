@@ -114,8 +114,9 @@ class TestLateBatteryRegistration:
         # Set up entities — should create inverter sensors but no batteries
         await async_setup_entry(hass, local_config_entry, mock_add_entities)
 
-        # Verify listeners registered (batteries + smart ports + device sensors)
-        assert mock_coordinator_static.async_add_listener.call_count == 3
+        # Verify listeners registered (batteries + smart ports + device
+        # sensors + battery bank sensors)
+        assert mock_coordinator_static.async_add_listener.call_count == 4
 
         # Simulate second refresh: batteries appear
         battery_sensors = {
