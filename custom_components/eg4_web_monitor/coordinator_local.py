@@ -196,6 +196,125 @@ class LocalTransportMixin(_MixinBase):
 
         return dict(cache)
 
+    async def _read_forced_discharge_parameters(self, transport: Any) -> dict[str, Any]:
+        """Read forced-discharge registers 82-83 directly.
+
+        Register 82 is Forced Discharge Power Rate in tenths of a kW.
+        Register 83 is Forced Discharge SOC Limit in percent.
+        pylxpweb DongleTransport returns raw reads as a dict keyed by register
+        number, for example {82: 23, 83: 18}.
+        """
+        params: dict[str, Any] = {}
+
+        async def _maybe_await(value: Any) -> Any:
+            if hasattr(value, "__await__"):
+                return await value
+            return value
+
+        async def _try_call(target: Any, method_name: str, *args: Any) -> Any:
+            method = getattr(target, method_name, None)
+            if method is None:
+                return None
+            try:
+                return await _maybe_await(method(*args))
+            except TypeError:
+                return None
+            except Exception as err:
+                _LOGGER.debug(
+                    "Failed forced-discharge register read using %s.%s%r: %s",
+                    type(target).__name__,
+                    method_name,
+                    args,
+                    err,
+                )
+                return None
+
+        async def _try_read(method_name: str, *args: Any) -> Any:
+            targets = [transport]
+            for attr in ("client", "_client", "modbus_client", "_modbus_client"):
+                target = getattr(transport, attr, None)
+                if target is not None and target not in targets:
+                    targets.append(target)
+
+            for target in targets:
+                result = await _try_call(target, method_name, *args)
+                if result is not None:
+                    return result
+            return None
+
+        def _get_raw_value(raw_data: Any, register: int, offset: int) -> Any:
+            if raw_data is None:
+                return None
+
+            if isinstance(raw_data, dict):
+                for key in (register, str(register), offset, str(offset)):
+                    if key in raw_data:
+                        return raw_data[key]
+
+                if register == 82:
+                    for key in (
+                        "HOLD_FORCED_DISCHG_POWER_CMD",
+                        "forced_discharge_power_rate",
+                        "forced_discharge_power",
+                    ):
+                        if key in raw_data:
+                            return raw_data[key]
+                elif register == 83:
+                    for key in (
+                        "HOLD_FORCED_DISCHG_SOC_LIMIT",
+                        "forced_discharge_soc_limit",
+                        "forced_discharge_battery_level",
+                    ):
+                        if key in raw_data:
+                            return raw_data[key]
+                return None
+
+            for attr in ("registers", "values", "data"):
+                attr_value = getattr(raw_data, attr, None)
+                if attr_value is not None and not callable(attr_value):
+                    value = _get_raw_value(attr_value, register, offset)
+                    if value is not None:
+                        return value
+
+            if isinstance(raw_data, (list, tuple)) and len(raw_data) > offset:
+                return raw_data[offset]
+
+            if offset == 0 and isinstance(raw_data, (int, float)):
+                return raw_data
+
+            return None
+
+        raw_reads: list[tuple[Any, int, int]] = []
+
+        raw_reads.append((await _try_read("read_parameters", 82, 2), 0, 1))
+        raw_reads.append((await _try_read("read_named_parameters", 82, 2), 0, 1))
+        raw_reads.append((await _try_read("read_parameters", 80, 40), 2, 3))
+        raw_reads.append((await _try_read("read_holding_registers", 82, 2), 0, 1))
+        raw_reads.append((await _try_read("read_registers", 82, 2), 0, 1))
+        raw_reads.append((await _try_read("read_holding_registers", 80, 40), 2, 3))
+        raw_reads.append((await _try_read("read_registers", 80, 40), 2, 3))
+
+        forced_power = None
+        forced_soc_limit = None
+
+        for raw_data, power_offset, soc_offset in raw_reads:
+            if raw_data is None:
+                continue
+            if forced_power is None:
+                forced_power = _get_raw_value(raw_data, 82, power_offset)
+            if forced_soc_limit is None:
+                forced_soc_limit = _get_raw_value(raw_data, 83, soc_offset)
+            if forced_power is not None and forced_soc_limit is not None:
+                break
+
+        if forced_power is not None:
+            params["HOLD_FORCED_DISCHG_POWER_CMD"] = forced_power
+
+        if forced_soc_limit is not None:
+            params["HOLD_FORCED_DISCHG_SOC_LIMIT"] = forced_soc_limit
+
+        return params
+
     async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
         """Read configuration parameters using library's named parameter mapping.
 
@@ -219,6 +338,7 @@ class LocalTransportMixin(_MixinBase):
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 (64, 16),  # Power settings + AC charge/discharge (64-79)
+                (82, 2),  # Forced discharge power rate/SOC limit (82-83)
                 (101, 2),  # Charge/discharge current limits (101-102)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
@@ -241,7 +361,12 @@ class LocalTransportMixin(_MixinBase):
                         range_err,
                     )
 
+            # Forced discharge registers are not always present in pylxpweb's
+            # named-parameter map, so read them by raw holding register address.
+            params.update(await self._read_forced_discharge_parameters(transport))
+
             _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
+            
             # Debug: log key number entity parameters
             key_params = {
                 k: v
@@ -252,6 +377,8 @@ class LocalTransportMixin(_MixinBase):
                     "HOLD_DISCHG_POWER_PERCENT_CMD",  # Discharge Power (reg 65)
                     "HOLD_AC_CHARGE_POWER_CMD",  # AC Charge Power (reg 66)
                     "HOLD_AC_CHARGE_SOC_LIMIT",  # AC Charge SOC Limit (reg 67)
+                    "HOLD_FORCED_DISCHG_POWER_CMD",
+                    "HOLD_FORCED_DISCHG_SOC_LIMIT",
                     "HOLD_LEAD_ACID_CHARGE_RATE",  # Charge Current (reg 101)
                     "HOLD_LEAD_ACID_DISCHARGE_RATE",  # Discharge Current (reg 102)
                     "HOLD_DISCHG_CUT_OFF_SOC_EOD",  # On-Grid SOC (reg 105)
@@ -444,10 +571,14 @@ class LocalTransportMixin(_MixinBase):
                 "connection_type": connection_type,
             }
 
+            previous_params = (self.data or {}).get("parameters", {}).get(serial, {})
+            param_data = dict(previous_params) if isinstance(previous_params, dict) else {}
             if include_params:
-                param_data = await self._read_modbus_parameters(transport)
+                param_data.update(await self._read_modbus_parameters(transport))
             else:
-                param_data = {}
+                # Keep forced discharge number entities populated even when the
+                # full parameter refresh is not due.
+                param_data.update(await self._read_forced_discharge_parameters(transport))
             processed["parameters"] = {serial: param_data}
 
             if not self._last_available_state:
@@ -1012,18 +1143,32 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
+                transport = inverter.transport
+                # Preserve existing parameters and merge fresh reads into them.
+                # If a direct read of registers 82-83 fails on a given cycle,
+                # this prevents the forced-discharge number values from
+                # disappearing after a refresh.
+                param_data = dict(processed["parameters"].get(serial, {}))
                 if include_params:
-                    transport = inverter.transport
                     if transport:
-                        param_data = await self._read_modbus_parameters(transport)
-                    else:
-                        param_data = {}
-                    processed["parameters"][serial] = param_data
-                elif serial not in processed["parameters"]:
-                    # No param read this cycle — preserve existing data or
-                    # defer on first refresh (empty dict is safe — switch/number
-                    # entities show unknown until background load completes).
-                    processed["parameters"][serial] = {}
+                        param_data.update(await self._read_modbus_parameters(transport))
+                        # Always take the final forced-discharge values from a
+                        # direct raw read.  This avoids stale named-parameter or
+                        # cached values when the inverter-side settings changed.
+                        param_data.update(
+                            await self._read_forced_discharge_parameters(transport)
+                        )
+                else:
+                    # Most parameters are expensive and refresh on the parameter
+                    # interval, but forced discharge values are lightweight and
+                    # back visible number entities. Read registers 82-83 every
+                    # local poll so the UI is populated after startup and after
+                    # set_value calls.
+                    if transport:
+                        param_data.update(
+                            await self._read_forced_discharge_parameters(transport)
+                        )
+                processed["parameters"][serial] = param_data
 
                 _LOGGER.debug(
                     "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
