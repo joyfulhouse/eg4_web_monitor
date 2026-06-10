@@ -6168,6 +6168,275 @@ class TestStaticLiveFeatureAgreement:
         assert overridden != live
 
 
+class TestUnknownFamilyModelFallback:
+    """Model-name fallback when family detection reports UNKNOWN (issue #219).
+
+    A 6000XP on firmware ccaa-140A0A reports an unmapped HOLD_DEVICE_TYPE_CODE
+    in CLOUD mode, so pylxpweb's ``detect_features()`` yields family=UNKNOWN
+    whose conservative defaults set ``split_phase=False`` — silently starving
+    all L1/L2 (split-phase) sensors such as eps_power_l1/eps_power_l2.  The
+    integration must fall back to deriving the full family profile from the
+    device *model* string so known models keep their correct sensor set.
+    """
+
+    @staticmethod
+    def _make_unknown_inverter(model: str, device_type_code: int = 0):
+        """Inverter stand-in whose feature detection resolved to UNKNOWN.
+
+        Mirrors the cloud failure mode: a real ``InverterFeatures`` built from
+        an unmapped device type code (family=UNKNOWN), plus the ``model`` /
+        ``serial_number`` surface the extractor reads.
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        class _Inverter:
+            def __init__(self) -> None:
+                self._features = InverterFeatures.from_device_type_code(
+                    device_type_code
+                )
+                self.serial_number = "6000123456"
+                self.model = model
+
+        return _Inverter()
+
+    def test_cloud_unknown_family_6000xp_creates_split_phase_sensors(self):
+        """CLOUD: family UNKNOWN + model 6000XP → eps_power_l1/l2 created."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+        from custom_components.eg4_web_monitor.sensor import _should_create_sensor
+
+        # Real HybridInverter exactly as the cloud path builds it: model from
+        # deviceTypeText, _features defaulted to UNKNOWN (unmapped type code).
+        inverter = make_real_inverter("6000123456", "6000XP")
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+        # The starved sensors from issue #219 must be created...
+        assert _should_create_sensor("eps_power_l1", features) is True
+        assert _should_create_sensor("eps_power_l2", features) is True
+        # ...and three-phase R/S/T sensors must NOT be created.
+        assert _should_create_sensor("grid_voltage_r", features) is False
+        assert _should_create_sensor("eps_voltage_r", features) is False
+
+    def test_fallback_applies_full_family_profile(self):
+        """The fallback applies the complete profile, not just phase flags."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        # EG4_OFFGRID capabilities beyond the phase flags (UNKNOWN profile
+        # would leave these False, starving their sensors too).
+        assert features["supports_discharge_recovery_hysteresis"] is True
+        assert features["supports_grid_peak_shaving"] is True
+        assert features["grid_type"] == "split_phase"
+        assert "pv_string_count" in features
+
+    def test_fallback_preserves_probed_capabilities(self):
+        """Runtime-probed refinements survive the model-name fallback.
+
+        pylxpweb's ``_probe_optional_features()`` refines flags from actual
+        register presence even when the family is UNKNOWN.  Values deviating
+        from the pure-UNKNOWN baseline were genuinely detected and must
+        override the model-derived family profile (which would say False).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        inverter = self._make_unknown_inverter("6000XP")
+        # Simulate a register probe having fired on the UNKNOWN profile
+        # (EG4_OFFGRID's family default for volt_watt_curve is False).
+        inverter._features.volt_watt_curve = True
+        # Explicit PV string count (deviates from the baseline default 3).
+        inverter._features.pv_string_count = 2
+
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_volt_watt_curve"] is True
+        assert features["pv_string_count"] == 2
+
+    def test_fallback_keeps_baseline_equal_pv_string_count(self):
+        """A probed pv_string_count equal to the baseline default still wins.
+
+        Value-difference is not valid provenance for pv_string_count: the
+        baseline default is itself a legitimate probed value, so the fallback
+        profile must never clobber it (#219 review finding 3).
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        baseline_count = InverterFeatures().pv_string_count
+        inverter = self._make_unknown_inverter("6000XP")
+        inverter._features.pv_string_count = baseline_count
+
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["pv_string_count"] == baseline_count
+
+    def test_fallback_records_provenance_breadcrumbs(self):
+        """Fallback marks family_source and keeps the raw detected family."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+
+    def test_static_fallback_records_provenance_breadcrumbs(self):
+        """Static path sets the same breadcrumbs (drives the Repairs notice)."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _features_from_family,
+        )
+
+        features = _features_from_family("UNKNOWN", None, model="6000XP")
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+        # A cleanly detected family carries no breadcrumbs (no fallback fired).
+        clean = _features_from_family("EG4_HYBRID", None, model="FlexBOSS21")
+        assert "family_source" not in clean
+
+    def test_live_path_grid_type_override_survives_fallback(self):
+        """User grid-type override outranks the fallback profile every poll.
+
+        Composition contract for the LOCAL live path (#219 review finding 1):
+        extraction (with fallback) then _apply_grid_type_override — the
+        override must win regardless of what the fallback inferred.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _apply_grid_type_override,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["supports_split_phase"] is True  # fallback profile
+        _apply_grid_type_override(features, "three_phase")
+        assert features["supports_three_phase"] is True
+        assert features["supports_split_phase"] is False
+
+    @pytest.mark.parametrize(
+        ("model", "expected_family"),
+        [
+            ("6000XP", "EG4_OFFGRID"),
+            ("12000XP", "EG4_OFFGRID"),
+            ("12000XP-US", "EG4_OFFGRID"),
+            ("FlexBOSS21", "EG4_HYBRID"),
+            ("FlexBOSS18", "EG4_HYBRID"),
+            ("18kPV", "EG4_HYBRID"),
+            ("12kPV", "EG4_HYBRID"),
+            # Case-insensitive matching (cloud deviceTypeText casing varies)
+            ("6000xp", "EG4_OFFGRID"),
+            ("FLEXBOSS21", "EG4_HYBRID"),
+            (" 18KPV ", "EG4_HYBRID"),
+        ],
+    )
+    def test_model_name_fallback_mapping(self, model, expected_family):
+        """Each known model maps to its family; all are split-phase US."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter(model)
+        )
+        assert features["inverter_family"] == expected_family
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+    def test_unknown_family_unknown_model_stays_conservative(self):
+        """Unrecognized model leaves the UNKNOWN profile untouched."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("MysteryBox9000")
+        )
+        assert features["inverter_family"] == "UNKNOWN"
+        assert features["supports_split_phase"] is False
+        assert features["supports_three_phase"] is False
+
+    def test_known_family_not_overridden_by_model(self):
+        """The fallback never fires when detection resolved a real family."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        # LXP-EU (three-phase) detected correctly, but a contradictory model
+        # string must not flip it to a split-phase profile.
+        inverter = self._make_unknown_inverter("6000XP", device_type_code=12)
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["inverter_family"] == "LXP"
+        assert features["supports_three_phase"] is True
+        assert features["supports_split_phase"] is False
+
+    def test_fallback_preserves_real_device_type_code(self):
+        """The real (unmapped) device type code survives as a diagnostic."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP", device_type_code=777)
+        )
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        # NOT the EG4_OFFGRID representative code (54) — keep the breadcrumb.
+        assert features["device_type_code"] == 777
+
+    def test_static_path_model_fallback(self):
+        """LOCAL static path derives the profile from model when family fails."""
+        # Legacy config without a stored family
+        features = _features_from_family(None, model="6000XP")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+        # Config that stored the literal UNKNOWN family
+        features = _features_from_family("UNKNOWN", model="12000XP")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+
+        # Hybrid-family model
+        features = _features_from_family(None, model="FlexBOSS21")
+        assert features["inverter_family"] == "EG4_HYBRID"
+        assert features["supports_split_phase"] is True
+
+    def test_static_path_unknown_model_returns_empty(self):
+        """Unresolvable family + unrecognized model keeps create-all fallback."""
+        assert _features_from_family(None, model="MysteryBox9000") == {}
+        assert _features_from_family("UNKNOWN", model=None) == {}
+        assert _features_from_family("UNKNOWN", model="") == {}
+
+    def test_static_path_ambiguous_lxp_not_overridden_by_model(self):
+        """A known-but-ambiguous family (LXP, no dtc) is not model-overridden."""
+        # LXP needs a device type code (EU=three-phase vs LB=split-phase);
+        # a contradictory model string must not pick a side.
+        assert _features_from_family("LXP", model="18kPV") == {}
+
+    def test_static_path_grid_type_override_wins_over_fallback(self):
+        """User grid-type override still beats the model-derived profile."""
+        features = _features_from_family(None, model="6000XP", grid_type="three_phase")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is False
+        assert features["supports_three_phase"] is True
+
+
 class TestPV456DataPath:
     """pv4-6 values must actually flow into coordinator sensor data.
 

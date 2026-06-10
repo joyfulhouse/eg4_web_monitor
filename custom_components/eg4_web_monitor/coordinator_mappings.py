@@ -18,6 +18,7 @@ from .const import (
     GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
     LEGACY_FAMILY_MAP,
+    MODEL_NAME_FAMILY_FALLBACK,
 )
 
 if TYPE_CHECKING:
@@ -1332,6 +1333,136 @@ def _parse_inverter_family(family_str: str | None) -> Any:
         return None
 
 
+def _family_from_model_name(model: str | None) -> str | None:
+    """Map a device model name to its inverter family (fallback path).
+
+    Only consulted when register/cloud-based family detection could not
+    resolve the family. Matching is case-insensitive against
+    :data:`MODEL_NAME_FAMILY_FALLBACK`.
+
+    Args:
+        model: Device model string (e.g. "6000XP", "FlexBOSS21").
+
+    Returns:
+        Family string ("EG4_OFFGRID"/"EG4_HYBRID") or None if unrecognized.
+    """
+    if not model:
+        return None
+    return MODEL_NAME_FAMILY_FALLBACK.get(model.strip().upper())
+
+
+def _model_fallback_profile(model: str | None) -> dict[str, Any] | None:
+    """Derive a full family feature profile from a device model name.
+
+    Builds the same feature dict shape as :func:`_features_from_family` by
+    routing the model-mapped family through pylxpweb's canonical
+    ``InverterFeatures`` — so the fallback profile is complete (phase flags,
+    discharge recovery, volt-watt, PV string count, grid type), not just a
+    split-phase patch.
+
+    Args:
+        model: Device model string.
+
+    Returns:
+        Feature dict, or None when the model does not map to a family.
+    """
+    family_str = _family_from_model_name(model)
+    if family_str is None:
+        return None
+
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
+
+    feat = InverterFeatures.from_family(InverterFamily(family_str))
+    if feat is None:
+        # Defensive: all fallback families have a representative profile.
+        return None
+    return _features_dict_from_inverter_features(feat)
+
+
+def _apply_model_family_fallback(
+    features: dict[str, Any], model: str | None, serial: str | None = None
+) -> dict[str, Any]:
+    """Re-derive the feature profile from the model name when family is UNKNOWN.
+
+    Some firmware reports a HOLD_DEVICE_TYPE_CODE that pylxpweb cannot map
+    (e.g. 6000XP on ccaa-140A0A, issue #219). ``detect_features()`` then
+    yields family=UNKNOWN whose conservative defaults set
+    ``split_phase=False`` — silently starving all L1/L2 sensors (eps_power_l1,
+    eps_power_l2, ...). When the device *model* string identifies a known
+    family, the family-default layer is rebuilt from it instead.
+
+    Detection-derived refinements survive the fallback: any detected value
+    that deviates from the pure-UNKNOWN baseline was set by something real —
+    pylxpweb's runtime register probing (``_probe_optional_features``) or an
+    explicit PV string count — and overrides the family profile, mirroring
+    pylxpweb's own family-defaults-then-probe layering. The real (unmapped)
+    ``device_type_code`` is always preserved for diagnostics so users can
+    report it for proper mapping.
+
+    Args:
+        features: Feature dict from ``_features_dict_from_inverter_features``.
+        model: Device model string (cloud ``deviceTypeText`` or config model).
+        serial: Device serial for logging context.
+
+    Returns:
+        The fallback feature dict, or *features* unchanged when detection
+        resolved a real family or the model is unrecognized.
+    """
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
+
+    if features.get("inverter_family") != InverterFamily.UNKNOWN.value:
+        return features
+
+    fallback = _model_fallback_profile(model)
+    if fallback is None:
+        return features
+
+    # Pure-UNKNOWN baseline (no probe refinements): fields where the detected
+    # dict matches this baseline carry no information and take the fallback
+    # profile's value; deviations were genuinely detected and win.
+    baseline = _features_dict_from_inverter_features(InverterFeatures())
+
+    merged = dict(fallback)
+    for key, detected_value in features.items():
+        if key in ("inverter_family", "device_type_code"):
+            # inverter_family: replacing UNKNOWN is the whole point.
+            # device_type_code: handled explicitly below.
+            continue
+        if key not in baseline or detected_value != baseline[key]:
+            merged[key] = detected_value
+
+    # Keep the real (unmapped) code — the representative profile's code is
+    # synthetic and would hide the value users need to report.
+    if "device_type_code" in features:
+        merged["device_type_code"] = features["device_type_code"]
+
+    # pv_string_count: the baseline default is itself a VALID probed value, so
+    # value-difference is not usable as provenance for this field — a probe
+    # that landed exactly on the default would be clobbered by the profile.
+    # An explicitly detected count always wins over the fallback profile.
+    if "pv_string_count" in features:
+        merged["pv_string_count"] = features["pv_string_count"]
+
+    # Provenance breadcrumbs: the diagnostic inverter_family sensor reports
+    # the EFFECTIVE family (so downstream gating works), and these companion
+    # keys keep the raw detection visible in coordinator data/diagnostics so
+    # the upstream pylxpweb mapping gap stays reportable.
+    merged["family_source"] = "model_fallback"
+    merged["detected_inverter_family"] = features.get(
+        "inverter_family", InverterFamily.UNKNOWN.value
+    )
+
+    _LOGGER.info(
+        "Inverter family UNKNOWN for %s (device_type_code=%s); derived family "
+        "%s from model name %r",
+        serial or "unknown serial",
+        features.get("device_type_code"),
+        merged["inverter_family"],
+        model,
+    )
+    return merged
+
+
 def _apply_grid_type_override(features: dict[str, Any], grid_type: str) -> None:
     """Override phase-specific feature flags based on user-selected grid type.
 
@@ -1396,6 +1527,7 @@ def _features_from_family(
     family_str: str | None,
     device_type_code: int | None = None,
     grid_type: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Derive feature flags from inverter family and device type code.
 
@@ -1419,6 +1551,11 @@ def _features_from_family(
             LXP-LB).
         grid_type: User-selected grid type override. When provided, overrides the
             phase flags. None means no override (backward compatible).
+        model: Device model string from config. Used as a last-resort family
+            fallback (issue #219) when the family is missing/UNKNOWN — a known
+            model (e.g. "6000XP") then supplies its family profile. A
+            known-but-ambiguous family (LXP without device type code) is never
+            model-overridden.
 
     Returns:
         Feature dict suitable for ``_should_create_sensor`` filtering. Empty dict
@@ -1426,16 +1563,43 @@ def _features_from_family(
         code (conservative: creates all sensors).
     """
     family = _parse_inverter_family(family_str)
-    if family is None:
-        return {}
 
-    from pylxpweb.devices.inverters import InverterFeatures
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
 
-    feat = InverterFeatures.from_family(family, device_type_code)
+    feat = (
+        InverterFeatures.from_family(family, device_type_code)
+        if family is not None
+        else None
+    )
+
     if feat is None:
-        return {}
+        # A resolved-but-ambiguous family (LXP needs a device type code to
+        # pick EU three-phase vs LB split-phase) keeps the conservative
+        # create-all fallback — a contradictory model must not pick a side.
+        if family is not None and family != InverterFamily.UNKNOWN:
+            return {}
 
-    features = _features_dict_from_inverter_features(feat)
+        # Model-name fallback (issue #219): family missing or UNKNOWN.
+        features = _model_fallback_profile(model)
+        if features is None:
+            return {}
+        # Provenance breadcrumbs (mirror _apply_model_family_fallback): keep
+        # the raw config family visible and let the static-data builder
+        # detect that the fallback engaged (Repairs notice for legacy
+        # UNKNOWN entries whose create-all sensor set is now pruned).
+        features["family_source"] = "model_fallback"
+        features["detected_inverter_family"] = (
+            str(family_str) if family_str else InverterFamily.UNKNOWN.value
+        )
+        _LOGGER.info(
+            "Inverter family %r unresolved in config; derived family %s from "
+            "model name %r",
+            family_str,
+            features["inverter_family"],
+            model,
+        )
+    else:
+        features = _features_dict_from_inverter_features(feat)
 
     # The only integration-specific layer on top of pylxpweb's canonical
     # capabilities: apply the user-selected grid-type override when present.

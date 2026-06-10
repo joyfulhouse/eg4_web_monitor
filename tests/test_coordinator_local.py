@@ -952,6 +952,48 @@ class TestSharedBatterySecondary:
             "Secondary should have battery bank keys in static phase"
         )
 
+    async def test_static_fallback_creates_repair_issue(self, hass, local_config_entry):
+        """Legacy UNKNOWN-family entry pruned by model fallback raises Repairs.
+
+        The static path used to create ALL sensors for UNKNOWN-family configs;
+        the model fallback now prunes to the real profile, which removes
+        previously-visible (dead) three-phase entities — that must be loud,
+        not silent (#219 review finding 2).
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._local_transport_configs = [
+            {
+                "serial": "6000123456",
+                "transport_type": "modbus_tcp",
+                "host": "192.168.1.50",
+                "port": 502,
+                "model": "6000XP",
+                "inverter_family": "UNKNOWN",
+            },
+            {
+                "serial": "5284200001",
+                "transport_type": "modbus_tcp",
+                "host": "192.168.1.51",
+                "port": 502,
+                "model": "FlexBOSS21",
+                "inverter_family": "EG4_HYBRID",
+            },
+        ]
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+        ) as mock_issue:
+            coordinator._build_static_local_data()
+
+        # Exactly one issue — for the fallback device, not the clean one.
+        mock_issue.assert_called_once()
+        args, kwargs = mock_issue.call_args
+        assert args[2] == "unknown_family_fallback_6000123456"
+        assert kwargs["translation_key"] == "unknown_family_fallback"
+        assert kwargs["translation_placeholders"]["model"] == "6000XP"
+        assert kwargs["translation_placeholders"]["family"] == "EG4_OFFGRID"
+
     async def test_static_phase_excludes_can_diagnostic_keys(
         self, hass, parallel_config_entry
     ):

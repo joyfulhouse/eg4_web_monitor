@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
 from .coordinator_mappings import (
     _apply_grid_type_override,
+    _apply_model_family_fallback,
     _build_battery_bank_sensor_mapping,
     _energy_balance,
     _features_dict_from_inverter_features,
@@ -1109,6 +1110,12 @@ class DeviceProcessingMixin(_MixinBase):
         static-data path (:func:`_features_from_family`) uses — so the live and
         static feature paths always agree for a given device.
 
+        When detection resolved family=UNKNOWN (firmware reporting an unmapped
+        HOLD_DEVICE_TYPE_CODE, e.g. 6000XP on ccaa-140A0A — issue #219), the
+        feature profile is re-derived from the device model name via
+        :func:`_apply_model_family_fallback` so split-phase sensors are not
+        silently starved.
+
         Args:
             inverter: BaseInverter object with features detected.
 
@@ -1118,7 +1125,12 @@ class DeviceProcessingMixin(_MixinBase):
         inverter_features = getattr(inverter, "_features", None)
         if inverter_features is None:
             return {}
-        return _features_dict_from_inverter_features(inverter_features)
+        features = _features_dict_from_inverter_features(inverter_features)
+        return _apply_model_family_fallback(
+            features,
+            getattr(inverter, "model", None),
+            getattr(inverter, "serial_number", None),
+        )
 
     def _extract_battery_from_object(self, battery: "Battery") -> dict[str, Any]:
         """Extract sensor data from Battery object using properties.
