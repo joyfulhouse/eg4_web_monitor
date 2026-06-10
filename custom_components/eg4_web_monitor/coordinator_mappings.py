@@ -1657,15 +1657,27 @@ def _build_transport_configs(
             elif transport_type == TransportType.WIFI_DONGLE:
                 extra_kwargs["dongle_serial"] = item.get("dongle_serial", "")
             elif transport_type == TransportType.MODBUS_SERIAL:
-                extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
-                extra_kwargs["serial_port"] = item.get("serial_port", "")
-                extra_kwargs["serial_baudrate"] = item.get("serial_baudrate", 19200)
-                extra_kwargs["serial_parity"] = item.get("serial_parity", "N")
-                extra_kwargs["serial_stopbits"] = item.get("serial_stopbits", 1)
+                # Coerce numeric fields defensively: entries stored by older
+                # versions (or hand-edited) may hold strings/None, which would
+                # raise TypeError deep in TransportConfig validation and abort
+                # the whole setup instead of skipping one bad config (#233).
+                extra_kwargs["unit_id"] = int(
+                    item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+                )
+                extra_kwargs["serial_port"] = str(item.get("serial_port", ""))
+                extra_kwargs["serial_baudrate"] = int(
+                    item.get("serial_baudrate", 19200)
+                )
+                extra_kwargs["serial_parity"] = str(item.get("serial_parity", "N"))
+                extra_kwargs["serial_stopbits"] = int(item.get("serial_stopbits", 1))
 
-            # For serial transport, host/port are optional
+            # Serial transports have no host/port in stored config dicts;
+            # TransportConfig requires both positionally but skips them in
+            # MODBUS_SERIAL validation, so pass placeholders (#233).
             if transport_type == TransportType.MODBUS_SERIAL:
                 config = TransportConfig(
+                    host=item.get("host", ""),
+                    port=item.get("port", 0),
                     serial=item["serial"],
                     transport_type=transport_type,
                     inverter_family=inverter_family,
@@ -1696,7 +1708,7 @@ def _build_transport_configs(
 
             configs.append(config)
 
-        except (KeyError, ValueError) as err:
+        except (KeyError, TypeError, ValueError) as err:
             _LOGGER.warning("Failed to build TransportConfig from %s: %s", item, err)
             continue
 

@@ -464,6 +464,59 @@ class TestCoordinatorCleanup:
         mock_modbus.disconnect.assert_awaited_once()
         mock_dongle.disconnect.assert_awaited_once()
 
+    async def test_async_shutdown_disconnects_station_only_transports(
+        self, hass, mock_config_entry
+    ):
+        """Test async_shutdown disconnects transports reachable only via the station.
+
+        A serial-attached GridBOSS lives on station.all_mid_devices but NOT in
+        _mid_device_cache (_rebuild_inverter_cache only caches inverters), so a
+        cache-only walk leaked its open serial port across reloads (#233).
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        assert not coordinator._inverter_cache
+        assert not coordinator._mid_device_cache
+
+        serial_transport = make_transport_spec(is_connected=True)
+        serial_transport.disconnect = AsyncMock()
+        mock_mid = make_real_mid("MID001", "GridBOSS")
+        mock_mid._transport = serial_transport
+
+        station = MagicMock()
+        station.all_inverters = []
+        station.all_mid_devices = [mock_mid]
+        coordinator.station = station
+
+        await coordinator.async_shutdown()
+
+        serial_transport.disconnect.assert_awaited_once()
+
+    async def test_async_shutdown_dedups_station_and_cache_transports(
+        self, hass, mock_config_entry
+    ):
+        """A transport shared between a cache entry and the station walk closes once.
+
+        The station walk's seen-set is seeded from both caches; without it the
+        same transport object would get a second disconnect() (mock transports
+        never flip is_connected, so this asserts the de-dup, not luck).
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        shared_transport = make_transport_spec(is_connected=True)
+        shared_transport.disconnect = AsyncMock()
+        mock_inv = make_real_inverter("INV001", "FlexBOSS21")
+        mock_inv._transport = shared_transport
+        coordinator._inverter_cache["INV001"] = mock_inv
+
+        station = MagicMock()
+        station.all_inverters = [mock_inv]
+        station.all_mid_devices = []
+        coordinator.station = station
+
+        await coordinator.async_shutdown()
+
+        shared_transport.disconnect.assert_awaited_once()
+
 
 class TestDeviceInfo:
     """Test device info generation methods."""

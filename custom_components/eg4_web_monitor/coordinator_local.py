@@ -1826,12 +1826,16 @@ class LocalTransportMixin(_MixinBase):
         """Attach local transports to HTTP-discovered station devices.
 
         This method enables hybrid mode by connecting local transports
-        (Modbus TCP or WiFi Dongle) to devices discovered via HTTP API.
-        After attachment, devices will use local transport for data fetching
-        with automatic fallback to HTTP on failure.
+        (Modbus TCP, WiFi Dongle, or Modbus Serial) to devices discovered
+        via HTTP API. After attachment, devices will use local transport
+        for data fetching with automatic fallback to HTTP on failure.
 
-        Uses the new Station.attach_local_transports() API from pylxpweb.
+        Network transports use the Station.attach_local_transports() API
+        from pylxpweb; serial transports are attached integration-side
+        because that API only dispatches modbus_tcp and wifi_dongle (#233).
         """
+        from pylxpweb.transports.config import AttachResult, TransportType
+
         if self.station is None or not self._local_transport_configs:
             return
 
@@ -1846,8 +1850,25 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.warning("No valid transport configs to attach")
             return
 
+        # pylxpweb's Station.attach_local_transports() only dispatches
+        # modbus_tcp and wifi_dongle ("Unknown transport type: modbus_serial"
+        # otherwise), so USB/RS485 serial configs are attached here instead,
+        # mirroring the LOCAL-only dispatch path (#233).
+        serial_configs = [
+            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
+        ]
+        network_configs = [
+            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
+        ]
+
         try:
-            result = await self.station.attach_local_transports(configs)
+            if network_configs:
+                result = await self.station.attach_local_transports(network_configs)
+            else:
+                result = AttachResult()
+
+            if serial_configs:
+                await self._attach_serial_transports_to_station(serial_configs, result)
 
             _LOGGER.info(
                 "Local transport attachment complete: %d matched, %d unmatched, %d failed",
@@ -1927,6 +1948,93 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.error("Failed to attach local transports: %s", err)
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
+
+    async def _attach_serial_transports_to_station(
+        self, configs: list[Any], result: Any
+    ) -> None:
+        """Attach Modbus serial (USB/RS485) transports to station devices.
+
+        pylxpweb's Station.attach_local_transports() only dispatches
+        modbus_tcp and wifi_dongle configs, so serial transports are
+        created and attached here with the same factory the LOCAL-only
+        path uses, mirroring the pylxpweb attach semantics (#233).
+
+        Args:
+            configs: MODBUS_SERIAL TransportConfig objects.
+            result: AttachResult updated in place with matched/unmatched/
+                failed counts so the caller's summary logging stays accurate.
+        """
+        from pylxpweb.transports import create_transport
+
+        assert self.station is not None
+        device_lookup: dict[str, Any] = {
+            inv.serial_number: inv for inv in self.station.all_inverters
+        }
+        for mid in self.station.all_mid_devices:
+            device_lookup[mid.serial_number] = mid
+
+        for config in configs:
+            device = device_lookup.get(config.serial)
+            if device is None:
+                _LOGGER.warning(
+                    "No device found with serial %s in station %s",
+                    config.serial,
+                    self.station.id,
+                )
+                result.unmatched += 1
+                result.unmatched_serials.append(config.serial)
+                continue
+
+            try:
+                transport = create_transport(
+                    "serial",
+                    port=config.serial_port,
+                    serial=config.serial,
+                    baudrate=config.serial_baudrate,
+                    parity=config.serial_parity,
+                    stopbits=config.serial_stopbits,
+                    unit_id=config.unit_id,
+                    timeout=DEFAULT_MODBUS_TIMEOUT,
+                    inverter_family=config.inverter_family,
+                )
+                await transport.connect()
+                device._transport = transport
+                result.matched += 1
+
+                # Tighten cache TTLs for local transport speed (inverters only,
+                # matching Station.attach_local_transports() semantics)
+                if isinstance(device, BaseInverter):
+                    device.set_transport_cache_ttls()
+
+                _LOGGER.info(
+                    "Attached modbus_serial transport to %s (%s)",
+                    config.serial,
+                    config.serial_port,
+                )
+            except Exception as err:
+                _LOGGER.error(
+                    "Failed to attach serial transport to device %s: %s",
+                    config.serial,
+                    err,
+                )
+                result.failed += 1
+                result.failed_serials.append(config.serial)
+                # Surface the degradation: the device silently falls back to
+                # cloud-only until the next reload, which is exactly the class
+                # of quiet failure #233 was filed about. Issue id includes the
+                # serial so HA de-duplicates repeat attach failures per device.
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"serial_attach_failed_{config.serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="serial_attach_failed",
+                    translation_placeholders={
+                        "serial": str(config.serial),
+                        "serial_port": str(config.serial_port),
+                    },
+                )
 
     async def _drain_modbus_buffers(self, inverters: list[Any]) -> None:
         """Background task: drain stale Waveshare RS485 buffer after HA restart.

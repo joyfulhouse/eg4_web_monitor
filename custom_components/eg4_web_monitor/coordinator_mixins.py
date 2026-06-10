@@ -2299,6 +2299,45 @@ class BackgroundTaskMixin(_MixinBase):
                         exc_info=True,
                     )
 
+        # Station-attached transports (HYBRID attach path). Devices attached
+        # via Station.attach_local_transports() or the serial attach helper
+        # are not guaranteed to appear in the caches above — notably MID
+        # devices, since _rebuild_inverter_cache() only caches inverters —
+        # which leaked open serial ports across reloads (#233). De-dup by
+        # object identity so a transport shared with a cache entry closes once.
+        station = getattr(self, "station", None)
+        if station is not None:
+            seen: set[int] = set()
+            for cache in (self._inverter_cache, self._mid_device_cache):
+                for cached in cache.values():
+                    if cached.transport is not None:
+                        seen.add(id(cached.transport))
+            station_devices: list[Any] = list(
+                getattr(station, "all_inverters", None) or []
+            )
+            station_devices.extend(getattr(station, "all_mid_devices", None) or [])
+            for device in station_devices:
+                transport = getattr(device, "transport", None)
+                if (
+                    transport is None
+                    or id(transport) in seen
+                    or not getattr(transport, "is_connected", False)
+                ):
+                    continue
+                seen.add(id(transport))
+                try:
+                    await transport.disconnect()
+                    _LOGGER.debug(
+                        "Disconnected station transport for %s",
+                        getattr(device, "serial_number", "?"),
+                    )
+                except Exception:
+                    _LOGGER.debug(
+                        "Error disconnecting station transport for %s (ignored)",
+                        getattr(device, "serial_number", "?"),
+                        exc_info=True,
+                    )
+
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""
         self._background_tasks.discard(task)

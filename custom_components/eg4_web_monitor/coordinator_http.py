@@ -150,15 +150,21 @@ class HTTPUpdateMixin(_MixinBase):
                 no_transport.append(device)
                 continue
             # Group by the PUBLIC host/port (network transports — TCP dongle).
-            # A transport without a network endpoint (e.g. serial) can't share
-            # one, so it refreshes on its own rather than collapsing into a
-            # bogus ":0" group (the eg4-xi7 silent-default bug).
             host = getattr(transport, "host", None)
             port = getattr(transport, "port", None)
-            if host is None or port is None:
+            if host is not None and port is not None:
+                endpoint = f"{host}:{port}"
+            elif isinstance(port, str) and port:
+                # Serial transports carry the tty path in ``port`` and have no
+                # host. Devices sharing one RS485 adapter MUST refresh
+                # sequentially — serial buses are single-client and concurrent
+                # frames interleave/corrupt (#233). Distinct ports still
+                # parallelize via separate groups. (Avoids the bogus ":0"
+                # collapse of the eg4-xi7 silent-default bug.)
+                endpoint = f"serial:{port}"
+            else:
                 no_transport.append(device)
                 continue
-            endpoint = f"{host}:{port}"
             endpoint_groups.setdefault(endpoint, []).append(device)
 
         async def _refresh_group_sequentially(devices: list[Any]) -> None:
