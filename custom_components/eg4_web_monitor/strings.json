@@ -772,6 +772,10 @@
     "dongle_validation_disabled": {
       "title": "Data validation recommended for WiFi dongle",
       "description": "A WiFi dongle is configured but **Data Validation** is disabled. WiFi dongles share a Modbus bus, and concurrent reads can cause corrupt register data (e.g., energy spikes).\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor > Configure** and enable **Data Validation**."
+    },
+    "unknown_family_fallback": {
+      "title": "Inverter family inferred from model for {serial}",
+      "description": "Device **{serial}** did not report a recognized inverter family, so its capabilities were derived from the model name **{model}** (family **{family}**). Phase-specific sensors that never had data (e.g. three-phase R/S/T sensors on split-phase hardware) are no longer created.\n\nIf any automation referenced those sensors, update it. If this device really is three-phase, set **Grid Type** in the integration options. Please also report your firmware's device type code (see the Device Type Code diagnostic sensor) so it can be mapped upstream."
     }
   }
 }

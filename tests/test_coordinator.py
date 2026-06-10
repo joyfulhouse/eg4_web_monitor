@@ -6263,6 +6263,73 @@ class TestUnknownFamilyModelFallback:
         assert features["supports_volt_watt_curve"] is True
         assert features["pv_string_count"] == 2
 
+    def test_fallback_keeps_baseline_equal_pv_string_count(self):
+        """A probed pv_string_count equal to the baseline default still wins.
+
+        Value-difference is not valid provenance for pv_string_count: the
+        baseline default is itself a legitimate probed value, so the fallback
+        profile must never clobber it (#219 review finding 3).
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        baseline_count = InverterFeatures().pv_string_count
+        inverter = self._make_unknown_inverter("6000XP")
+        inverter._features.pv_string_count = baseline_count
+
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["pv_string_count"] == baseline_count
+
+    def test_fallback_records_provenance_breadcrumbs(self):
+        """Fallback marks family_source and keeps the raw detected family."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+
+    def test_static_fallback_records_provenance_breadcrumbs(self):
+        """Static path sets the same breadcrumbs (drives the Repairs notice)."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _features_from_family,
+        )
+
+        features = _features_from_family("UNKNOWN", None, model="6000XP")
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+        # A cleanly detected family carries no breadcrumbs (no fallback fired).
+        clean = _features_from_family("EG4_HYBRID", None, model="FlexBOSS21")
+        assert "family_source" not in clean
+
+    def test_live_path_grid_type_override_survives_fallback(self):
+        """User grid-type override outranks the fallback profile every poll.
+
+        Composition contract for the LOCAL live path (#219 review finding 1):
+        extraction (with fallback) then _apply_grid_type_override — the
+        override must win regardless of what the fallback inferred.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _apply_grid_type_override,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["supports_split_phase"] is True  # fallback profile
+        _apply_grid_type_override(features, "three_phase")
+        assert features["supports_three_phase"] is True
+        assert features["supports_split_phase"] is False
+
     @pytest.mark.parametrize(
         ("model", "expected_family"),
         [

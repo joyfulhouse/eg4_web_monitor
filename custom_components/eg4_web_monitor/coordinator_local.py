@@ -53,6 +53,7 @@ from .coordinator_mappings import (
     _build_gridboss_sensor_mapping,
     _build_individual_battery_mapping,
     _build_runtime_sensor_mapping,
+    _apply_grid_type_override,
     _build_transport_configs,
     _features_from_family,
     _get_transport_label,
@@ -832,6 +833,14 @@ class LocalTransportMixin(_MixinBase):
                                 e,
                             )
                     features = self._extract_inverter_features(inverter)
+                    # Re-apply the user's grid-type override AFTER extraction:
+                    # the model-family fallback inside the extractor can flip
+                    # phase flags, and without this the override only survived
+                    # the static first refresh — the second poll flipped the
+                    # features back and churned phase sensors (#219 review).
+                    grid_type_override = config.get(CONF_GRID_TYPE)
+                    if features and grid_type_override:
+                        _apply_grid_type_override(features, grid_type_override)
                     if include_params and features:
                         _LOGGER.debug(
                             "LOCAL: Detected features for %s: family=%s, "
@@ -1205,6 +1214,27 @@ class LocalTransportMixin(_MixinBase):
                 if not is_gridboss
                 else {}
             )
+
+            if features.get("family_source") == "model_fallback":
+                # Behavior change for legacy UNKNOWN-family entries: the static
+                # path used to create ALL sensors for them (including bogus
+                # three-phase R/S/T ones that never had data). The fallback now
+                # prunes to the model's real profile — surface that loudly so
+                # automations referencing the dropped sensors don't break
+                # silently (#219 review).
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"unknown_family_fallback_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="unknown_family_fallback",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "model": str(model),
+                        "family": str(features.get("inverter_family", "")),
+                    },
+                )
 
             device_data: dict[str, Any] = {
                 "type": device_type,

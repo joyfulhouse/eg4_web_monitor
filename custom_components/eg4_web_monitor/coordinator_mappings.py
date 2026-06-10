@@ -1436,6 +1436,22 @@ def _apply_model_family_fallback(
     if "device_type_code" in features:
         merged["device_type_code"] = features["device_type_code"]
 
+    # pv_string_count: the baseline default is itself a VALID probed value, so
+    # value-difference is not usable as provenance for this field — a probe
+    # that landed exactly on the default would be clobbered by the profile.
+    # An explicitly detected count always wins over the fallback profile.
+    if "pv_string_count" in features:
+        merged["pv_string_count"] = features["pv_string_count"]
+
+    # Provenance breadcrumbs: the diagnostic inverter_family sensor reports
+    # the EFFECTIVE family (so downstream gating works), and these companion
+    # keys keep the raw detection visible in coordinator data/diagnostics so
+    # the upstream pylxpweb mapping gap stays reportable.
+    merged["family_source"] = "model_fallback"
+    merged["detected_inverter_family"] = features.get(
+        "inverter_family", InverterFamily.UNKNOWN.value
+    )
+
     _LOGGER.info(
         "Inverter family UNKNOWN for %s (device_type_code=%s); derived family "
         "%s from model name %r",
@@ -1567,6 +1583,14 @@ def _features_from_family(
         features = _model_fallback_profile(model)
         if features is None:
             return {}
+        # Provenance breadcrumbs (mirror _apply_model_family_fallback): keep
+        # the raw config family visible and let the static-data builder
+        # detect that the fallback engaged (Repairs notice for legacy
+        # UNKNOWN entries whose create-all sensor set is now pruned).
+        features["family_source"] = "model_fallback"
+        features["detected_inverter_family"] = (
+            str(family_str) if family_str else InverterFamily.UNKNOWN.value
+        )
         _LOGGER.info(
             "Inverter family %r unresolved in config; derived family %s from "
             "model name %r",
