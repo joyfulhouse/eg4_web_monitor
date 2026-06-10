@@ -9,12 +9,14 @@ Covers methods not already tested in test_coordinator.py:
 """
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pylxpweb.devices import HybridInverter
+from pylxpweb.transports import ModbusSerialTransport
+from pylxpweb.transports.config import AttachResult, TransportType
 from pylxpweb.transports.data import (
     BatteryBankData,
     BatteryData,
@@ -560,6 +562,235 @@ class TestAttachLocalTransports:
 
         # station.attach_local_transports should NOT be called
         coordinator.station.attach_local_transports.assert_not_called()
+
+
+# ── Hybrid + USB serial transport attach (#233) ──────────────────────
+
+
+_SERIAL_TRANSPORT_DICT: dict[str, Any] = {
+    "serial": "INV001",
+    "transport_type": "modbus_serial",
+    "serial_port": "/dev/ttyUSB0",
+    "serial_baudrate": 19200,
+    "serial_parity": "N",
+    "serial_stopbits": 1,
+    "unit_id": 1,
+    "inverter_family": "EG4_HYBRID",
+    "model": "FlexBOSS21",
+}
+
+
+def _make_hybrid_entry(
+    transports: list[dict[str, Any]], entry_id: str
+) -> MockConfigEntry:
+    """Build a HYBRID-mode config entry with the given local transports."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="EG4 - Hybrid Serial Test",
+        data={
+            CONF_USERNAME: "test",
+            CONF_PASSWORD: "test",
+            CONF_BASE_URL: "https://monitor.eg4electronics.com",
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_PLANT_ID: "12345",
+            CONF_PLANT_NAME: "Test",
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+            CONF_LOCAL_TRANSPORTS: transports,
+        },
+        options={},
+        entry_id=entry_id,
+    )
+
+
+def _make_serial_transport_spec(**attrs: Any) -> Any:
+    """Autospec stand-in for a ModbusSerialTransport (USB/RS485 adapter)."""
+    spec = create_autospec(ModbusSerialTransport, spec_set=True, instance=True)
+    defaults: dict[str, Any] = {
+        "transport_type": "modbus_serial",
+        "is_connected": False,
+    }
+    defaults.update(attrs)
+    spec.configure_mock(**defaults)
+    return spec
+
+
+@patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+@patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+class TestAttachSerialTransports:
+    """Hybrid mode attaches USB serial transports integration-side (#233).
+
+    pylxpweb's Station.attach_local_transports() only dispatches modbus_tcp
+    and wifi_dongle configs and logs "Unknown transport type: modbus_serial"
+    for serial ones, so the coordinator must create and attach serial
+    transports itself, mirroring the LOCAL-only dispatch path.
+    """
+
+    async def test_serial_transport_attached_integration_side(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """Serial config attaches without the pylxpweb dispatch (#233)."""
+        entry = _make_hybrid_entry([dict(_SERIAL_TRANSPORT_DICT)], "hybrid_serial")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        inverter = make_real_inverter("INV001", "FlexBOSS21")
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock()
+        mock_station.is_hybrid_mode = True
+        mock_station.all_inverters = [inverter]
+        mock_station.all_mid_devices = []
+        coordinator.station = mock_station
+
+        serial_transport = _make_serial_transport_spec()
+        with patch(
+            "pylxpweb.transports.create_transport",
+            return_value=serial_transport,
+        ) as mock_create:
+            await coordinator._attach_local_transports_to_station()
+
+        # The pylxpweb dispatch (which would log "Unknown transport type:
+        # modbus_serial" and fail the attach) must not see serial configs.
+        mock_station.attach_local_transports.assert_not_called()
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args == ("serial",)
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["port"] == "/dev/ttyUSB0"
+        assert kwargs["serial"] == "INV001"
+        assert kwargs["baudrate"] == 19200
+        assert kwargs["parity"] == "N"
+        assert kwargs["stopbits"] == 1
+        assert kwargs["unit_id"] == 1
+
+        serial_transport.connect.assert_awaited_once()
+        assert inverter._transport is serial_transport
+        assert coordinator._local_transports_attached is True
+
+    async def test_mixed_tcp_and_serial_partitioned(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """TCP configs go to pylxpweb; serial configs attach locally."""
+        tcp_dict = {
+            "serial": "INV002",
+            "transport_type": "modbus_tcp",
+            "host": "192.168.1.100",
+            "port": 502,
+            "unit_id": 1,
+            "inverter_family": "EG4_HYBRID",
+            "model": "FlexBOSS21",
+        }
+        entry = _make_hybrid_entry(
+            [tcp_dict, dict(_SERIAL_TRANSPORT_DICT)], "hybrid_mixed"
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        inv_serial = make_real_inverter("INV001", "FlexBOSS21")
+        inv_tcp = make_real_inverter("INV002", "FlexBOSS21")
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock(
+            return_value=AttachResult(matched=1)
+        )
+        mock_station.is_hybrid_mode = True
+        mock_station.all_inverters = [inv_serial, inv_tcp]
+        mock_station.all_mid_devices = []
+        coordinator.station = mock_station
+
+        serial_transport = _make_serial_transport_spec()
+        with patch(
+            "pylxpweb.transports.create_transport",
+            return_value=serial_transport,
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        mock_station.attach_local_transports.assert_awaited_once()
+        (network_configs,) = mock_station.attach_local_transports.call_args.args
+        assert [c.transport_type for c in network_configs] == [TransportType.MODBUS_TCP]
+
+        assert inv_serial._transport is serial_transport
+        assert coordinator._local_transports_attached is True
+
+    async def test_serial_attaches_to_mid_device(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """Serial transports attach to GridBOSS/MID devices too."""
+        serial_dict = dict(_SERIAL_TRANSPORT_DICT)
+        serial_dict["serial"] = "GB00000001"
+        serial_dict["model"] = "GridBOSS"
+        entry = _make_hybrid_entry([serial_dict], "hybrid_serial_mid")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        mid = make_real_mid("GB00000001")
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock()
+        mock_station.is_hybrid_mode = True
+        mock_station.all_inverters = []
+        mock_station.all_mid_devices = [mid]
+        coordinator.station = mock_station
+
+        serial_transport = _make_serial_transport_spec()
+        with patch(
+            "pylxpweb.transports.create_transport",
+            return_value=serial_transport,
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        mock_station.attach_local_transports.assert_not_called()
+        assert mid._transport is serial_transport
+        assert coordinator._local_transports_attached is True
+
+    async def test_serial_unmatched_device(self, mock_aiohttp, mock_client_cls, hass):
+        """No station device matching the serial → unmatched, no crash."""
+        entry = _make_hybrid_entry(
+            [dict(_SERIAL_TRANSPORT_DICT)], "hybrid_serial_unmatched"
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock()
+        mock_station.is_hybrid_mode = False
+        mock_station.all_inverters = []
+        mock_station.all_mid_devices = []
+        coordinator.station = mock_station
+
+        with patch("pylxpweb.transports.create_transport") as mock_create:
+            await coordinator._attach_local_transports_to_station()
+
+        mock_create.assert_not_called()
+        assert coordinator._local_transports_attached is True
+
+    async def test_serial_connect_failure_recorded(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """A failing serial connect is recorded per-device, not fatal."""
+        entry = _make_hybrid_entry([dict(_SERIAL_TRANSPORT_DICT)], "hybrid_serial_fail")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        inverter = make_real_inverter("INV001", "FlexBOSS21")
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock()
+        mock_station.is_hybrid_mode = False
+        mock_station.all_inverters = [inverter]
+        mock_station.all_mid_devices = []
+        coordinator.station = mock_station
+
+        serial_transport = _make_serial_transport_spec()
+        serial_transport.connect.side_effect = OSError("port busy")
+        with patch(
+            "pylxpweb.transports.create_transport",
+            return_value=serial_transport,
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        # Transport never attached, but per-device failures match the
+        # pylxpweb semantics: attach completes and is not retried.
+        assert inverter._transport is None
+        assert coordinator._local_transports_attached is True
 
 
 class TestAttachForcedTransportRead:

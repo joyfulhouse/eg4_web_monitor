@@ -157,6 +157,50 @@ class TestBuildTransportConfigs:
         # Should skip config with missing field
         assert len(configs) == 0
 
+    def test_build_serial_config(self) -> None:
+        """Serial config dicts build a MODBUS_SERIAL TransportConfig (#233).
+
+        Stored modbus_serial dicts have no host/port keys (the config flow
+        only stores serial_port/baudrate/parity/stopbits/unit_id), so the
+        builder must not require them.
+        """
+        config_list = [
+            {
+                "serial": "CE12345678",
+                "transport_type": "modbus_serial",
+                "serial_port": "/dev/ttyUSB0",
+                "serial_baudrate": 19200,
+                "serial_parity": "N",
+                "serial_stopbits": 1,
+                "unit_id": 1,
+                "inverter_family": "EG4_HYBRID",
+            }
+        ]
+
+        configs = _build_transport_configs(config_list)
+
+        assert len(configs) == 1
+        assert configs[0].transport_type == TransportType.MODBUS_SERIAL
+        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial_port == "/dev/ttyUSB0"
+        assert configs[0].serial_baudrate == 19200
+        assert configs[0].serial_parity == "N"
+        assert configs[0].serial_stopbits == 1
+        assert configs[0].unit_id == 1
+
+    def test_build_serial_config_missing_port_skipped(self) -> None:
+        """Serial config without serial_port is skipped, not crashed on."""
+        config_list = [
+            {
+                "serial": "CE12345678",
+                "transport_type": "modbus_serial",
+            }
+        ]
+
+        configs = _build_transport_configs(config_list)
+
+        assert configs == []
+
 
 # ============================================================================
 # Test: Coordinator Hybrid Mode Initialization

@@ -1499,9 +1499,13 @@ def _build_transport_configs(
                 extra_kwargs["serial_parity"] = item.get("serial_parity", "N")
                 extra_kwargs["serial_stopbits"] = item.get("serial_stopbits", 1)
 
-            # For serial transport, host/port are optional
+            # Serial transports have no host/port in stored config dicts;
+            # TransportConfig requires both positionally but skips them in
+            # MODBUS_SERIAL validation, so pass placeholders (#233).
             if transport_type == TransportType.MODBUS_SERIAL:
                 config = TransportConfig(
+                    host=item.get("host", ""),
+                    port=item.get("port", 0),
                     serial=item["serial"],
                     transport_type=transport_type,
                     inverter_family=inverter_family,

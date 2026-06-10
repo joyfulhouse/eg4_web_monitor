@@ -1055,10 +1055,11 @@ class EG4ConfigFlow(
             return await self.async_step_reconfigure_devices()
 
         # Build selection schema from current devices
+        transport_names = {"modbus_tcp": "Modbus", "modbus_serial": "Serial"}
         device_options = {
             t.get("serial", f"unknown_{i}"): (
                 f"{t.get('model', '?')} ({t.get('serial', '?')}) - "
-                f"{'Modbus' if t.get('transport_type') == 'modbus_tcp' else 'Dongle'}"
+                f"{transport_names.get(t.get('transport_type', ''), 'Dongle')}"
             )
             for i, t in enumerate(self._local_transports)
         }
