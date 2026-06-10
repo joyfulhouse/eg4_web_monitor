@@ -1,5 +1,7 @@
 """Number platform for EG4 Web Monitor integration."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from abc import abstractmethod
@@ -11,12 +13,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-if TYPE_CHECKING:
-    from homeassistant.components.number import NumberEntity, NumberMode
-else:
-    from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import NumberEntity, NumberMode
 
-from . import EG4ConfigEntry
+if TYPE_CHECKING:
+    from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
 from .const import (
     AC_CHARGE_POWER_MAX,
@@ -57,6 +57,22 @@ _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
+
+# Forced discharge controls are held in inverter registers 82-83.
+# Register 82 stores tenths of a kW:
+# 1.6 kW in Home Assistant is written as raw value 16 to register 82.
+# Keep these local to number.py so this file can load even if the constants
+# have not yet been exported from const/__init__.py.
+PARAM_HOLD_FORCED_DISCHG_POWER = "HOLD_FORCED_DISCHG_POWER_CMD"
+PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT = "HOLD_FORCED_DISCHG_SOC_LIMIT"
+
+FORCED_DISCHARGE_POWER_MIN = 0.0
+FORCED_DISCHARGE_POWER_MAX = 10.0
+FORCED_DISCHARGE_POWER_STEP = 0.1
+
+FORCED_DISCHARGE_SOC_LIMIT_MIN = 0
+FORCED_DISCHARGE_SOC_LIMIT_MAX = 100
+FORCED_DISCHARGE_SOC_LIMIT_STEP = 1
 
 
 class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
@@ -239,6 +255,74 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 await inverter.refresh()
             await self._refresh_related_entities()
 
+    def _update_parameter_cache(self, param_key: str, value: Any) -> None:
+        """Update coordinator parameter cache for immediate UI consistency."""
+        data = getattr(self.coordinator, "data", None)
+        if not isinstance(data, dict):
+            return
+
+        parameters = data.setdefault("parameters", {})
+        if not isinstance(parameters, dict):
+            return
+
+        serial_params = parameters.setdefault(self.serial, {})
+        if isinstance(serial_params, dict):
+            serial_params[param_key] = value
+
+    async def _read_forced_discharge_param_from_local(
+        self, param_key: str
+    ) -> Any | None:
+        """Read forced-discharge params directly from the local transport.
+
+        This is intentionally entity-level, because LOCAL TCP/IP / hybrid setups
+        may have a local transport available for writes even when the normal
+        coordinator update path is not doing a full local parameter refresh.
+        """
+        transport_getter = getattr(self.coordinator, "get_local_transport", None)
+        transport = (
+            transport_getter(self.serial) if transport_getter is not None else None
+        )
+        if transport is None:
+            return None
+
+        read_forced = getattr(
+            self.coordinator, "_read_forced_discharge_parameters", None
+        )
+        if read_forced is None:
+            return None
+
+        try:
+            params = await read_forced(transport)
+        except Exception as err:
+            _LOGGER.debug(
+                "Forced discharge direct entity read failed for %s: %s",
+                self.serial,
+                err,
+            )
+            return None
+
+        if not isinstance(params, dict):
+            return None
+
+        raw_value = params.get(param_key)
+        if raw_value is not None:
+            _LOGGER.debug(
+                "Forced discharge direct entity read for %s: %s=%s",
+                self.serial,
+                param_key,
+                raw_value,
+            )
+            self._update_parameter_cache(param_key, raw_value)
+        else:
+            _LOGGER.debug(
+                "Forced discharge direct entity read for %s did not return %s. Params: %s",
+                self.serial,
+                param_key,
+                params,
+            )
+        return raw_value
+
+
     async def _refresh_related_entities(self) -> None:
         """Refresh parameters for all inverters and update related entities."""
         try:
@@ -289,6 +373,8 @@ async def async_setup_entry(
                         SystemChargeSOCLimitNumber(coordinator, serial),
                         ACChargePowerNumber(coordinator, serial),
                         PVChargePowerNumber(coordinator, serial),
+                        ForcedDischargePowerRateNumber(coordinator, serial),
+                        ForcedDischargeSOCLimitNumber(coordinator, serial),
                         PVStartVoltageNumber(coordinator, serial),
                         ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
@@ -476,6 +562,419 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             cloud_kwargs={"power_kw": int_value},
             label=f"PV charge power to {int_value} kW",
         )
+
+
+
+class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge Power Rate control (register 82).
+
+    Register 82 stores tenths of a kW.
+    For example, entering 1.6 kW writes raw value 16 to register 82.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge Power Rate"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_power_rate"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_POWER_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_POWER_MAX
+        self._attr_native_step = FORCED_DISCHARGE_POWER_STEP
+        self._attr_native_unit_of_measurement = "kW"
+        self._attr_icon = "mdi:transmission-tower-export"
+        self._attr_native_precision = 1
+        self._attr_should_poll = True
+
+    async def async_added_to_hass(self) -> None:
+        """Read the live register value when added and after coordinator refreshes."""
+        await super().async_added_to_hass()
+
+        def _schedule_forced_discharge_refresh() -> None:
+            self.hass.async_create_task(self.async_update())
+
+        self.async_on_remove(
+            self.coordinator.async_add_listener(_schedule_forced_discharge_refresh)
+        )
+        await self.async_update()
+
+    async def async_update(self) -> None:
+        """Poll registers 82-83 so external inverter-side changes show in HA."""
+        transport_getter = getattr(self.coordinator, "get_local_transport", None)
+        transport = (
+            transport_getter(self.serial) if transport_getter is not None else None
+        )
+        read_forced = getattr(
+            self.coordinator, "_read_forced_discharge_parameters", None
+        )
+        if transport is None or read_forced is None:
+            return
+
+        try:
+            params = await read_forced(transport)
+        except Exception as err:
+            _LOGGER.debug(
+                "Forced discharge power poll failed for %s: %s",
+                self.serial,
+                err,
+            )
+            return
+
+        if not isinstance(params, dict):
+            return
+
+        changed = False
+        for key in (
+            PARAM_HOLD_FORCED_DISCHG_POWER,
+            PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+        ):
+            if key in params and params[key] is not None:
+                self._update_parameter_cache(key, params[key])
+                changed = True
+
+        if changed:
+            self.async_write_ha_state()
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current Forced Discharge Power Rate in kW.
+
+        Register 82 is stored as tenths of a kW, so raw 23 is displayed
+        as 2.3 kW.  Keep this explicit here so the HA number entity never
+        exposes the raw register value.
+        """
+        params = self._parameter_data
+        if params:
+            raw = params.get(PARAM_HOLD_FORCED_DISCHG_POWER)
+            if raw is not None:
+                try:
+                    display_value = round(float(raw) / 10.0, 1)
+                    if (
+                        FORCED_DISCHARGE_POWER_MIN
+                        <= display_value
+                        <= FORCED_DISCHARGE_POWER_MAX
+                    ):
+                        return display_value
+                except (TypeError, ValueError):
+                    pass
+
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
+            value_min=FORCED_DISCHARGE_POWER_MIN,
+            value_max=FORCED_DISCHARGE_POWER_MAX,
+            as_float=True,
+            precision=1,
+            param_transform=lambda v: float(v) / 10.0,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the Forced Discharge Power Rate in kW."""
+        display_value = round(float(value), 1)
+
+        if (
+            display_value < FORCED_DISCHARGE_POWER_MIN
+            or display_value > FORCED_DISCHARGE_POWER_MAX
+        ):
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be between "
+                f"{FORCED_DISCHARGE_POWER_MIN:.1f}-{FORCED_DISCHARGE_POWER_MAX:.1f} kW, "
+                f"got {value}"
+            )
+
+        if abs(float(value) - display_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be in 0.1 kW increments, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting Forced Discharge Power Rate for %s to %.1f kW",
+            self.serial,
+            display_value,
+        )
+
+        with optimistic_value_context(self, display_value):
+            transport_getter = getattr(self.coordinator, "get_local_transport", None)
+            transport = (
+                transport_getter(self.serial) if transport_getter is not None else None
+            )
+
+            if transport is not None:
+                write_parameters = getattr(transport, "write_parameters", None)
+                if write_parameters is None:
+                    raise HomeAssistantError(
+                        f"Local transport for inverter {self.serial} does not "
+                        "support raw register writes."
+                    )
+
+                raw_value = int(round(display_value * 10))
+                _LOGGER.debug(
+                    "Writing Forced Discharge Power Rate for %s via local raw "
+                    "register 82: %.1f kW -> raw %d",
+                    self.serial,
+                    display_value,
+                    raw_value,
+                )
+                await write_parameters({82: raw_value})
+
+                # Read registers 82-83 back using the same local transport.
+                # pylxpweb DongleTransport returns a dict like {82: 23, 83: 18}.
+                read_forced = getattr(
+                    self.coordinator, "_read_forced_discharge_parameters", None
+                )
+                if read_forced is not None:
+                    params = await read_forced(transport)
+                    if isinstance(params, dict):
+                        power = params.get(PARAM_HOLD_FORCED_DISCHG_POWER)
+                        soc = params.get(PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT)
+                        if power is not None:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_POWER, power
+                            )
+                        else:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_POWER, raw_value
+                            )
+                        if soc is not None:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, soc
+                            )
+                    else:
+                        self._update_parameter_cache(
+                            PARAM_HOLD_FORCED_DISCHG_POWER, raw_value
+                        )
+                else:
+                    self._update_parameter_cache(
+                        PARAM_HOLD_FORCED_DISCHG_POWER, raw_value
+                    )
+
+                await asyncio.sleep(0.5)
+
+            elif self.coordinator.client is not None:
+                _LOGGER.debug(
+                    "Writing Forced Discharge Power Rate for %s via cloud "
+                    "parameter %s: %.1f kW",
+                    self.serial,
+                    PARAM_HOLD_FORCED_DISCHG_POWER,
+                    display_value,
+                )
+                raw_value = int(round(display_value * 10))
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial,
+                    PARAM_HOLD_FORCED_DISCHG_POWER,
+                    str(raw_value),
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set forced discharge power rate to {display_value:.1f} kW"
+                    )
+
+                self._update_parameter_cache(
+                    PARAM_HOLD_FORCED_DISCHG_POWER, raw_value
+                )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+
+        self.async_write_ha_state()
+
+
+class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge SOC Limit control (register 83)."""
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge SOC Limit"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_soc_limit"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_SOC_LIMIT_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_SOC_LIMIT_MAX
+        self._attr_native_step = FORCED_DISCHARGE_SOC_LIMIT_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-arrow-down"
+        self._attr_native_precision = 0
+        self._attr_should_poll = True
+
+    async def async_added_to_hass(self) -> None:
+        """Read the live register value when added and after coordinator refreshes."""
+        await super().async_added_to_hass()
+
+        def _schedule_forced_discharge_refresh() -> None:
+            self.hass.async_create_task(self.async_update())
+
+        self.async_on_remove(
+            self.coordinator.async_add_listener(_schedule_forced_discharge_refresh)
+        )
+        await self.async_update()
+
+    async def async_update(self) -> None:
+        """Poll registers 82-83 so external inverter-side changes show in HA."""
+        transport_getter = getattr(self.coordinator, "get_local_transport", None)
+        transport = (
+            transport_getter(self.serial) if transport_getter is not None else None
+        )
+        read_forced = getattr(
+            self.coordinator, "_read_forced_discharge_parameters", None
+        )
+        if transport is None or read_forced is None:
+            return
+
+        try:
+            params = await read_forced(transport)
+        except Exception as err:
+            _LOGGER.debug(
+                "Forced discharge SOC poll failed for %s: %s",
+                self.serial,
+                err,
+            )
+            return
+
+        if not isinstance(params, dict):
+            return
+
+        changed = False
+        for key in (
+            PARAM_HOLD_FORCED_DISCHG_POWER,
+            PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+        ):
+            if key in params and params[key] is not None:
+                self._update_parameter_cache(key, params[key])
+                changed = True
+
+        if changed:
+            self.async_write_ha_state()
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current Forced Discharge SOC Limit."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+            value_min=FORCED_DISCHARGE_SOC_LIMIT_MIN,
+            value_max=FORCED_DISCHARGE_SOC_LIMIT_MAX,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the Forced Discharge SOC Limit."""
+        int_value = int(value)
+
+        if (
+            int_value < FORCED_DISCHARGE_SOC_LIMIT_MIN
+            or int_value > FORCED_DISCHARGE_SOC_LIMIT_MAX
+        ):
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be between "
+                f"{FORCED_DISCHARGE_SOC_LIMIT_MIN}-{FORCED_DISCHARGE_SOC_LIMIT_MAX}%, "
+                f"got {value}"
+            )
+
+        if abs(float(value) - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be a whole percent, got {value}"
+            )
+
+        _LOGGER.info(
+            "Setting Forced Discharge SOC Limit for %s to %d%%",
+            self.serial,
+            int_value,
+        )
+
+        with optimistic_value_context(self, int_value):
+            transport_getter = getattr(self.coordinator, "get_local_transport", None)
+            transport = (
+                transport_getter(self.serial) if transport_getter is not None else None
+            )
+
+            if transport is not None:
+                write_parameters = getattr(transport, "write_parameters", None)
+                if write_parameters is None:
+                    raise HomeAssistantError(
+                        f"Local transport for inverter {self.serial} does not "
+                        "support raw register writes."
+                    )
+
+                _LOGGER.debug(
+                    "Writing Forced Discharge SOC Limit for %s via local raw "
+                    "register 83: %d%%",
+                    self.serial,
+                    int_value,
+                )
+                await write_parameters({83: int_value})
+
+                read_forced = getattr(
+                    self.coordinator, "_read_forced_discharge_parameters", None
+                )
+                if read_forced is not None:
+                    params = await read_forced(transport)
+                    if isinstance(params, dict):
+                        power = params.get(PARAM_HOLD_FORCED_DISCHG_POWER)
+                        soc = params.get(PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT)
+                        if power is not None:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_POWER, power
+                            )
+                        if soc is not None:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, soc
+                            )
+                        else:
+                            self._update_parameter_cache(
+                                PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, int_value
+                            )
+                    else:
+                        self._update_parameter_cache(
+                            PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, int_value
+                        )
+                else:
+                    self._update_parameter_cache(
+                        PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, int_value
+                    )
+
+                await asyncio.sleep(0.5)
+
+            elif self.coordinator.client is not None:
+                _LOGGER.debug(
+                    "Writing Forced Discharge SOC Limit for %s via cloud "
+                    "parameter %s: %d%%",
+                    self.serial,
+                    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+                    int_value,
+                )
+                result = await self.coordinator.client.api.control.write_parameter(
+                    self.serial,
+                    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+                    str(int_value),
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set forced discharge SOC limit to {int_value}%"
+                    )
+
+                self._update_parameter_cache(
+                    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT, int_value
+                )
+                inverter = self.coordinator.get_inverter_object(self.serial)
+                if inverter:
+                    await inverter.refresh(force=True, include_parameters=True)
+            else:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+
+        self.async_write_ha_state()
 
 
 class PVStartVoltageNumber(EG4BaseNumberEntity):
