@@ -89,9 +89,7 @@ class TestControlClassification:
     """The gating helpers in const.device_types."""
 
     def test_charge_voltage_active_only_in_voltage_charge_mode(self) -> None:
-        assert (
-            is_control_active("system_charge_volt_limit", "voltage", "soc") is True
-        )
+        assert is_control_active("system_charge_volt_limit", "voltage", "soc") is True
         assert is_control_active("system_charge_volt_limit", "soc", "voltage") is False
 
     def test_discharge_voltage_active_only_in_voltage_discharge_mode(self) -> None:
@@ -107,7 +105,10 @@ class TestControlClassification:
         assert control_side_and_mode("ac_charge_power") is None
 
     def test_classification_sides(self) -> None:
-        assert control_side_and_mode("system_charge_volt_limit") == ("charge", "voltage")
+        assert control_side_and_mode("system_charge_volt_limit") == (
+            "charge",
+            "voltage",
+        )
         assert control_side_and_mode("on_grid_cutoff_voltage") == (
             "discharge",
             "voltage",
@@ -330,9 +331,7 @@ class TestBatteryControlSelects:
         coordinator = _mock_coordinator(has_local=False)
         result = MagicMock()
         result.success = True
-        coordinator.client.api.control.control_function = AsyncMock(
-            return_value=result
-        )
+        coordinator.client.api.control.control_function = AsyncMock(return_value=result)
         select = EG4BatteryDischargeControlSelect(
             coordinator, "1234567890", {"type": "inverter", "model": "FlexBOSS21"}
         )

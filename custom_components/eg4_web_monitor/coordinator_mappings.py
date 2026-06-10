@@ -168,11 +168,23 @@ def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
     Args:
         sensors: Mutable sensor dict to update.
     """
-    l1 = sensors.get("eps_power_l1")
-    l2 = sensors.get("eps_power_l2")
-    sensors["eps_load_power_l1"] = l1
-    sensors["eps_load_power_l2"] = l2
-    sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
+    # Preserve key-presence semantics (review): when neither source key is
+    # present (e.g. pure-CLOUD responses without pEpsL1N/pEpsL2N), fabricate
+    # nothing — writing None keys here would create permanently-unknown
+    # entities downstream. A single present phase aliases alone; the combined
+    # sum requires both phases.
+    l1_present = "eps_power_l1" in sensors
+    l2_present = "eps_power_l2" in sensors
+    if not l1_present and not l2_present:
+        return
+    if l1_present:
+        sensors["eps_load_power_l1"] = sensors.get("eps_power_l1")
+    if l2_present:
+        sensors["eps_load_power_l2"] = sensors.get("eps_power_l2")
+    if l1_present and l2_present:
+        sensors["eps_load_power"] = _sum_optional_watts(
+            sensors.get("eps_power_l1"), sensors.get("eps_power_l2")
+        )
 
 
 # ---------------------------------------------------------------------------

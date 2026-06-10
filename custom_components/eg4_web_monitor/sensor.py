@@ -50,7 +50,11 @@ _PV_STRING_SENSOR = re.compile(
 _DEFAULT_PV_STRING_COUNT = 3
 
 
-def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> bool:
+def _should_create_sensor(
+    sensor_key: str,
+    features: dict[str, Any] | None,
+    device_type: str = "inverter",
+) -> bool:
     """Determine if a sensor should be created based on device features.
 
     This function implements feature-based sensor filtering to avoid creating
@@ -59,10 +63,24 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
     Args:
         sensor_key: The sensor key to check
         features: Device features dictionary from feature detection, or None
+        device_type: Device type ("inverter", "gridboss", "parallel_group").
+            EG4_OFFGRID-only gating applies to inverters; other device types
+            share some key names (load_power) without carrying features.
 
     Returns:
         True if the sensor should be created, False if it should be skipped
     """
+    # EG4_OFFGRID-only sensors are FAIL-CLOSED for inverters: registers
+    # confirmed working on 12000XP/6000XP only (issue #197).  Without a
+    # positively detected/derived EG4_OFFGRID family these must not exist —
+    # the previous no-features create-all fallback leaked them onto
+    # EG4_HYBRID/LXP installs whose feature detection failed (review).
+    # GridBOSS / parallel-group load_power passes via device_type instead.
+    if device_type == "inverter" and sensor_key in OFFGRID_ONLY_SENSORS:
+        if not features:
+            return False
+        return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
+
     # If no features detected, create all sensors (conservative fallback)
     if not features:
         return True
@@ -77,15 +95,6 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
         string_index = int(pv_match.group(1))
         pv_string_count = features.get("pv_string_count", _DEFAULT_PV_STRING_COUNT)
         return string_index <= int(pv_string_count)
-
-    # Check EG4_OFFGRID-only sensors — registers confirmed working on
-    # 12000XP/6000XP hardware only (issue #197).  Strict family match: the
-    # feature dicts from both the static and live paths always carry
-    # inverter_family, and other families must not get these entities.
-    # GridBOSS / parallel-group devices never carry inverter features, so
-    # their shared keys (e.g. load_power) pass the no-features fallback above.
-    if sensor_key in OFFGRID_ONLY_SENSORS:
-        return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
 
     # Check split-phase sensors (EG4_OFFGRID + EG4_HYBRID split-phase systems)
     if sensor_key in SPLIT_PHASE_ONLY_SENSORS:
@@ -371,7 +380,7 @@ async def async_setup_entry(
                 # Skip battery_bank sensors (handled by their own entity class)
                 if sensor_key.startswith("battery_bank_"):
                     continue
-                if not _should_create_sensor(sensor_key, features):
+                if not _should_create_sensor(sensor_key, features, dtype):
                     continue
                 known.add(sensor_key)
                 new_entities.append(

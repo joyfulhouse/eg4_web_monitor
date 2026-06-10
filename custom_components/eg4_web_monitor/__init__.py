@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
@@ -439,6 +440,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         ):
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
+
+    # Conditional cleanup: per-inverter "_battery_discharge_power" was
+    # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs
+    # that skipped the purging versions still carry the stale entry on
+    # non-offgrid hardware — remove it ONLY when the device's family is
+    # positively known and not EG4_OFFGRID; unresolved devices keep theirs
+    # (conservative — pure-cloud family resolves on a later refresh).
+    offgrid_serials: set[str] = set()
+    family_known_serials: set[str] = set()
+    if coordinator.data and "devices" in coordinator.data:
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            family = (device_data.get("features") or {}).get("inverter_family")
+            if family:
+                family_known_serials.add(serial)
+                if family == INVERTER_FAMILY_EG4_OFFGRID:
+                    offgrid_serials.add(serial)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        uid = entity.unique_id
+        if not uid.endswith("_battery_discharge_power"):
+            continue
+        serial = uid.split("_", 1)[0]
+        if serial in family_known_serials and serial not in offgrid_serials:
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed deprecated sensor for non-offgrid device: %s",
+                entity.entity_id,
+            )
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

@@ -21,7 +21,7 @@ EG4_OFFGRID family.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pylxpweb.transports.data import InverterRuntimeData
@@ -136,15 +136,36 @@ class TestOffgridGating:
         assert _should_create_sensor(key, features) is False
 
     @pytest.mark.parametrize("key", _NEW_KEYS)
-    def test_no_features_is_conservative(self, key: str) -> None:
-        """No detected features → create (matches existing fallback policy)."""
-        assert _should_create_sensor(key, None) is True
-        assert _should_create_sensor(key, {}) is True
+    def test_no_features_is_fail_closed(self, key: str) -> None:
+        """No detected features → DO NOT create (review: fail-closed).
+
+        Failed feature detection / legacy configs without family metadata
+        previously leaked the OFFGRID-only set onto EG4_HYBRID/LXP installs
+        via the create-all fallback — especially risky because the hybrid
+        transport overlay writes load_power for any transport-backed device.
+        """
+        assert _should_create_sensor(key, None) is False
+        assert _should_create_sensor(key, {}) is False
 
     def test_gridboss_load_power_unaffected(self) -> None:
-        """GridBOSS devices carry no inverter features — their existing
-        load_power entity (CT measurement) must keep being created."""
-        assert _should_create_sensor("load_power", None) is True
+        """GridBOSS / parallel-group devices carry no inverter features —
+        their existing load_power entity (CT measurement) must keep being
+        created via the device_type bypass."""
+        assert _should_create_sensor("load_power", None, "gridboss") is True
+        assert _should_create_sensor("load_power", {}, "gridboss") is True
+        assert _should_create_sensor("load_power", None, "parallel_group") is True
+
+    def test_static_path_gating_offgrid_vs_hybrid(self) -> None:
+        """Static-config features gate the 5 keys per family (review F5)."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _features_from_family,
+        )
+
+        offgrid = _features_from_family("EG4_OFFGRID", None)
+        hybrid = _features_from_family("EG4_HYBRID", None)
+        for key in _NEW_KEYS:
+            assert _should_create_sensor(key, offgrid) is True
+            assert _should_create_sensor(key, hybrid) is False
 
 
 # =========================================================================
@@ -229,12 +250,27 @@ class TestCloudHybridPath:
         assert sensors["eps_load_power_l2"] == 296
         assert sensors["eps_load_power"] == 1327
 
-    def test_apply_eps_load_power_sensors_none_semantics(self) -> None:
-        sensors: dict[str, object] = {}
+    def test_apply_eps_load_power_sensors_absent_sources_write_nothing(
+        self,
+    ) -> None:
+        """No source keys → no derived keys (review: presence semantics).
+
+        Fabricating None keys here would create permanently-unknown entities
+        for cloud responses that lack pEpsL1N/pEpsL2N entirely.
+        """
+        sensors: dict[str, object] = {"pv1_power": 100}
         apply_eps_load_power_sensors(sensors)
-        assert sensors["eps_load_power_l1"] is None
-        assert sensors["eps_load_power_l2"] is None
-        assert sensors["eps_load_power"] is None
+        assert "eps_load_power_l1" not in sensors
+        assert "eps_load_power_l2" not in sensors
+        assert "eps_load_power" not in sensors
+
+    def test_apply_eps_load_power_sensors_single_phase_no_sum(self) -> None:
+        """One phase present → that alias only; no half-truth sum."""
+        sensors: dict[str, object] = {"eps_power_l1": 1031}
+        apply_eps_load_power_sensors(sensors)
+        assert sensors["eps_load_power_l1"] == 1031
+        assert "eps_load_power_l2" not in sensors
+        assert "eps_load_power" not in sensors
 
     async def test_hybrid_overlay_populates_offgrid_sensors(
         self, hass, mock_config_entry
@@ -266,16 +302,41 @@ class TestCloudHybridPath:
         assert sensors["battery_discharge_power"] == 1415
 
     async def test_pure_cloud_has_no_load_power(self, hass, mock_config_entry) -> None:
-        """No transport → no load_power key (cloud zero is never trusted)."""
+        """No transport → no load_power key (cloud zero is never trusted).
+
+        Uses a HAS-DATA cloud inverter so the property-map path actually
+        executes (review F4: the earlier no-data variant short-circuited at
+        has_data=False and would pass even if load_power were mapped).
+        """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
+        # Pure cloud: NO transport and NO transport runtime — cloud-side
+        # property values are patched onto the real class so the property
+        # map path actually executes (no has_data short-circuit). The
+        # poisoned load_power property is the canary: pylxpweb's load_power
+        # is reg-27 grid import (wrong source) and must never be mapped.
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
-
-        result = await coordinator._process_inverter_object(inverter)
-        assert "load_power" not in result["sensors"]
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(cls, "battery_discharge_power", property(lambda s: 1415.0)),
+            patch.object(cls, "eps_power_l1", property(lambda s: 1031)),
+            patch.object(cls, "eps_power_l2", property(lambda s: 296)),
+            # NOTE: HybridInverter exposes no ``load_power`` property at all
+            # (verified — patching it raises AttributeError), so the cloud
+            # path cannot mis-map it; the map-pin tests above guard the
+            # integration side.
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+        assert "load_power" not in sensors
+        # The legitimately cloud-mapped #197 sensors still flow with data.
+        assert sensors["battery_discharge_power"] == 1415
+        assert sensors["eps_load_power_l1"] == 1031
+        assert sensors["eps_load_power"] == 1327
 
 
 # =========================================================================
