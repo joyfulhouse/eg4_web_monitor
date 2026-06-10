@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.2** — Charge Last switch, EG4_OFFGRID registers, family-UNKNOWN fallback, serial-bus fixes, smart-port all-zeros re-land (#248), dashboard audit; 1023 tests, pylxpweb>=0.9.36b2
+- **v3.4.0-beta.3** — HYBRID attach retry + degraded cloud-fallback unfreeze (live-found on prod); everything from beta.2 (Charge Last, OFFGRID registers, #248 smart-port re-land); 1040 tests, pylxpweb>=0.9.36b2
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment

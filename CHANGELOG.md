@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.3] - 2026-06-10
+
 ### Fixed
 
 - **HYBRID: a failed local-transport attach at startup is now retried** (live-found on production validating beta.2): right after a Home Assistant restart, the WiFi dongle's single TCP slot can still be held by the previous session, so the attach times out — previously that one transient failure parked the device on cloud data **forever** (until a manual reload). Failed attaches are now retried about once a minute and recover automatically; a **Repairs issue** explains the degraded state and clears itself on reconnection.
