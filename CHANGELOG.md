@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Register-derived contract harness** (eg4-1z8): a 20-test suite that derives the expected sensor mappings from pylxpweb's canonical register tables and asserts the LOCAL register path and the CLOUD/HYBRID property path feed every sensor key from the same canonical source — the structural cure for the recurring "fixed on one connection mode, still broken on the other" bug class. Exact coverage accounting (silent drops fail loudly), stale-allowlist detection, and a routed inventory of 8 real divergences discovered on day one (tracked: eg4-7uz, eg4-9e4, eg4-9wf, eg4-bc0, eg4-23a6, eg4-6ag2).
+
 ### Fixed
 
 - **Battery cell-number sensors uncrossed in LOCAL/HYBRID** (via pylxpweb 0.9.36b3): the per-battery "Max/Min Cell Temperature Number" and "Max/Min Cell Voltage Number" sensors were swapped on the local Modbus path — register offset 14 carries the temperature cell numbers and offset 15 the voltage cell numbers, the reverse of the legacy map. Cloud mode was always correct; local and hybrid now match it (proven against same-minute cloud/local snapshots of the same batteries, including the unambiguous 0/0 marker case).
