@@ -1041,8 +1041,21 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             cloud_disable_method: Inverter method name to call when disabling.
 
         Raises:
+            ValueError: If exactly one of ``cloud_enable_method`` /
+                ``cloud_disable_method`` is provided. They must be supplied
+                together (named-method route) or both omitted (function-control
+                route) — a one-sided call would otherwise silently write
+                ``parameter`` via control_function, which may be the wrong
+                FUNC_ key for the intended action.
             HomeAssistantError: If all available transports fail.
         """
+        if bool(cloud_enable_method) != bool(cloud_disable_method):
+            raise ValueError(
+                "cloud_enable_method and cloud_disable_method must be provided "
+                "together or both omitted; got "
+                f"enable={cloud_enable_method!r}, disable={cloud_disable_method!r}"
+            )
+
         if self.coordinator.has_local_transport(self._serial):
             try:
                 await self._execute_named_parameter_action(

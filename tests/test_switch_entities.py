@@ -276,6 +276,29 @@ class TestSwitchPlatformSetup:
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params
         assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
 
+    @pytest.mark.asyncio
+    async def test_setup_never_writes_to_inverter(self, hass):
+        """Entity construction / async_setup_entry must never write.
+
+        Regression guard for the no-write-on-startup invariant: creating
+        switch entities (including Charge Last) must not touch the inverter
+        via either the local named-parameter path or the cloud
+        function-control API. Writes may only happen from explicit
+        turn_on/turn_off service calls.
+        """
+        coordinator = _mock_coordinator(has_http=True, has_local=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        # Charge Last entity was created via setup...
+        assert any(isinstance(e, EG4ChargeLastSwitch) for e in entities)
+        # ...without any write on either transport
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.client.api.control.control_function.assert_not_called()
+
 
 # ── QuickChargeSwitch ────────────────────────────────────────────────
 
@@ -597,6 +620,40 @@ class TestChargeLastSwitch:
 
         with pytest.raises(HomeAssistantError, match="No transport available"):
             await switch.async_turn_on()
+
+    @pytest.mark.asyncio
+    async def test_fallback_one_sided_cloud_methods_raises(self):
+        """Exactly one cloud method name is a programming error.
+
+        Guard against a future caller supplying only one of
+        cloud_enable_method/cloud_disable_method — without the guard the
+        call would silently take the control_function route with a
+        possibly-wrong FUNC_ key. Valid states: both present or both omitted.
+        The guard fires at call time, before any write is attempted.
+        """
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(ValueError, match="together or both omitted"):
+            await switch._execute_local_with_fallback(
+                action_name="charge last",
+                parameter=PARAM_FUNC_CHARGE_LAST,
+                value=True,
+                cloud_enable_method="enable_something",
+            )
+
+        with pytest.raises(ValueError, match="together or both omitted"):
+            await switch._execute_local_with_fallback(
+                action_name="charge last",
+                parameter=PARAM_FUNC_CHARGE_LAST,
+                value=True,
+                cloud_disable_method="disable_something",
+            )
+
+        # Guard fired before any local or cloud write
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.client.api.control.control_function.assert_not_called()
 
 
 # ── WorkingModeSwitch ────────────────────────────────────────────────
