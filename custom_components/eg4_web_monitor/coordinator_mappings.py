@@ -141,6 +141,52 @@ def alias_common_voltage_sensors(
         sensors["eps_voltage"] = v
 
 
+def _sum_optional_watts(l1: Any, l2: Any) -> int | None:
+    """Sum two optional per-leg watt values (L1+L2 pattern).
+
+    Returns ``None`` only when BOTH legs are ``None`` (no data); a single
+    available leg carries the total — the same semantics as the GridBOSS
+    ``sum_l1_l2`` aggregation.
+    """
+    if l1 is None and l2 is None:
+        return None
+    return int(l1 or 0) + int(l2 or 0)
+
+
+def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
+    """Populate per-phase EPS load power sensors + L1+L2 sum (issue #197).
+
+    Input regs 129/130 (LOCAL/HYBRID transport) and the cloud pEpsL1N/pEpsL2N
+    fields land on the ``eps_power_l1``/``eps_power_l2`` keys in both data
+    paths.  This aliases them onto the EG4_OFFGRID ``eps_load_power_*`` keys
+    and computes the combined ``eps_load_power`` following the existing
+    L1+L2 sum pattern.  Live-validated on 12000XP: L1=1031 + L2=296 = 1327 W
+    vs cloud epsLoadPower=1338 W (timing skew).
+
+    Called from BOTH the LOCAL runtime mapping and the cloud/hybrid device
+    processing path so the sum logic cannot drift between modes.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+    """
+    # Presence means a NON-None VALUE (review round 2): the LOCAL runtime
+    # mapping materializes eps_power_l1/l2 keys unconditionally (values may
+    # be None), while pure-CLOUD responses omit the keys entirely — value
+    # presence is the only test that means the same thing on both paths.
+    # A single available phase aliases alone; the combined sum requires
+    # BOTH phases so a lone leg can never publish a half-truth total.
+    l1 = sensors.get("eps_power_l1")
+    l2 = sensors.get("eps_power_l2")
+    if l1 is None and l2 is None:
+        return
+    if l1 is not None:
+        sensors["eps_load_power_l1"] = l1
+    if l2 is not None:
+        sensors["eps_load_power_l2"] = l2
+    if l1 is not None and l2 is not None:
+        sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
+
+
 # ---------------------------------------------------------------------------
 # Static sensor key sets — extracted from the mapping function dicts below.
 # Used by _build_static_local_data() for immediate entity creation during
@@ -215,6 +261,15 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "eps_power_l2",
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",
+        # EG4_OFFGRID confirmed registers (issue #197): per-phase EPS load
+        # power (regs 129/130 + L1+L2 sum), load power (reg 170) and battery
+        # discharge power (reg 11).  Entity creation is family-gated via
+        # OFFGRID_ONLY_SENSORS in sensor.py.
+        "eps_load_power_l1",
+        "eps_load_power_l2",
+        "eps_load_power",
+        "load_power",
+        "battery_discharge_power",
         # US split-phase per-leg power (regs 195-204)
         "inverter_power_l1",
         "inverter_power_l2",
@@ -557,7 +612,7 @@ def _build_runtime_sensor_mapping(
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    return {
+    mapping: dict[str, Any] = {
         # PV/Solar input
         "pv1_voltage": runtime_data.pv1_voltage,
         "pv1_power": runtime_data.pv1_power,
@@ -587,6 +642,9 @@ def _build_runtime_sensor_mapping(
         "battery_current": runtime_data.battery_current,
         "state_of_charge": runtime_data.battery_soc,
         "battery_temperature": runtime_data.battery_temperature,
+        # Battery discharge power (reg 11 / cloud pDisCharge) — entity gated
+        # to EG4_OFFGRID via OFFGRID_ONLY_SENSORS (issue #197).
+        "battery_discharge_power": runtime_data.battery_discharge_power,
         # Grid - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
         # Note: R/S/T registers valid on LXP, garbage on US split-phase systems
         # Note: L1/L2 registers valid on EG4_OFFGRID/EG4_HYBRID split-phase systems
@@ -604,8 +662,10 @@ def _build_runtime_sensor_mapping(
         # Power factor (Modbus reg 19, 0.0-1.0). Also available from cloud "pf"
         # via the inverter property map; surfaced here so LOCAL exposes it too.
         "power_factor": runtime_data.power_factor,
-        # Note: load_power removed - register 27 (pToUser) is grid import, NOT consumption
-        # Use consumption_power sensor instead (computed from energy balance)
+        # Note: the OLD load_power (register 27 pToUser) was removed — that
+        # register is grid import, NOT consumption.  load_power now carries
+        # register 170 (Pload) below; whole-home consumption stays on the
+        # consumption_power sensor (energy balance).
         # EPS/Backup - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
         "eps_voltage_r": runtime_data.eps_voltage_r,
         "eps_voltage_s": runtime_data.eps_voltage_s,
@@ -623,6 +683,11 @@ def _build_runtime_sensor_mapping(
         # using inverter.consumption_power (energy balance calculation from pylxpweb)
         # Output power (split-phase total)
         "output_power": runtime_data.output_power,
+        # Load power (reg 170, "Pload" in the 6kXP Modbus PDF).  Valid both
+        # grid-tied and in EPS mode on EG4_OFFGRID; the cloud zeroes its
+        # reg-170 mirror for that family, so the LOCAL register is the only
+        # trusted source (issue #197).  Entity gated to EG4_OFFGRID.
+        "load_power": runtime_data.output_power,
         # Generator
         "generator_voltage": runtime_data.generator_voltage,
         "generator_frequency": runtime_data.generator_frequency,
@@ -663,6 +728,10 @@ def _build_runtime_sensor_mapping(
         "max_charge_current": runtime_data.bms_charge_current_limit,
         "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
+    # Per-phase EPS load power (regs 129/130) + L1+L2 sum — shared helper so
+    # the LOCAL and cloud/hybrid paths cannot drift (issue #197).
+    apply_eps_load_power_sensors(mapping)
+    return mapping
 
 
 def _energy_balance(

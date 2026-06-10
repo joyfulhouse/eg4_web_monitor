@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Charge Last switch** ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)): toggle the battery *Charge Last* function (`FUNC_CHARGE_LAST`, register 110 bit 4) from Home Assistant. Off (default, "charge first"): PV charges the battery before exporting surplus. On: PV serves house loads and grid export first and charges the battery last — automate it to reserve battery headroom during peak production (e.g. charge to ~90% in the morning, enable Charge Last through midday, disable in the afternoon to top off). Works in cloud, local, and hybrid modes; hybrid prefers the local Modbus write and falls back to the cloud function-control API.
+- **Confirmed EG4_OFFGRID registers** ([#197](https://github.com/joyfulhouse/eg4_web_monitor/issues/197)): surfaced three register groups live-validated on 12000XP hardware (Modbus sweep + cloud cross-reference). All new entities are created for the EG4_OFFGRID family only (12000XP/6000XP).
+  - **Per-phase EPS load power** — new `EPS Load Power L1` / `EPS Load Power L2` sensors (input regs 129/130, W) plus a combined `EPS Load Power` (L1+L2 sum, matches the cloud `epsLoadPower` field within polling skew). Useful for diagnosing breaker-panel load imbalance.
+  - **Load Power** (input reg 170, `Pload`) — enabled for EG4_OFFGRID. The cloud zeroes its reg-170 mirror for these models, so the value is taken from the local register in LOCAL and HYBRID modes (never the cloud zero); valid both grid-tied and in EPS mode.
+  - **Battery Discharge Power** (input reg 11 / cloud `pDisCharge`) — reintroduced as a per-inverter sensor in all connection modes for EG4_OFFGRID. The signed net `Battery Power` sensor is unchanged; the one-time registry cleanup from the charge/discharge consolidation no longer removes this key.
 
 ### Fixed
 

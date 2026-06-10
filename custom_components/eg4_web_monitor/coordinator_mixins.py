@@ -45,6 +45,7 @@ from .coordinator_mappings import (
     _safe_float,
     _write_charge_rate,
     alias_common_voltage_sensors,
+    apply_eps_load_power_sensors,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
     get_battery_bank_property_map,
@@ -665,6 +666,12 @@ class DeviceProcessingMixin(_MixinBase):
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
 
+        # Per-phase EPS load power (regs 129/130 / cloud pEpsL1N/pEpsL2N) +
+        # L1+L2 sum — same shared helper as the LOCAL mapping (issue #197).
+        # The eps_power_l1/_l2 properties prefer the transport registers in
+        # HYBRID and fall back to the cloud fields in pure CLOUD.
+        apply_eps_load_power_sensors(processed["sensors"])
+
         # Load Energy (Eload, regs 171/172) — the inverter-served load.  This is
         # a SEPARATE meter from whole-home `consumption` (overridden below).
         # energy_today_usage/energy_lifetime_usage return the transport register
@@ -730,6 +737,11 @@ class DeviceProcessingMixin(_MixinBase):
                 ("grid_voltage_l2", "grid_l2_voltage"),
                 ("eps_voltage_l1", "eps_l1_voltage"),
                 ("eps_voltage_l2", "eps_l2_voltage"),
+                # Load power (reg 170, "Pload").  The cloud zeroes its reg-170
+                # mirror for EG4_OFFGRID, so in HYBRID the value must come
+                # from the local register, never a cloud property (#197).
+                # Entity creation is gated to EG4_OFFGRID in sensor.py.
+                ("load_power", "output_power"),
             )
             for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
                 value = getattr(transport_runtime, runtime_attr, None)
@@ -1006,6 +1018,9 @@ class DeviceProcessingMixin(_MixinBase):
             "pv5_power": "pv5_power",
             "pv6_power": "pv6_power",
             "battery_power": "battery_power",
+            # Battery discharge power (cloud pDisCharge / transport reg 11) —
+            # entity gated to EG4_OFFGRID via OFFGRID_ONLY_SENSORS (#197).
+            "battery_discharge_power": "battery_discharge_power",
             "consumption_power": "consumption_power",
             "inverter_power": "ac_power",
             "rectifier_power": "rectifier_power",

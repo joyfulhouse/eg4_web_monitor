@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
@@ -49,10 +50,16 @@ PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
 # Sensor keys removed in the charge/discharge consolidation refactor.
 # Existing installations may have entity registry entries for these;
 # they are cleaned up once during async_setup_entry().
+#
+# NOTE: "_battery_discharge_power" is intentionally ABSENT — the per-inverter
+# battery_discharge_power sensor was reintroduced for EG4_OFFGRID (reg 11 /
+# cloud pDisCharge, issue #197).  Keeping the suffix here would delete the new
+# entity's registry entry on every setup.  "_parallel_battery_discharge_power"
+# below does NOT match the per-inverter unique_id (suffix matching requires
+# the literal "parallel" segment).
 _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
     {
         "_battery_charge_power",
-        "_battery_discharge_power",
         "_battery_bank_charge_power",
         "_battery_bank_discharge_power",
         "_parallel_battery_charge_power",
@@ -433,6 +440,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         ):
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
+
+    # Conditional cleanup: per-inverter "_battery_discharge_power" was
+    # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs
+    # that skipped the purging versions still carry the stale entry on
+    # non-offgrid hardware — remove it ONLY when the device's family is
+    # positively known and not EG4_OFFGRID; unresolved devices keep theirs
+    # (conservative — pure-cloud family resolves on a later refresh).
+    offgrid_serials: set[str] = set()
+    family_known_serials: set[str] = set()
+    if coordinator.data and "devices" in coordinator.data:
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            family = (device_data.get("features") or {}).get("inverter_family")
+            if family:
+                family_known_serials.add(serial)
+                if family == INVERTER_FAMILY_EG4_OFFGRID:
+                    offgrid_serials.add(serial)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        uid = entity.unique_id
+        if not uid.endswith("_battery_discharge_power"):
+            continue
+        serial = uid.split("_", 1)[0]
+        if serial in family_known_serials and serial not in offgrid_serials:
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed deprecated sensor for non-offgrid device: %s",
+                entity.entity_id,
+            )
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities
