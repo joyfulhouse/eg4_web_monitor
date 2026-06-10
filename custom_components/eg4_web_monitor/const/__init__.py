@@ -169,6 +169,7 @@ from .device_types import (
     INVERTER_FAMILY_PV_SERIES,  # Legacy alias
     INVERTER_FAMILY_SNA,  # Legacy alias
     LEGACY_FAMILY_MAP,
+    MODEL_NAME_FAMILY_FALLBACK,
     NON_THREE_PHASE_SENSORS,
     REGIME_GATED_CONTROLS,
     SPLIT_PHASE_ONLY_SENSORS,
@@ -368,6 +369,7 @@ __all__ = [
     "INVERTER_FAMILY_PV_SERIES",  # Legacy alias
     "INVERTER_FAMILY_SNA",  # Legacy alias
     "LEGACY_FAMILY_MAP",
+    "MODEL_NAME_FAMILY_FALLBACK",
     # Feature-based sensor sets
     "DISCHARGE_RECOVERY_SENSORS",
     "NON_THREE_PHASE_SENSORS",

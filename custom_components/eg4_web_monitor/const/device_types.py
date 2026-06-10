@@ -82,6 +82,27 @@ LEGACY_FAMILY_MAP: dict[str, str] = {
     "LXP_LV": "LXP",
 }
 
+# Fallback mapping from device model name to inverter family (issue #219).
+#
+# Used ONLY when register/cloud-based family detection cannot identify the
+# family: some firmware reports a HOLD_DEVICE_TYPE_CODE that pylxpweb cannot
+# map (e.g. 6000XP on ccaa-140A0A in CLOUD mode), yielding family=UNKNOWN
+# whose conservative defaults disable split-phase — silently starving all
+# L1/L2 sensors. The model name then identifies the family profile instead.
+#
+# Keys are normalized model names — lookups must use str.strip().upper().
+MODEL_NAME_FAMILY_FALLBACK: dict[str, str] = {
+    # EG4 Off-Grid series — US split-phase (L1/L2)
+    "6000XP": INVERTER_FAMILY_EG4_OFFGRID,
+    "12000XP": INVERTER_FAMILY_EG4_OFFGRID,
+    "12000XP-US": INVERTER_FAMILY_EG4_OFFGRID,
+    # EG4 Hybrid series — US split-phase grid-tied
+    "FLEXBOSS21": INVERTER_FAMILY_EG4_HYBRID,
+    "FLEXBOSS18": INVERTER_FAMILY_EG4_HYBRID,
+    "18KPV": INVERTER_FAMILY_EG4_HYBRID,
+    "12KPV": INVERTER_FAMILY_EG4_HYBRID,
+}
+
 # Mapping from inverter family to default model for entity compatibility checks
 # Used when inverter_model is not provided in config entry (Modbus/Dongle modes)
 INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {

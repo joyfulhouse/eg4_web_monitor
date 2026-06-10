@@ -219,13 +219,19 @@ class LocalTransportMixin(_MixinBase):
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 (64, 16),  # Power settings + AC charge/discharge (64-79)
-                (100, 3),  # Off-grid cutoff voltage (100), charge/discharge current (101-102)
+                (
+                    100,
+                    3,
+                ),  # Off-grid cutoff voltage (100), charge/discharge current (101-102)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
                 (158, 2),  # AC charge start/stop voltage (158-159)
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
-                (179, 1),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
+                (
+                    179,
+                    1,
+                ),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
@@ -1188,12 +1194,14 @@ class LocalTransportMixin(_MixinBase):
 
             # Derive feature flags from inverter family and device_type_code so
             # that _should_create_sensor() filters phase-specific sensors correctly
-            # even before Modbus-based feature detection runs.
+            # even before Modbus-based feature detection runs. The model name is
+            # the last-resort family fallback when config stored an UNKNOWN or
+            # missing family (issue #219).
             family_str = config.get("inverter_family")
             dtc = config.get("device_type_code")
             grid_type = config.get("grid_type")
             features = (
-                _features_from_family(family_str, dtc, grid_type=grid_type)
+                _features_from_family(family_str, dtc, grid_type=grid_type, model=model)
                 if not is_gridboss
                 else {}
             )
