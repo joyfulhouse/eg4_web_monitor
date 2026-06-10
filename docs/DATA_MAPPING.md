@@ -824,6 +824,18 @@ Definitions: `pylxpweb/registers/battery.py`
 | 9 | `battery_cycle_count` | 1 | - | `cycle_count` |
 | 12 | `battery_max_cell_voltage` | ÷1000 | V | `battery_max_cell_voltage` |
 | 13 | `battery_min_cell_voltage` | ÷1000 | V | `battery_min_cell_voltage` |
+| 14 (low) | `battery_max_cell_num_temp` | 1 | - | `battery_max_cell_temp_num` |
+| 14 (high) | `battery_min_cell_num_temp` | 1 | - | `battery_min_cell_temp_num` |
+| 15 (low) | `battery_max_cell_num_voltage` | 1 | - | `battery_max_cell_voltage_num` |
+| 15 (high) | `battery_min_cell_num_voltage` | 1 | - | `battery_min_cell_voltage_num` |
+
+**Cell-number registers (eg4-4yg):** offset 14 holds the TEMPERATURE cell
+numbers and offset 15 holds the VOLTAGE cell numbers (low byte = max,
+high byte = min). Earlier pylxpweb register maps had these two registers
+crossed, so LOCAL/HYBRID modes showed voltage cell numbers in the temp
+sensors and vice versa; CLOUD mode was always correct. Verified by live
+cross-mode capture (2026-02-26) against
+`batMaxCellNumTemp`/`batMaxCellNumVolt`.
 
 ### Cloud API (getBatteryInfo)
 
@@ -836,6 +848,10 @@ Definitions: `pylxpweb/registers/battery.py`
 | `cycleCnt` | `cycle_count` |
 | `batMaxCellVoltage` | `battery_max_cell_voltage` |
 | `batMinCellVoltage` | `battery_min_cell_voltage` |
+| `batMaxCellNumTemp` | `battery_max_cell_temp_num` |
+| `batMinCellNumTemp` | `battery_min_cell_temp_num` |
+| `batMaxCellNumVolt` | `battery_max_cell_voltage_num` |
+| `batMinCellNumVolt` | `battery_min_cell_voltage_num` |
 | `currentFullCapacity` | `battery_full_capacity` |
 | `batBmsModelText` | `battery_model` |
 
