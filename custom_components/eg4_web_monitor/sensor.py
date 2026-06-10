@@ -335,7 +335,9 @@ async def async_setup_entry(
     # Track known device sensor keys for late registration.
     # In HYBRID mode, transport-only sensors (per-leg power, overlay sensors)
     # only appear after local transports are attached — typically on the second
-    # coordinator update cycle.  Entities created during async_setup_entry()
+    # coordinator update cycle; parallel-group aggregates derived from member
+    # bank data (parallel_battery_*) appear late the same way when the first
+    # cycle had no bank data.  Entities created during async_setup_entry()
     # only cover keys present in the first update.  This listener registers
     # new device sensor entities that appear in subsequent updates.
     known_device_sensor_keys: dict[str, set[str]] = {}
@@ -357,7 +359,7 @@ async def async_setup_entry(
                 and not k.startswith("battery_bank_")
                 and _should_create_sensor(k, features)
             }
-        elif dtype == "gridboss":
+        elif dtype in ("gridboss", "parallel_group"):
             known_device_sensor_keys[serial] = {
                 k for k in device_data.get("sensors", {}) if k in SENSOR_TYPES
             }
@@ -370,7 +372,7 @@ async def async_setup_entry(
         new_entities: list[SensorEntity] = []
         for serial, device_data in coordinator.data["devices"].items():
             dtype = device_data.get("type", "unknown")
-            if dtype not in ("inverter", "gridboss"):
+            if dtype not in ("inverter", "gridboss", "parallel_group"):
                 continue
             features = device_data.get("features")
             known = known_device_sensor_keys.setdefault(serial, set())

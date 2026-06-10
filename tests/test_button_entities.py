@@ -216,3 +216,98 @@ class TestEG4StationRefreshButton:
 
         assert "12345" in entity.unique_id
         assert "refresh" in entity.unique_id.lower()
+
+
+class TestLateBatteryButtonRegistration:
+    """Late registration of per-battery refresh buttons (eg4-68y review)."""
+
+    @staticmethod
+    def _coordinator(batteries: dict | None = None) -> MagicMock:
+        coordinator = MagicMock()
+        coordinator.plant_id = "12345"
+        coordinator.async_add_listener = MagicMock(return_value=lambda: None)
+        coordinator.get_device_info.return_value = None
+        coordinator.get_battery_device_info.return_value = None
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": batteries or {},
+                },
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_batteries_appearing_late_get_buttons(self):
+        """Batteries discovered after setup get refresh buttons."""
+        from custom_components.eg4_web_monitor.button import async_setup_entry
+
+        coordinator = self._coordinator(batteries={})
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        added: list = []
+
+        def add_entities(entities, *args):
+            added.extend(entities)
+
+        await async_setup_entry(MagicMock(), entry, add_entities)
+        # Setup created no battery buttons (LOCAL static first refresh has none)
+        assert not any(isinstance(e, EG4BatteryRefreshButton) for e in added)
+
+        battery_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_battery_buttons"
+        )
+
+        coordinator.data["devices"]["INV001"]["batteries"]["INV001-01"] = {
+            "battery_real_voltage": 53.2,
+        }
+
+        added.clear()
+        battery_callback()
+
+        battery_buttons = [e for e in added if isinstance(e, EG4BatteryRefreshButton)]
+        assert len(battery_buttons) == 1
+        assert battery_buttons[0]._battery_key == "INV001-01"
+
+        # No duplicates on a second fire
+        added.clear()
+        battery_callback()
+        assert added == []
+
+    @pytest.mark.asyncio
+    async def test_setup_time_batteries_not_readded(self):
+        """Batteries present at setup are seeded as known."""
+        from custom_components.eg4_web_monitor.button import async_setup_entry
+
+        coordinator = self._coordinator(
+            batteries={"INV001-01": {"battery_real_voltage": 53.2}}
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        added: list = []
+
+        def add_entities(entities, *args):
+            added.extend(entities)
+
+        await async_setup_entry(MagicMock(), entry, add_entities)
+        setup_buttons = [e for e in added if isinstance(e, EG4BatteryRefreshButton)]
+        assert len(setup_buttons) == 1
+
+        battery_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_battery_buttons"
+        )
+
+        added.clear()
+        battery_callback()
+        assert added == []

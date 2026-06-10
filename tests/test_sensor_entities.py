@@ -739,6 +739,59 @@ class TestAsyncSetupEntry:
         bank_callback()
         assert added == []
 
+    async def test_late_parallel_group_keys_registered(self, hass, mock_entry):
+        """Parallel-group keys appearing after setup get entities.
+
+        Aggregates derived from member bank data (parallel_battery_*) are
+        absent until the first cycle that has bank data — e.g. the LOCAL
+        static first refresh, or a HYBRID boot where the cloud battery
+        fetch failed. The device-sensor listener must cover parallel
+        groups (eg4-68y review finding).
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "model": "Parallel Group",
+                    "sensors": {"pv_total_power": 5000},
+                },
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        added: list = []
+        await async_setup_entry(
+            hass, mock_entry, lambda entities, _: added.extend(entities)
+        )
+
+        device_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_device_sensors"
+        )
+
+        coordinator.data["devices"]["parallel_group_a"]["sensors"].update(
+            {
+                "parallel_battery_current": -0.7,
+                "parallel_battery_charge_rate": -0.04,
+            }
+        )
+
+        added.clear()
+        device_callback()
+
+        late_keys = {e._sensor_key for e in added}
+        assert late_keys == {
+            "parallel_battery_current",
+            "parallel_battery_charge_rate",
+        }
+        assert all(isinstance(e, EG4InverterSensor) for e in added)
+
+        # No duplicates on a second fire
+        added.clear()
+        device_callback()
+        assert added == []
+
     async def test_late_bank_registration_ignores_known_and_invalid(
         self, hass, mock_entry
     ):
