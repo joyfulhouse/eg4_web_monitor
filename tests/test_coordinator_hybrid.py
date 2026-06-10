@@ -436,3 +436,523 @@ class TestAttachLocalTransports:
 
         # Verify attachment was called
         mock_self.station.attach_local_transports.assert_called_once_with([mock_config])
+
+
+class TestAttachRetryAndDegradedFallback:
+    """eg4-05l/eg4-o5m: failed attaches retry; degraded devices stay fresh.
+
+    Live prod incident (2026-06-10, v3.4.0-beta.2): an HA restart left the
+    dongle's TCP slot held by the previous session, the GridBOSS attach
+    timed out once and was never retried, and its cloud fallback froze on
+    HTTP-interval-aligned caches until a manual reload.
+    """
+
+    @staticmethod
+    def _net_cfg(serial: str, host: str = "10.100.12.175") -> MagicMock:
+        from pylxpweb.transports.config import TransportType
+
+        cfg = MagicMock()
+        cfg.serial = serial
+        cfg.host = host
+        cfg.transport_type = TransportType.WIFI_DONGLE
+        return cfg
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_tracks_serials_and_raises_issue(self) -> None:
+        """A failed serial populates the retry set and raises a Repairs issue."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.matched = 0
+        attach_result.unmatched = 0
+        attach_result.failed = 1
+        attach_result.unmatched_serials = []
+        attach_result.failed_serials = ["4524850115"]
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._local_transport_configs = [
+            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+        ]
+        mock_self._local_transports_attached = False
+
+        cfg = self._net_cfg("4524850115")
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir,
+        ):
+            await EG4DataUpdateCoordinator._attach_local_transports_to_station(
+                mock_self
+            )
+
+        assert mock_self._failed_attach_serials == {"4524850115"}
+        assert mock_self._local_transports_attached is True
+        issue_ids = [c.args[2] for c in mock_ir.async_create_issue.call_args_list]
+        assert "transport_attach_failed_4524850115" in issue_ids
+
+    @pytest.mark.asyncio
+    async def test_successful_attach_clears_stale_issue(self) -> None:
+        """A serial that attaches cleanly gets any stale Repairs issue deleted."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.matched = 1
+        attach_result.unmatched = 0
+        attach_result.failed = 0
+        attach_result.unmatched_serials = []
+        attach_result.failed_serials = []
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._local_transport_configs = [
+            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+        ]
+        mock_self._local_transports_attached = False
+
+        cfg = self._net_cfg("4524850115")
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir,
+        ):
+            await EG4DataUpdateCoordinator._attach_local_transports_to_station(
+                mock_self
+            )
+
+        assert mock_self._failed_attach_serials == set()
+        deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
+        assert "transport_attach_failed_4524850115" in deleted
+
+    @pytest.mark.asyncio
+    async def test_retry_recovers_and_clears_issue(self) -> None:
+        """A retry that succeeds clears the set, the issue, and reconfigures."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.failed_serials = []
+        attach_result.unmatched_serials = []
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._last_attach_retry = 0.0
+        mock_self._local_transport_configs = [
+            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+        ]
+
+        cfg = self._net_cfg("4524850115")
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir,
+        ):
+            await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        assert mock_self._failed_attach_serials == set()
+        deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
+        assert "transport_attach_failed_4524850115" in deleted
+        mock_self._configure_attached_devices.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_still_failing_keeps_serial(self) -> None:
+        """A retry that fails again keeps the serial for the next attempt."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.failed_serials = ["4524850115"]
+        attach_result.unmatched_serials = []
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._last_attach_retry = 0.0
+        mock_self._local_transport_configs = [
+            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+        ]
+
+        cfg = self._net_cfg("4524850115")
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir,
+        ):
+            await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        assert mock_self._failed_attach_serials == {"4524850115"}
+        mock_ir.async_delete_issue.assert_not_called()
+        mock_self._configure_attached_devices.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retry_respects_backoff(self) -> None:
+        """Retries are bounded — a fresh retry timestamp skips the attempt."""
+        import time as time_mod
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock()
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._last_attach_retry = time_mod.monotonic()
+
+        await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        mock_self.station.attach_local_transports.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_noop_without_failures(self) -> None:
+        """No failed serials -> no retry work at all."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock()
+        mock_self._failed_attach_serials = set()
+
+        await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        mock_self.station.attach_local_transports.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_degraded_device_gets_cache_bust_and_cloud_refresh(self) -> None:
+        """A locally-configured device with no transport refreshes via cloud
+        with its API cache invalidated (eg4-o5m freeze fix)."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = MagicMock()
+        mid.serial_number = "4524850115"
+        mid.transport = None
+        mid.refresh = AsyncMock()
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = []
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {}
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_called_once_with(
+            "4524850115"
+        )
+        mid.refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cloud_only_device_keeps_its_caches(self) -> None:
+        """A device never configured for local polling is NOT cache-busted."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = MagicMock()
+        inv.serial_number = "9999999999"
+        inv.transport = None
+        inv.refresh = AsyncMock()
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {}
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_not_called()
+        inv.refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_degraded_refresh_failure_is_logged_not_swallowed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Cloud-refresh failures for transportless devices log a warning."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = MagicMock()
+        mid.serial_number = "4524850115"
+        mid.transport = None
+        mid.refresh = AsyncMock(side_effect=RuntimeError("cloud down"))
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = []
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {}
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        assert "Cloud refresh failed for 4524850115" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_degraded_mid_escalates_include_mid_gate(self) -> None:
+        """A degraded MID forces include_mid past the dongle-interval gate."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = MagicMock()
+        mid.serial_number = "4524850115"
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self.station = MagicMock()
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.station.all_inverters = []
+        mock_self._async_update_http_data = AsyncMock(return_value={"devices": {}})
+
+        await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        mock_self._async_update_http_data.assert_awaited_once_with(
+            include_mid_refresh=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_degraded_inverter_does_not_escalate_mid_gate(self) -> None:
+        """A degraded INVERTER must not force off-interval dongle polling."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = MagicMock()
+        mid.serial_number = "4524850115"
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
+        mock_self._failed_attach_serials = {"1111111111"}  # an inverter
+        mock_self.station = MagicMock()
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.station.all_inverters = []
+        mock_self._async_update_http_data = AsyncMock(return_value={"devices": {}})
+
+        await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        mock_self._async_update_http_data.assert_awaited_once_with(
+            include_mid_refresh=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_degraded_refresh_throttled_to_http_interval(self) -> None:
+        """Degraded cloud refresh never outpaces the HTTP interval (review HIGH).
+
+        A hybrid coordinator can tick every 5s — the degraded fallback must
+        not turn that into a per-tick cloud call.
+        """
+        import time as time_mod
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = MagicMock()
+        mid.serial_number = "4524850115"
+        mid.transport = None
+        mid.refresh = AsyncMock()
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = []
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {
+            "4524850115": time_mod.monotonic()  # refreshed moments ago
+        }
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_not_called()
+        mid.refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_recovery_drains_recovered_modbus_only(self) -> None:
+        """A recovered Modbus transport gets a stale-buffer drain (review MEDIUM)."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.failed_serials = []
+        attach_result.unmatched_serials = []
+
+        recovered_inv = MagicMock()
+        recovered_inv.serial_number = "1111111111"
+        healthy_inv = MagicMock()
+        healthy_inv.serial_number = "2222222222"
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._failed_attach_serials = {"1111111111"}
+        mock_self._last_attach_retry = 0.0
+        mock_self._local_transport_configs = [
+            {"serial": "1111111111", "transport_type": "modbus_tcp"}
+        ]
+        mock_self._configure_attached_devices = MagicMock(
+            return_value=[recovered_inv, healthy_inv]
+        )
+        mock_self._background_tasks = set()
+
+        from pylxpweb.transports.config import TransportType
+
+        cfg = MagicMock()
+        cfg.serial = "1111111111"
+        cfg.transport_type = TransportType.MODBUS_TCP
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir"),
+        ):
+            await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        # Drain scheduled with ONLY the recovered inverter
+        mock_self._drain_modbus_buffers.assert_called_once_with([recovered_inv])
+        mock_self.hass.async_create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ensure_local_transports_full_reattach_after_exception(
+        self,
+    ) -> None:
+        """A whole-attach exception (attached=False, empty failed set) re-runs
+        the full attach with bounded backoff (review HIGH)."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.connection_type = CONNECTION_TYPE_HYBRID
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transports_attached = False
+        mock_self._failed_attach_serials = set()
+        mock_self._last_attach_retry = 0.0
+        mock_self._attach_local_transports_to_station = AsyncMock()
+        mock_self._maybe_retry_failed_attaches = AsyncMock()
+
+        await EG4DataUpdateCoordinator._ensure_local_transports(mock_self)
+
+        mock_self._attach_local_transports_to_station.assert_awaited_once()
+        mock_self._maybe_retry_failed_attaches.assert_not_awaited()
+        assert mock_self._last_attach_retry > 0.0
+
+    @pytest.mark.asyncio
+    async def test_ensure_local_transports_full_reattach_backoff(self) -> None:
+        """The full re-attach respects the bounded retry interval."""
+        import time as time_mod
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.connection_type = CONNECTION_TYPE_HYBRID
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transports_attached = False
+        mock_self._failed_attach_serials = set()
+        mock_self._last_attach_retry = time_mod.monotonic()
+        mock_self._attach_local_transports_to_station = AsyncMock()
+
+        await EG4DataUpdateCoordinator._ensure_local_transports(mock_self)
+
+        mock_self._attach_local_transports_to_station.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ensure_local_transports_delegates_per_serial_retry(self) -> None:
+        """With attach done but serials failed, the per-serial retry runs."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.connection_type = CONNECTION_TYPE_HYBRID
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transports_attached = True
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._attach_local_transports_to_station = AsyncMock()
+        mock_self._maybe_retry_failed_attaches = AsyncMock()
+
+        await EG4DataUpdateCoordinator._ensure_local_transports(mock_self)
+
+        mock_self._maybe_retry_failed_attaches.assert_awaited_once()
+        mock_self._attach_local_transports_to_station.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ensure_local_transports_noop_outside_hybrid(self) -> None:
+        """Non-hybrid connection types never run attach recovery."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.connection_type = "http"
+        mock_self._local_transports_attached = False
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._attach_local_transports_to_station = AsyncMock()
+        mock_self._maybe_retry_failed_attaches = AsyncMock()
+
+        await EG4DataUpdateCoordinator._ensure_local_transports(mock_self)
+
+        mock_self._attach_local_transports_to_station.assert_not_awaited()
+        mock_self._maybe_retry_failed_attaches.assert_not_awaited()

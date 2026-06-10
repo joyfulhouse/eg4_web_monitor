@@ -361,6 +361,9 @@ if TYPE_CHECKING:
         _http_polling_interval: int
         _local_transport_configs: list[dict[str, Any]]
         _local_transports_attached: bool
+        _failed_attach_serials: set[str]
+        _last_attach_retry: float
+        _last_degraded_cloud_refresh: dict[str, float]
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
         _data_validation_enabled: bool
@@ -457,6 +460,9 @@ if TYPE_CHECKING:
 
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
+        async def _maybe_retry_failed_attaches(self) -> None: ...
+        async def _ensure_local_transports(self) -> None: ...
+        def _configure_attached_devices(self) -> list[Any]: ...
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,

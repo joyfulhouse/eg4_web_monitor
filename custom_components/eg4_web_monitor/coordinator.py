@@ -244,6 +244,18 @@ class EG4DataUpdateCoordinator(
             CONF_LOCAL_TRANSPORTS, []
         )
         self._local_transports_attached = False
+        # Serials whose local-transport attach failed (commonly: the dongle's
+        # single TCP slot still held by the previous session right after an
+        # HA restart). Retried with a bounded interval each update cycle and
+        # cleared on success — without this, a transient boot-time failure
+        # parked the device on cloud data until a manual reload (eg4-05l).
+        self._failed_attach_serials: set[str] = set()
+        self._last_attach_retry: float = 0.0
+        # Per-serial monotonic stamps for DEGRADED cloud refreshes: a hybrid
+        # coordinator can tick at the fastest LOCAL interval (5s) — degraded
+        # devices' cloud fallback must stay throttled to the cloud-safe HTTP
+        # interval regardless (review HIGH on eg4-o5m).
+        self._last_degraded_cloud_refresh: dict[str, float] = {}
 
         # Parameter refresh tracking - read from options or use default
         self._last_parameter_refresh: datetime | None = None
