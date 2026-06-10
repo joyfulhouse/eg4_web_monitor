@@ -677,6 +677,156 @@ class TestAsyncSetupEntry:
         callback()
         assert len(added) == 0
 
+    @staticmethod
+    def _get_bank_callback(coordinator):
+        """Find the battery bank late-registration listener callback."""
+        for call in coordinator.async_add_listener.call_args_list:
+            cb = call[0][0]
+            if cb.__name__ == "_async_discover_battery_bank_sensors":
+                return cb
+        raise AssertionError("battery bank listener not registered")
+
+    async def test_late_bank_registration_discovers_new_keys(self, hass, mock_entry):
+        """Bank register keys appearing after setup get entities (eg4-68y).
+
+        In HYBRID mode the first refresh is cloud-only, so LOCAL-register
+        bank keys (BMS limits, cycle count) only appear on a later cycle.
+        The bank listener must register them when they show up.
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "INV001": _inverter_device(
+                    sensors={"battery_bank_soc": 78, "pv1_voltage": 350},
+                ),
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        added: list = []
+        await async_setup_entry(
+            hass, mock_entry, lambda entities, _: added.extend(entities)
+        )
+        # Setup created the cloud-visible bank sensor only
+        setup_bank_keys = {
+            e._sensor_key for e in added if isinstance(e, EG4BatteryBankSensor)
+        }
+        assert setup_bank_keys == {"battery_bank_soc"}
+
+        bank_callback = self._get_bank_callback(coordinator)
+
+        # Simulate cycle 2: LOCAL transport battery read adds register keys
+        coordinator.data["devices"]["INV001"]["sensors"].update(
+            {
+                "battery_bank_bms_charge_current_limit": 600.0,
+                "battery_bank_cycle_count": 173,
+            }
+        )
+
+        added.clear()
+        bank_callback()
+
+        late_keys = {
+            e._sensor_key for e in added if isinstance(e, EG4BatteryBankSensor)
+        }
+        assert late_keys == {
+            "battery_bank_bms_charge_current_limit",
+            "battery_bank_cycle_count",
+        }
+        assert all(isinstance(e, EG4BatteryBankSensor) for e in added)
+
+        # Calling again must not duplicate
+        added.clear()
+        bank_callback()
+        assert added == []
+
+    async def test_late_parallel_group_keys_registered(self, hass, mock_entry):
+        """Parallel-group keys appearing after setup get entities.
+
+        Aggregates derived from member bank data (parallel_battery_*) are
+        absent until the first cycle that has bank data — e.g. the LOCAL
+        static first refresh, or a HYBRID boot where the cloud battery
+        fetch failed. The device-sensor listener must cover parallel
+        groups (eg4-68y review finding).
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "model": "Parallel Group",
+                    "sensors": {"pv_total_power": 5000},
+                },
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        added: list = []
+        await async_setup_entry(
+            hass, mock_entry, lambda entities, _: added.extend(entities)
+        )
+
+        device_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_device_sensors"
+        )
+
+        coordinator.data["devices"]["parallel_group_a"]["sensors"].update(
+            {
+                "parallel_battery_current": -0.7,
+                "parallel_battery_charge_rate": -0.04,
+            }
+        )
+
+        added.clear()
+        device_callback()
+
+        late_keys = {e._sensor_key for e in added}
+        assert late_keys == {
+            "parallel_battery_current",
+            "parallel_battery_charge_rate",
+        }
+        assert all(isinstance(e, EG4InverterSensor) for e in added)
+
+        # No duplicates on a second fire
+        added.clear()
+        device_callback()
+        assert added == []
+
+    async def test_late_bank_registration_ignores_known_and_invalid(
+        self, hass, mock_entry
+    ):
+        """Bank listener skips known keys, unknown keys, non-inverters."""
+        coordinator = _mock_coordinator(
+            devices={
+                "INV001": _inverter_device(
+                    sensors={"battery_bank_bms_charge_current_limit": 600.0},
+                ),
+                "GB001": {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                    "sensors": {},
+                },
+            },
+        )
+        mock_entry.runtime_data = coordinator
+
+        added: list = []
+        await async_setup_entry(
+            hass, mock_entry, lambda entities, _: added.extend(entities)
+        )
+
+        bank_callback = self._get_bank_callback(coordinator)
+
+        # Known key unchanged, bogus bank key, and a bank-like key on gridboss
+        coordinator.data["devices"]["INV001"]["sensors"][
+            "battery_bank_not_a_real_sensor"
+        ] = 1
+        coordinator.data["devices"]["GB001"]["sensors"]["battery_bank_cycle_count"] = 99
+
+        added.clear()
+        bank_callback()
+        assert added == []
+
     async def test_unknown_device_type_warning(self, hass, mock_entry):
         """Unknown device type logs warning but doesn't crash."""
         coordinator = _mock_coordinator(

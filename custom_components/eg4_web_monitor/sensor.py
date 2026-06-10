@@ -335,7 +335,9 @@ async def async_setup_entry(
     # Track known device sensor keys for late registration.
     # In HYBRID mode, transport-only sensors (per-leg power, overlay sensors)
     # only appear after local transports are attached — typically on the second
-    # coordinator update cycle.  Entities created during async_setup_entry()
+    # coordinator update cycle; parallel-group aggregates derived from member
+    # bank data (parallel_battery_*) appear late the same way when the first
+    # cycle had no bank data.  Entities created during async_setup_entry()
     # only cover keys present in the first update.  This listener registers
     # new device sensor entities that appear in subsequent updates.
     known_device_sensor_keys: dict[str, set[str]] = {}
@@ -357,7 +359,7 @@ async def async_setup_entry(
                 and not k.startswith("battery_bank_")
                 and _should_create_sensor(k, features)
             }
-        elif dtype == "gridboss":
+        elif dtype in ("gridboss", "parallel_group"):
             known_device_sensor_keys[serial] = {
                 k for k in device_data.get("sensors", {}) if k in SENSOR_TYPES
             }
@@ -370,7 +372,7 @@ async def async_setup_entry(
         new_entities: list[SensorEntity] = []
         for serial, device_data in coordinator.data["devices"].items():
             dtype = device_data.get("type", "unknown")
-            if dtype not in ("inverter", "gridboss"):
+            if dtype not in ("inverter", "gridboss", "parallel_group"):
                 continue
             features = device_data.get("features")
             known = known_device_sensor_keys.setdefault(serial, set())
@@ -401,6 +403,59 @@ async def async_setup_entry(
 
     entry.async_on_unload(
         coordinator.async_add_listener(_async_discover_device_sensors)
+    )
+
+    # Track known battery bank sensor keys for late registration.
+    # In HYBRID mode the first refresh is cloud-only (no forced local read by
+    # design), so LOCAL-register bank keys (BMS limits, cycle count, inverter
+    # voltage sample) only appear once a later cycle has read the transport
+    # battery data.  Whether those keys are present during async_setup_entry()
+    # is therefore a race against the second coordinator cycle — and the
+    # device-sensor listener above deliberately skips battery_bank_ keys
+    # (they need their own entity class).  Without this listener, a lost race
+    # strands the bank register sensors as unavailable until reload (eg4-68y).
+    # CAN-dependent bank diagnostics (soc_delta etc.) appear late the same way.
+    known_bank_sensor_keys: dict[str, set[str]] = {}
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        if device_data.get("type") == "inverter":
+            known_bank_sensor_keys[serial] = {
+                k
+                for k in device_data.get("sensors", {})
+                if k.startswith("battery_bank_") and k in SENSOR_TYPES
+            }
+
+    @callback
+    def _async_discover_battery_bank_sensors() -> None:
+        """Register battery bank sensors that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            known = known_bank_sensor_keys.setdefault(serial, set())
+            for sensor_key in device_data.get("sensors", {}):
+                if not sensor_key.startswith("battery_bank_"):
+                    continue
+                if sensor_key not in SENSOR_TYPES or sensor_key in known:
+                    continue
+                known.add(sensor_key)
+                new_entities.append(
+                    EG4BatteryBankSensor(
+                        coordinator=coordinator,
+                        serial=serial,
+                        sensor_key=sensor_key,
+                    )
+                )
+        if new_entities:
+            _LOGGER.info(
+                "Late battery bank registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_battery_bank_sensors)
     )
 
 

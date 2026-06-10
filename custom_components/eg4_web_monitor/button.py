@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -117,6 +117,52 @@ async def async_setup_entry(
         _LOGGER.debug(
             "Phase 2: Added %d individual battery button entities", len(phase2_entities)
         )
+
+    # Track known battery keys for late registration.  Individual batteries
+    # are discovered only when a real battery read completes — the LOCAL
+    # static first refresh has none, and in HYBRID a failed cloud battery
+    # fetch on the first cycle leaves them empty until the local transport
+    # read.  The sensor platform already late-registers battery sensors;
+    # without this listener the matching refresh buttons stayed missing
+    # until reload (eg4-68y review follow-up).
+    known_battery_keys: dict[str, set[str]] = {
+        serial: set(device_data.get("batteries", {}))
+        for serial, device_data in coordinator.data["devices"].items()
+    }
+
+    @callback
+    def _async_discover_battery_buttons() -> None:
+        """Register battery refresh buttons that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[ButtonEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            known = known_battery_keys.setdefault(serial, set())
+            for battery_key in device_data.get("batteries", {}):
+                if battery_key in known:
+                    continue
+                known.add(battery_key)
+                device_info = coordinator.data.get("device_info", {}).get(serial, {})
+                parent_model = device_info.get("deviceTypeText4APP", "Unknown")
+                new_entities.append(
+                    EG4BatteryRefreshButton(
+                        coordinator=coordinator,
+                        parent_serial=serial,
+                        battery_key=battery_key,
+                        parent_model=parent_model,
+                        battery_id=battery_key,
+                    )
+                )
+        if new_entities:
+            _LOGGER.info(
+                "Late battery button registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_battery_buttons)
+    )
 
 
 class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
