@@ -103,6 +103,30 @@ class HTTPUpdateMixin(_MixinBase):
             return should_poll
         return any(results.values())
 
+    async def _ensure_local_transports(self) -> None:
+        """Recover local transports after setup-time failures (eg4-05l).
+
+        Two failure shapes need post-setup recovery, both bounded to
+        ATTACH_RETRY_INTERVAL_SECONDS:
+
+        - a whole-attach EXCEPTION left ``_local_transports_attached`` False
+          with an empty failed set — re-run the full attach;
+        - per-serial failures (tracked in ``_failed_attach_serials``) —
+          retry just those serials.
+        """
+        if self.connection_type != CONNECTION_TYPE_HYBRID:
+            return
+        if self._local_transport_configs and not self._local_transports_attached:
+            from .coordinator_local import ATTACH_RETRY_INTERVAL_SECONDS
+
+            now = _time.monotonic()
+            if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+                return
+            self._last_attach_retry = now
+            await self._attach_local_transports_to_station()
+        elif self._failed_attach_serials:
+            await self._maybe_retry_failed_attaches()
+
     async def _refresh_station_devices(self, include_mid: bool = True) -> None:
         """Refresh station devices, serializing by transport endpoint.
 
@@ -192,8 +216,43 @@ class HTTPUpdateMixin(_MixinBase):
             coros.append(_refresh_group_sequentially(devices))
 
         # Cloud-only devices can refresh concurrently (HTTP API)
+        locally_configured = {
+            str(c.get("serial")) for c in self._local_transport_configs
+        }
+
+        async def _refresh_cloud_device(device: Any) -> None:
+            """Cloud refresh with degraded-mode cache bust + visible failures.
+
+            A device configured for local polling that has NO transport is
+            running degraded (attach failed — eg4-05l/o5m). Its cloud caches
+            are aligned to the slow HTTP interval on the assumption local is
+            primary, which froze its sensors for the whole cache window —
+            bust them so degraded devices keep updating. The bust is
+            throttled per serial to the HTTP polling interval: a hybrid
+            coordinator can tick at the fastest LOCAL interval (5s), which
+            must never leak into the cloud call rate. Genuinely cloud-only
+            devices keep their normal caches. Failures are logged instead
+            of being silently swallowed by gather(return_exceptions=True).
+            """
+            serial = str(getattr(device, "serial_number", "?"))
+            try:
+                if serial in locally_configured and self.client is not None:
+                    now = _time.monotonic()
+                    last = self._last_degraded_cloud_refresh.get(serial, 0.0)
+                    if now - last < self._http_polling_interval:
+                        return  # cached data stands until the cloud-safe window
+                    self._last_degraded_cloud_refresh[serial] = now
+                    self.client.invalidate_cache_for_device(serial)
+                await device.refresh()
+            except Exception as exc:
+                _LOGGER.warning(
+                    "Cloud refresh failed for %s (no local transport): %s",
+                    serial,
+                    exc,
+                )
+
         for device in no_transport:
-            coros.append(device.refresh())
+            coros.append(_refresh_cloud_device(device))
 
         if coros:
             await asyncio.gather(*coros, return_exceptions=True)
@@ -211,6 +270,14 @@ class HTTPUpdateMixin(_MixinBase):
             Dictionary containing device data with transport-aware labels.
         """
         include_mid = self._should_poll_hybrid_local()
+        if not include_mid and self._failed_attach_serials and self.station is not None:
+            # A MID device whose transport attach failed refreshes via the
+            # CLOUD, not the dongle — the dongle-interval gate must not slow
+            # its fallback to one update per dongle window (eg4-o5m). Only
+            # escalate while a MID serial is actually degraded.
+            mid_serials = {str(m.serial_number) for m in self.station.all_mid_devices}
+            if self._failed_attach_serials & mid_serials:
+                include_mid = True
         data = await self._async_update_http_data(
             include_mid_refresh=include_mid,
         )
@@ -317,6 +384,9 @@ class HTTPUpdateMixin(_MixinBase):
                 ):
                     await self._attach_local_transports_to_station()
             else:
+                # Recover from setup-time attach failures (eg4-05l) — both
+                # per-serial failures and a whole-attach exception.
+                await self._ensure_local_transports()
                 if include_mid_refresh:
                     _LOGGER.debug(
                         "Refreshing all station data for plant %s", self.plant_id

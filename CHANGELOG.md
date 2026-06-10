@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HYBRID: a failed local-transport attach at startup is now retried** (live-found on production validating beta.2): right after a Home Assistant restart, the WiFi dongle's single TCP slot can still be held by the previous session, so the attach times out — previously that one transient failure parked the device on cloud data **forever** (until a manual reload). Failed attaches are now retried about once a minute and recover automatically; a **Repairs issue** explains the degraded state and clears itself on reconnection.
+- **HYBRID: devices running degraded (failed attach) no longer freeze**: while a locally-configured device falls back to cloud data, its cloud API caches — tuned for the slow supplemental role — could pin its sensors at stale values for the whole cache window. Degraded devices now bypass those caches and keep updating at the normal coordinator cadence, a degraded GridBOSS is no longer throttled by the dongle polling interval (it isn't using the dongle), and cloud-fallback failures are logged instead of being silently swallowed.
+
 ## [3.4.0-beta.2] - 2026-06-10
 
 ### Added

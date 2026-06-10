@@ -7,6 +7,7 @@ aggregation, and static entity creation.
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
@@ -78,6 +79,12 @@ _LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTran
 # likely truncated register reads from incomplete CAN bus transfers and
 # are skipped to avoid creating phantom battery entities.
 _MIN_SERIAL_LENGTH = 10
+
+# Minimum seconds between retries of failed local-transport attaches
+# (eg4-05l).  Long enough that a wedged dongle isn't hammered (each attempt
+# costs up to 3 connect timeouts), short enough that the post-restart
+# stale-TCP-slot window — typically 1-5 minutes — recovers promptly.
+ATTACH_RETRY_INTERVAL_SECONDS = 60.0
 
 
 class LocalTransportMixin(_MixinBase):
@@ -1891,10 +1898,38 @@ class LocalTransportMixin(_MixinBase):
 
             self._local_transports_attached = True
 
-            # Configure each inverter with a local transport:
-            # 1. Propagate data validation (prevents GridBOSS data spikes)
-            # 2. Align cache TTLs with coordinator's user-configured intervals
-            # 3. Schedule background buffer drain (see _drain_modbus_buffers)
+            # Track failed serials for bounded retry on later update cycles
+            # (eg4-05l): a transient connect failure at boot — commonly the
+            # dongle's single TCP slot still held by the previous HA session —
+            # must not park the device on cloud data until a manual reload.
+            self._failed_attach_serials = set(result.failed_serials)
+            network_serials = {c.serial for c in network_configs}
+            for serial in sorted(self._failed_attach_serials & network_serials):
+                cfg = next(c for c in network_configs if c.serial == serial)
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"transport_attach_failed_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="transport_attach_failed",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "host": str(getattr(cfg, "host", "?")),
+                    },
+                )
+            # Clear stale issues for serials that attached this time (a
+            # reload after a degraded run must not leave ghost repairs).
+            for cfg in configs:
+                if cfg.serial not in self._failed_attach_serials:
+                    ir.async_delete_issue(
+                        self.hass, DOMAIN, f"transport_attach_failed_{cfg.serial}"
+                    )
+                    ir.async_delete_issue(
+                        self.hass, DOMAIN, f"serial_attach_failed_{cfg.serial}"
+                    )
+
+            # Configure devices that received a transport.
             #
             # NOTE: We intentionally do NOT await inverter.refresh() here.
             # asyncio.wait_for() with Python 3.11 does NOT interrupt in-flight
@@ -1905,21 +1940,7 @@ class LocalTransportMixin(_MixinBase):
             # async_config_entry_first_refresh() for that entire duration,
             # causing HA's setup timeout to fire and cancel entity setup.
             # Instead, a background task drains the buffer after setup returns.
-            validation_enabled = self._data_validation_enabled
-            modbus_inverters: list[Any] = []
-            for inverter in self.station.all_inverters:
-                transport = inverter.transport
-                if transport is not None:
-                    inverter.validate_data = validation_enabled
-                    # Propagate split-phase config for per-leg power fallback
-                    grid_type = self._get_device_grid_type(inverter.serial_number)
-                    if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
-                        transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
-                    tt = getattr(transport, "transport_type", "modbus_tcp")
-                    self._align_inverter_cache_ttls(inverter, tt)
-                    if tt == "modbus_tcp":
-                        modbus_inverters.append(inverter)
-
+            modbus_inverters = self._configure_attached_devices()
             if modbus_inverters:
                 task = self.hass.async_create_task(
                     self._drain_modbus_buffers(modbus_inverters)
@@ -1927,13 +1948,6 @@ class LocalTransportMixin(_MixinBase):
                 self._background_tasks.add(task)
                 task.add_done_callback(self._remove_task_from_set)
                 task.add_done_callback(self._log_task_exception)
-
-            # Propagate validation to MID devices.  set_max_system_power()
-            # cannot be called here because inverter features have not been
-            # detected yet — it runs later in _deferred_local_parameter_load().
-            for mid in self.station.all_mid_devices:
-                if mid.transport is not None:
-                    mid.validate_data = validation_enabled
 
             # Log hybrid mode status
             if self.station.is_hybrid_mode:
@@ -1948,6 +1962,117 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.error("Failed to attach local transports: %s", err)
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
+
+    def _configure_attached_devices(self) -> list[Any]:
+        """Propagate validation/cache/grid-type settings to attached devices.
+
+        Idempotent — safe to re-run after an attach retry succeeds. Returns
+        the modbus_tcp inverters; the CALLER decides whether to schedule a
+        Waveshare buffer drain (only the initial attach does — re-draining a
+        healthy, already-polling bus would disturb it).
+        """
+        modbus_inverters: list[Any] = []
+        if self.station is None:
+            return modbus_inverters
+        validation_enabled = self._data_validation_enabled
+        for inverter in self.station.all_inverters:
+            transport = inverter.transport
+            if transport is not None:
+                inverter.validate_data = validation_enabled
+                # Propagate split-phase config for per-leg power fallback
+                grid_type = self._get_device_grid_type(inverter.serial_number)
+                if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
+                    transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
+                tt = getattr(transport, "transport_type", "modbus_tcp")
+                self._align_inverter_cache_ttls(inverter, tt)
+                if tt == "modbus_tcp":
+                    modbus_inverters.append(inverter)
+
+        # Propagate validation to MID devices.  set_max_system_power()
+        # cannot be called here because inverter features have not been
+        # detected yet — it runs later in _deferred_local_parameter_load().
+        for mid in self.station.all_mid_devices:
+            if mid.transport is not None:
+                mid.validate_data = validation_enabled
+        return modbus_inverters
+
+    async def _maybe_retry_failed_attaches(self) -> None:
+        """Retry local-transport attaches that failed at setup (eg4-05l).
+
+        A transient connect failure at boot — commonly the dongle's single
+        TCP slot still held by the previous HA session — used to park the
+        device on cloud data until a manual reload. Retry the failed serials
+        with a bounded interval; on success, configure the device, clear its
+        Repairs issue, and resume local polling.
+        """
+        if not self._failed_attach_serials or self.station is None:
+            return
+        now = time.monotonic()
+        if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+            return
+        self._last_attach_retry = now
+
+        from pylxpweb.transports.config import AttachResult, TransportType
+
+        retry_dicts = [
+            c
+            for c in self._local_transport_configs
+            if str(c.get("serial")) in self._failed_attach_serials
+        ]
+        configs = _build_transport_configs(retry_dicts)
+        if not configs:
+            self._failed_attach_serials = set()
+            return
+        serial_configs = [
+            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
+        ]
+        network_configs = [
+            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
+        ]
+        _LOGGER.debug(
+            "Retrying local transport attach for: %s",
+            sorted(self._failed_attach_serials),
+        )
+        try:
+            if network_configs:
+                result = await self.station.attach_local_transports(network_configs)
+            else:
+                result = AttachResult()
+            if serial_configs:
+                await self._attach_serial_transports_to_station(serial_configs, result)
+        except Exception as err:
+            _LOGGER.debug("Local transport attach retry failed: %s", err)
+            return
+
+        still_failed = set(result.failed_serials) | set(result.unmatched_serials)
+        recovered = {c.serial for c in configs} - still_failed
+        if not recovered:
+            return
+        self._failed_attach_serials -= recovered
+        for serial in sorted(recovered):
+            ir.async_delete_issue(
+                self.hass, DOMAIN, f"transport_attach_failed_{serial}"
+            )
+            ir.async_delete_issue(self.hass, DOMAIN, f"serial_attach_failed_{serial}")
+            _LOGGER.info(
+                "Local transport attached for %s after retry — resuming local polling",
+                serial,
+            )
+        modbus_inverters = self._configure_attached_devices()
+        # A freshly-recovered Modbus transport needs the same Waveshare
+        # stale-buffer drain the initial attach schedules (review MEDIUM) —
+        # but ONLY for the recovered serials; re-draining a healthy,
+        # already-polling bus would disturb it.
+        recovered_modbus = [
+            inv for inv in modbus_inverters if str(inv.serial_number) in recovered
+        ]
+        if recovered_modbus:
+            task = self.hass.async_create_task(
+                self._drain_modbus_buffers(recovered_modbus)
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
 
     async def _attach_serial_transports_to_station(
         self, configs: list[Any], result: Any

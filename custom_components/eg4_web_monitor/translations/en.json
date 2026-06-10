@@ -780,6 +780,10 @@
     "serial_attach_failed": {
       "title": "Serial connection failed for device {serial}",
       "description": "The Modbus serial (USB/RS485) connection on **{serial_port}** could not be opened for device **{serial}**. The device is temporarily using cloud data only.\n\nCheck that the adapter is plugged in, the port path is correct, and no other software has the port open, then reload the integration."
+    },
+    "transport_attach_failed": {
+      "title": "Local connection failed for device {serial}",
+      "description": "The local connection to **{host}** could not be established for device **{serial}** — this commonly happens right after a Home Assistant restart, while the WiFi dongle still holds the previous session's connection. The device is temporarily using cloud data.\n\nThe integration retries automatically about once a minute; this issue clears itself when the local connection is restored. If it persists, check that the device is powered and reachable at **{host}**."
     }
   }
 }
