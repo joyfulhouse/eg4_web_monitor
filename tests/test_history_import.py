@@ -15,7 +15,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.eg4_web_monitor import async_setup
+from custom_components.eg4_web_monitor import async_setup, history_import
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -1051,6 +1051,14 @@ class TestConcurrency:
             recorder = MagicMock()
 
             async def drain():
+                # Both drains must run INSIDE the per-plant lock: a drain
+                # awaited with the lock free means the recorder barrier
+                # moved outside the critical section, reopening the
+                # stale-snapshot race (round-3 review contract).
+                assert any(
+                    plant_lock.locked()
+                    for plant_lock in history_import._IMPORT_LOCKS.values()
+                ), "recorder drain awaited without holding the import lock"
                 await asyncio.sleep(0)
                 while pending:
                     sid, rows = pending.pop(0)

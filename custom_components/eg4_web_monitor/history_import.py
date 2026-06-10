@@ -183,6 +183,17 @@ async def async_import_historical_data(
         # in flight. Entry drain (the correctness guarantee): wait for the
         # recorder queue so _load_existing_rows() reads committed state.
         # No-op when the queue is idle.
+        #
+        # Known residual window (accepted): on a retryable DB error
+        # (SQLite lock / MySQL deadlock) ImportStatisticsTask requeues
+        # itself and can land BEHIND the synchronize barrier, so this
+        # drain is not a perfect commit fence in that rare window. The
+        # exposure requires two imports racing during a DB retry; the
+        # damage is bounded (undercounted sums on the second import's
+        # rows) and fully heals by re-running the affected range — the
+        # sum recompute rewrites those rows from committed state. For a
+        # manual, lock-serialized service this is accepted rather than
+        # spinning on an unbounded drain loop.
         await get_instance(hass).async_block_till_done()
 
         _LOGGER.info(
