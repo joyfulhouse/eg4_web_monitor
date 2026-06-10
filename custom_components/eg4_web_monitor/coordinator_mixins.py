@@ -108,6 +108,72 @@ _GRIDBOSS_PG_OVERLAY: dict[str, str] = {
 # 18kPV and FlexBOSS21 across the entire 193-204 block (issue #243 follow-up).
 _INVERTER_DEAD_GRID_LEG_KEYS: tuple[str, ...] = ("grid_voltage_l1", "grid_voltage_l2")
 
+# Transport-exclusive runtime sensor overlay (HYBRID mode).
+# (sensor_key, InverterRuntimeData attribute) pairs applied in
+# _process_inverter_object() when a local transport is attached: these are
+# Modbus-only values the cloud API does not provide (e.g. bt_temperature
+# reg 108, grid current regs 18/190/191, battery current reg 98) plus
+# split-phase per-leg voltages and the reg-170 load power (#197/#243).
+# Module-level so the register contract harness can verify each pair against
+# the canonical register tables (tests/test_register_contract_harness.py).
+_TRANSPORT_OVERLAY: tuple[tuple[str, str], ...] = (
+    ("bt_temperature", "temperature_t1"),
+    ("grid_current_l1", "inverter_rms_current_r"),
+    ("grid_current_l2", "inverter_rms_current_s"),
+    ("grid_current_l3", "inverter_rms_current_t"),
+    ("battery_current", "battery_current"),
+    # Split-phase per-leg voltages (Modbus regs 12/13 grid, 127/128
+    # EPS).  The cloud API has no per-leg field, so in HYBRID these
+    # are only available from the local transport — surface them here
+    # so HYBRID matches LOCAL parity (issue #243).  Pure CLOUD has no
+    # transport_runtime, so they stay correctly absent there.
+    ("grid_voltage_l1", "grid_l1_voltage"),
+    ("grid_voltage_l2", "grid_l2_voltage"),
+    ("eps_voltage_l1", "eps_l1_voltage"),
+    ("eps_voltage_l2", "eps_l2_voltage"),
+    # Load power (reg 170, "Pload").  The cloud zeroes its reg-170
+    # mirror for EG4_OFFGRID, so in HYBRID the value must come
+    # from the local register, never a cloud property (#197).
+    # Entity creation is gated to EG4_OFFGRID in sensor.py.
+    ("load_power", "output_power"),
+)
+
+# Transport-exclusive energy sensor overlay (HYBRID mode).
+# (sensor_key, InverterEnergyData attribute) pairs applied in
+# _process_inverter_object(): per-leg EPS energy (regs 133-138) and the
+# granular per-string / per-component energy registers, none of which the
+# cloud energy endpoint provides (#243).  Module-level for the same
+# contract-harness reason as _TRANSPORT_OVERLAY above.
+_ENERGY_OVERLAY: tuple[tuple[str, str], ...] = (
+    ("eps_energy_today_l1", "eps_l1_energy_today"),
+    ("eps_energy_today_l2", "eps_l2_energy_today"),
+    ("eps_energy_total_l1", "eps_l1_energy_total"),
+    ("eps_energy_total_l2", "eps_l2_energy_total"),
+    # Granular per-string / per-component energy — register-backed,
+    # absent from the cloud energy endpoint, so overlaid from the
+    # local transport in HYBRID (disabled-by-default sensors, #243).
+    ("pv1_yield", "pv1_energy_today"),
+    ("pv2_yield", "pv2_energy_today"),
+    ("pv3_yield", "pv3_energy_today"),
+    ("pv4_yield", "pv4_energy_today"),
+    ("pv5_yield", "pv5_energy_today"),
+    ("pv6_yield", "pv6_energy_today"),
+    ("pv1_yield_lifetime", "pv1_energy_total"),
+    ("pv2_yield_lifetime", "pv2_energy_total"),
+    ("pv3_yield_lifetime", "pv3_energy_total"),
+    ("pv4_yield_lifetime", "pv4_energy_total"),
+    ("pv5_yield_lifetime", "pv5_energy_total"),
+    ("pv6_yield_lifetime", "pv6_energy_total"),
+    ("inverter_energy", "inverter_energy_today"),
+    ("inverter_energy_lifetime", "inverter_energy_total"),
+    ("ac_charge_energy", "ac_charge_energy_today"),
+    ("ac_charge_energy_lifetime", "ac_charge_energy_total"),
+    ("eps_energy", "eps_energy_today"),
+    ("eps_energy_lifetime", "eps_energy_total"),
+    ("generator_energy", "generator_energy_today"),
+    ("generator_energy_lifetime", "generator_energy_total"),
+)
+
 
 def drop_dead_inverter_grid_legs(sensors: dict[str, Any]) -> None:
     """Drop per-inverter grid per-leg voltage when it reads 0/None.
@@ -729,27 +795,9 @@ class DeviceProcessingMixin(_MixinBase):
         transport_runtime = inverter.transport_runtime
         if transport_runtime is not None:
             sensors = processed["sensors"]
-            _TRANSPORT_OVERLAY = (
-                ("bt_temperature", "temperature_t1"),
-                ("grid_current_l1", "inverter_rms_current_r"),
-                ("grid_current_l2", "inverter_rms_current_s"),
-                ("grid_current_l3", "inverter_rms_current_t"),
-                ("battery_current", "battery_current"),
-                # Split-phase per-leg voltages (Modbus regs 12/13 grid, 127/128
-                # EPS).  The cloud API has no per-leg field, so in HYBRID these
-                # are only available from the local transport — surface them here
-                # so HYBRID matches LOCAL parity (issue #243).  Pure CLOUD has no
-                # transport_runtime, so they stay correctly absent there.
-                ("grid_voltage_l1", "grid_l1_voltage"),
-                ("grid_voltage_l2", "grid_l2_voltage"),
-                ("eps_voltage_l1", "eps_l1_voltage"),
-                ("eps_voltage_l2", "eps_l2_voltage"),
-                # Load power (reg 170, "Pload").  The cloud zeroes its reg-170
-                # mirror for EG4_OFFGRID, so in HYBRID the value must come
-                # from the local register, never a cloud property (#197).
-                # Entity creation is gated to EG4_OFFGRID in sensor.py.
-                ("load_power", "output_power"),
-            )
+            # Pairs defined at module level (_TRANSPORT_OVERLAY) so the
+            # register contract harness can verify them against the
+            # canonical register tables.
             for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
@@ -762,35 +810,9 @@ class DeviceProcessingMixin(_MixinBase):
         transport_energy = inverter.transport_energy
         if transport_energy is not None:
             sensors = processed["sensors"]
-            _ENERGY_OVERLAY = (
-                ("eps_energy_today_l1", "eps_l1_energy_today"),
-                ("eps_energy_today_l2", "eps_l2_energy_today"),
-                ("eps_energy_total_l1", "eps_l1_energy_total"),
-                ("eps_energy_total_l2", "eps_l2_energy_total"),
-                # Granular per-string / per-component energy — register-backed,
-                # absent from the cloud energy endpoint, so overlaid from the
-                # local transport in HYBRID (disabled-by-default sensors, #243).
-                ("pv1_yield", "pv1_energy_today"),
-                ("pv2_yield", "pv2_energy_today"),
-                ("pv3_yield", "pv3_energy_today"),
-                ("pv4_yield", "pv4_energy_today"),
-                ("pv5_yield", "pv5_energy_today"),
-                ("pv6_yield", "pv6_energy_today"),
-                ("pv1_yield_lifetime", "pv1_energy_total"),
-                ("pv2_yield_lifetime", "pv2_energy_total"),
-                ("pv3_yield_lifetime", "pv3_energy_total"),
-                ("pv4_yield_lifetime", "pv4_energy_total"),
-                ("pv5_yield_lifetime", "pv5_energy_total"),
-                ("pv6_yield_lifetime", "pv6_energy_total"),
-                ("inverter_energy", "inverter_energy_today"),
-                ("inverter_energy_lifetime", "inverter_energy_total"),
-                ("ac_charge_energy", "ac_charge_energy_today"),
-                ("ac_charge_energy_lifetime", "ac_charge_energy_total"),
-                ("eps_energy", "eps_energy_today"),
-                ("eps_energy_lifetime", "eps_energy_total"),
-                ("generator_energy", "generator_energy_today"),
-                ("generator_energy_lifetime", "generator_energy_total"),
-            )
+            # Pairs defined at module level (_ENERGY_OVERLAY) so the
+            # register contract harness can verify them against the
+            # canonical register tables.
             for sensor_key, energy_attr in _ENERGY_OVERLAY:
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
