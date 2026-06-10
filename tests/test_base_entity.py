@@ -415,3 +415,46 @@ class TestGuardIntegrationWithBaseSensor:
         # Subsequent reads compare against the post-reset baseline.
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption"] = 0.1
         assert sensor.native_value == 0.1
+
+
+class TestErrorKeyAvailabilityContract:
+    """Link-down LOCAL contract (eg4-57g): an ``"error"`` key on the device
+    data makes sensor entities unavailable instead of frozen-fresh."""
+
+    def test_base_sensor_unavailable_when_device_error(self, mock_coordinator):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "battery_voltage": 53.2,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "battery_voltage")
+        assert sensor.available is True
+
+        # Coordinator marks the device link-down (LOCAL mode, no cloud).
+        mock_coordinator.data["devices"]["1234567890"]["error"] = (
+            "Local transport link down"
+        )
+        assert sensor.available is False
+
+        # Recovery rebuilds the device data without the error key.
+        del mock_coordinator.data["devices"]["1234567890"]["error"]
+        assert sensor.available is True
+
+    def test_battery_sensor_unavailable_when_parent_error(self, mock_coordinator):
+        from custom_components.eg4_web_monitor.base_entity import (
+            EG4BaseBatterySensor,
+        )
+
+        mock_coordinator.get_battery_device_info = MagicMock(return_value=None)
+
+        sensor = EG4BaseBatterySensor(
+            mock_coordinator, "1234567890", "Battery_ID_01", "soc"
+        )
+        assert sensor.available is True
+
+        mock_coordinator.data["devices"]["1234567890"]["error"] = (
+            "Local transport link down"
+        )
+        assert sensor.available is False

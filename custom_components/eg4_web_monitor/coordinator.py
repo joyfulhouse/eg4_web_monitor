@@ -256,6 +256,9 @@ class EG4DataUpdateCoordinator(
         # devices' cloud fallback must stay throttled to the cloud-safe HTTP
         # interval regardless (review HIGH on eg4-o5m).
         self._last_degraded_cloud_refresh: dict[str, float] = {}
+        # Serials with an open transport_link_down Repairs issue (eg4-57g):
+        # one-shot per down transition, cleared when the link recovers.
+        self._link_down_notified: set[str] = set()
 
         # Parameter refresh tracking - read from options or use default
         self._last_parameter_refresh: datetime | None = None

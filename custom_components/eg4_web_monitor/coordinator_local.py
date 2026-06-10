@@ -43,6 +43,7 @@ from .coordinator_mixins import (
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
     drop_dead_inverter_grid_legs,
+    is_transport_link_down,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -1078,12 +1079,26 @@ class LocalTransportMixin(_MixinBase):
             TransportReadError,
             TransportError,
         ) as e:
-            _LOGGER.warning(
-                "LOCAL: Failed to update %s (%s): %s",
-                serial,
-                transport_type,
-                e,
+            device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
+                serial
             )
+            if device is not None and is_transport_link_down(device):
+                # Link already declared down: the transition logged one
+                # warning and raised a Repairs issue — keep the per-cycle
+                # noise at debug while the outage lasts (eg4-57g).
+                _LOGGER.debug(
+                    "LOCAL: %s (%s) still link-down: %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
+            else:
+                _LOGGER.warning(
+                    "LOCAL: Failed to update %s (%s): %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
             device_availability[serial] = False
 
         except Exception as e:
@@ -1484,6 +1499,11 @@ class LocalTransportMixin(_MixinBase):
                     processed,
                     device_availability,
                 )
+
+        # Mark link-down devices (error key -> entities unavailable) and
+        # sync their Repairs issues.  Runs BEFORE the all-failed check so a
+        # full-outage cycle still raises/clears the issues (eg4-57g).
+        self._sync_transport_link_state(processed)
 
         # Check if we got any device data
         successful_devices = sum(1 for v in device_availability.values() if v)
@@ -2073,6 +2093,73 @@ class LocalTransportMixin(_MixinBase):
             self._background_tasks.add(task)
             task.add_done_callback(self._remove_task_from_set)
             task.add_done_callback(self._log_task_exception)
+
+    def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
+        """Sync Repairs issues and device error keys with transport link state.
+
+        Called each update cycle from BOTH paths (eg4-57g):
+
+        - LOCAL passes the processed data dict — there is no cloud to fall
+          back to, so a link-down device gets an ``"error"`` key and its
+          entities go unavailable instead of frozen-fresh (base_entity
+          ``available`` checks for the key).
+        - HYBRID passes ``None`` — link-down devices keep serving
+          cloud-fallback data, so only the Repairs issues are synced.
+
+        One-shot semantics: the issue is created once per down transition
+        (tracked in ``_link_down_notified``) and deleted on recovery.  The
+        healthy-path delete is an idempotent registry no-op, which also
+        clears stale issues left behind by a restart mid-outage.
+        """
+        devices: dict[str, Any] = {}
+        if self.station is not None:
+            # HYBRID: the station owns all devices (caches mirror it).
+            for inv in self.station.all_inverters:
+                devices[str(inv.serial_number)] = inv
+            for mid in self.station.all_mid_devices:
+                devices[str(mid.serial_number)] = mid
+        else:
+            # LOCAL: devices live in the coordinator caches.
+            devices.update(self._inverter_cache)
+            devices.update(self._mid_device_cache)
+
+        for serial, device in devices.items():
+            transport = getattr(device, "transport", None)
+            if transport is None:
+                continue
+            if is_transport_link_down(device):
+                if processed is not None:
+                    device_data = processed.get("devices", {}).get(serial)
+                    if device_data is not None:
+                        device_data["error"] = "Local transport link down"
+                if serial in self._link_down_notified:
+                    continue
+                self._link_down_notified.add(serial)
+                host = getattr(transport, "host", None) or getattr(
+                    transport, "port", "?"
+                )
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"transport_link_down_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="transport_link_down",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "host": str(host),
+                    },
+                )
+            else:
+                if serial in self._link_down_notified:
+                    self._link_down_notified.discard(serial)
+                    _LOGGER.info(
+                        "Local transport link restored for %s — clearing Repairs issue",
+                        serial,
+                    )
+                ir.async_delete_issue(
+                    self.hass, DOMAIN, f"transport_link_down_{serial}"
+                )
 
     async def _attach_serial_transports_to_station(
         self, configs: list[Any], result: Any

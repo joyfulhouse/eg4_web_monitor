@@ -331,6 +331,27 @@ def compute_total_inverter_power_kw(
     return total_kw
 
 
+def is_transport_link_down(device: Any) -> bool:
+    """Check whether a device's attached local transport link is down.
+
+    Duck-types pylxpweb's ``transport_link_down`` property (eg4-57g): the
+    device must have a transport attached AND explicitly report the link
+    as down.  The strict ``isinstance(..., bool)`` check keeps older
+    pylxpweb versions (attribute missing -> default) and non-device
+    objects from ever being treated as degraded.
+
+    Args:
+        device: BaseInverter or MIDDevice (or any object).
+
+    Returns:
+        True only when the device reports an attached-but-dead link.
+    """
+    if getattr(device, "transport", None) is None:
+        return False
+    link_down = getattr(device, "transport_link_down", False)
+    return isinstance(link_down, bool) and link_down
+
+
 if TYPE_CHECKING:
 
     class _MixinBase:
@@ -458,11 +479,17 @@ if TYPE_CHECKING:
         _battery_next_index: dict[str, int]
         _shared_battery_logged: set[str]
 
+        # ── Transport link health (eg4-57g) ──
+        _link_down_notified: set[str]
+
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
         async def _maybe_retry_failed_attaches(self) -> None: ...
         async def _ensure_local_transports(self) -> None: ...
         def _configure_attached_devices(self) -> list[Any]: ...
+        def _sync_transport_link_state(
+            self, processed: dict[str, Any] | None
+        ) -> None: ...
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,

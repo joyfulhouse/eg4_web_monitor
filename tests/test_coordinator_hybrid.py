@@ -956,3 +956,427 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self._attach_local_transports_to_station.assert_not_awaited()
         mock_self._maybe_retry_failed_attaches.assert_not_awaited()
+
+
+class TestTransportLinkDown:
+    """eg4-57g (#226, attached-but-dead half): a local transport that dies
+    MID-RUN must not freeze entities on the last local read.
+
+    HYBRID: the device keeps refreshing every cycle (probe + pylxpweb-internal
+    cloud fallback) with its cloud caches busted on the throttled HTTP window.
+    LOCAL: the device data gets an "error" key so entities go unavailable.
+    Both: a one-shot Repairs issue per down transition, cleared on recovery.
+    """
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _transport(
+        transport_type: str = "modbus_tcp", host: str = "192.168.1.50"
+    ) -> MagicMock:
+        transport = MagicMock(spec=["transport_type", "host", "port"])
+        transport.transport_type = transport_type
+        transport.host = host
+        transport.port = 502
+        return transport
+
+    @classmethod
+    def _device(
+        cls, serial: str, link_down: bool, transport: MagicMock | None = None
+    ) -> MagicMock:
+        device = MagicMock()
+        device.serial_number = serial
+        device.transport = transport if transport is not None else cls._transport()
+        device.transport_link_down = link_down
+        device.refresh = AsyncMock()
+        return device
+
+    # ── is_transport_link_down() duck-typing contract ────────────────────
+
+    def test_is_transport_link_down_true_for_real_bool(self) -> None:
+        """An attached transport + explicit True reports link down."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            is_transport_link_down,
+        )
+
+        assert is_transport_link_down(self._device("1111111111", True)) is True
+
+    def test_is_transport_link_down_false_without_transport(self) -> None:
+        """No attached transport can never be 'link down' (that's attach-failed)."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            is_transport_link_down,
+        )
+
+        device = self._device("1111111111", True)
+        device.transport = None
+        assert is_transport_link_down(device) is False
+
+    def test_is_transport_link_down_requires_real_bool(self) -> None:
+        """Non-bool truthy values (Mock, older pylxpweb objects) are NOT down."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            is_transport_link_down,
+        )
+
+        device = MagicMock()  # transport_link_down is a truthy Mock
+        assert is_transport_link_down(device) is False
+
+    def test_is_transport_link_down_missing_attribute(self) -> None:
+        """Older pylxpweb without the property defaults to healthy."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            is_transport_link_down,
+        )
+
+        class _OldDevice:
+            transport = object()
+
+        assert is_transport_link_down(_OldDevice()) is False
+
+    # ── _maybe_bust_degraded_cloud_cache() throttle machinery ────────────
+
+    def test_bust_helper_fires_then_throttles(self) -> None:
+        """First bust fires and stamps; an immediate retry stays throttled."""
+        from custom_components.eg4_web_monitor.coordinator_http import (
+            _maybe_bust_degraded_cloud_cache,
+        )
+
+        client = MagicMock()
+        stamps: dict[str, float] = {}
+
+        assert (
+            _maybe_bust_degraded_cloud_cache(client, stamps, 60, "1111111111") is True
+        )
+        client.invalidate_cache_for_device.assert_called_once_with("1111111111")
+        assert (
+            _maybe_bust_degraded_cloud_cache(client, stamps, 60, "1111111111") is False
+        )
+        client.invalidate_cache_for_device.assert_called_once()
+
+    def test_bust_helper_no_client(self) -> None:
+        """Without a cloud client there is nothing to bust."""
+        from custom_components.eg4_web_monitor.coordinator_http import (
+            _maybe_bust_degraded_cloud_cache,
+        )
+
+        assert _maybe_bust_degraded_cloud_cache(None, {}, 60, "1111111111") is False
+
+    # ── HYBRID: _refresh_station_devices() ───────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_link_down_device_gets_cache_bust_and_probe_refresh(self) -> None:
+        """An attached-but-dead device is cache-busted AND still refreshed
+        (the refresh probes the link and serves the cloud fallback)."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = self._device("1111111111", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "1111111111"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {}
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_called_once_with(
+            "1111111111"
+        )
+        inv.refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_link_down_bust_throttled_refresh_still_probes(self) -> None:
+        """Inside the throttle window the bust is skipped but the refresh
+        STILL runs — the local probe must fire every cycle for recovery
+        (unlike the no-transport degraded path, which skips entirely)."""
+        import time as time_mod
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = self._device("1111111111", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "1111111111"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {
+            "1111111111": time_mod.monotonic()  # busted moments ago
+        }
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_not_called()
+        inv.refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_healthy_attached_device_not_busted(self) -> None:
+        """A healthy local device never has its cloud caches invalidated."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = self._device("1111111111", link_down=False)
+
+        mock_self = MagicMock()
+        mock_self._local_transports_attached = True
+        mock_self._local_transport_configs = [{"serial": "1111111111"}]
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self.client = MagicMock()
+        mock_self._http_polling_interval = 60
+        mock_self._last_degraded_cloud_refresh = {}
+
+        await EG4DataUpdateCoordinator._refresh_station_devices(
+            mock_self, include_mid=True
+        )
+
+        mock_self.client.invalidate_cache_for_device.assert_not_called()
+        inv.refresh.assert_awaited_once()
+
+    # ── HYBRID: include_mid escalation ───────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_link_down_mid_escalates_include_mid_gate(self) -> None:
+        """A link-down MID forces include_mid past the dongle-interval gate."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = self._device("4524850115", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
+        mock_self._failed_attach_serials = set()
+        mock_self.station = MagicMock()
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.station.all_inverters = []
+        mock_self._async_update_http_data = AsyncMock(return_value={"devices": {}})
+
+        await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        mock_self._async_update_http_data.assert_awaited_once_with(
+            include_mid_refresh=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_link_down_inverter_does_not_escalate_mid_gate(self) -> None:
+        """A link-down INVERTER must not force off-interval dongle polling."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mid = self._device("4524850115", link_down=False)
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
+        mock_self._failed_attach_serials = set()
+        mock_self.station = MagicMock()
+        mock_self.station.all_mid_devices = [mid]
+        mock_self.station.all_inverters = [self._device("1111111111", link_down=True)]
+        mock_self._async_update_http_data = AsyncMock(return_value={"devices": {}})
+
+        await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        mock_self._async_update_http_data.assert_awaited_once_with(
+            include_mid_refresh=False
+        )
+
+    # ── HYBRID: connection_transport label ───────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_hybrid_label_marks_link_down(self) -> None:
+        """Dashboards must show the truth: 'Hybrid (... — link down)'."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = self._device("1111111111", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=True)
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self._async_update_http_data = AsyncMock(
+            return_value={
+                "devices": {"1111111111": {"type": "inverter", "sensors": {}}}
+            }
+        )
+
+        data = await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        sensors = data["devices"]["1111111111"]["sensors"]
+        assert sensors["connection_transport"] == "Hybrid (Modbus_tcp — link down)"
+        assert sensors["transport_host"] == "192.168.1.50"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_label_normal_when_healthy(self) -> None:
+        """A healthy attached transport keeps the plain hybrid label."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        inv = self._device("1111111111", link_down=False)
+
+        mock_self = MagicMock()
+        mock_self._should_poll_hybrid_local = MagicMock(return_value=True)
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = [inv]
+        mock_self.station.all_mid_devices = []
+        mock_self._async_update_http_data = AsyncMock(
+            return_value={
+                "devices": {"1111111111": {"type": "inverter", "sensors": {}}}
+            }
+        )
+
+        data = await EG4DataUpdateCoordinator._async_update_hybrid_data(mock_self)
+
+        sensors = data["devices"]["1111111111"]["sensors"]
+        assert sensors["connection_transport"] == "Hybrid (Modbus_tcp)"
+
+    # ── Repairs + LOCAL error key: _sync_transport_link_state() ──────────
+
+    @pytest.mark.asyncio
+    async def test_sync_sets_error_key_and_creates_issue_once(self) -> None:
+        """LOCAL: link-down marks device data with an error key (entities go
+        unavailable) and raises ONE Repairs issue across repeated cycles."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        device = self._device("1111111111", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self.station = None
+        mock_self._inverter_cache = {"1111111111": device}
+        mock_self._mid_device_cache = {}
+        mock_self._link_down_notified = set()
+
+        processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
+        with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, processed)
+            # Second cycle while still down: no duplicate issue
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, processed)
+
+        assert processed["devices"]["1111111111"]["error"] == (
+            "Local transport link down"
+        )
+        assert mock_self._link_down_notified == {"1111111111"}
+        assert mock_ir.async_create_issue.call_count == 1
+        create_call = mock_ir.async_create_issue.call_args
+        assert create_call.args[2] == "transport_link_down_1111111111"
+        assert create_call.kwargs["translation_key"] == "transport_link_down"
+        assert create_call.kwargs["translation_placeholders"] == {
+            "serial": "1111111111",
+            "host": "192.168.1.50",
+        }
+
+    @pytest.mark.asyncio
+    async def test_sync_hybrid_creates_issue_without_error_key(self) -> None:
+        """HYBRID passes processed=None: Repairs only, data keeps flowing."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        device = self._device("4524850115", link_down=True)
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.all_inverters = []
+        mock_self.station.all_mid_devices = [device]
+        mock_self._link_down_notified = set()
+
+        with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, None)
+
+        issue_ids = [c.args[2] for c in mock_ir.async_create_issue.call_args_list]
+        assert issue_ids == ["transport_link_down_4524850115"]
+
+    @pytest.mark.asyncio
+    async def test_sync_recovery_clears_issue_and_resumes(self) -> None:
+        """Recovery deletes the Repairs issue and leaves fresh data untouched."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        device = self._device("1111111111", link_down=False)
+
+        mock_self = MagicMock()
+        mock_self.station = None
+        mock_self._inverter_cache = {"1111111111": device}
+        mock_self._mid_device_cache = {}
+        mock_self._link_down_notified = {"1111111111"}
+
+        processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
+        with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, processed)
+
+        assert mock_self._link_down_notified == set()
+        deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
+        assert "transport_link_down_1111111111" in deleted
+        mock_ir.async_create_issue.assert_not_called()
+        # Fresh post-recovery data must NOT carry an error key
+        assert "error" not in processed["devices"]["1111111111"]
+
+    @pytest.mark.asyncio
+    async def test_sync_ignores_devices_without_transport(self) -> None:
+        """Cloud-only / attach-failed devices are not this feature's concern."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        device = self._device("1111111111", link_down=True)
+        device.transport = None
+
+        mock_self = MagicMock()
+        mock_self.station = None
+        mock_self._inverter_cache = {"1111111111": device}
+        mock_self._mid_device_cache = {}
+        mock_self._link_down_notified = set()
+
+        processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
+        with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, processed)
+
+        mock_ir.async_create_issue.assert_not_called()
+        mock_ir.async_delete_issue.assert_not_called()
+        assert "error" not in processed["devices"]["1111111111"]
+
+    @pytest.mark.asyncio
+    async def test_sync_host_falls_back_to_port_for_serial_transport(self) -> None:
+        """Serial (USB/RS485) transports have no host — the tty path shows."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        transport = MagicMock(spec=["transport_type", "port"])
+        transport.transport_type = "modbus_serial"
+        transport.port = "/dev/ttyUSB0"
+        device = self._device("1111111111", link_down=True, transport=transport)
+
+        mock_self = MagicMock()
+        mock_self.station = None
+        mock_self._inverter_cache = {"1111111111": device}
+        mock_self._mid_device_cache = {}
+        mock_self._link_down_notified = set()
+
+        with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
+            EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, None)
+
+        create_call = mock_ir.async_create_issue.call_args
+        assert create_call.kwargs["translation_placeholders"]["host"] == "/dev/ttyUSB0"

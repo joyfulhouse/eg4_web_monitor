@@ -1955,3 +1955,153 @@ class TestBatteryControlModeMethods:
         calls = coordinator.client.api.control.control_function.call_args_list
         assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
         assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)
+
+
+# ── Transport link-down flow (eg4-57g / #226 attached-but-dead) ──────
+
+
+class TestLocalLinkDownFlow:
+    """LOCAL mode end-to-end: a link-down device must surface an error key
+    (entities unavailable) and a Repairs issue — not frozen-fresh values."""
+
+    async def test_link_down_marks_error_and_raises_repairs_issue(self, hass):
+        """A device whose transport link died gets its cached device data
+        error-marked and a transport_link_down Repairs issue, even when the
+        whole cycle ends in UpdateFailed (single-device outage)."""
+        from homeassistant.helpers import issue_registry as ir
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Link Down",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="link_down_flow_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = False
+
+        # Previous good cycle's data (this is what would freeze pre-fix).
+        coordinator.data = {
+            "devices": {
+                "CE11111111": {
+                    "type": "inverter",
+                    "sensors": {"battery_voltage": 53.2},
+                }
+            },
+            "parameters": {},
+        }
+
+        # Link-down inverter as pylxpweb now presents it: refresh() swallows
+        # the failed probe, transport data caches cleared on the transition.
+        transport = MagicMock(spec=["is_connected", "host", "port", "transport_type"])
+        transport.is_connected = True
+        transport.host = "192.168.1.60"
+        transport.port = 502
+        transport.transport_type = "modbus_tcp"
+        inverter = MagicMock(
+            spec=[
+                "transport",
+                "transport_link_down",
+                "transport_runtime",
+                "refresh",
+                "serial_number",
+            ]
+        )
+        inverter.serial_number = "CE11111111"
+        inverter.transport = transport
+        inverter.transport_link_down = True
+        inverter.transport_runtime = None  # cleared at the down transition
+        inverter.refresh = AsyncMock()
+        coordinator._inverter_cache["CE11111111"] = inverter
+
+        with pytest.raises(UpdateFailed, match="All 1 local transports failed"):
+            await coordinator._async_update_local_data()
+
+        # Probe still attempted this cycle (recovery path stays alive).
+        inverter.refresh.assert_awaited_once()
+
+        # The carried-forward device data is error-marked, which flips the
+        # base_entity availability contract to unavailable.
+        assert (
+            coordinator.data["devices"]["CE11111111"]["error"]
+            == "Local transport link down"
+        )
+
+        # One-shot Repairs issue exists with the right placeholders.
+        registry = ir.async_get(hass)
+        issue = registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111")
+        assert issue is not None
+        assert issue.translation_key == "transport_link_down"
+        assert issue.translation_placeholders == {
+            "serial": "CE11111111",
+            "host": "192.168.1.60",
+        }
+        assert coordinator._link_down_notified == {"CE11111111"}
+
+    async def test_recovery_clears_repairs_issue(self, hass):
+        """When the link comes back, the Repairs issue is deleted."""
+        from homeassistant.helpers import issue_registry as ir
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Link Recovered",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="link_recovered_flow_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        # Simulate the outage having raised the issue earlier.
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            "transport_link_down_CE11111111",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="transport_link_down",
+            translation_placeholders={"serial": "CE11111111", "host": "x"},
+        )
+        coordinator._link_down_notified = {"CE11111111"}
+
+        transport = MagicMock(spec=["is_connected", "host", "port"])
+        inverter = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
+        inverter.serial_number = "CE11111111"
+        inverter.transport = transport
+        inverter.transport_link_down = False  # recovered
+        coordinator._inverter_cache["CE11111111"] = inverter
+
+        processed: dict[str, Any] = {"devices": {}}
+        coordinator._sync_transport_link_state(processed)
+
+        registry = ir.async_get(hass)
+        assert (
+            registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111") is None
+        )
+        assert coordinator._link_down_notified == set()

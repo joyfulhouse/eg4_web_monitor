@@ -784,6 +784,10 @@
     "transport_attach_failed": {
       "title": "Local connection failed for device {serial}",
       "description": "The local connection to **{host}** could not be established for device **{serial}** — this commonly happens right after a Home Assistant restart, while the WiFi dongle still holds the previous session's connection. The device is temporarily using cloud data.\n\nThe integration retries automatically about once a minute; this issue clears itself when the local connection is restored. If it persists, check that the device is powered and reachable at **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Local connection to device {serial} lost",
+      "description": "The local connection to **{host}** for device **{serial}** stopped responding after several consecutive read failures — commonly a network interruption, VPN drop, or a power-cycled dongle/gateway. While the link is down, the device falls back to cloud data if cloud credentials are configured; otherwise its entities become unavailable instead of showing stale values.\n\nThe integration keeps retrying the local connection every update cycle; this issue clears itself when the link recovers. If it persists, check that the device is powered and reachable at **{host}**."
     }
   }
 }
