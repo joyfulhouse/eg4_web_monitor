@@ -10,7 +10,12 @@ import homeassistant.helpers.entity_registry as er
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.exceptions import ServiceValidationError
 
 from .const import (
@@ -26,6 +31,11 @@ from .const import (
     MIN_HTTP_POLLING_INTERVAL,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .history_import import (
+    IMPORT_HISTORICAL_DATA_SCHEMA,
+    SERVICE_IMPORT_HISTORICAL_DATA,
+    async_import_historical_data,
+)
 from .services import async_reconcile_history
 from ._config_flow.helpers import migrate_legacy_entry
 
@@ -165,6 +175,19 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         SERVICE_RECONCILE_HISTORY,
         handle_reconcile_history,
         schema=RECONCILE_HISTORY_SCHEMA,
+    )
+
+    # Register import_historical_data service (issue #73)
+    async def handle_import_historical_data(call: ServiceCall) -> ServiceResponse:
+        """Handle import_historical_data service call."""
+        return await async_import_historical_data(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_IMPORT_HISTORICAL_DATA,
+        handle_import_historical_data,
+        schema=IMPORT_HISTORICAL_DATA_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     return True
