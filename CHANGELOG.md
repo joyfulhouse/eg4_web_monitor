@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.2] - 2026-06-10
+
 ### Added
 
 - **Charge Last switch** ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)): toggle the battery *Charge Last* function (`FUNC_CHARGE_LAST`, register 110 bit 4) from Home Assistant. Off (default, "charge first"): PV charges the battery before exporting surplus. On: PV serves house loads and grid export first and charges the battery last — automate it to reserve battery headroom during peak production (e.g. charge to ~90% in the morning, enable Charge Last through midday, disable in the afternoon to top off). Works in cloud, local, and hybrid modes; hybrid prefers the local Modbus write and falls back to the cloud function-control API.
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Family-UNKNOWN devices regain their real sensor profile** ([#219](https://github.com/joyfulhouse/eg4_web_monitor/issues/219)): when firmware reports an unmapped device type code (e.g. 6000XP on `ccaa-140A0A`), the integration now derives the family profile from the model name, restoring split-phase sensors (`eps_power_l1/l2`) in all connection modes. The user-selected **Grid Type** override now also survives every LOCAL poll (previously only the first static refresh). The diagnostic `inverter_family` sensor reports the effective family, with `family_source`/`detected_inverter_family` breadcrumbs preserved in coordinator data.
 - **Behavior change for legacy UNKNOWN-family LOCAL entries**: the static path no longer creates the full create-all sensor set for them — phase sensors the hardware never had (dead three-phase R/S/T entities on split-phase models) are no longer provided. A **Repairs issue** is raised on each affected device explaining the pruning; if your device truly is three-phase, set **Grid Type** in the integration options.
 - **Modbus serial (USB/RS485) devices in HYBRID mode** ([#233](https://github.com/joyfulhouse/eg4_web_monitor/issues/233)): devices sharing one RS485 serial bus are now refreshed **sequentially** — concurrent reads on a shared bus corrupted responses. Serial-attached devices reachable only via the station (e.g. a GridBOSS the inverter cache never holds) are now disconnected on unload/reload, closing a leaked-open-serial-port bug. Malformed local-device configs (serial/port type drift) no longer crash setup, and a **Repairs issue** is raised when a serial port cannot be opened (the device temporarily falls back to cloud data).
+- **Battery bank Full/Remaining Capacity double-counted in cloud mode** (via pylxpweb 0.9.36b2): on banks whose master battery mirrors pack-level totals into its own module fields, the cloud's module-array sums over-reported the bank (e.g. 1400 Ah "full" on an 840 Ah bank). The bank sensors now use the BMS-reported bank pair, matching the local register path exactly; open-loop (lead-acid / no BMS comms) systems keep the legacy fields.
+
+### Changed
+
+- Minimum `pylxpweb` raised to **0.9.36b2**: WiFi dongle parameter writes now survive mid-sequence TCP connection drops without write wars ([#201](https://github.com/joyfulhouse/eg4_web_monitor/issues/201)) — the full read-modify-write sequence retries with a fresh register read, never resending stale values; write ACKs are echo-validated against misrouted dongle responses; all multi-request reads are serialized on the dongle's single TCP link; and the cloud battery-bank capacity fix above.
 
 ### Documentation
 

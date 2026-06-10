@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.2.0** — Major release: unified config flow, data validation, split-phase sensors, BMS diagnostics, 779 tests, pylxpweb>=0.9.26
+- **v3.4.0-beta.2** — Charge Last switch, EG4_OFFGRID registers, family-UNKNOWN fallback, serial-bus fixes, smart-port all-zeros re-land (#248), dashboard audit; 1023 tests, pylxpweb>=0.9.36b2
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
