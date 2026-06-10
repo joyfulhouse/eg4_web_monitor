@@ -1022,8 +1022,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         action_name: str,
         parameter: str,
         value: bool,
-        cloud_enable_method: str,
-        cloud_disable_method: str,
+        cloud_enable_method: str | None = None,
+        cloud_disable_method: str | None = None,
     ) -> None:
         """Execute a switch action preferring local transport, falling back to cloud.
 
@@ -1036,11 +1036,26 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
             value: True to enable, False to disable.
             cloud_enable_method: Inverter method name to call when enabling.
+                When omitted, the cloud path writes ``parameter`` directly via
+                the function-control API instead.
             cloud_disable_method: Inverter method name to call when disabling.
 
         Raises:
+            ValueError: If exactly one of ``cloud_enable_method`` /
+                ``cloud_disable_method`` is provided. They must be supplied
+                together (named-method route) or both omitted (function-control
+                route) — a one-sided call would otherwise silently write
+                ``parameter`` via control_function, which may be the wrong
+                FUNC_ key for the intended action.
             HomeAssistantError: If all available transports fail.
         """
+        if bool(cloud_enable_method) != bool(cloud_disable_method):
+            raise ValueError(
+                "cloud_enable_method and cloud_disable_method must be provided "
+                "together or both omitted; got "
+                f"enable={cloud_enable_method!r}, disable={cloud_disable_method!r}"
+            )
+
         if self.coordinator.has_local_transport(self._serial):
             try:
                 await self._execute_named_parameter_action(
@@ -1061,15 +1076,108 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     raise
 
         if self.coordinator.has_http_api():
-            await self._execute_switch_action(
-                action_name=action_name,
-                enable_method=cloud_enable_method,
-                disable_method=cloud_disable_method,
-                turn_on=value,
-                refresh_params=True,
-            )
+            if cloud_enable_method and cloud_disable_method:
+                await self._execute_switch_action(
+                    action_name=action_name,
+                    enable_method=cloud_enable_method,
+                    disable_method=cloud_disable_method,
+                    turn_on=value,
+                    refresh_params=True,
+                )
+            else:
+                await self._execute_cloud_function_action(
+                    action_name=action_name,
+                    parameter=parameter,
+                    value=value,
+                )
         else:
             raise HomeAssistantError(f"No transport available for {action_name}")
+
+    async def _execute_cloud_function_action(
+        self,
+        action_name: str,
+        parameter: str,
+        value: bool,
+        api_delay: float = 1.0,
+    ) -> None:
+        """Execute a switch action via the cloud function-control API.
+
+        For FUNC_* bit parameters without dedicated enable/disable methods in
+        pylxpweb (e.g. ``FUNC_CHARGE_LAST``), write directly via
+        ``client.api.control.control_function(serial, parameter, value)`` —
+        the same route pylxpweb's dual-path setters use in cloud mode. The
+        server applies the bit update atomically (no read-modify-write race
+        across the HTTP round-trip).
+
+        Args:
+            action_name: Human-readable name of the action for logging.
+            parameter: Cloud function parameter name (e.g., "FUNC_CHARGE_LAST").
+            value: True to enable, False to disable.
+            api_delay: Seconds to wait for the API to propagate changes.
+
+        Raises:
+            HomeAssistantError: If no cloud client exists or the write fails.
+        """
+        action_verb = "Enabling" if value else "Disabling"
+        client = self.coordinator.client
+        if client is None:
+            raise HomeAssistantError(f"No cloud API available for {action_name}")
+
+        try:
+            _LOGGER.debug(
+                "%s %s via CLOUD function control for device %s (parameter %s)",
+                action_verb,
+                action_name,
+                self._serial,
+                parameter,
+            )
+
+            # Set optimistic state immediately for UI feedback
+            self._optimistic_state = value
+            self.async_write_ha_state()
+
+            response = await client.api.control.control_function(
+                self._serial, parameter, value
+            )
+            if not response.success:
+                raise HomeAssistantError(
+                    f"Failed to {action_verb.lower()} {action_name}"
+                )
+
+            _LOGGER.info(
+                "Successfully %s %s via CLOUD function control for device %s",
+                action_verb.lower()[:-3] + "ed",
+                action_name,
+                self._serial,
+            )
+
+            # Wait for API to propagate changes before refreshing parameters
+            await asyncio.sleep(api_delay)
+
+            # Refresh device parameters so is_on reflects the new bit state
+            await self.coordinator.async_refresh_device_parameters(self._serial)
+
+            # Clear optimistic state AFTER refresh completes
+            self._optimistic_state = None
+            self.async_write_ha_state()
+
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to %s %s for device %s: %s",
+                action_verb.lower(),
+                action_name,
+                self._serial,
+                e,
+            )
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action_verb.lower()} {action_name}: {e}"
+            ) from e
 
     async def _execute_named_parameter_action(
         self,

@@ -355,9 +355,21 @@ if reg1 & 0x100:
 |-----|---------------|-------------|---------|
 | 0 | `battery_backup` | switch | EPS/Battery Backup mode |
 | 7 | `ac_charge` | switch | AC (Grid) Charging enable |
-| 8 | `green_mode` | switch | Green/Off-Grid Mode |
 | 10 | `forced_discharge` | switch | Forced Battery Discharge |
 | 11 | `pv_charge_priority` | switch | Forced PV Charge Priority |
+
+### System Function Bitfield (Register 110)
+
+| Bit | Parameter Key | HA Entity Key | Entity Type | Purpose |
+|-----|---------------|---------------|-------------|---------|
+| 4 | `FUNC_CHARGE_LAST` | `charge_last` | switch | Charge Last — PV serves loads/export first, charges battery last ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)) |
+| 8 | `FUNC_GREEN_EN` | `off_grid_mode` | switch | Green/Off-Grid Mode |
+
+> Register 110 holds 14 verified bit fields (`REGISTER_TO_PARAM_KEYS[110]` in
+> pylxpweb `constants/registers.py`); only bits 4 and 8 are mapped to entities.
+> Local writes read-modify-write the register via the named-parameter map;
+> cloud writes use the function-control API (`control_function`), which
+> applies the bit server-side.
 
 ### Power Control Registers
 

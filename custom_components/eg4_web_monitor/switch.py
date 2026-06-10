@@ -26,6 +26,7 @@ from .const import (
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
+    PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
@@ -151,6 +152,9 @@ async def async_setup_entry(
 
                 # Add off-grid mode switch (Green Mode)
                 entities.append(EG4OffGridModeSwitch(coordinator, serial))
+
+                # Add charge last switch (reg 110 bit 4) — issue #177
+                entities.append(EG4ChargeLastSwitch(coordinator, serial))
 
                 # Add working mode switches
                 for mode_key, mode_config in WORKING_MODES.items():
@@ -414,6 +418,80 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=False,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
+        )
+
+
+class EG4ChargeLastSwitch(EG4BaseSwitch):
+    """Switch to control the battery Charge Last function.
+
+    Charge Last (FUNC_CHARGE_LAST, register 110 bit 4) flips the PV surplus
+    priority. Disabled (default, "charge first"): PV charges the battery
+    before exporting surplus to the grid. Enabled ("charge last"): PV serves
+    house loads and grid export first and charges the battery last — useful
+    to reserve battery headroom for peak production when PV capacity exceeds
+    the export limit (issue #177).
+
+    Local writes go through the named-parameter map (read-modify-write of
+    register 110); cloud writes use the function-control API — the same
+    routes pylxpweb's own get/set_charge_last helpers use.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize the charge last switch."""
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            entity_key="charge_last",
+            name="Charge Last",
+            icon="mdi:battery-clock",
+            entity_category=EntityCategory.CONFIG,
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if charge last mode is enabled."""
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        # Check parameter data from coordinator
+        return bool(self._parameter_data.get(PARAM_FUNC_CHARGE_LAST, False))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return extra state attributes."""
+        attributes: dict[str, Any] = {}
+
+        # Add parameter details if available
+        if self._parameter_data:
+            func_charge_last = self._parameter_data.get(PARAM_FUNC_CHARGE_LAST)
+            if func_charge_last is not None:
+                attributes["func_charge_last"] = func_charge_last
+
+        # Add optimistic state indicator for debugging
+        if self._optimistic_state is not None:
+            attributes["optimistic_state"] = self._optimistic_state
+
+        return attributes if attributes else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable charge last mode."""
+        await self._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=True,
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable charge last mode."""
+        await self._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=False,
         )
 
 

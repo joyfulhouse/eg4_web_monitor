@@ -425,6 +425,7 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | Forced Charge | 21, bit 11 | Bit field |
 | Forced Discharge | 21, bit 10 | Bit field |
 | Green/Off-Grid Mode | 110, bit 8 | Bit field |
+| Charge Last | 110, bit 4 | Bit field |
 | PV Charge Power | 64 | 0-100% |
 | Discharge Power | 65 | 0-100% |
 | AC Charge Power | 66 | 0-100% |
