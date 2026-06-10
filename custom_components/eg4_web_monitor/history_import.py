@@ -176,6 +176,15 @@ async def async_import_historical_data(
     async with lock:
         units = _collect_units(coordinator)
 
+        # async_add_external_statistics() only QUEUES an
+        # ImportStatisticsTask on the recorder worker and returns before
+        # the rows are committed, so holding the lock alone is not enough:
+        # a previous import may have released the lock with writes still
+        # in flight. Entry drain (the correctness guarantee): wait for the
+        # recorder queue so _load_existing_rows() reads committed state.
+        # No-op when the queue is idle.
+        await get_instance(hass).async_block_till_done()
+
         _LOGGER.info(
             "Importing historical energy for plant %s from %s to %s "
             "(%d unit(s), dry_run=%s)",
@@ -192,6 +201,7 @@ async def async_import_historical_data(
 
         requested_days = (end_date - start_date).days + 1
         series_summary: dict[str, Any] = {}
+        wrote_any = False
 
         for spec in SERIES_SPECS:
             values = day_values.get(spec.attr) or {}
@@ -220,6 +230,8 @@ async def async_import_historical_data(
                 coordinator,
                 dry_run=dry_run,
             )
+            if not dry_run:
+                wrote_any = True
 
             series_summary[spec.key] = {
                 "statistic_id": statistic_id,
@@ -230,6 +242,14 @@ async def async_import_historical_data(
                 "rows_written": 0 if dry_run else rows_written,
                 "status": "dry_run" if dry_run else "imported",
             }
+
+        if wrote_any:
+            # Exit drain (defense in depth): our own writes above are only
+            # queued. Wait for them to commit before releasing the lock so
+            # "lock released" implies "rows visible" for the next import
+            # and the summary below reflects committed data. Deliberately
+            # skipped for dry runs (nothing was queued).
+            await get_instance(hass).async_block_till_done()
 
     _LOGGER.info(
         "Historical import %s for plant %s: %d cloud call(s), series=%s",

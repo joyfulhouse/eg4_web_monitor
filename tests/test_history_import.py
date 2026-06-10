@@ -143,7 +143,12 @@ def _call(data):
 
 
 def _patch_stats():
-    """Patch the recorder seams used by history_import."""
+    """Patch the recorder seams used by history_import.
+
+    The patched get_instance serves the handler's recorder-queue drains
+    (entry/exit); its async_block_till_done mock is shared across calls
+    so tests can assert drain counts.
+    """
     return (
         patch(
             "custom_components.eg4_web_monitor.history_import."
@@ -156,6 +161,10 @@ def _patch_stats():
         patch(
             "custom_components.eg4_web_monitor.history_import.FETCH_DELAY_SECONDS",
             0,
+        ),
+        patch(
+            "custom_components.eg4_web_monitor.history_import.get_instance",
+            return_value=MagicMock(async_block_till_done=AsyncMock()),
         ),
     )
 
@@ -193,8 +202,8 @@ class TestServiceRegistration:
             )
         )
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch as mock_add, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch as mock_add, load_patch, delay_patch, drain_patch:
             response = await hass.services.async_call(
                 DOMAIN,
                 SERVICE_IMPORT_HISTORICAL_DATA,
@@ -396,8 +405,8 @@ class TestStationAndUnits:
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=20.0)])
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -427,8 +436,8 @@ class TestStationAndUnits:
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=1.0)])
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
             await async_import_historical_data(
                 hass,
                 _call(
@@ -458,8 +467,8 @@ class TestStationAndUnits:
             _month_history(2025, 1, [_day_entry(1, inverter_kwh=5.5)]),
         ]
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch as mock_add, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch as mock_add, load_patch, delay_patch, drain_patch:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -508,8 +517,8 @@ class TestStatisticsWrites:
             ],
         )
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch as mock_add, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch as mock_add, load_patch, delay_patch, drain_patch as mock_gi:
             await async_import_historical_data(
                 hass,
                 _call(
@@ -545,6 +554,10 @@ class TestStatisticsWrites:
             assert row["start"] == expected
             assert row["start"].minute == 0
 
+        # Recorder queue drained twice: entry (read committed state) and
+        # exit (writes visible before the lock releases)
+        assert mock_gi.return_value.async_block_till_done.await_count == 2
+
     async def test_dry_run_writes_nothing(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
@@ -554,8 +567,8 @@ class TestStatisticsWrites:
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=9.0)])
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch as mock_add, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch as mock_add, load_patch, delay_patch, drain_patch as mock_gi:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -573,6 +586,9 @@ class TestStatisticsWrites:
         assert response["series"]["yield"]["status"] == "dry_run"
         assert response["series"]["yield"]["rows_written"] == 0
         assert response["series"]["yield"]["total_kwh"] == 9.0
+        # Dry runs still drain on entry (read committed state) but skip the
+        # exit drain — nothing was queued
+        assert mock_gi.return_value.async_block_till_done.await_count == 1
 
     async def test_days_outside_range_and_future_skipped(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
@@ -593,8 +609,8 @@ class TestStatisticsWrites:
             ],
         )
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -620,8 +636,8 @@ class TestStatisticsWrites:
             2025, 1, [_day_entry(1, pv_kwh=11.0), _day_entry(2, pv_kwh=13.0)]
         )
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -648,8 +664,8 @@ class TestStatisticsWrites:
             2025, 1, [_day_entry(1, consumption_kwh=-2.5, inverter_kwh=5.0)]
         )
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
             response = await async_import_historical_data(
                 hass,
                 _call(
@@ -673,8 +689,8 @@ class TestStatisticsWrites:
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.side_effect = RuntimeError("boom")
 
-        add_patch, load_patch, delay_patch = _patch_stats()
-        with add_patch as mock_add, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch as mock_add, load_patch, delay_patch, drain_patch:
             with pytest.raises(HomeAssistantError, match="Failed to fetch"):
                 await async_import_historical_data(
                     hass,
@@ -997,9 +1013,13 @@ class TestConcurrency:
     ):
         """Concurrent disjoint-range imports equal the serial result.
 
-        Without the per-plant lock, both calls snapshot empty history at
-        the suspension point inside _load_existing_rows and the February
-        sums would restart at zero instead of continuing from January.
+        The fakes model the real recorder: async_add_external_statistics
+        only QUEUES rows (pending list); they become readable in the store
+        only when get_instance(hass).async_block_till_done() is awaited.
+        This guards BOTH the per-plant lock and the entry/exit queue
+        drains — without the drains, queued rows are never visible to the
+        next import's _load_existing_rows and the February sums would
+        restart at zero instead of continuing from January.
         """
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
 
@@ -1019,22 +1039,33 @@ class TestConcurrency:
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.side_effect = fetch_side_effect
 
-        # In-memory statistics store backing both seams, so each import
-        # observes whatever previous imports actually submitted.
+        # Committed, readable statistics (what the DB would contain)
         store: dict[tuple, tuple] = {}
+        # Queued-but-uncommitted writes (the recorder task queue)
+        pending: list[tuple[str, list]] = []
 
         def fake_add(hass_, metadata, rows):
-            for row in rows:
-                store[(metadata["statistic_id"], row["start"])] = (
-                    row["state"],
-                    row["sum"],
-                )
+            pending.append((metadata["statistic_id"], list(rows)))
+
+        def fake_get_instance(hass_):
+            recorder = MagicMock()
+
+            async def drain():
+                await asyncio.sleep(0)
+                while pending:
+                    sid, rows = pending.pop(0)
+                    for row in rows:
+                        store[(sid, row["start"])] = (row["state"], row["sum"])
+
+            recorder.async_block_till_done = drain
+            return recorder
 
         async def fake_load(hass_, statistic_id):
-            # Snapshot first, then suspend before returning — mirroring the
-            # real recorder executor (DB read, then resume on the event
-            # loop). Without the per-plant lock, the other import writes
-            # during this suspension and the snapshot is stale.
+            # Snapshot committed state first, then suspend before
+            # returning — mirroring the real recorder executor (DB read,
+            # then resume on the event loop). Without the per-plant lock,
+            # the other import writes during this suspension and the
+            # snapshot is stale.
             snapshot = {
                 start: state
                 for (sid, start), (state, _sum) in store.items()
@@ -1078,24 +1109,32 @@ class TestConcurrency:
                     "FETCH_DELAY_SECONDS",
                     0,
                 ),
+                patch(
+                    "custom_components.eg4_web_monitor.history_import.get_instance",
+                    side_effect=fake_get_instance,
+                ),
             )
 
         # Serial ground truth
-        add_patch, load_patch, delay_patch = patches()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = patches()
+        with add_patch, load_patch, delay_patch, drain_patch:
             await async_import_historical_data(hass, call_jan())
             await async_import_historical_data(hass, call_feb())
+        # The exit drain must have committed everything before returning
+        assert not pending
         store_serial = dict(store)
         store.clear()
+        pending.clear()
 
         # Concurrent run must converge to the identical final rows
-        add_patch, load_patch, delay_patch = patches()
-        with add_patch, load_patch, delay_patch:
+        add_patch, load_patch, delay_patch, drain_patch = patches()
+        with add_patch, load_patch, delay_patch, drain_patch:
             await asyncio.gather(
                 async_import_historical_data(hass, call_jan()),
                 async_import_historical_data(hass, call_feb()),
             )
 
+        assert not pending
         assert store == store_serial
 
         # Recompute math: February sums continue from January's total
