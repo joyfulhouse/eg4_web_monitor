@@ -2105,3 +2105,143 @@ class TestLocalLinkDownFlow:
             registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111") is None
         )
         assert coordinator._link_down_notified == set()
+
+
+class TestParallelGroupLinkDownMarking:
+    """eg4-57g review HIGH-1a: a PG aggregate mixing stale (link-down) and
+    fresh members is wrong in both directions — the group must be
+    error-marked and must not claim a fresh poll."""
+
+    @staticmethod
+    def _entry(entry_id: str) -> MockConfigEntry:
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - PG Link Down",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                    {
+                        "serial": "CE22222222",
+                        "host": "192.168.1.61",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id=entry_id,
+        )
+
+    @staticmethod
+    def _member(serial: str, master: bool, error: str | None = None) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "type": "inverter",
+            "serial": serial,
+            "parallel_number": 1,
+            "parallel_master_slave": 1 if master else 2,
+            "sensors": {
+                "pv_total_power": 2500.0,
+                "state_of_charge": 80.0,
+                "battery_voltage": 53.0,
+            },
+        }
+        if error is not None:
+            data["error"] = error
+        return data
+
+    async def test_member_link_down_marks_group_and_keeps_old_stamp(self, hass):
+        """One-of-two members link-down: PG error-marked, old stamp carried."""
+        from datetime import UTC, datetime
+
+        entry = self._entry("pg_link_down_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "CE22222222": self._member(
+                    "CE22222222", master=False, error="Local transport link down"
+                ),
+                # Previous cycle's PG entry (carried forward in real cycles)
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "sensors": {"parallel_group_last_polled": old_stamp},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert pg_data["error"] == (
+            "Local transport link down for member(s): CE22222222"
+        )
+        # No fresh-poll claim: the previous stamp is carried forward.
+        assert pg_data["sensors"]["parallel_group_last_polled"] == old_stamp
+
+    async def test_all_members_healthy_group_unmarked_and_stamped_fresh(self, hass):
+        """Recovery: clean members rebuild the PG without error + fresh stamp."""
+        from datetime import UTC, datetime
+
+        entry = self._entry("pg_recovered_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "CE22222222": self._member("CE22222222", master=False),
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "error": "Local transport link down for member(s): CE22222222",
+                    "sensors": {"parallel_group_last_polled": old_stamp},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert "error" not in pg_data
+        assert pg_data["sensors"]["parallel_group_last_polled"] != old_stamp
+        # Aggregate built from both fresh members
+        assert pg_data["sensors"]["pv_total_power"] == 5000.0
+
+    async def test_link_down_gridboss_contributor_marks_group(self, hass):
+        """The GridBOSS CT overlay is a contributor: a link-down GridBOSS
+        taints the aggregate like a link-down inverter member."""
+        entry = self._entry("pg_gridboss_down_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "GB00000001": {
+                    "type": "gridboss",
+                    "serial": "GB00000001",
+                    "error": "Local transport link down",
+                    "sensors": {"load_power": 1200.0},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert pg_data["error"] == (
+            "Local transport link down for member(s): GB00000001"
+        )
+        assert "parallel_group_last_polled" not in pg_data["sensors"]

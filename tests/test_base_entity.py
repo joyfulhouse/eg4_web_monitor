@@ -458,3 +458,52 @@ class TestErrorKeyAvailabilityContract:
             "Local transport link down"
         )
         assert sensor.available is False
+
+    def test_battery_bank_sensor_unavailable_when_device_error(self, mock_coordinator):
+        """Battery-bank sensors are measurements: error key -> unavailable
+        (eg4-57g review HIGH-1b)."""
+        from custom_components.eg4_web_monitor.base_entity import (
+            EG4BatteryBankEntity,
+        )
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "battery_bank_current": 12.5,
+        }
+        mock_coordinator.get_battery_bank_device_info = MagicMock(return_value=None)
+
+        sensor = EG4BatteryBankEntity(
+            mock_coordinator, "1234567890", "battery_bank_current"
+        )
+        assert sensor.available is True
+
+        mock_coordinator.data["devices"]["1234567890"]["error"] = (
+            "Local transport link down"
+        )
+        assert sensor.available is False
+
+        del mock_coordinator.data["devices"]["1234567890"]["error"]
+        assert sensor.available is True
+
+    def test_parallel_group_sensor_unavailable_when_error(self, mock_coordinator):
+        """PG sensors go unavailable when the group is error-marked
+        (link-down member taints the aggregate — eg4-57g review HIGH-1a)."""
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+
+        mock_coordinator.data["devices"]["parallel_group_a"] = {
+            "type": "parallel_group",
+            "sensors": {"pv_total_power": 5000.0},
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+
+        sensor = EG4BaseSensor(
+            mock_coordinator,
+            "parallel_group_a",
+            "pv_total_power",
+            device_type="parallel_group",
+        )
+        assert sensor.available is True
+
+        mock_coordinator.data["devices"]["parallel_group_a"]["error"] = (
+            "Local transport link down for member(s): CE22222222"
+        )
+        assert sensor.available is False

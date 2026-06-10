@@ -1629,6 +1629,18 @@ class LocalTransportMixin(_MixinBase):
 
             first_serial = master_serial
 
+            # Members whose device data is error-marked (link-down — see
+            # _sync_transport_link_state, which runs before this method).
+            # Their carried-forward sensors are STALE: an aggregate mixing
+            # stale and fresh members is wrong in both directions, so the
+            # group is error-marked below — honest unavailability beats a
+            # quietly wrong total (eg4-57g review).
+            link_down_members = sorted(
+                member_serial
+                for member_serial, member_data in group_devices
+                if "error" in member_data
+            )
+
             # Collect sensor data from all devices in the group
             group_sensors: dict[str, Any] = {}
             device_count = 0
@@ -1786,6 +1798,12 @@ class LocalTransportMixin(_MixinBase):
                 if device_data.get("type") != "gridboss":
                     continue
                 has_mid_device = True
+                # The GridBOSS CTs are authoritative contributors to the
+                # group's grid/consumption values — a link-down (error-
+                # marked) GridBOSS taints the aggregate the same way a
+                # link-down inverter member does.
+                if "error" in device_data and serial not in link_down_members:
+                    link_down_members.append(serial)
                 gb_sensors = device_data.get("sensors", {})
 
                 # Apply the canonical GridBOSS workflow to the parallel group.
@@ -1825,12 +1843,25 @@ class LocalTransportMixin(_MixinBase):
 
             group_device_id = f"parallel_group_{group_name.lower()}"
 
-            group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
+            if link_down_members:
+                # Don't claim a fresh poll for an aggregate built from stale
+                # members — carry the previous stamp forward (if any) so it
+                # reflects the last genuinely fresh aggregate.
+                prev_stamp = (
+                    processed["devices"]
+                    .get(group_device_id, {})
+                    .get("sensors", {})
+                    .get("parallel_group_last_polled")
+                )
+                if prev_stamp is not None:
+                    group_sensors["parallel_group_last_polled"] = prev_stamp
+            else:
+                group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
             # Create groups even with 1 inverter if parallel_number > 0,
             # since this indicates the inverter is configured for parallel
             # operation (e.g., single inverter + GridBOSS setup).
-            processed["devices"][group_device_id] = {
+            pg_device_data: dict[str, Any] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",
                 "group_name": group_name,
@@ -1839,6 +1870,15 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
+            if link_down_members:
+                # Error key -> all PG sensor entities go unavailable
+                # (base_entity availability contract), exactly like the
+                # link-down members themselves.
+                pg_device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(link_down_members))}"
+                )
+            processed["devices"][group_device_id] = pg_device_data
 
             self._register_pg_device(group_device_id, group_name)
 
@@ -2105,6 +2145,17 @@ class LocalTransportMixin(_MixinBase):
           ``available`` checks for the key).
         - HYBRID passes ``None`` — link-down devices keep serving
           cloud-fallback data, so only the Repairs issues are synced.
+
+        Error-key scope (deliberate): the key is honored by MEASUREMENT
+        entities — EG4BaseSensor, EG4BaseBatterySensor, and
+        EG4BatteryBankEntity — because frozen measurements are the bug.
+        Control-entity availability (numbers, switches, selects, update
+        entities) is intentionally unchanged: those are setpoints, not
+        live readings, and this matches the never-attached degraded
+        precedent (transport_attach_failed devices also keep their
+        controls).  Parallel groups whose members are error-marked get
+        error-marked too in _process_local_parallel_groups, which runs
+        after this method.
 
         One-shot semantics: the issue is created once per down transition
         (tracked in ``_link_down_notified``) and deleted on recovery.  The

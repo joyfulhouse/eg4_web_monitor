@@ -651,10 +651,12 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
 
         if not device_exists or self.coordinator.data is None:
             return False
-        return bool(
-            self._sensor_key
-            in self.coordinator.data["devices"][self._serial].get("sensors", {})
-        )
+        device_data = self.coordinator.data["devices"][self._serial]
+        # Battery-bank sensors are MEASUREMENTS: an error-marked (link-down)
+        # device must read unavailable, not frozen-fresh (eg4-57g review).
+        if "error" in device_data:
+            return False
+        return bool(self._sensor_key in device_data.get("sensors", {}))
 
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from battery bank aggregate sensors."""
