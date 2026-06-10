@@ -1766,8 +1766,15 @@ class TestStaticLocalData:
         assert device["features"]["supports_split_phase"] is True
 
     def test_static_keys_match_runtime_mapping(self):
-        """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys."""
-        mapping = _build_runtime_sensor_mapping(InverterRuntimeData())
+        """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys.
+
+        The EPS load aliases are value-conditional (#197 review round 2):
+        they only materialize when regs 129/130 carry non-None values, so
+        the drift guard feeds both legs to exercise the full key surface.
+        """
+        mapping = _build_runtime_sensor_mapping(
+            InverterRuntimeData(eps_l1_power=0, eps_l2_power=0)
+        )
         assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
 
     def test_static_keys_match_energy_mapping(self):

@@ -189,14 +189,21 @@ class TestLocalRuntimeMapping:
         assert mapping["eps_load_power"] == 1327
 
     def test_eps_load_power_sum_none_semantics(self) -> None:
-        """Both legs None → sum None; a single leg carries the sum."""
+        """No leg values → no derived keys; one leg aliases alone, no sum.
+
+        The runtime mapping always materializes eps_power_l1/l2 KEYS (values
+        may be None) — presence for the derived keys means a non-None VALUE
+        (review round 2), so a lone leg can never publish a one-leg total.
+        """
         empty = _build_runtime_sensor_mapping(InverterRuntimeData())
-        assert empty["eps_load_power_l1"] is None
-        assert empty["eps_load_power_l2"] is None
-        assert empty["eps_load_power"] is None
+        assert "eps_load_power_l1" not in empty
+        assert "eps_load_power_l2" not in empty
+        assert "eps_load_power" not in empty
 
         l1_only = _build_runtime_sensor_mapping(InverterRuntimeData(eps_l1_power=1031))
-        assert l1_only["eps_load_power"] == 1031
+        assert l1_only["eps_load_power_l1"] == 1031
+        assert "eps_load_power_l2" not in l1_only
+        assert "eps_load_power" not in l1_only
 
     def test_eps_load_power_zero_when_grid_tied(self) -> None:
         """Grid-tied: regs 129/130 read 0 — the sum is 0, not None."""
@@ -271,6 +278,25 @@ class TestCloudHybridPath:
         assert sensors["eps_load_power_l1"] == 1031
         assert "eps_load_power_l2" not in sensors
         assert "eps_load_power" not in sensors
+
+    def test_apply_eps_none_valued_keys_are_not_presence(self) -> None:
+        """A key carrying None (LOCAL mapping shape) is NOT presence.
+
+        The LOCAL runtime mapping materializes eps_power_l1/l2 keys
+        unconditionally; only non-None VALUES may alias or contribute to
+        the sum (review round 2 MAJOR).
+        """
+        sensors: dict[str, object] = {"eps_power_l1": 1031, "eps_power_l2": None}
+        apply_eps_load_power_sensors(sensors)
+        assert sensors["eps_load_power_l1"] == 1031
+        assert "eps_load_power_l2" not in sensors
+        assert "eps_load_power" not in sensors
+
+        both_none: dict[str, object] = {"eps_power_l1": None, "eps_power_l2": None}
+        apply_eps_load_power_sensors(both_none)
+        assert "eps_load_power_l1" not in both_none
+        assert "eps_load_power_l2" not in both_none
+        assert "eps_load_power" not in both_none
 
     async def test_hybrid_overlay_populates_offgrid_sensors(
         self, hass, mock_config_entry
@@ -382,3 +408,61 @@ class TestDeprecatedCleanupSuffixes:
         assert not any(
             new_uid.endswith(suffix) for suffix in _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES
         )
+
+    async def test_conditional_cleanup_by_family(self, hass, mock_config_entry) -> None:
+        """The conditional registry cleanup removes stale per-inverter
+        _battery_discharge_power entries ONLY for known non-OFFGRID families.
+
+        Pins the actual entity-registry loop in async_setup_entry (review
+        round 2 MINOR): OFFGRID keeps its (reintroduced) entity, a known
+        non-OFFGRID family is purged, an unknown family is conservatively
+        kept for a later refresh to resolve.
+        """
+        from unittest.mock import MagicMock
+
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.eg4_web_monitor import async_setup_entry
+
+        mock_config_entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+
+        uid_offgrid = "1000000001_runtime_battery_discharge_power"
+        uid_hybrid = "1000000002_runtime_battery_discharge_power"
+        uid_unknown = "1000000003_runtime_battery_discharge_power"
+        for uid in (uid_offgrid, uid_hybrid, uid_unknown):
+            registry.async_get_or_create(
+                "sensor", DOMAIN, uid, config_entry=mock_config_entry
+            )
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator.data = {
+            "devices": {
+                "1000000001": {
+                    "type": "inverter",
+                    "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+                },
+                "1000000002": {
+                    "type": "inverter",
+                    "features": {"inverter_family": INVERTER_FAMILY_EG4_HYBRID},
+                },
+                "1000000003": {"type": "inverter", "features": {}},
+            }
+        }
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        get_eid = registry.async_get_entity_id
+        assert get_eid("sensor", DOMAIN, uid_offgrid) is not None
+        assert get_eid("sensor", DOMAIN, uid_hybrid) is None
+        assert get_eid("sensor", DOMAIN, uid_unknown) is not None
