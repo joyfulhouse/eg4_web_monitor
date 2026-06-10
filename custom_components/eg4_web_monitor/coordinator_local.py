@@ -1987,6 +1987,22 @@ class LocalTransportMixin(_MixinBase):
                 )
                 result.failed += 1
                 result.failed_serials.append(config.serial)
+                # Surface the degradation: the device silently falls back to
+                # cloud-only until the next reload, which is exactly the class
+                # of quiet failure #233 was filed about. Issue id includes the
+                # serial so HA de-duplicates repeat attach failures per device.
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"serial_attach_failed_{config.serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="serial_attach_failed",
+                    translation_placeholders={
+                        "serial": str(config.serial),
+                        "serial_port": str(config.serial_port),
+                    },
+                )
 
     async def _drain_modbus_buffers(self, inverters: list[Any]) -> None:
         """Background task: drain stale Waveshare RS485 buffer after HA restart.

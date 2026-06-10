@@ -792,6 +792,44 @@ class TestAttachSerialTransports:
         assert inverter._transport is None
         assert coordinator._local_transports_attached is True
 
+    async def test_serial_connect_failure_creates_repair_issue(
+        self, mock_aiohttp, mock_client_cls, hass
+    ):
+        """Serial attach failure surfaces a Repairs issue — no silent cloud-only fallback (#233)."""
+        entry = _make_hybrid_entry(
+            [dict(_SERIAL_TRANSPORT_DICT)], "hybrid_serial_repair"
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        inverter = make_real_inverter("INV001", "FlexBOSS21")
+        mock_station = MagicMock()
+        mock_station.attach_local_transports = AsyncMock()
+        mock_station.is_hybrid_mode = False
+        mock_station.all_inverters = [inverter]
+        mock_station.all_mid_devices = []
+        coordinator.station = mock_station
+
+        serial_transport = _make_serial_transport_spec()
+        serial_transport.connect.side_effect = OSError("port busy")
+        with (
+            patch(
+                "pylxpweb.transports.create_transport",
+                return_value=serial_transport,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local.ir.async_create_issue"
+            ) as mock_issue,
+        ):
+            await coordinator._attach_local_transports_to_station()
+
+        mock_issue.assert_called_once()
+        args, kwargs = mock_issue.call_args
+        assert args[2] == "serial_attach_failed_INV001"
+        assert kwargs["translation_key"] == "serial_attach_failed"
+        assert kwargs["translation_placeholders"]["serial"] == "INV001"
+        assert kwargs["severity"].value == "warning"
+
 
 class TestAttachForcedTransportRead:
     """Test transport attachment does NOT issue a forced read.

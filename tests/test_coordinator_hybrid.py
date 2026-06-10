@@ -122,6 +122,53 @@ class TestBuildTransportConfigs:
         assert configs[0].serial == "CE11111111"
         assert configs[1].serial == "CE22222222"
 
+    def test_serial_malformed_numeric_skipped_not_fatal(self) -> None:
+        """A None baudrate (TypeError in int()) skips the config, not setup (#233)."""
+        config_list = [
+            {
+                "serial": "CE33333333",
+                "transport_type": "modbus_serial",
+                "serial_port": "/dev/ttyUSB0",
+                "serial_baudrate": None,
+                "inverter_family": "EG4_HYBRID",
+            },
+            {
+                "serial": "CE44444444",
+                "transport_type": "modbus_tcp",
+                "host": "192.168.1.100",
+                "port": 502,
+                "unit_id": 1,
+                "inverter_family": "EG4_HYBRID",
+            },
+        ]
+
+        configs = _build_transport_configs(config_list)
+
+        # Bad serial config skipped; the good TCP config still builds.
+        assert len(configs) == 1
+        assert configs[0].serial == "CE44444444"
+
+    def test_serial_string_numerics_coerced(self) -> None:
+        """String numeric fields from older stored entries coerce cleanly (#233)."""
+        config_list = [
+            {
+                "serial": "CE55555555",
+                "transport_type": "modbus_serial",
+                "serial_port": "/dev/ttyUSB0",
+                "serial_baudrate": "19200",
+                "serial_stopbits": "1",
+                "unit_id": "1",
+                "inverter_family": "EG4_HYBRID",
+            }
+        ]
+
+        configs = _build_transport_configs(config_list)
+
+        assert len(configs) == 1
+        assert configs[0].serial_baudrate == 19200
+        assert configs[0].serial_stopbits == 1
+        assert configs[0].unit_id == 1
+
     def test_build_empty_list(self) -> None:
         """Test building with empty config list."""
         configs = _build_transport_configs([])

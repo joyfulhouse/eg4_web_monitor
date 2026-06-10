@@ -772,6 +772,10 @@
     "dongle_validation_disabled": {
       "title": "Data validation recommended for WiFi dongle",
       "description": "A WiFi dongle is configured but **Data Validation** is disabled. WiFi dongles share a Modbus bus, and concurrent reads can cause corrupt register data (e.g., energy spikes).\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor > Configure** and enable **Data Validation**."
+    },
+    "serial_attach_failed": {
+      "title": "Serial connection failed for device {serial}",
+      "description": "The Modbus serial (USB/RS485) connection on **{serial_port}** could not be opened for device **{serial}**. The device is temporarily using cloud data only.\n\nCheck that the adapter is plugged in, the port path is correct, and no other software has the port open, then reload the integration."
     }
   }
 }

@@ -1,5 +1,6 @@
 """Tests for the HTTP/cloud update mixin (coordinator_http.py)."""
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1112,6 +1113,153 @@ class TestRefreshStationDevices:
 
         inv1.refresh.assert_awaited_once()
         inv2.refresh.assert_awaited_once()
+
+
+class _FakeSerialTransport:
+    """Serial transport stand-in: tty path in ``port``, no ``host`` attribute."""
+
+    def __init__(self, port: str) -> None:
+        self.port = port
+
+
+class _FakeTcpTransport:
+    """Network transport stand-in with a real host/port endpoint."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+
+
+def _tracking_refresh(counter: dict[str, int]) -> Any:
+    """Build a refresh coroutine that records concurrent-entry depth."""
+
+    async def _refresh() -> None:
+        counter["active"] += 1
+        counter["max"] = max(counter["max"], counter["active"])
+        # Yield twice so concurrently-scheduled refreshes can interleave —
+        # if two devices on one serial bus run in parallel, max hits 2.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        counter["active"] -= 1
+
+    return _refresh
+
+
+class TestSerialEndpointGrouping:
+    """Devices sharing one RS485 adapter must refresh sequentially (#233)."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_same_serial_port_serialized(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Two devices on /dev/ttyUSB0 never refresh concurrently."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        counter = {"active": 0, "max": 0}
+        inv1 = _mock_inverter(serial="INV001")
+        inv1.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        inv1.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+        inv2 = _mock_inverter(serial="INV002")
+        inv2.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        inv2.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+
+        station = _mock_station([inv1, inv2])
+        station.all_mid_devices = []
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        inv1.refresh.assert_awaited_once()
+        inv2.refresh.assert_awaited_once()
+        assert counter["max"] == 1, "shared-bus devices refreshed concurrently"
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_different_serial_ports_parallel(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Devices on distinct adapters still refresh concurrently."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        counter = {"active": 0, "max": 0}
+        inv1 = _mock_inverter(serial="INV001")
+        inv1.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        inv1.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+        inv2 = _mock_inverter(serial="INV002")
+        inv2.transport = _FakeSerialTransport("/dev/ttyUSB1")
+        inv2.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+
+        station = _mock_station([inv1, inv2])
+        station.all_mid_devices = []
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        inv1.refresh.assert_awaited_once()
+        inv2.refresh.assert_awaited_once()
+        assert counter["max"] == 2, "independent adapters should parallelize"
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_serial_mid_shares_inverter_bus(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """GridBOSS on the same adapter as an inverter is serialized too."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        counter = {"active": 0, "max": 0}
+        inv = _mock_inverter(serial="INV001")
+        inv.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        inv.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+        mid = MagicMock()
+        mid.serial_number = "MID001"
+        mid.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        mid.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+
+        station = _mock_station([inv])
+        station.all_mid_devices = [mid]
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        inv.refresh.assert_awaited_once()
+        mid.refresh.assert_awaited_once()
+        assert counter["max"] == 1, "reporter topology must serialize"
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_serial_and_tcp_groups_independent(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """A serial group and a TCP group run concurrently with each other."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        counter = {"active": 0, "max": 0}
+        inv1 = _mock_inverter(serial="INV001")
+        inv1.transport = _FakeSerialTransport("/dev/ttyUSB0")
+        inv1.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+        inv2 = _mock_inverter(serial="INV002")
+        inv2.transport = _FakeTcpTransport("192.168.1.50", 502)
+        inv2.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
+
+        station = _mock_station([inv1, inv2])
+        station.all_mid_devices = []
+        coordinator.station = station
+        coordinator._local_transports_attached = True
+
+        await coordinator._refresh_station_devices(include_mid=True)
+
+        inv1.refresh.assert_awaited_once()
+        inv2.refresh.assert_awaited_once()
+        assert counter["max"] == 2
 
 
 class TestMidboxVoltageCanary:
