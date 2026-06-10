@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Confirmed EG4_OFFGRID registers** ([#197](https://github.com/joyfulhouse/eg4_web_monitor/issues/197)): surfaced three register groups live-validated on 12000XP hardware (Modbus sweep + cloud cross-reference). All new entities are created for the EG4_OFFGRID family only (12000XP/6000XP).
+  - **Per-phase EPS load power** — new `EPS Load Power L1` / `EPS Load Power L2` sensors (input regs 129/130, W) plus a combined `EPS Load Power` (L1+L2 sum, matches the cloud `epsLoadPower` field within polling skew). Useful for diagnosing breaker-panel load imbalance.
+  - **Load Power** (input reg 170, `Pload`) — enabled for EG4_OFFGRID. The cloud zeroes its reg-170 mirror for these models, so the value is taken from the local register in LOCAL and HYBRID modes (never the cloud zero); valid both grid-tied and in EPS mode.
+  - **Battery Discharge Power** (input reg 11 / cloud `pDisCharge`) — reintroduced as a per-inverter sensor in all connection modes for EG4_OFFGRID. The signed net `Battery Power` sensor is unchanged; the one-time registry cleanup from the charge/discharge consolidation no longer removes this key.
+
 ### Documentation
 
 - **Battery control mode — EG4 UI label cross-reference**: documented the mapping from EG4 web-monitor parameter labels to Home Assistant entities for the SOC/Voltage battery limits — e.g. EG4's *"Back Up Volt(V)"* is the **AC Charge End Voltage** entity (reg 159, the voltage twin of the AC-charge SOC limit, active in battery-backup/voltage mode) and *"System Charge Volt Limit(V)"* is reg 228. Added a label table to [CONFIGURATION.md](docs/CONFIGURATION.md#battery-control-mode-soc-vs-voltage), the canonical register/param table plus confirmed register-179 bits 9/10 to [DATA_MAPPING.md](docs/DATA_MAPPING.md), and a discovery pointer in the README.

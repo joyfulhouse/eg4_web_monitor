@@ -129,7 +129,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 8 | `pv2_power` | 1 | W | `pv2_power` | `pv2_power` |
 | 9 | `pv3_power` | 1 | W | `pv3_power` | `pv3_power` |
 | 10 | `charge_power` | 1 | W | `battery_charge_power` | `battery_charge_power` |
-| 11 | `discharge_power` | 1 | W | `battery_discharge_power` | `battery_discharge_power` |
+| 11 | `discharge_power` | 1 | W | `battery_discharge_power` | `battery_discharge_power` (entity EG4_OFFGRID-only, #197) |
 | 12 | `grid_voltage_r` | ÷10 | V | `grid_voltage_r` | `grid_voltage_r` |
 | 13 | `grid_voltage_s` | ÷10 | V | `grid_voltage_s` | `grid_voltage_s` |
 | 14 | `grid_voltage_t` | ÷10 | V | `grid_voltage_t` | `grid_voltage_t` |
@@ -151,8 +151,24 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 |-----|----------------|-------|------|----------------|---------------|
 | 127 | `eps_l1_voltage` | ÷10 | V | `eps_l1_voltage` | `eps_voltage_l1` |
 | 128 | `eps_l2_voltage` | ÷10 | V | `eps_l2_voltage` | `eps_voltage_l2` |
+| 129 | `eps_l1_power` | 1 | W | `eps_l1_power` | `eps_power_l1`; also `eps_load_power_l1` (EG4_OFFGRID-only, #197) |
+| 130 | `eps_l2_power` | 1 | W | `eps_l2_power` | `eps_power_l2`; also `eps_load_power_l2` (EG4_OFFGRID-only, #197) |
+| 170 | `output_power` | 1 | W | `output_power` | `output_power`; also `load_power` (EG4_OFFGRID-only, #197) |
 | 193 | `grid_l1_voltage` | ÷10 | V | `grid_l1_voltage` | `grid_voltage_l1` (suppressed when 0) |
 | 194 | `grid_l2_voltage` | ÷10 | V | `grid_l2_voltage` | `grid_voltage_l2` (suppressed when 0) |
+
+> **EG4_OFFGRID confirmed registers (issue #197):** live Modbus sweep + cloud
+> cross-reference on a 12000XP (device type 54) validated regs 129/130 as
+> per-phase EPS load power (zero grid-tied, non-zero in EPS mode; L1+L2 sum
+> matches cloud `epsLoadPower` within timing skew) and reg 170 as load power
+> (`Pload` in the 6kXP Modbus PDF — valid both grid-tied AND in EPS mode).
+> The cloud zeroes its reg-170 mirror for EG4_OFFGRID, so `load_power` comes
+> from the LOCAL register only (LOCAL mapping + HYBRID `_TRANSPORT_OVERLAY`;
+> absent in pure CLOUD).  The derived `eps_load_power` sensor is the L1+L2 sum
+> (`apply_eps_load_power_sensors()` in `coordinator_mappings.py`, shared by
+> both data paths).  All `eps_load_power_*`, `load_power` and
+> `battery_discharge_power` inverter entities are gated to EG4_OFFGRID via
+> `OFFGRID_ONLY_SENSORS` in `const/device_types.py`.
 
 > **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
 > firmware-zero on EG4 US split-phase inverters — confirmed live across the full
@@ -917,8 +933,9 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `battery_power` | `charge_power - discharge_power` | coordinator_local.py |
 | `rectifier_power` | From register 17 (`grid_power`) — renamed for clarity | coordinator_local.py |
 | `grid_import_power` | From register 27 (`power_to_user`) | coordinator_local.py |
-| `eps_power_l1` | `eps_power * (eps_voltage_l1 / (eps_voltage_l1 + eps_voltage_l2))` | coordinator_local.py |
-| `eps_power_l2` | `eps_power * (eps_voltage_l2 / (eps_voltage_l1 + eps_voltage_l2))` | coordinator_local.py |
+| `eps_power_l1` | Direct reg 129 (pylxpweb ≥0.9.36b1); voltage-ratio split `eps_power * (V_l1 / (V_l1 + V_l2))` as fallback | pylxpweb `eps_power_l1` |
+| `eps_power_l2` | Direct reg 130 (pylxpweb ≥0.9.36b1); voltage-ratio split as fallback | pylxpweb `eps_power_l2` |
+| `eps_load_power` | `eps_load_power_l1 + eps_load_power_l2` (None only when both legs None) | `apply_eps_load_power_sensors()` in coordinator_mappings.py (#197) |
 
 ### GridBOSS Computed Keys
 
@@ -969,7 +986,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
-- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`
+- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197)
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
 
@@ -990,6 +1007,9 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `consumption_power` (inverter) | Computed | API | API or computed | Energy balance vs API |
 | `consumption` (energy) | Computed | API (÷10) | API (÷10) | `_energy_balance()` vs `todayLoad` |
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
+| `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
+| `eps_load_power_l1/_l2/` sum | Yes | API (pEpsL1N/L2N) | Yes (transport) | Regs 129/130; EG4_OFFGRID-only entities (#197) |
+| `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
 
 ---
 
@@ -1349,19 +1369,38 @@ Positive = importing from grid, negative = exporting to grid.
 
 **Where:** `coordinator_mixins.py` `_process_inverter_object()` line ~458.
 
-#### `eps_power_l1` / `eps_power_l2` (Inverter, LOCAL only)
+#### `eps_power_l1` / `eps_power_l2` (Inverter)
 
-Split-phase EPS power per leg, computed from total EPS power and voltage ratio:
+Split-phase EPS power per leg.  Since pylxpweb 0.9.36b1 these prefer the
+direct register reads (input regs 129/130) and only fall back to the
+voltage-ratio split for older firmware / missing registers:
 
 ```python
 eps_power_l1 = eps_power * (eps_voltage_l1 / (eps_voltage_l1 + eps_voltage_l2))
 eps_power_l2 = eps_power * (eps_voltage_l2 / (eps_voltage_l1 + eps_voltage_l2))
 ```
 
-Returns `None` when both voltages are zero (no EPS output).
+CLOUD mode reads the `pEpsL1N` / `pEpsL2N` API fields.
 
 **Source:** `inverter.eps_power_l1` / `inverter.eps_power_l2` properties in
 pylxpweb. Set in `coordinator_local.py` `_build_local_device_data()`.
+
+#### `eps_load_power_l1` / `eps_load_power_l2` / `eps_load_power` (Inverter, EG4_OFFGRID only, #197)
+
+Per-phase EPS load power aliased from the reg-129/130 values plus the L1+L2
+sum, populated by `apply_eps_load_power_sensors()` in
+`coordinator_mappings.py` (shared by the LOCAL mapping and the cloud/hybrid
+device path):
+
+```python
+eps_load_power_l1 = eps_power_l1          # reg 129 / pEpsL1N
+eps_load_power_l2 = eps_power_l2          # reg 130 / pEpsL2N
+eps_load_power    = l1 + l2               # None only when BOTH legs are None
+```
+
+Entities are created only for EG4_OFFGRID (`OFFGRID_ONLY_SENSORS`).
+Live-validated on 12000XP: 1031 + 296 = 1327 W vs cloud `epsLoadPower`
+1338 W (timing skew).
 
 #### `total_load_power` (Inverter)
 

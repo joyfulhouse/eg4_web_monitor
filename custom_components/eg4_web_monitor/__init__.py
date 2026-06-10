@@ -49,10 +49,16 @@ PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
 # Sensor keys removed in the charge/discharge consolidation refactor.
 # Existing installations may have entity registry entries for these;
 # they are cleaned up once during async_setup_entry().
+#
+# NOTE: "_battery_discharge_power" is intentionally ABSENT — the per-inverter
+# battery_discharge_power sensor was reintroduced for EG4_OFFGRID (reg 11 /
+# cloud pDisCharge, issue #197).  Keeping the suffix here would delete the new
+# entity's registry entry on every setup.  "_parallel_battery_discharge_power"
+# below does NOT match the per-inverter unique_id (suffix matching requires
+# the literal "parallel" segment).
 _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
     {
         "_battery_charge_power",
-        "_battery_discharge_power",
         "_battery_bank_charge_power",
         "_battery_bank_discharge_power",
         "_parallel_battery_charge_power",

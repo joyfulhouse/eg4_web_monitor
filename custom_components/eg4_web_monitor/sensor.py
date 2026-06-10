@@ -23,7 +23,9 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    INVERTER_FAMILY_EG4_OFFGRID,
     NON_THREE_PHASE_SENSORS,
+    OFFGRID_ONLY_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
@@ -76,7 +78,16 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
         pv_string_count = features.get("pv_string_count", _DEFAULT_PV_STRING_COUNT)
         return string_index <= int(pv_string_count)
 
-    # Check split-phase sensors (only for EG4_OFFGRID series)
+    # Check EG4_OFFGRID-only sensors — registers confirmed working on
+    # 12000XP/6000XP hardware only (issue #197).  Strict family match: the
+    # feature dicts from both the static and live paths always carry
+    # inverter_family, and other families must not get these entities.
+    # GridBOSS / parallel-group devices never carry inverter features, so
+    # their shared keys (e.g. load_power) pass the no-features fallback above.
+    if sensor_key in OFFGRID_ONLY_SENSORS:
+        return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
+
+    # Check split-phase sensors (EG4_OFFGRID + EG4_HYBRID split-phase systems)
     if sensor_key in SPLIT_PHASE_ONLY_SENSORS:
         return bool(features.get("supports_split_phase", True))
 

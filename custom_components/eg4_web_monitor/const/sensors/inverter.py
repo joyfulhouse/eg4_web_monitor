@@ -141,6 +141,41 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:power-plug",
     },
+    # Per-phase EPS load power (input regs 129/130, W) + L1+L2 sum.
+    # EG4_OFFGRID only (12000XP/6000XP) — confirmed via live Modbus sweep,
+    # matches the cloud epsLoadPower field within timing skew (issue #197).
+    "eps_load_power_l1": {
+        "name": "EPS Load Power L1",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    "eps_load_power_l2": {
+        "name": "EPS Load Power L2",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    "eps_load_power": {
+        "name": "EPS Load Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    # Battery discharge power (input reg 11 / cloud pDisCharge, W).
+    # Reintroduced for EG4_OFFGRID (issue #197) after the charge/discharge
+    # consolidation — the signed battery_power sensor remains the
+    # family-agnostic net value.
+    "battery_discharge_power": {
+        "name": "Battery Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-arrow-down",
+    },
     # EPS per-leg apparent power (split-phase, regs 131-132)
     "eps_apparent_power_l1": {
         "name": "EPS Apparent Power L1",
