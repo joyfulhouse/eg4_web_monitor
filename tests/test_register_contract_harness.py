@@ -431,10 +431,10 @@ _RUNTIME_HA_KEY_EXCEPTIONS: dict[str, str] = {
     "power_to_user": "property-fed on both paths (grid_import_power sensor)",
     # regs 60/62: pylxpweb advertises fault_code/warning_code sensors but the
     # integration has never surfaced them on any path (no SENSOR_TYPES entry).
-    # TODO(eg4-XXX): real gap, needs adjudication — either add the diagnostic
+    # TODO(eg4-23a6): real gap, needs adjudication — either add the diagnostic
     # sensors or drop the advertised ha_sensor_key in pylxpweb.
-    "fault_code": "TODO(eg4-XXX): advertised by pylxpweb, surfaced on no path",
-    "warning_code": "TODO(eg4-XXX): advertised by pylxpweb, surfaced on no path",
+    "fault_code": "TODO(eg4-23a6): advertised by pylxpweb, surfaced on no path",
+    "warning_code": "TODO(eg4-23a6): advertised by pylxpweb, surfaced on no path",
     # reg 96: battery_bank_count comes from BatteryBankData.battery_count via
     # the bank adapter (single source for LOCAL and CLOUD), not the runtime
     # table.
@@ -447,27 +447,27 @@ _ENERGY_HA_KEY_EXCEPTIONS: dict[str, str] = {
     # todayYielding/totalYielding, but the integration feeds yield from the
     # computed PV sum (pv_energy_today/pv_energy_total) and feeds THESE
     # registers into the separate inverter_energy/inverter_energy_lifetime
-    # sensors.  TODO(eg4-XXX): real divergence, needs adjudication — either
+    # sensors.  TODO(eg4-bc0): real divergence, needs adjudication — either
     # pylxpweb's advertised ha key + todayYielding pairing for Einv is stale,
     # or LOCAL yield (PV-sum) and CLOUD yield (todayYielding) measure
     # different quantities.
     "inverter_energy_today": (
-        "TODO(eg4-XXX): advertised ha=yield; integration feeds inverter_energy"
+        "TODO(eg4-bc0): advertised ha=yield; integration feeds inverter_energy"
     ),
     "inverter_energy_total": (
-        "TODO(eg4-XXX): advertised ha=yield_lifetime; integration feeds "
+        "TODO(eg4-bc0): advertised ha=yield_lifetime; integration feeds "
         "inverter_energy_lifetime"
     ),
     # regs 223-231: pylxpweb advertises epvN_day/epvN_all as ha keys; the
     # integration surfaces the same dataclass fields as pvN_yield /
-    # pvN_yield_lifetime, consistent with the pv1-3 naming.  TODO(eg4-XXX):
+    # pvN_yield_lifetime, consistent with the pv1-3 naming.  TODO(eg4-6ag2):
     # pylxpweb table label should be aligned to the real integration keys.
-    "epv4_day": "TODO(eg4-XXX): integration key is pv4_yield",
-    "epv4_all": "TODO(eg4-XXX): integration key is pv4_yield_lifetime",
-    "epv5_day": "TODO(eg4-XXX): integration key is pv5_yield",
-    "epv5_all": "TODO(eg4-XXX): integration key is pv5_yield_lifetime",
-    "epv6_day": "TODO(eg4-XXX): integration key is pv6_yield",
-    "epv6_all": "TODO(eg4-XXX): integration key is pv6_yield_lifetime",
+    "epv4_day": "TODO(eg4-6ag2): integration key is pv4_yield",
+    "epv4_all": "TODO(eg4-6ag2): integration key is pv4_yield_lifetime",
+    "epv5_day": "TODO(eg4-6ag2): integration key is pv5_yield",
+    "epv5_all": "TODO(eg4-6ag2): integration key is pv5_yield_lifetime",
+    "epv6_day": "TODO(eg4-6ag2): integration key is pv6_yield",
+    "epv6_all": "TODO(eg4-6ag2): integration key is pv6_yield_lifetime",
 }
 
 
@@ -558,21 +558,21 @@ KNOWN_INVERTER_KEY_DIVERGENCES: dict[str, str] = {
     # consumption-energy-sources.
     "consumption": "deliberate: cloud=Eload, overridden by energy balance",
     "consumption_lifetime": "deliberate: cloud=Eload, overridden by balance",
-    # TODO(eg4-XXX): real divergence, needs adjudication.  LOCAL feeds
+    # TODO(eg4-9e4): real divergence, needs adjudication.  LOCAL feeds
     # output_power from reg 170 (canonical output_power, Pload), but the
     # power_output device property reads transport inverter_power / cloud
     # pinv — reg 16 (canonical inverter_power).  CLOUD and HYBRID therefore
     # publish Pinv as output_power (duplicating the ac_power sensor) while
     # LOCAL publishes Pload.
-    "output_power": "TODO(eg4-XXX): LOCAL=reg 170 Pload, CLOUD/HYBRID=reg 16 Pinv",
-    # TODO(eg4-XXX): real divergence, needs adjudication.  LOCAL feeds yield
+    "output_power": "TODO(eg4-9e4): LOCAL=reg 170 Pload, CLOUD/HYBRID=reg 16 Pinv",
+    # TODO(eg4-bc0): real divergence, needs adjudication.  LOCAL feeds yield
     # from the computed PV sum (pv_energy_today); the total_energy_today
     # property reads pv_energy_today on transport (consistent) but cloud
     # todayYielding, which pylxpweb's canonical table pairs with reg 31
     # (Einv_day, inverter OUTPUT energy) — so pure-CLOUD yield may be a
     # different quantity than LOCAL/HYBRID yield.  Same for lifetime.
-    "yield": "TODO(eg4-XXX): cloud todayYielding pairs with Einv reg 31",
-    "yield_lifetime": "TODO(eg4-XXX): cloud totalYielding pairs with Einv reg 46",
+    "yield": "TODO(eg4-bc0): cloud todayYielding pairs with Einv reg 31",
+    "yield_lifetime": "TODO(eg4-bc0): cloud totalYielding pairs with Einv reg 46",
 }
 
 # Properties whose value is legitimately derived from multiple reads (no
@@ -608,18 +608,65 @@ _METADATA_INVERTER_PROPERTIES: frozenset[str] = frozenset(
 )
 
 
+def test_inverter_triangle_exclusion_lists_are_current() -> None:
+    """The derived/metadata exclusion lists stay tied to the property map.
+
+    Coverage of the triangle test below is EXACTLY the property map minus
+    these two lists, so the lists themselves must be kept honest: every
+    excluded name must still be a property-map entry (no rot), the lists
+    must not overlap, and growing either list is a conscious decision —
+    bump the anchored count in the same change that classifies the new
+    property, with a comment saying why it cannot be triangle-compared.
+    """
+    stale_exclusions = sorted(
+        (_DERIVED_INVERTER_PROPERTIES | _METADATA_INVERTER_PROPERTIES)
+        - set(CLOUD_INVERTER_MAP)
+    )
+    assert not stale_exclusions, (
+        "Exclusion lists name properties no longer in the inverter property "
+        "map — prune them:\n  " + "\n  ".join(stale_exclusions)
+    )
+    overlap = sorted(_DERIVED_INVERTER_PROPERTIES & _METADATA_INVERTER_PROPERTIES)
+    assert not overlap, (
+        "Property classified as BOTH derived and metadata: " + ", ".join(overlap)
+    )
+    # Anchored counts: 9 derived + 7 metadata = 16 excluded entries today.
+    # A failure here means triangle coverage changed — verify the new
+    # classification is correct, then update the anchor.
+    assert len(_DERIVED_INVERTER_PROPERTIES) == 9, (
+        f"derived exclusion list changed size "
+        f"({len(_DERIVED_INVERTER_PROPERTIES)} != 9) — triangle coverage "
+        f"shrinks/grows with it; re-verify and update this anchor"
+    )
+    assert len(_METADATA_INVERTER_PROPERTIES) == 7, (
+        f"metadata exclusion list changed size "
+        f"({len(_METADATA_INVERTER_PROPERTIES)} != 7) — triangle coverage "
+        f"shrinks/grows with it; re-verify and update this anchor"
+    )
+
+
 def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
-    """LOCAL, HYBRID (property/transport) and CLOUD agree per sensor key."""
+    """LOCAL, HYBRID (property/transport) and CLOUD agree per sensor key.
+
+    Coverage is exact: every property-map entry outside the two explicit
+    exclusion lists MUST produce at least two resolvable paths and be
+    compared — an entry silently falling out of comparison (bad trace,
+    future multi-read property, bridge gap) fails loudly instead of
+    shrinking coverage.
+    """
     offenders: list[str] = []
     stale: list[str] = []
-    checked = 0
+    under_resolved: list[str] = []
+    compared_keys: set[str] = set()
     local_map = {**LOCAL_RUNTIME_MAP, **LOCAL_ENERGY_MAP}
 
+    excluded_props = _DERIVED_INVERTER_PROPERTIES | _METADATA_INVERTER_PROPERTIES
+    expected_keys = {
+        key for prop, key in CLOUD_INVERTER_MAP.items() if prop not in excluded_props
+    }
+
     for prop, key in CLOUD_INVERTER_MAP.items():
-        if (
-            prop in _DERIVED_INVERTER_PROPERTIES
-            or prop in _METADATA_INVERTER_PROPERTIES
-        ):
+        if prop in excluded_props:
             continue
         transport_reads, cloud_reads = _trace_inverter_property(prop)
 
@@ -651,8 +698,18 @@ def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
             if canonical is not None
         }
         if len(resolved) < 2:
-            continue  # fewer than two resolvable paths -> nothing to compare
-        checked += 1
+            # Coverage loss is a failure, not a skip: a key this harness can
+            # no longer compare is a key whose divergence would go unnoticed.
+            under_resolved.append(
+                f"sensor {key!r} (property {prop!r}): only {len(resolved)} "
+                f"resolvable path(s) {resolved or '{}'} — transport reads "
+                f"{sorted(transport_reads) or 'none'}, cloud reads "
+                f"{sorted(cloud_reads) or 'none'}, local attr {local_attr!r}. "
+                f"Classify the property as derived/metadata with a comment, "
+                f"or extend the canonical bridges"
+            )
+            continue
+        compared_keys.add(key)
 
         diverges = len(set(resolved.values())) > 1
         if key in KNOWN_INVERTER_KEY_DIVERGENCES:
@@ -671,7 +728,15 @@ def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
                 f"canonical registers: {detail}"
             )
 
-    assert checked >= 50, f"vacuous run: only {checked} keys compared"
+    assert not under_resolved, (
+        "Triangle coverage silently lost for these keys:\n  "
+        + "\n  ".join(under_resolved)
+    )
+    assert compared_keys == expected_keys, (
+        "Triangle coverage drifted from the property map:\n  missing: "
+        f"{sorted(expected_keys - compared_keys)}\n  unexpected: "
+        f"{sorted(compared_keys - expected_keys)}"
+    )
     assert not offenders, (
         "Sensor keys fed by DIFFERENT canonical registers per path "
         "(transport-path divergence):\n  " + "\n  ".join(offenders)
@@ -682,14 +747,14 @@ def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
 # Keys the LOCAL path feeds from a register that HAS a cloud API field, yet
 # the cloud property map does not feed at all.
 _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
-    # TODO(eg4-XXX): real divergence, needs adjudication.  LOCAL publishes
+    # TODO(eg4-9wf): real divergence, needs adjudication.  LOCAL publishes
     # reg 17 (canonical rectifier_power, cloud prec) as grid_power; the
     # CLOUD path computes grid_power = power_to_user − power_to_grid inline
     # in _process_inverter_object.  Net grid flow vs rectifier power are
     # different physical quantities.  (docs/DATA_MAPPING.md carries BOTH
     # definitions: the register table row for reg 17 and the computed
     # formula in "grid_power (Inverter)".)
-    "grid_power": "TODO(eg4-XXX): LOCAL=reg 17 Prec, CLOUD=pToUser-pToGrid",
+    "grid_power": "TODO(eg4-9wf): LOCAL=reg 17 Prec, CLOUD=pToUser-pToGrid",
     # DELIBERATE (#197): the cloud zeroes its reg-170 mirror for EG4_OFFGRID,
     # so load_power must come only from the local register (LOCAL table +
     # HYBRID _TRANSPORT_OVERLAY); a cloud property feed would publish zeros.
@@ -1006,20 +1071,20 @@ KNOWN_GRIDBOSS_TABLE_DIVERGENCES: dict[str, str] = {
     # DELIBERATE: timestamp added at the call site on the HTTP path
     # (_process_mid_device_object) and inside the table on the LOCAL path.
     "midbox_last_polled": "deliberate: HTTP path stamps at call site",
-    # TODO(eg4-XXX): real divergence, needs adjudication.  LOCAL aliases
+    # TODO(eg4-7uz): real divergence, needs adjudication.  LOCAL aliases
     # consumption_power = load_power (CT measurement); the cloud/HYBRID
     # property map has NO consumption_power entry, so the sensor never gets
     # data in CLOUD/HYBRID even though docs/DATA_MAPPING.md ("consumption_
     # power (GridBOSS)") claims BOTH paths set it.
     "consumption_power": (
-        "TODO(eg4-XXX): LOCAL-only alias of load_power; cloud map misses it"
+        "TODO(eg4-7uz): LOCAL-only alias of load_power; cloud map misses it"
     ),
-    # TODO(eg4-XXX): real divergence, needs adjudication.  The MIDDevice
+    # TODO(eg4-7uz): real divergence, needs adjudication.  The MIDDevice
     # generator_frequency property handles both sources (cloud genFreq is in
     # the documented GridBOSS cloud mapping), but the cloud/HYBRID property
     # map omits it, so the sensor is LOCAL-only today.
     "generator_frequency": (
-        "TODO(eg4-XXX): property exists for both sources; cloud map misses it"
+        "TODO(eg4-7uz): property exists for both sources; cloud map misses it"
     ),
 }
 
@@ -1223,7 +1288,7 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
     # Reg 233 bit 1 is live-verified in REGISTER_TO_PARAM_KEYS; the canonical
     # holding table has no FUNC_BATTERY_BACKUP_CTRL entry yet (pylxpweb table
-    # gap — resolved via the transport table below).
+    # gap, tracked in eg4-6ag2 — resolved via the transport table below).
     PARAM_FUNC_BATTERY_BACKUP_CTRL: (233, 1),
     PARAM_HOLD_PV_INPUT_MODE: (20, None),
     PARAM_HOLD_START_PV_VOLT: (22, None),
@@ -1384,12 +1449,12 @@ def test_writable_controls_are_writable_in_canonical_table() -> None:
 
 
 def test_todo_divergences_are_inventoried() -> None:
-    """Every TODO(eg4-...) allowlist entry is listed here.
+    """Every TODO(eg4-...) allowlist entry is listed here with its bead ID.
 
     This is the single place to see all known-but-unadjudicated transport
-    path divergences the harness has found.  When one is fixed, its allowlist
-    entry fails as STALE in the owning test; update this inventory in the
-    same change.
+    path divergences the harness has found, routed to the beads issue that
+    owns each adjudication.  When one is fixed, its allowlist entry fails as
+    STALE in the owning test; update this inventory in the same change.
     """
     todo_entries = {
         name: reason
@@ -1403,28 +1468,50 @@ def test_todo_divergences_are_inventoried() -> None:
         for name, reason in table.items()
         if reason.startswith("TODO(")
     }
-    expected = {
-        "fault_code",
-        "warning_code",
-        "inverter_energy_today",
-        "inverter_energy_total",
-        "epv4_day",
-        "epv4_all",
-        "epv5_day",
-        "epv5_all",
-        "epv6_day",
-        "epv6_all",
-        "output_power",
-        "yield",
-        "yield_lifetime",
-        "grid_power",
-        "consumption_power",
-        "generator_frequency",
+    # entry name -> beads issue adjudicating it.
+    expected: dict[str, str] = {
+        # eg4-23a6: fault/warning codes advertised by pylxpweb, surfaced
+        # on no path.
+        "fault_code": "eg4-23a6",
+        "warning_code": "eg4-23a6",
+        # eg4-bc0: yield/yield_lifetime source mismatch + pylxpweb reg-31/46
+        # ha-key/todayYielding pairing.
+        "inverter_energy_today": "eg4-bc0",
+        "inverter_energy_total": "eg4-bc0",
+        "yield": "eg4-bc0",
+        "yield_lifetime": "eg4-bc0",
+        # eg4-6ag2: regs 223-231 advertised-key label drift (pvN_yield)
+        # (+ the FUNC_BATTERY_BACKUP_CTRL canonical-table gap, comment-only
+        # in _CONTROL_REGISTER_CONTRACT).
+        "epv4_day": "eg4-6ag2",
+        "epv4_all": "eg4-6ag2",
+        "epv5_day": "eg4-6ag2",
+        "epv5_all": "eg4-6ag2",
+        "epv6_day": "eg4-6ag2",
+        "epv6_all": "eg4-6ag2",
+        # eg4-9e4: output_power LOCAL=reg 170 vs CLOUD/HYBRID=reg 16 pinv.
+        "output_power": "eg4-9e4",
+        # eg4-9wf: grid_power LOCAL=raw Prec vs CLOUD=net pToUser-pToGrid.
+        "grid_power": "eg4-9wf",
+        # eg4-7uz: GridBOSS cloud-map omissions.
+        "consumption_power": "eg4-7uz",
+        "generator_frequency": "eg4-7uz",
     }
-    assert set(todo_entries) == expected, (
-        "TODO divergence inventory drifted — update this test AND the report "
-        f"tracking issue.\n  inventoried: {sorted(todo_entries)}\n  "
+    assert set(todo_entries) == set(expected), (
+        "TODO divergence inventory drifted — update this test AND the owning "
+        f"beads issue.\n  inventoried: {sorted(todo_entries)}\n  "
         f"expected: {sorted(expected)}"
+    )
+    misrouted: list[str] = []
+    for name, reason in todo_entries.items():
+        issue = expected[name]
+        if not reason.startswith(f"TODO({issue})"):
+            misrouted.append(
+                f"{name}: tagged {reason.split(':', 1)[0]!r}, inventory "
+                f"routes it to TODO({issue})"
+            )
+    assert not misrouted, (
+        "TODO entries tagged with the wrong beads issue:\n  " + "\n  ".join(misrouted)
     )
 
 
