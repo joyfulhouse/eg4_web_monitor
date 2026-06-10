@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HYBRID: battery-bank register sensors could be missing after a restart** (live-found on production validating beta.3): sensor entities are created from the keys present during platform setup, but in hybrid mode the first refresh is cloud-only by design — the LOCAL-register battery-bank sensors (BMS charge/discharge current limits, charge voltage reference, discharge cut-off voltage, battery type, cycle count, inverter-sampled battery voltage) only appear once the second coordinator cycle has read the local transport, ~5 seconds later. Losing that race at boot left 14 bank sensors unavailable until a manual reload. Battery-bank sensors now late-register when their keys appear, the same way transport-only inverter sensors already did. (Latent since the hybrid bank overlay was introduced; not a beta.3 regression.)
+
 ## [3.4.0-beta.3] - 2026-06-10
 
 ### Fixed
