@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **New service `eg4_web_monitor.import_historical_data`** ([#73](https://github.com/joyfulhouse/eg4_web_monitor/issues/73)): opt-in, idempotent import of plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the EG4 cloud into separate external long-term statistics (`eg4_web_monitor:plant_…`), selectable in the Energy dashboard. Bounded to 2 years per call, with `dry_run` preview, a per-series response summary, per-plant serialization, and DST-correct day alignment (prefers Home Assistant's IANA timezone over the cloud's fixed-offset station strings). Re-running a range is safe — sums are recomputed from all committed rows. Requires pylxpweb ≥ 0.9.36b3; on older versions the service reports a clean "library too old" error.
 - **Register-derived contract harness** (eg4-1z8): a 20-test suite that derives the expected sensor mappings from pylxpweb's canonical register tables and asserts the LOCAL register path and the CLOUD/HYBRID property path feed every sensor key from the same canonical source — the structural cure for the recurring "fixed on one connection mode, still broken on the other" bug class. Exact coverage accounting (silent drops fail loudly), stale-allowlist detection, and a routed inventory of 8 real divergences discovered on day one (tracked: eg4-7uz, eg4-9e4, eg4-9wf, eg4-bc0, eg4-23a6, eg4-6ag2).
 
 ### Fixed
