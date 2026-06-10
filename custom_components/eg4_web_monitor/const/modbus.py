@@ -22,6 +22,9 @@ PARAM_FUNC_FORCED_CHG_EN = "FUNC_FORCED_CHG_EN"
 
 # Bit field parameter names (register 110)
 PARAM_FUNC_GREEN_EN = "FUNC_GREEN_EN"
+# Charge Last (reg 110 bit 4): when enabled, PV surplus serves loads/export
+# first and charges the battery last (issue #177).
+PARAM_FUNC_CHARGE_LAST = "FUNC_CHARGE_LAST"
 
 # Extended bit field parameter names (registers 179, 233)
 PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
@@ -57,7 +60,9 @@ PARAM_FUNC_BAT_DISCHARGE_CONTROL = "FUNC_BAT_DISCHARGE_CONTROL"  # reg 179 bit 1
 # Values are decivolts (×10). AC charge start/stop use the cloud-aliased
 # "...BATTERY_VOLTAGE" names that read_named_parameters surfaces.
 PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT = "HOLD_SYSTEM_CHARGE_VOLT_LIMIT"  # reg 228
-PARAM_HOLD_ONGRID_EOD_VOLTAGE = "HOLD_ON_GRID_EOD_VOLTAGE"  # reg 169 (cloud-confirmed name)
+PARAM_HOLD_ONGRID_EOD_VOLTAGE = (
+    "HOLD_ON_GRID_EOD_VOLTAGE"  # reg 169 (cloud-confirmed name)
+)
 PARAM_HOLD_OFFGRID_EOD_VOLTAGE = "HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT"  # reg 100
 PARAM_HOLD_AC_CHARGE_START_VOLTAGE = "HOLD_AC_CHARGE_START_BATTERY_VOLTAGE"  # reg 158
 PARAM_HOLD_AC_CHARGE_END_VOLTAGE = "HOLD_AC_CHARGE_END_BATTERY_VOLTAGE"  # reg 159

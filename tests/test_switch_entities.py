@@ -9,6 +9,7 @@ from custom_components.eg4_web_monitor.const import (
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
+    PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
@@ -19,6 +20,7 @@ from custom_components.eg4_web_monitor.switch import (
     async_setup_entry,
     EG4QuickChargeSwitch,
     EG4BatteryBackupSwitch,
+    EG4ChargeLastSwitch,
     EG4OffGridModeSwitch,
     EG4WorkingModeSwitch,
     EG4DSTSwitch,
@@ -84,6 +86,19 @@ def _mock_coordinator(
     mock_inverter.enable_battery_backup_ctrl = AsyncMock(return_value=True)
     mock_inverter.disable_battery_backup_ctrl = AsyncMock(return_value=True)
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+    # Cloud client (function-control API) for FUNC_ params without
+    # dedicated enable/disable inverter methods (e.g. FUNC_CHARGE_LAST)
+    if has_http:
+        control_response = MagicMock()
+        control_response.success = True
+        mock_client = MagicMock()
+        mock_client.api.control.control_function = AsyncMock(
+            return_value=control_response
+        )
+        coordinator.client = mock_client
+    else:
+        coordinator.client = None
 
     # Station device info
     coordinator.get_device_info = MagicMock(return_value=None)
@@ -155,6 +170,7 @@ class TestSwitchPlatformSetup:
         assert "EG4QuickChargeSwitch" in type_names
         assert "EG4BatteryBackupSwitch" in type_names
         assert "EG4OffGridModeSwitch" in type_names
+        assert "EG4ChargeLastSwitch" in type_names
         assert any(n == "EG4WorkingModeSwitch" for n in type_names)
 
     @pytest.mark.asyncio
@@ -440,6 +456,143 @@ class TestOffGridModeSwitch:
         """No local or HTTP raises HomeAssistantError."""
         coordinator = _mock_coordinator(has_local=False, has_http=False)
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="No transport available"):
+            await switch.async_turn_on()
+
+
+# ── ChargeLastSwitch ─────────────────────────────────────────────────
+
+
+class TestChargeLastSwitch:
+    """Test Charge Last switch entity (FUNC_CHARGE_LAST, reg 110 bit 4)."""
+
+    def test_is_on_from_params(self):
+        """FUNC_CHARGE_LAST parameter drives is_on."""
+        coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": True})
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        assert switch.is_on is True
+
+    def test_is_on_false_default(self):
+        """Default state should be False when param missing."""
+        coordinator = _mock_coordinator()
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        assert switch.is_on is False
+
+    def test_is_on_optimistic_overrides(self):
+        """Optimistic state takes precedence over parameter data."""
+        coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": False})
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch._optimistic_state = True
+        assert switch.is_on is True
+
+    def test_extra_state_attributes(self):
+        """Extra attributes expose the raw FUNC_CHARGE_LAST parameter."""
+        coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": True})
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        attrs = switch.extra_state_attributes
+        assert attrs["func_charge_last"] is True
+
+    @pytest.mark.asyncio
+    async def test_turn_on_local(self):
+        """Local transport: writes PARAM_FUNC_CHARGE_LAST=True."""
+        coordinator = _mock_coordinator(has_local=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_CHARGE_LAST, True, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_turn_off_local(self):
+        """Local transport: writes PARAM_FUNC_CHARGE_LAST=False."""
+        coordinator = _mock_coordinator(has_local=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_off()
+
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_CHARGE_LAST, False, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_turn_on_cloud(self):
+        """Cloud only: writes via control_function(serial, param, True)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", PARAM_FUNC_CHARGE_LAST, True
+        )
+        coordinator.async_refresh_device_parameters.assert_called_once_with(
+            "1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_turn_off_cloud(self):
+        """Cloud only: writes via control_function(serial, param, False)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_off()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", PARAM_FUNC_CHARGE_LAST, False
+        )
+
+    @pytest.mark.asyncio
+    async def test_cloud_failure_raises_and_clears_optimistic(self):
+        """Cloud control_function failure raises and clears optimistic state."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        failed_response = MagicMock()
+        failed_response.success = False
+        coordinator.client.api.control.control_function = AsyncMock(
+            return_value=failed_response
+        )
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="charge last"):
+            await switch.async_turn_on()
+        assert switch._optimistic_state is None
+
+    @pytest.mark.asyncio
+    async def test_local_fail_falls_back_to_cloud(self):
+        """HYBRID: local write fails -> cloud control_function called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", PARAM_FUNC_CHARGE_LAST, True
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_success_no_cloud_call(self):
+        """Local write succeeds -> cloud API NOT called."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        coordinator.client.api.control.control_function.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_transport_raises(self):
+        """No local or HTTP raises HomeAssistantError."""
+        coordinator = _mock_coordinator(has_local=False, has_http=False)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
         _prep(switch)
 
         with pytest.raises(HomeAssistantError, match="No transport available"):

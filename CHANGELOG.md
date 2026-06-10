@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Charge Last switch** ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)): toggle the battery *Charge Last* function (`FUNC_CHARGE_LAST`, register 110 bit 4) from Home Assistant. Off (default, "charge first"): PV charges the battery before exporting surplus. On: PV serves house loads and grid export first and charges the battery last — automate it to reserve battery headroom during peak production (e.g. charge to ~90% in the morning, enable Charge Last through midday, disable in the afternoon to top off). Works in cloud, local, and hybrid modes; hybrid prefers the local Modbus write and falls back to the cloud function-control API.
+
 ### Documentation
 
 - **Battery control mode — EG4 UI label cross-reference**: documented the mapping from EG4 web-monitor parameter labels to Home Assistant entities for the SOC/Voltage battery limits — e.g. EG4's *"Back Up Volt(V)"* is the **AC Charge End Voltage** entity (reg 159, the voltage twin of the AC-charge SOC limit, active in battery-backup/voltage mode) and *"System Charge Volt Limit(V)"* is reg 228. Added a label table to [CONFIGURATION.md](docs/CONFIGURATION.md#battery-control-mode-soc-vs-voltage), the canonical register/param table plus confirmed register-179 bits 9/10 to [DATA_MAPPING.md](docs/DATA_MAPPING.md), and a discovery pointer in the README.
