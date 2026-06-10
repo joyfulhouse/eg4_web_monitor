@@ -6,9 +6,13 @@
 # To use: Copy this configuration to your Lovelace dashboard
 # Adjust entity IDs to match your inverter model and serial number:
 # replace "flexboss21_1234567890" with "<your_model>_<your_serial>"
-# (e.g. 18kpv_3344556677) and "grid_boss_1234567890" with your
-# GridBOSS serial. Check Settings -> Devices & Services -> Entities
-# for the exact IDs in your installation.
+# (e.g. 18kpv_3344556677 or 6000xp_3344556677) and
+# "grid_boss_1234567890" with your GridBOSS serial. Off-grid models
+# (6000XP/12000XP) lack some grid-tie controls shown here (AC charge /
+# forced discharge rows) — remove rows whose entities don't exist.
+# Check Settings -> Devices & Services -> Entities for the exact IDs
+# in your installation; long-standing installs may retain older
+# object IDs since Home Assistant preserves registry entries.
 
 type: vertical-stack
 cards:
@@ -145,7 +149,7 @@ cards:
       - entity: switch.flexboss21_1234567890_ac_charge_mode
         name: Grid Charging (AC Charge)
       - entity: switch.flexboss21_1234567890_forced_discharge_mode
-        name: Forced Discharge (Grid Export)
+        name: Forced Discharge
       - entity: number.flexboss21_1234567890_ac_charge_power
         name: AC Charge Power
       # Battery control mode (v3.4.0+): SOC-based or Voltage-based regime
