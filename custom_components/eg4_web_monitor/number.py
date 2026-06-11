@@ -190,6 +190,24 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
 
     # ── Value read helpers ──────────────────────────────────────────
 
+    def _params_are_local_raw(self) -> bool:
+        """Whether this serial's parameter cache holds raw register values.
+
+        True in local-only modes (the coordinator reads registers itself)
+        and when the pylxpweb inverter object has a local transport
+        attached (HYBRID ``local_transports``) — pylxpweb routes the
+        parameter read through that transport, so ``inverter.parameters``
+        and the coordinator cache hold raw values. The deprecated
+        global-transport fallback inside ``has_local_transport()``
+        deliberately does NOT count: legacy flat HYBRID entries populate
+        the cache from the cloud (kW-scaled), and treating them as raw
+        would mis-scale the display (12 kW would show 1.2).
+        """
+        if self.coordinator.is_local_only():
+            return True
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        return getattr(inverter, "transport", None) is not None
+
     @staticmethod
     def _volts_from_param(raw: Any) -> float:
         """Normalize a battery-voltage parameter to volts across transports.
@@ -578,9 +596,7 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         10x (GH #207: 0.7 kW showed 7 kW). Cloud-only installs read the
         property, which returns cloud-scaled kW.
         """
-        if self.coordinator.is_local_only() or self.coordinator.has_local_transport(
-            self.serial
-        ):
+        if self._params_are_local_raw():
             return self._read_param_value(
                 param_key=PARAM_HOLD_AC_CHARGE_POWER,
                 value_min=0,
@@ -642,9 +658,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         hazard, see ACChargePowerNumber); cloud-only installs read the
         property, which returns kW.
         """
-        if self.coordinator.is_local_only() or self.coordinator.has_local_transport(
-            self.serial
-        ):
+        if self._params_are_local_raw():
             return self._read_param_value(
                 param_key=PARAM_HOLD_FORCED_CHG_POWER,
                 value_min=0,
@@ -897,9 +911,7 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
         pass the 25.5 bound — a 10x display/write-back hazard. Cloud-only
         installs read the property, which returns cloud-scaled kW.
         """
-        if self.coordinator.is_local_only() or self.coordinator.has_local_transport(
-            self.serial
-        ):
+        if self._params_are_local_raw():
             return self._read_param_value(
                 param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
                 value_min=0,
