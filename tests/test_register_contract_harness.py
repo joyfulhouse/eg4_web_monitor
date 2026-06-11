@@ -439,10 +439,7 @@ _RUNTIME_HA_KEY_EXCEPTIONS: dict[str, str] = {
     # reg 17: surfaced as the rectifier_power sensor via the
     # inverter.rectifier_power device property on BOTH paths
     # (coordinator_local supplement + cloud property map) — see
-    # docs/DATA_MAPPING.md "rectifier_power (Inverter)".  The LOCAL runtime
-    # table maps this register's dataclass field onto the *grid_power*
-    # sensor instead — that divergence is tracked separately in
-    # KNOWN_INVERTER_KEY_DIVERGENCES["grid_power"].
+    # docs/DATA_MAPPING.md "rectifier_power (Inverter)".
     "rectifier_power": "property-fed on both paths (rectifier_power sensor)",
     # reg 27: surfaced as grid_import_power via the inverter.power_to_user
     # device property on BOTH paths (docs/DATA_MAPPING.md "grid_import_power
@@ -455,32 +452,9 @@ _RUNTIME_HA_KEY_EXCEPTIONS: dict[str, str] = {
 }
 
 _ENERGY_HA_KEY_EXCEPTIONS: dict[str, str] = {
-    # regs 31/46 (Einv day/lifetime): pylxpweb advertises ha key
-    # "yield"/"yield_lifetime" and pairs the register with cloud
-    # todayYielding/totalYielding, but the integration feeds yield from the
-    # computed PV sum (pv_energy_today/pv_energy_total) and feeds THESE
-    # registers into the separate inverter_energy/inverter_energy_lifetime
-    # sensors.  TODO(eg4-bc0): real divergence, needs adjudication — either
-    # pylxpweb's advertised ha key + todayYielding pairing for Einv is stale,
-    # or LOCAL yield (PV-sum) and CLOUD yield (todayYielding) measure
-    # different quantities.
-    "inverter_energy_today": (
-        "TODO(eg4-bc0): advertised ha=yield; integration feeds inverter_energy"
-    ),
-    "inverter_energy_total": (
-        "TODO(eg4-bc0): advertised ha=yield_lifetime; integration feeds "
-        "inverter_energy_lifetime"
-    ),
-    # regs 223-231: pylxpweb advertises epvN_day/epvN_all as ha keys; the
-    # integration surfaces the same dataclass fields as pvN_yield /
-    # pvN_yield_lifetime, consistent with the pv1-3 naming.  TODO(eg4-6ag2):
-    # pylxpweb table label should be aligned to the real integration keys.
-    "epv4_day": "TODO(eg4-6ag2): integration key is pv4_yield",
-    "epv4_all": "TODO(eg4-6ag2): integration key is pv4_yield_lifetime",
-    "epv5_day": "TODO(eg4-6ag2): integration key is pv5_yield",
-    "epv5_all": "TODO(eg4-6ag2): integration key is pv5_yield_lifetime",
-    "epv6_day": "TODO(eg4-6ag2): integration key is pv6_yield",
-    "epv6_all": "TODO(eg4-6ag2): integration key is pv6_yield_lifetime",
+    # (empty) — regs 31/46 now advertise inverter_energy/inverter_energy_lifetime
+    # (eg4-bc0) and regs 223-231 advertise pvN_yield/pvN_yield_lifetime
+    # (eg4-6ag2), matching the LOCAL table exactly.
 }
 
 
@@ -581,21 +555,6 @@ KNOWN_INVERTER_KEY_DIVERGENCES: dict[str, str] = {
     # consumption-energy-sources.
     "consumption": "deliberate: cloud=Eload, overridden by energy balance",
     "consumption_lifetime": "deliberate: cloud=Eload, overridden by balance",
-    # TODO(eg4-9e4): real divergence, needs adjudication.  LOCAL feeds
-    # output_power from reg 170 (canonical output_power, Pload), but the
-    # power_output device property reads transport inverter_power / cloud
-    # pinv — reg 16 (canonical inverter_power).  CLOUD and HYBRID therefore
-    # publish Pinv as output_power (duplicating the ac_power sensor) while
-    # LOCAL publishes Pload.
-    "output_power": "TODO(eg4-9e4): LOCAL=reg 170 Pload, CLOUD/HYBRID=reg 16 Pinv",
-    # TODO(eg4-bc0): real divergence, needs adjudication.  LOCAL feeds yield
-    # from the computed PV sum (pv_energy_today); the total_energy_today
-    # property reads pv_energy_today on transport (consistent) but cloud
-    # todayYielding, which pylxpweb's canonical table pairs with reg 31
-    # (Einv_day, inverter OUTPUT energy) — so pure-CLOUD yield may be a
-    # different quantity than LOCAL/HYBRID yield.  Same for lifetime.
-    "yield": "TODO(eg4-bc0): cloud todayYielding pairs with Einv reg 31",
-    "yield_lifetime": "TODO(eg4-bc0): cloud totalYielding pairs with Einv reg 46",
 }
 
 # Properties whose value is legitimately derived from multiple reads (no
@@ -770,14 +729,9 @@ def test_inverter_sensor_keys_same_canonical_on_all_paths() -> None:
 # Keys the LOCAL path feeds from a register that HAS a cloud API field, yet
 # the cloud property map does not feed at all.
 _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
-    # TODO(eg4-9wf): real divergence, needs adjudication.  LOCAL publishes
-    # reg 17 (canonical rectifier_power, cloud prec) as grid_power; the
-    # CLOUD path computes grid_power = power_to_user − power_to_grid inline
-    # in _process_inverter_object.  Net grid flow vs rectifier power are
-    # different physical quantities.  (docs/DATA_MAPPING.md carries BOTH
-    # definitions: the register table row for reg 17 and the computed
-    # formula in "grid_power (Inverter)".)
-    "grid_power": "TODO(eg4-9wf): LOCAL=reg 17 Prec, CLOUD=pToUser-pToGrid",
+    # NOTE: grid_power needs no entry — LOCAL now computes it as
+    # power_from_grid − power_to_grid (DERIVED), the same net-flow formula the
+    # CLOUD path computes inline in _process_inverter_object (eg4-9wf).
     # DELIBERATE (#197): the cloud zeroes its reg-170 mirror for EG4_OFFGRID,
     # so load_power must come only from the local register (LOCAL table +
     # HYBRID _TRANSPORT_OVERLAY); a cloud property feed would publish zeros.
@@ -785,12 +739,9 @@ _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
     # NOTE: load_energy/_lifetime need no entry here — Eload (regs 171/172)
     # has no cloud_api_field in the canonical table; the cloud feed happens
     # at the call site via getattr(inverter, "energy_today_usage").
-    # DELIBERATE: inverter_energy/_lifetime carry regs 31/46 verbatim
-    # (LOCAL/HYBRID-only granular sensors, #243); the registers' advertised
-    # cloud fields todayYielding/totalYielding feed the *yield* sensors in
-    # CLOUD mode instead (see the reg-31 TODO above).
-    "inverter_energy": "deliberate (#243): LOCAL/HYBRID granular sensor",
-    "inverter_energy_lifetime": "deliberate (#243): LOCAL/HYBRID granular sensor",
+    # NOTE: inverter_energy/_lifetime need no entry either — regs 31/46 carry
+    # no cloud_api_field anymore (todayYielding/totalYielding are PV yield,
+    # not Einv; eg4-bc0), so the keys are cloud-impossible by table.
     # DELIBERATE (#197): the eps_load_power_* aliases are populated by the
     # SHARED apply_eps_load_power_sensors() helper on BOTH paths (called
     # inside the LOCAL runtime table AND in _process_inverter_object), not by
@@ -1302,9 +1253,8 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
-    # Reg 233 bit 1 is live-verified in REGISTER_TO_PARAM_KEYS; the canonical
-    # holding table has no FUNC_BATTERY_BACKUP_CTRL entry yet (pylxpweb table
-    # gap, tracked in eg4-6ag2 — resolved via the transport table below).
+    # Reg 233 bit 1 is live-verified; known to BOTH pylxpweb tables (canonical
+    # holding entry added in eg4-6ag2), so the inter-table check below covers it.
     PARAM_FUNC_BATTERY_BACKUP_CTRL: (233, 1),
     PARAM_HOLD_PV_INPUT_MODE: (20, None),
     PARAM_HOLD_START_PV_VOLT: (22, None),
@@ -1484,28 +1434,12 @@ def test_todo_divergences_are_inventoried() -> None:
         for name, reason in table.items()
         if reason.startswith("TODO(")
     }
-    # entry name -> beads issue adjudicating it.
-    expected: dict[str, str] = {
-        # eg4-bc0: yield/yield_lifetime source mismatch + pylxpweb reg-31/46
-        # ha-key/todayYielding pairing.
-        "inverter_energy_today": "eg4-bc0",
-        "inverter_energy_total": "eg4-bc0",
-        "yield": "eg4-bc0",
-        "yield_lifetime": "eg4-bc0",
-        # eg4-6ag2: regs 223-231 advertised-key label drift (pvN_yield)
-        # (+ the FUNC_BATTERY_BACKUP_CTRL canonical-table gap, comment-only
-        # in _CONTROL_REGISTER_CONTRACT).
-        "epv4_day": "eg4-6ag2",
-        "epv4_all": "eg4-6ag2",
-        "epv5_day": "eg4-6ag2",
-        "epv5_all": "eg4-6ag2",
-        "epv6_day": "eg4-6ag2",
-        "epv6_all": "eg4-6ag2",
-        # eg4-9e4: output_power LOCAL=reg 170 vs CLOUD/HYBRID=reg 16 pinv.
-        "output_power": "eg4-9e4",
-        # eg4-9wf: grid_power LOCAL=raw Prec vs CLOUD=net pToUser-pToGrid.
-        "grid_power": "eg4-9wf",
-    }
+    # entry name -> beads issue adjudicating it.  All 8 divergences found
+    # by the harness on day one (eg4-1z8) are now fixed and their entries
+    # retired: eg4-7uz, eg4-23a6 (2026-06-10) and eg4-9e4, eg4-9wf,
+    # eg4-bc0, eg4-6ag2 (2026-06-11).  New TODO( entries in any allowlist
+    # table must be inventoried here with their owning beads issue.
+    expected: dict[str, str] = {}
     assert set(todo_entries) == set(expected), (
         "TODO divergence inventory drifted — update this test AND the owning "
         f"beads issue.\n  inventoried: {sorted(todo_entries)}\n  "

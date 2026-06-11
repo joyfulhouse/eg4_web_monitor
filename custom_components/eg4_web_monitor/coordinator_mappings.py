@@ -17,6 +17,8 @@ from .const import (
     GRID_TYPE_SPLIT_PHASE,
     GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
+    INVERTER_FAMILY_EG4_HYBRID,
+    INVERTER_FAMILY_LXP,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
 )
@@ -185,6 +187,53 @@ def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
         sensors["eps_load_power_l2"] = l2
     if l1 is not None and l2 is not None:
         sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
+
+
+# Families whose cloud pLoad170 mirror is trustworthy for output_power:
+# EG4_HYBRID is live-verified (18kPV pLoad170=2395 / FlexBOSS21 2365,
+# 2026-06-10) and LXP carries the canonical reg-170 pairing with no
+# zeroing evidence.  EG4_OFFGRID is excluded (#197: the cloud zeroes the
+# mirror), and so is UNKNOWN or any unrecognized family — the pylxpweb
+# InverterFamily enum emits the truthy string "UNKNOWN" on failed
+# detection, so membership in this allowlist (not a not-OFFGRID check)
+# is the only safe test (codex r2 HIGH).
+_CLOUD_PLOAD170_TRUSTED_FAMILIES: frozenset[str] = frozenset(
+    {INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP}
+)
+
+
+def drop_offgrid_cloud_output_power(
+    sensors: dict[str, Any],
+    inverter_family: str | None,
+    has_transport_runtime: bool,
+) -> None:
+    """Drop cloud-sourced ``output_power`` unless its mirror is trusted.
+
+    ``output_power`` carries reg-170 load-output semantics on every path,
+    but the cloud ZEROES its reg-170 mirror (``pLoad170``) for EG4_OFFGRID
+    models (12000XP/6000XP, issue #197).  Without transport runtime the
+    cloud-mapped value is that bogus zero — remove the key rather than
+    publish a false 0 W load.  Fail-closed like the #197 entity gate in
+    sensor.py: the value survives only when it came from the local register
+    (transport runtime present) or the family is in the positively-known
+    trusted allowlist.  A transiently unknown family costs one cycle of
+    the sensor on cloud-connected EG4_HYBRID/LXP systems; the alternative
+    is corrupt data on EG4_OFFGRID.
+
+    Called from the cloud/hybrid device processing path only — the LOCAL
+    mapping reads reg 170 directly, which is always genuine.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+        inverter_family: Detected family string, or None when unknown.
+        has_transport_runtime: True when Modbus transport runtime backs the
+            mapped value (pylxpweb ``power_output`` prefers the transport).
+    """
+    if has_transport_runtime:
+        return
+    if inverter_family in _CLOUD_PLOAD170_TRUSTED_FAMILIES:
+        return
+    sensors.pop("output_power", None)
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +666,18 @@ def _build_runtime_sensor_mapping(
     Returns:
         Dictionary mapping sensor keys to values.
     """
+    # Net grid flow (eg4-9wf): grid_power = import − export (positive = import),
+    # from regs 27/26 (power_to_user/power_to_grid) — the same formula the
+    # CLOUD path computes in _process_inverter_object and the GridBOSS sign
+    # convention.  Reg 17 (Prec) is RECTIFIER power and feeds the separate
+    # rectifier_power sensor; it must never masquerade as grid power.
+    grid_import = runtime_data.power_from_grid
+    grid_export = runtime_data.power_to_grid
+    net_grid_power = (
+        grid_import - grid_export
+        if grid_import is not None and grid_export is not None
+        else None
+    )
     mapping: dict[str, Any] = {
         # PV/Solar input
         "pv1_voltage": runtime_data.pv1_voltage,
@@ -660,7 +721,7 @@ def _build_runtime_sensor_mapping(
         "grid_voltage_l1": runtime_data.grid_l1_voltage,
         "grid_voltage_l2": runtime_data.grid_l2_voltage,
         "grid_frequency": runtime_data.grid_frequency,
-        "grid_power": runtime_data.grid_power,
+        "grid_power": net_grid_power,
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,

@@ -135,7 +135,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 14 | `grid_voltage_t` | ÷10 | V | `grid_voltage_t` | `grid_voltage_t` |
 | 15 | `grid_frequency` | ÷100 | Hz | `grid_frequency` | `grid_frequency` |
 | 16 | `inverter_power` | 1 | W | `inverter_power` | `ac_power` |
-| 17 | `rectifier_power` | 1 | W | `grid_power` | `grid_power` |
+| 17 | `rectifier_power` | 1 | W | `rectifier_power` | `rectifier_power` (Prec; NOT grid power — eg4-9wf) |
 | 18 | `inverter_rms_current_r` | ÷100 | A | `inverter_rms_current_r` | `grid_current_l1` |
 | 20 | `eps_voltage_r` | ÷10 | V | `eps_voltage_r` | `eps_voltage_r` |
 | 21 | `eps_voltage_s` | ÷10 | V | `eps_voltage_s` | `eps_voltage_s` |
@@ -236,11 +236,19 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
 |-----|----------------|-------|------|---------------|
-| 31 | `inverter_energy_today` | ÷10 | kWh | `yield` |
+| 31 | `inverter_energy_today` | ÷10 | kWh | `inverter_energy` (NOT `yield` — see note) |
 | 33 | `charge_energy_today` | ÷10 | kWh | `charging` |
 | 34 | `discharge_energy_today` | ÷10 | kWh | `discharging` |
 | 36 | `grid_export_energy_today` | ÷10 | kWh | `grid_export` |
 | 37 | `grid_import_energy_today` | ÷10 | kWh | `grid_import` |
+
+> **Note (eg4-bc0):** `yield` is PV yield: LOCAL computes it as the epvN_day
+> sum (`pv_energy_today`), CLOUD reads `todayYielding`.  The cloud's
+> `todayYielding` is **PV yield, not Einv_day** — proven by the pvPie permille
+> rates (charge+export+usage sum to 1000 and distribute `todayYielding`;
+> live 2026-06-10: 53.0 kWh × 0.777 == todayExport 41.2).  Reg 31 (Einv_day,
+> inverter OUTPUT energy) therefore feeds the separate `inverter_energy`
+> sensor and has **no cloud mirror**.
 
 ### Energy Registers (Lifetime, 32-bit pairs)
 
@@ -248,7 +256,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg Pair | Canonical Name | Scale | Unit | HA Sensor Key |
 |----------|----------------|-------|------|---------------|
-| 46-47 | `inverter_energy_total` | ÷10 | kWh | `yield_lifetime` |
+| 46-47 | `inverter_energy_total` | ÷10 | kWh | `inverter_energy_lifetime` (NOT `yield_lifetime` — see daily note) |
 | 50-51 | `charge_energy_total` | ÷10 | kWh | `charging_lifetime` |
 | 52-53 | `discharge_energy_total` | ÷10 | kWh | `discharging_lifetime` |
 | 56-57 | `grid_export_energy_total` | ÷10 | kWh | `grid_export_lifetime` |
@@ -711,6 +719,7 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 |-----------|---------------|-------|
 | `status` | `status_code` | 1 |
 | `pinv` | `ac_power` | 1 |
+| `pLoad170` | `output_power` | 1 |
 | `ppv` | `pv_total_power` | 1 |
 | `ppv1` | `pv1_power` | 1 |
 | `ppv2` | `pv2_power` | 1 |
@@ -1424,7 +1433,12 @@ grid_power = power_to_user - power_to_grid
 
 Positive = importing from grid, negative = exporting to grid.
 
-**Where:** `coordinator_mixins.py` `_process_inverter_object()` line ~458.
+Both paths use this NET-flow formula (eg4-9wf): CLOUD/HYBRID computes it in
+`coordinator_mixins.py` `_process_inverter_object()`; LOCAL computes it in
+`_build_runtime_sensor_mapping()` from regs 27/26 (`power_from_grid` −
+`power_to_grid`).  Register 17 (Prec) is RECTIFIER power and feeds the
+separate `rectifier_power` sensor — it must never be published as
+`grid_power` (the historical LOCAL mapping did exactly that).
 
 #### `eps_power_l1` / `eps_power_l2` (Inverter)
 
@@ -1466,8 +1480,31 @@ backward compatibility.
 
 #### `rectifier_power` (Inverter)
 
-Direct alias for register 17 (`grid_power` in pylxpweb). Named `rectifier_power`
-in HA for disambiguation from the computed `grid_power` sensor.
+Direct alias for register 17 (`rectifier_power` in pylxpweb; the dataclass
+field was renamed from the misleading `grid_power` in eg4-9wf). AC-charging
+rectifier power (grid-to-battery), distinct from the computed net
+`grid_power` sensor.
+
+#### `output_power` (Inverter)
+
+Unified LOAD-OUTPUT semantics on every path (eg4-9e4): LOCAL/HYBRID read
+input register 170 (Pload), pure CLOUD reads its mirror `pLoad170` via the
+pylxpweb `power_output` property.  Historically the cloud path published
+`pinv` here, making the sensor an exact duplicate of `ac_power`
+(live-confirmed on prod FlexBOSS21: both 2309 W).  `consumptionPower114` is
+NOT used as the mirror — it reads 0 on FlexBOSS21 while `pLoad170` is
+populated on every model.  Entity creation is no longer split-phase-gated
+(reg 170 exists on all families).
+
+**EG4_OFFGRID cloud-zero gate**: the cloud zeroes its reg-170 mirror for
+EG4_OFFGRID models (#197), so `drop_offgrid_cloud_output_power()` in
+`coordinator_mappings.py` removes the cloud-mapped key unless transport
+runtime backs it or the family is in `_CLOUD_PLOAD170_TRUSTED_FAMILIES`
+(EG4_HYBRID live-verified, LXP canonically paired — `UNKNOWN` and any
+unrecognized family drop, since the pylxpweb enum emits the truthy string
+"UNKNOWN" on failed detection).  Pure-CLOUD 12000XP/6000XP therefore has no
+`output_power` entity (same policy as `load_power`); LOCAL and HYBRID get
+the genuine register value.
 
 #### `grid_import_power` (Inverter)
 

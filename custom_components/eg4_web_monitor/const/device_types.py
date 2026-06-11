@@ -122,6 +122,11 @@ INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
 
 # Sensors only available on split-phase (EG4_OFFGRID) inverters (12000XP, 6000XP)
 # These inverters use L1/L2 phase naming convention
+# NOTE: output_power is deliberately NOT in this set (eg4-9e4).  It carries
+# reg 170 (Pload) locally and its cloud mirror pLoad170 — available on every
+# family (canonical models=ALL) — so gating it by supports_split_phase starved
+# the sensor on devices with a non-split-phase grid_type override while the
+# duplicate pinv-based cloud value made it look redundant.
 SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
         "eps_power_l1",
@@ -130,7 +135,6 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "grid_voltage_l1",
         "grid_voltage_l2",
-        "output_power",
         # EPS per-leg apparent power and energy
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",

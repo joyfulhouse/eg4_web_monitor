@@ -14,6 +14,7 @@ INVERTER_RUNTIME_FIELD_MAPPING = {
     "statusText": "status_text",
     # Power sensors
     "pinv": "ac_power",
+    "pLoad170": "output_power",  # reg-170 mirror; load output (eg4-9e4)
     "ppv": "pv_total_power",
     "ppv1": "pv1_power",
     "ppv2": "pv2_power",

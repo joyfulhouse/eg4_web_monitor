@@ -1237,7 +1237,7 @@ class TestDeferredLocalParameters:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -1277,7 +1277,7 @@ class TestDeferredLocalParameters:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -1530,7 +1530,7 @@ class TestCacheTTLAdherence:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -4553,7 +4553,7 @@ class TestParameterPreComputation:
             runtime = InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -4633,7 +4633,7 @@ class TestParameterPreComputation:
         runtime = InverterRuntimeData(
             pv_total_power=0,
             battery_soc=50,
-            grid_power=0,
+            rectifier_power=0,
             parallel_number=0,
             parallel_master_slave=0,
             parallel_phase=0,

@@ -45,6 +45,9 @@ from custom_components.eg4_web_monitor.const import (
 from custom_components.eg4_web_monitor.coordinator import (
     EG4DataUpdateCoordinator,
 )
+from custom_components.eg4_web_monitor.coordinator_mappings import (
+    _build_runtime_sensor_mapping,
+)
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -296,7 +299,7 @@ class TestBuildLocalDeviceData:
             battery_discharge_power=0,
             power_from_grid=500,
             power_to_grid=0,
-            grid_power=200,  # rectifier_power (Prec) source
+            rectifier_power=200,  # reg 17 Prec (renamed from grid_power, eg4-9wf)
             load_power=500,  # power_to_user (Ptouser) -> grid_import_power sensor
         )
         inverter = make_real_inverter("INV001", "FlexBOSS21", runtime=runtime)
@@ -325,6 +328,42 @@ class TestBuildLocalDeviceData:
         assert result["sensors"]["rectifier_power"] == 200
         # grid_import_power sensor is sourced from inverter.power_to_user (load_power)
         assert result["sensors"]["grid_import_power"] == 500
+
+
+# ── grid_power net-flow semantics (eg4-9wf) ──────────────────────────
+
+
+class TestLocalNetGridPower:
+    """LOCAL grid_power = power_from_grid − power_to_grid (eg4-9wf).
+
+    Reg 17 (Prec) is RECTIFIER power and must never feed grid_power; the
+    net-flow formula matches the CLOUD computation in
+    _process_inverter_object (pToUser − pToGrid, positive = import) and the
+    GridBOSS sign convention.
+    """
+
+    def test_importing_is_positive(self) -> None:
+        runtime = InverterRuntimeData(
+            power_from_grid=500.0, power_to_grid=0.0, rectifier_power=200.0
+        )
+        assert _build_runtime_sensor_mapping(runtime)["grid_power"] == 500.0
+
+    def test_exporting_is_negative(self) -> None:
+        runtime = InverterRuntimeData(power_from_grid=0.0, power_to_grid=1200.0)
+        assert _build_runtime_sensor_mapping(runtime)["grid_power"] == -1200.0
+
+    def test_rectifier_power_does_not_leak_into_grid_power(self) -> None:
+        """AC-charging at 2453 W with no grid flow registers → grid_power None."""
+        runtime = InverterRuntimeData(rectifier_power=2453.0)
+        mapping = _build_runtime_sensor_mapping(runtime)
+        assert mapping["grid_power"] is None
+        # The Prec value still reaches its own field for the rectifier sensor.
+        assert runtime.rectifier_power == 2453.0
+
+    def test_missing_leg_yields_none(self) -> None:
+        """Half-read register pairs must not fabricate a net value."""
+        runtime = InverterRuntimeData(power_from_grid=500.0)  # power_to_grid None
+        assert _build_runtime_sensor_mapping(runtime)["grid_power"] is None
 
 
 # ── get_local_transport / has_local_transport / is_local_only ────────
@@ -1301,7 +1340,7 @@ class TestSharedBatterySecondary:
             parallel_phase=0,
             pv_total_power=5000,
             battery_soc=93,
-            grid_power=0,
+            rectifier_power=0,
             battery_current=15.0,
             battery_voltage=53.7,
         )
@@ -1367,7 +1406,7 @@ class TestSharedBatterySecondary:
             parallel_phase=0,
             pv_total_power=8000,
             battery_soc=93,
-            grid_power=0,
+            rectifier_power=0,
         )
 
         mock_battery_data = BatteryBankData(

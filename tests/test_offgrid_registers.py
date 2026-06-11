@@ -49,6 +49,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     INVERTER_RUNTIME_KEYS,
     _build_runtime_sensor_mapping,
     apply_eps_load_power_sensors,
+    drop_offgrid_cloud_output_power,
 )
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
 
@@ -363,6 +364,157 @@ class TestCloudHybridPath:
         assert sensors["battery_discharge_power"] == 1415
         assert sensors["eps_load_power_l1"] == 1031
         assert sensors["eps_load_power"] == 1327
+
+
+# =========================================================================
+# output_power cloud-zero gate (eg4-9e4 Codex review round 1, HIGH)
+# =========================================================================
+
+
+class TestOffgridCloudOutputPowerGate:
+    """output_power carries reg-170 semantics (eg4-9e4), but the cloud zeroes
+    its reg-170 mirror (pLoad170) for EG4_OFFGRID — the cloud-mapped value
+    must be dropped there instead of publishing a false 0 W (#197)."""
+
+    def test_helper_drops_for_offgrid_family(self) -> None:
+        sensors: dict[str, object] = {"output_power": 0, "ac_power": 2400}
+        drop_offgrid_cloud_output_power(
+            sensors, INVERTER_FAMILY_EG4_OFFGRID, has_transport_runtime=False
+        )
+        assert "output_power" not in sensors
+        assert sensors["ac_power"] == 2400
+
+    @pytest.mark.parametrize("family", [None, "", "UNKNOWN", "FUTURE_FAMILY"])
+    def test_helper_drops_for_unknown_family(self, family: str | None) -> None:
+        """Fail-closed like the #197 entity gate: anything outside the
+        trusted allowlist must not risk publishing the OFFGRID cloud zero.
+        The pylxpweb InverterFamily enum emits the truthy string "UNKNOWN"
+        on failed detection — a not-OFFGRID check would let it through
+        (codex r2 HIGH)."""
+        sensors: dict[str, object] = {"output_power": 0}
+        drop_offgrid_cloud_output_power(sensors, family, has_transport_runtime=False)
+        assert "output_power" not in sensors
+
+    @pytest.mark.parametrize(
+        "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP]
+    )
+    def test_helper_keeps_for_trusted_families(self, family: str) -> None:
+        """pLoad170 is live-verified on EG4_HYBRID (18kPV/FlexBOSS21) and
+        canonically paired with no zeroing evidence on LXP."""
+        sensors: dict[str, object] = {"output_power": 2365}
+        drop_offgrid_cloud_output_power(sensors, family, has_transport_runtime=False)
+        assert sensors["output_power"] == 2365
+
+    def test_helper_keeps_with_transport_runtime(self) -> None:
+        """With transport runtime the value IS reg 170 — genuine even on
+        EG4_OFFGRID (pylxpweb power_output prefers the transport)."""
+        sensors: dict[str, object] = {"output_power": 1324}
+        drop_offgrid_cloud_output_power(
+            sensors, INVERTER_FAMILY_EG4_OFFGRID, has_transport_runtime=True
+        )
+        assert sensors["output_power"] == 1324
+
+    @pytest.mark.asyncio
+    async def test_pure_cloud_offgrid_drops_output_power(
+        self, hass, mock_config_entry
+    ) -> None:
+        """End-to-end: pure-cloud 12000XP with the cloud's zeroed pLoad170
+        mirror publishes NO output_power key (entity stays absent)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(cls, "power_output", property(lambda s: 0.0)),
+            patch.object(
+                coordinator,
+                "_extract_inverter_features",
+                return_value={"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+            ),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        assert "output_power" not in result["sensors"]
+
+    @pytest.mark.asyncio
+    async def test_pure_cloud_unknown_family_drops_output_power(
+        self, hass, mock_config_entry
+    ) -> None:
+        """End-to-end: failed detection yields the truthy "UNKNOWN" family —
+        the gate must still drop the untrusted cloud value (codex r2 HIGH)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("3333333333", "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(cls, "power_output", property(lambda s: 0.0)),
+            patch.object(
+                coordinator,
+                "_extract_inverter_features",
+                return_value={"inverter_family": "UNKNOWN"},
+            ),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        assert "output_power" not in result["sensors"]
+
+    @pytest.mark.asyncio
+    async def test_pure_cloud_hybrid_family_keeps_output_power(
+        self, hass, mock_config_entry
+    ) -> None:
+        """End-to-end: pure-cloud EG4_HYBRID keeps the pLoad170-sourced
+        value (live-verified 2365 W on FlexBOSS21)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("2222222222", "FlexBOSS21")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(cls, "power_output", property(lambda s: 2365.0)),
+            patch.object(
+                coordinator,
+                "_extract_inverter_features",
+                return_value={"inverter_family": INVERTER_FAMILY_EG4_HYBRID},
+            ),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        assert result["sensors"]["output_power"] == 2365.0
+
+    @pytest.mark.asyncio
+    async def test_hybrid_offgrid_local_register_wins(
+        self, hass, mock_config_entry
+    ) -> None:
+        """End-to-end: HYBRID 12000XP with transport runtime keeps
+        output_power from reg 170 — the local register always wins."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(output_power=1324.0)
+        inverter = make_real_inverter("1111111111", "12000XP", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        with patch.object(
+            coordinator,
+            "_extract_inverter_features",
+            return_value={"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        assert result["sensors"]["output_power"] == 1324.0
 
 
 # =========================================================================

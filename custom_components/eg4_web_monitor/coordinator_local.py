@@ -475,12 +475,12 @@ class LocalTransportMixin(_MixinBase):
 
             runtime = inverter.transport_runtime
             _LOGGER.debug(
-                "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Rect: %.0fW",
                 transport_name,
                 firmware_version,
                 runtime.pv_total_power,
                 runtime.battery_soc,
-                runtime.grid_power,
+                runtime.rectifier_power,
             )
 
             # Schedule deferred parameter load on first successful refresh
@@ -1051,13 +1051,13 @@ class LocalTransportMixin(_MixinBase):
                     processed["parameters"][serial] = {}
 
                 _LOGGER.debug(
-                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Rect: %.0fW",
                     serial,
                     transport_type,
                     firmware_version,
                     runtime_data.pv_total_power,
                     runtime_data.battery_soc,
-                    runtime_data.grid_power,
+                    runtime_data.rectifier_power,
                 )
 
                 _LOGGER.debug(
