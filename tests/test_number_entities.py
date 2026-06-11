@@ -661,3 +661,22 @@ class TestForcedDischargeNumbers:
             await power.async_set_native_value(50.5)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await soc.async_set_native_value(-1.0)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_guard_on_old_pylxpweb(self):
+        """Installed pylxpweb without the new setters raises a clean error
+        instead of AttributeError (codex r1 HIGH: version coupling)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        del inverter.set_forced_discharge_power
+        del inverter.set_forced_discharge_soc_limit
+
+        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(power)
+        _prep(soc)
+
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await power.async_set_native_value(30.0)
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await soc.async_set_native_value(20.0)

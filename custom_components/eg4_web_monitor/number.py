@@ -876,6 +876,19 @@ class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
             raise HomeAssistantError(
                 f"Forced discharge power rate must be an integer value, got {value}"
             )
+        # Cloud setter ships with pylxpweb > 0.9.36b3 — fail with a clear
+        # message instead of an AttributeError if the installed library
+        # predates it (the manifest bump lands with the next release).
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if (
+            not self.coordinator.has_local_transport(self.serial)
+            and inverter is not None
+            and not hasattr(inverter, "set_forced_discharge_power")
+        ):
+            raise HomeAssistantError(
+                "Forced discharge power rate requires a newer pylxpweb "
+                "(set_forced_discharge_power missing) — update and reload"
+            )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_FORCED_DISCHG_POWER,
@@ -932,6 +945,18 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
         if abs(value - int_value) > 0.01:
             raise HomeAssistantError(
                 f"Forced discharge SOC limit must be an integer value, got {value}"
+            )
+        # Cloud setter ships with pylxpweb > 0.9.36b3 — see the power-rate
+        # entity above for rationale.
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if (
+            not self.coordinator.has_local_transport(self.serial)
+            and inverter is not None
+            and not hasattr(inverter, "set_forced_discharge_soc_limit")
+        ):
+            raise HomeAssistantError(
+                "Forced discharge SOC limit requires a newer pylxpweb "
+                "(set_forced_discharge_soc_limit missing) — update and reload"
             )
         await self._write_parameter(
             value,
