@@ -861,16 +861,30 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
     def native_value(self) -> float | None:
         """Return the current forced discharge power in kW.
 
-        Local params hold the raw 100W value (scaled ÷10 here); the cloud
-        ``forced_discharge_power`` property already returns kW.
+        With a local transport the coordinator parameter cache holds the
+        raw 100W register value (scaled ÷10 here). The pylxpweb property
+        is deliberately NOT consulted then: in HYBRID mode
+        ``inverter.parameters`` is populated from the same local transport,
+        so the property would surface the raw value (25) as kW (25.0) and
+        pass the 25.5 bound — a 10x display/write-back hazard. Cloud-only
+        installs read the property, which returns cloud-scaled kW.
         """
+        if self.coordinator.is_local_only() or self.coordinator.has_local_transport(
+            self.serial
+        ):
+            return self._read_param_value(
+                param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
+                value_min=0,
+                value_max=25.5,
+                as_float=True,
+                param_transform=lambda v: float(v) / 10.0,
+            )
         return self._read_param_value(
             param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
             value_min=0,
             value_max=25.5,
             inverter_attr="forced_discharge_power",
             as_float=True,
-            param_transform=lambda v: float(v) / 10.0,
         )
 
     async def async_set_native_value(self, value: float) -> None:

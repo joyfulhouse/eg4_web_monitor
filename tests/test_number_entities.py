@@ -576,6 +576,7 @@ class TestForcedDischargeNumbers:
         (read via the widened (64, 20) range -> REGISTER_TO_PARAM_KEYS)."""
         coordinator = _mock_coordinator(
             local_only=True,
+            has_local=True,
             parameters={
                 "HOLD_FORCED_DISCHG_POWER_CMD": 25,
                 "HOLD_FORCED_DISCHG_SOC_LIMIT": 20,
@@ -588,7 +589,7 @@ class TestForcedDischargeNumbers:
         assert soc.native_value == 20
 
     def test_native_value_from_inverter_cloud(self):
-        """CLOUD/HYBRID: pylxpweb cached-parameter properties feed the value
+        """CLOUD: pylxpweb cached-parameter properties feed the value
         (the cloud property already returns kW — no rescale here)."""
         coordinator = _mock_coordinator(
             inverter_attrs={
@@ -600,6 +601,21 @@ class TestForcedDischargeNumbers:
         soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
         assert power.native_value == 4.0
         assert soc.native_value == 15
+
+    def test_native_value_hybrid_ignores_raw_property(self):
+        """HYBRID: with a local transport, inverter.parameters is populated
+        from that transport, so the pylxpweb property surfaces the RAW 100W
+        value — raw 25 would pass the 25.5 kW bound and display 25 kW with
+        a 10x write-back hazard (codex HIGH). The entity must read only the
+        param cache (raw, scaled /10) when a local transport is attached."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            local_only=False,
+            parameters={"HOLD_FORCED_DISCHG_POWER_CMD": 25},
+            inverter_attrs={"forced_discharge_power": 25.0},
+        )
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
+        assert power.native_value == 2.5
 
     @pytest.mark.asyncio
     async def test_power_write_local(self):
