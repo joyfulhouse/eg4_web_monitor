@@ -62,6 +62,9 @@ def _mock_coordinator(
     # Mock inverter object with configurable attributes
     mock_inverter = MagicMock()
     mock_inverter.refresh = AsyncMock()
+    # pylxpweb transport attachment mirrors has_local (modern HYBRID attach);
+    # legacy flat-hybrid tests override with inverter_attrs={"transport": None}
+    mock_inverter.transport = object() if has_local else None
     attrs = inverter_attrs or {}
     for attr_name, attr_value in attrs.items():
         setattr(mock_inverter, attr_name, attr_value)
@@ -232,6 +235,34 @@ class TestReadParamValueFloat:
         entity = ACChargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 3.5
 
+    def test_hybrid_small_value_not_10x(self):
+        """GH #207 (icepop456): HYBRID raw values that PASS the kW bound must
+        not display 10x. inverter.parameters is locally populated, so the
+        pylxpweb property surfaces raw 7 (= 0.7 kW), which passes the <=15
+        bound — the entity must ignore the property when a local transport
+        is attached and scale the param cache instead: 0.7, never 7.0."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            inverter_attrs={"ac_charge_power_limit": 7},
+            parameters={PARAM_HOLD_AC_CHARGE_POWER: 7},
+        )
+        entity = ACChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 0.7
+
+    def test_legacy_flat_hybrid_cloud_params_not_rescaled(self):
+        """Legacy single-transport HYBRID: has_local_transport() reports True
+        via the deprecated global fallback, but the inverter object has NO
+        attached transport — its params were cloud-populated (kW-scaled).
+        The gate keys off the object's transport, not has_local_transport():
+        12 kW must display 12.0, never 1.2 (codex MEDIUM)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={PARAM_HOLD_AC_CHARGE_POWER: 12},
+            inverter_attrs={"ac_charge_power_limit": 12.0, "transport": None},
+        )
+        entity = ACChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 12.0
+
 
 class TestReadParamValueDict:
     """Test _read_param_value with inverter_dict_attr (via OnGridSOCCutoffNumber)."""
@@ -316,11 +347,24 @@ class TestPVChargePowerNativeValue:
         entity = PVChargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 0
 
+    def test_hybrid_small_value_not_10x(self):
+        """GH #207 (icepop456) PV variant: raw 10 (= 1 kW) passes the <=15
+        bound via the property; the local-transport gate must yield 1."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            inverter_attrs={"pv_charge_power_limit": 10},
+            parameters={PARAM_HOLD_FORCED_CHG_POWER: 10},
+        )
+        entity = PVChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 1
+
     def test_hybrid_out_of_range_inverter_falls_back_to_params(self):
         """If the inverter attr holds a raw 100W value (>15), the >15 guard
 
         rejects it and the local param (raw 100W) is used with ÷10 scaling.
         Guards against double-scaling: result must be 12, never 1.2 or None.
+        (With the local-transport gate the property is no longer consulted
+        at all — kept as the double-scaling canary.)
         """
         coordinator = _mock_coordinator(
             has_local=True,
@@ -616,6 +660,18 @@ class TestForcedDischargeNumbers:
         )
         power = ForcedDischargePowerNumber(coordinator, "1234567890")
         assert power.native_value == 2.5
+
+    def test_native_value_legacy_flat_hybrid_cloud_params(self):
+        """Legacy flat HYBRID (global transport, none attached to the
+        inverter object): params are cloud kW — must NOT be rescaled.
+        12 kW displays 12.0, never 1.2 (codex MEDIUM parity)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_FORCED_DISCHG_POWER_CMD": 12},
+            inverter_attrs={"forced_discharge_power": 12.0, "transport": None},
+        )
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
+        assert power.native_value == 12.0
 
     @pytest.mark.asyncio
     async def test_power_write_local(self):
