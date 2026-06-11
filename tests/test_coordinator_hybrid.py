@@ -868,8 +868,12 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        # Drain scheduled with ONLY the recovered inverter
-        mock_self._drain_modbus_buffers.assert_called_once_with([recovered_inv])
+        # Recovery task scheduled with ONLY the recovered inverter for the
+        # drain, plus its serial for the param reload (drain-then-reload
+        # ordering is covered by TestFinishAttachRecovery)
+        mock_self._finish_attach_recovery.assert_called_once_with(
+            [recovered_inv], ["1111111111"]
+        )
         mock_self.hass.async_create_task.assert_called_once()
 
     @pytest.mark.asyncio

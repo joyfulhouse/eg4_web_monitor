@@ -655,6 +655,62 @@ def _make_serial_transport_spec(**attrs: Any) -> Any:
     return spec
 
 
+class TestFinishAttachRecovery:
+    """Drain-then-reload ordering after a transport attach recovery."""
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_drain_runs_before_param_reload(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """Recovered Modbus buses drain BEFORE the per-serial param reload —
+        the reload replaces stale cloud-kW cache values with raw register
+        values (codex r2: 12 kW would display 1.2 until the next refresh)."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        calls: list[str] = []
+
+        async def drain(inverters):
+            calls.append(f"drain:{len(inverters)}")
+
+        async def reload(serial):
+            calls.append(f"reload:{serial}")
+
+        with (
+            patch.object(coordinator, "_drain_modbus_buffers", side_effect=drain),
+            patch.object(coordinator, "_refresh_device_parameters", side_effect=reload),
+        ):
+            await coordinator._finish_attach_recovery(
+                [MagicMock()], ["1234567890", "9876543210"]
+            )
+
+        assert calls == ["drain:1", "reload:1234567890", "reload:9876543210"]
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_reload_failure_does_not_block_other_serials(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """A failing reload on one serial must not skip the others."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        reloaded: list[str] = []
+
+        async def reload(serial):
+            if serial == "1234567890":
+                raise TimeoutError("bus busy")
+            reloaded.append(serial)
+
+        with patch.object(
+            coordinator, "_refresh_device_parameters", side_effect=reload
+        ):
+            await coordinator._finish_attach_recovery([], ["1234567890", "9876543210"])
+
+        assert reloaded == ["9876543210"]
+
+
 @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
 @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
 class TestAttachSerialTransports:

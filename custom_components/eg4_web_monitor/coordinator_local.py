@@ -2131,17 +2131,43 @@ class LocalTransportMixin(_MixinBase):
         # A freshly-recovered Modbus transport needs the same Waveshare
         # stale-buffer drain the initial attach schedules (review MEDIUM) —
         # but ONLY for the recovered serials; re-draining a healthy,
-        # already-polling bus would disturb it.
+        # already-polling bus would disturb it. The drain and the param
+        # reload below share the bus, so they run in ONE ordered task.
         recovered_modbus = [
             inv for inv in modbus_inverters if str(inv.serial_number) in recovered
         ]
+        task = self.hass.async_create_task(
+            self._finish_attach_recovery(recovered_modbus, sorted(recovered))
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._remove_task_from_set)
+        task.add_done_callback(self._log_task_exception)
+
+    async def _finish_attach_recovery(
+        self, recovered_modbus: list[Any], recovered_serials: list[str]
+    ) -> None:
+        """Drain recovered Modbus buffers, then reload parameters via transport.
+
+        The parameter caches for recovered serials were cloud-populated
+        (kW-scaled) while the transport was down; once the transport is
+        attached, ``_params_are_local_raw()`` treats the cache as raw, so the
+        stale kW values would display ÷10 (12 kW as 1.2) until the next
+        scheduled refresh (codex r2 MEDIUM). Reloading through the transport
+        replaces them with raw register values within seconds. Runs in the
+        background after the Waveshare drain so the two never interleave on
+        the same bus.
+        """
         if recovered_modbus:
-            task = self.hass.async_create_task(
-                self._drain_modbus_buffers(recovered_modbus)
-            )
-            self._background_tasks.add(task)
-            task.add_done_callback(self._remove_task_from_set)
-            task.add_done_callback(self._log_task_exception)
+            await self._drain_modbus_buffers(recovered_modbus)
+        for serial in recovered_serials:
+            try:
+                await self._refresh_device_parameters(serial)
+            except Exception as err:
+                _LOGGER.debug(
+                    "Parameter reload after attach recovery failed for %s: %s",
+                    serial,
+                    err,
+                )
 
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.
