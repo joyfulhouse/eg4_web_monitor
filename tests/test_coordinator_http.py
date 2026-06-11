@@ -829,6 +829,37 @@ class TestHybridTransportGating:
         # by station.refresh_all_data() before this method is called
         mid_device.refresh.assert_not_called()
 
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_mid_device_surfaces_consumption_and_generator_frequency(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_dongle_config_entry
+    ):
+        """eg4-7uz: CLOUD/HYBRID MID path surfaces both formerly LOCAL-only keys.
+
+        ``consumption_power`` must alias the load CT measurement
+        (``load_power``) and ``generator_frequency`` must come through the
+        dual-source MIDDevice property — matching the LOCAL table.
+        """
+        hybrid_dongle_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_dongle_config_entry)
+
+        mid_device = make_real_mid(
+            serial_number="MID001",
+            model="GridBOSS",
+            runtime=MidboxRuntimeData(
+                load_l1_power=1200.0,
+                load_l2_power=300.0,
+                gen_frequency=59.9,
+            ),
+        )
+
+        processed = await coordinator._process_mid_device_object(mid_device)
+
+        sensors = processed["sensors"]
+        assert sensors["consumption_power"] == 1500.0
+        assert sensors["consumption_power"] == sensors["load_power"]
+        assert sensors["generator_frequency"] == 59.9
+
 
 # ── Battery extraction paths ─────────────────────────────────────────
 

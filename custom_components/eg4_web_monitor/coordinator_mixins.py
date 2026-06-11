@@ -1481,6 +1481,11 @@ class DeviceProcessingMixin(_MixinBase):
         if mid_device.has_data:
             property_map = self._get_mid_device_property_map()
             processed["sensors"] = _map_device_properties(mid_device, property_map)
+            processed["sensors"].update(
+                _map_device_properties(
+                    mid_device, self._get_mid_device_property_aliases()
+                )
+            )
             processed["sensors"]["firmware_version"] = firmware_version
 
             # Diagnostic logging for smart port energy (issue #146)
@@ -1551,6 +1556,7 @@ class DeviceProcessingMixin(_MixinBase):
             # Generator sensors
             "generator_power": "generator_power",
             "generator_voltage": "generator_voltage",
+            "generator_frequency": "generator_frequency",
             "generator_l1_power": "generator_power_l1",
             "generator_l2_power": "generator_power_l2",
             "generator_l1_voltage": "generator_voltage_l1",
@@ -1625,6 +1631,26 @@ class DeviceProcessingMixin(_MixinBase):
             "e_smart_load3_total": "smart_load3_total",
             "e_smart_load4_today": "smart_load4_today",
             "e_smart_load4_total": "smart_load4_total",
+        }
+
+    @staticmethod
+    def _get_mid_device_property_aliases() -> dict[str, str]:
+        """Get MID device property -> alias sensor key pairs.
+
+        ``_get_mid_device_property_map()`` is keyed by property name, so a
+        property that feeds a SECOND sensor key cannot be expressed there
+        (the dict key would collide).  These pairs are applied after the
+        main map in ``_process_mid_device_object()`` and mirror the aliases
+        in the LOCAL table (``coordinator_mappings.
+        _build_gridboss_sensor_mapping``) so both paths surface the same
+        sensors (eg4-7uz).
+
+        Returns:
+            Dictionary mapping MID device property names to alias sensor keys
+        """
+        return {
+            # Consumption power for GridBOSS = load_power (CT measurement)
+            "load_power": "consumption_power",
         }
 
     @staticmethod

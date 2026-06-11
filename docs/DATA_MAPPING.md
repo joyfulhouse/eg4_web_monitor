@@ -1500,7 +1500,10 @@ consumption_power = load_power   (direct CT measurement, NOT energy balance)
 ```
 
 The GridBOSS load CT is the authoritative consumption measurement. Set in
-`_build_gridboss_sensor_mapping()` and `_get_mid_device_property_map()`.
+`_build_gridboss_sensor_mapping()` (LOCAL) and
+`_get_mid_device_property_aliases()` (CLOUD/HYBRID, eg4-7uz). The cloud
+alias table exists because `_get_mid_device_property_map()` is keyed by
+property name, so `load_power` cannot feed a second sensor key there.
 
 #### `hybrid_power` (GridBOSS)
 
