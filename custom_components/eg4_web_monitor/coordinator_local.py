@@ -1517,6 +1517,12 @@ class LocalTransportMixin(_MixinBase):
                     total_devices,
                 )
                 self._last_available_state = False
+            # Full outage raises BEFORE _process_local_parallel_groups()
+            # runs, so the carried-forward PG entries would otherwise keep
+            # passing entity availability and serve the stale aggregate
+            # during the wrapper's suppressed-failure window (cached data
+            # returned, last_update_success still True) — eg4-57g review r2.
+            self._error_mark_stale_parallel_groups(processed)
             raise UpdateFailed(f"All {total_devices} local transports failed to update")
 
         # Silver tier logging: Log when service becomes available again
@@ -2210,6 +2216,58 @@ class LocalTransportMixin(_MixinBase):
                     )
                 ir.async_delete_issue(
                     self.hass, DOMAIN, f"transport_link_down_{serial}"
+                )
+
+    def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
+        """Error-mark carried-forward parallel groups on a full-outage cycle.
+
+        On a full LOCAL outage the ``successful_devices == 0`` branch raises
+        UpdateFailed BEFORE ``_process_local_parallel_groups()`` runs, so
+        the carried-forward PG entries never get the partial-path marking —
+        their sensors would keep passing entity availability and serve the
+        stale aggregate while the coordinator wrapper suppresses the first
+        UpdateFailed cycles.  Apply the same rule the partial path uses: a
+        group is tainted when any of its members — or the GridBOSS CT
+        contributor — is error-marked (link-down).  A transient full outage
+        with no link-down marks leaves the groups alone, matching the
+        member entities (which also stay available on cached values then).
+        The carried ``parallel_group_last_polled`` stamp is left untouched
+        (no fresh-poll claim is ever made on this path).
+
+        DEPENDENCY: like the device-level marks from
+        ``_sync_transport_link_state``, this mark becomes visible through
+        the coordinator's RETAINED data only because the carry-forward in
+        ``_async_update_local_data`` shares dict references with
+        ``self.data`` (``processed["devices"].update(self.data...)``).
+        If that carry-forward ever becomes a deep copy, both marks break
+        together — the suppressed-failure window would silently serve
+        stale data as available again.
+        """
+        devices: dict[str, Any] = processed.get("devices", {})
+        error_serials = {
+            serial
+            for serial, device_data in devices.items()
+            if device_data.get("type") in ("inverter", "gridboss")
+            and "error" in device_data
+        }
+        if not error_serials:
+            return
+        gridboss_down = [
+            serial
+            for serial in error_serials
+            if devices[serial].get("type") == "gridboss"
+        ]
+        for device_data in devices.values():
+            if device_data.get("type") != "parallel_group" or "error" in device_data:
+                continue
+            members = device_data.get("member_serials") or []
+            stale = set(members) & error_serials
+            # GridBOSS CTs contribute to every group (partial-path parity).
+            stale.update(gridboss_down)
+            if stale:
+                device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(stale))}"
                 )
 
     async def _attach_serial_transports_to_station(
