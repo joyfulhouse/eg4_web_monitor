@@ -251,6 +251,11 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "radiator2_temperature",
         "bt_temperature",
         "status_code",
+        # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields;
+        # BMS code merged in as fallback by pylxpweb).  LOCAL/HYBRID only —
+        # the cloud runtime endpoint has no faultCode/warningCode (eg4-23a6).
+        "fault_code",
+        "warning_code",
         "grid_current_l1",
         "grid_current_l2",
         "grid_current_l3",
@@ -716,6 +721,11 @@ def _build_runtime_sensor_mapping(
         "bt_temperature": runtime_data.temperature_t1,
         # Status
         "status_code": runtime_data.device_status,
+        # Fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields) — raw
+        # passthrough; pylxpweb already merged the BMS code in as a fallback
+        # when the inverter code reads 0 (eg4-23a6).
+        "fault_code": runtime_data.fault_code,
+        "warning_code": runtime_data.warning_code,
         # Inverter RMS current (3-phase R/S/T mapped to L1/L2/L3)
         # For local mode (Modbus): I_IINV_RMS (reg 18), I_IINV_RMS_S (reg 190), I_IINV_RMS_T (reg 191)
         # For HTTP mode: These values are not returned by the cloud API

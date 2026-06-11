@@ -1721,6 +1721,24 @@ SENSOR_TYPES = {
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },
+    # Inverter fault/warning codes (input regs 60-61 / 62-63, 32-bit bitfields).
+    # Raw numeric state (0 = no fault/warning) following the battery
+    # fault/warning status icon convention.  pylxpweb merges the BMS code in as
+    # a fallback when the inverter code reads 0 (from_modbus_registers).
+    # LOCAL/HYBRID only: the cloud getInverterRuntime response carries no
+    # faultCode/warningCode field (canonical table cloud_api_field=None), so
+    # the keys flow via the LOCAL runtime table + HYBRID _TRANSPORT_OVERLAY
+    # (eg4-23a6).
+    "fault_code": {
+        "name": "Fault Code",
+        "icon": "mdi:alert-circle",
+        "entity_category": "diagnostic",
+    },
+    "warning_code": {
+        "name": "Warning Code",
+        "icon": "mdi:alert",
+        "entity_category": "diagnostic",
+    },
     "has_data": {
         "name": "Has Runtime Data",
         "icon": "mdi:database-check",

@@ -474,6 +474,12 @@
       "status_text": {
         "name": "Stato"
       },
+      "fault_code": {
+        "name": "Codice Guasto"
+      },
+      "warning_code": {
+        "name": "Codice Avviso"
+      },
       "grid_power": {
         "name": "Potenza Rete"
       },

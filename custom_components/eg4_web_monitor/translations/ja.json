@@ -474,6 +474,12 @@
       "status_text": {
         "name": "ステータス"
       },
+      "fault_code": {
+        "name": "障害コード"
+      },
+      "warning_code": {
+        "name": "警告コード"
+      },
       "grid_power": {
         "name": "系統電力"
       },

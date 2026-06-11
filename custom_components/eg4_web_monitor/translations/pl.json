@@ -474,6 +474,12 @@
       "status_text": {
         "name": "Status"
       },
+      "fault_code": {
+        "name": "Kod usterki"
+      },
+      "warning_code": {
+        "name": "Kod ostrzezenia"
+      },
       "grid_power": {
         "name": "Moc sieci"
       },

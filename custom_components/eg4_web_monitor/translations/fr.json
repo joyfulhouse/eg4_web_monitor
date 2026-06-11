@@ -474,6 +474,12 @@
       "status_text": {
         "name": "Etat"
       },
+      "fault_code": {
+        "name": "Code de defaut"
+      },
+      "warning_code": {
+        "name": "Code d'avertissement"
+      },
       "grid_power": {
         "name": "Puissance reseau"
       },
