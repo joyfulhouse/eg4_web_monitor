@@ -47,6 +47,7 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -327,6 +328,18 @@ def _invert_field_map(field_map: dict[str, str | None]) -> dict[str, str]:
     return inverted
 
 
+# canonical register -> the single dataclass attr populated by special
+# handling in from_modbus_registers (RUNTIME_FIELD maps these canonicals to
+# None).  Only 1:1 bridge entries qualify as a Domain-1a expected attr —
+# packed multi-attr specials (soc_soh_packed, parallel_config,
+# battery_status_inv) are excluded because no single attr IS the register.
+_RUNTIME_SPECIAL_CANONICAL_ATTR: dict[str, str] = {
+    canonical: attr
+    for attr, canonical in _RUNTIME_SPECIAL_ATTR_CANONICAL.items()
+    if Counter(_RUNTIME_SPECIAL_ATTR_CANONICAL.values())[canonical] == 1
+}
+
+
 _RUNTIME_ATTR_TO_CANONICAL = {
     **_invert_field_map(RUNTIME_FIELD),
     **_RUNTIME_SPECIAL_ATTR_CANONICAL,
@@ -429,12 +442,6 @@ _RUNTIME_HA_KEY_EXCEPTIONS: dict[str, str] = {
     # device property on BOTH paths (docs/DATA_MAPPING.md "grid_import_power
     # (Inverter)") — not via the runtime table.
     "power_to_user": "property-fed on both paths (grid_import_power sensor)",
-    # regs 60/62: pylxpweb advertises fault_code/warning_code sensors but the
-    # integration has never surfaced them on any path (no SENSOR_TYPES entry).
-    # TODO(eg4-23a6): real gap, needs adjudication — either add the diagnostic
-    # sensors or drop the advertised ha_sensor_key in pylxpweb.
-    "fault_code": "TODO(eg4-23a6): advertised by pylxpweb, surfaced on no path",
-    "warning_code": "TODO(eg4-23a6): advertised by pylxpweb, surfaced on no path",
     # reg 96: battery_bank_count comes from BatteryBankData.battery_count via
     # the bank adapter (single source for LOCAL and CLOUD), not the runtime
     # table.
@@ -476,17 +483,26 @@ def _local_fidelity_offenders(
     field_map: dict[str, str | None],
     local_map: dict[str, str],
     exceptions: dict[str, str],
+    special_canonical_attr: dict[str, str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Compare canonical registers against the traced LOCAL mapping.
+
+    ``special_canonical_attr`` supplies the expected attr for registers whose
+    ``field_map`` entry is None because ``from_modbus_registers`` populates
+    the dataclass field via special handling (e.g. the reg-60/62
+    fault/warning merge) rather than the generic field-map loop.
 
     Returns (offenders, stale_exceptions).
     """
     offenders: list[str] = []
     stale: list[str] = []
+    special = special_canonical_attr or {}
     for reg in INVERTER_INPUT_REGISTERS:
         if not reg.ha_sensor_key or reg.category.value not in categories:
             continue
-        expected_attr = field_map.get(reg.canonical_name)
+        expected_attr = field_map.get(reg.canonical_name) or special.get(
+            reg.canonical_name
+        )
         actual_attr = local_map.get(reg.ha_sensor_key)
         matches = expected_attr is not None and actual_attr == expected_attr
         if reg.canonical_name in exceptions:
@@ -515,6 +531,7 @@ def test_local_runtime_mapping_follows_canonical_registers() -> None:
         RUNTIME_FIELD,
         LOCAL_RUNTIME_MAP,
         _RUNTIME_HA_KEY_EXCEPTIONS,
+        special_canonical_attr=_RUNTIME_SPECIAL_CANONICAL_ATTR,
     )
     assert not offenders, (
         "LOCAL runtime mapping diverges from canonical registers:\n  "
@@ -1470,10 +1487,6 @@ def test_todo_divergences_are_inventoried() -> None:
     }
     # entry name -> beads issue adjudicating it.
     expected: dict[str, str] = {
-        # eg4-23a6: fault/warning codes advertised by pylxpweb, surfaced
-        # on no path.
-        "fault_code": "eg4-23a6",
-        "warning_code": "eg4-23a6",
         # eg4-bc0: yield/yield_lifetime source mismatch + pylxpweb reg-31/46
         # ha-key/todayYielding pairing.
         "inverter_energy_today": "eg4-bc0",

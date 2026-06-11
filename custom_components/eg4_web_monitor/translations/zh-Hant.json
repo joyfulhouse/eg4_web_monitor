@@ -474,6 +474,12 @@
       "status_text": {
         "name": "狀態"
       },
+      "fault_code": {
+        "name": "故障代碼"
+      },
+      "warning_code": {
+        "name": "警告代碼"
+      },
       "grid_power": {
         "name": "電網功率"
       },

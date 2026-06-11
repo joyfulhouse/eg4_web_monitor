@@ -474,6 +474,12 @@
       "status_text": {
         "name": "상태"
       },
+      "fault_code": {
+        "name": "결함 코드"
+      },
+      "warning_code": {
+        "name": "경고 코드"
+      },
       "grid_power": {
         "name": "계통 전력"
       },

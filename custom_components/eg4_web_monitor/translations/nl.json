@@ -474,6 +474,12 @@
       "status_text": {
         "name": "Status"
       },
+      "fault_code": {
+        "name": "Foutcode"
+      },
+      "warning_code": {
+        "name": "Waarschuwingscode"
+      },
       "grid_power": {
         "name": "Netvermogen"
       },

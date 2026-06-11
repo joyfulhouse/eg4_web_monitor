@@ -474,6 +474,12 @@
       "status_text": {
         "name": "Estado"
       },
+      "fault_code": {
+        "name": "Codigo de Fallo"
+      },
+      "warning_code": {
+        "name": "Codigo de Advertencia"
+      },
       "grid_power": {
         "name": "Potencia de Red"
       },

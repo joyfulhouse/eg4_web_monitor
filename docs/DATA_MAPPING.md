@@ -198,6 +198,27 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 38 | `bus_voltage_1` | ÷10 | V | `bus1_voltage` |
 | 39 | `bus_voltage_2` | ÷10 | V | `bus2_voltage` |
 
+### Fault / Warning Code Registers (32-bit pairs)
+
+| Reg | Canonical Name | Scale | Unit | pylxpweb Field | HA Sensor Key |
+|-----|----------------|-------|------|----------------|---------------|
+| 60-61 | `fault_code` | 1 | - | `fault_code` | `fault_code` |
+| 62-63 | `warning_code` | 1 | - | `warning_code` | `warning_code` |
+
+> **Note (eg4-23a6):** Raw 32-bit bitfields surfaced as diagnostic sensors
+> (state `0` = no fault/warning). `from_modbus_registers` merges the BMS
+> codes (regs 99/100, canonical `bms_fault_code`/`bms_warning_code`) into
+> the inverter-level fields as a **fallback when the inverter code reads 0**,
+> so the dataclass fields — and therefore the sensors — carry the combined
+> value. **LOCAL/HYBRID only**: the cloud `getInverterRuntime` response has
+> no `faultCode`/`warningCode` field (canonical table `cloud_api_field=None`),
+> so the keys flow through the LOCAL runtime table plus the HYBRID
+> `_TRANSPORT_OVERLAY` and are correctly absent in pure CLOUD mode.
+> pylxpweb also exposes decoded text via
+> `InverterRuntimeData.fault_messages`/`warning_messages`
+> (`pylxpweb.constants.fault_codes`); the sensors deliberately publish the
+> raw numeric code.
+
 ### Temperature Registers
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
@@ -719,6 +740,13 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 | `totalGridFeed` | `grid_export_lifetime` | ÷10 |
 | `totalGridConsumption` | `grid_import_lifetime` | ÷10 |
 
+> **No `faultCode`/`warningCode` fields (eg4-23a6):** the `getInverterRuntime`
+> response does not carry the inverter fault/warning codes (pylxpweb's
+> `InverterRuntime` model has no such fields and the canonical table pairs
+> regs 60-63 with `cloud_api_field=None`). The `fault_code`/`warning_code`
+> sensors are therefore LOCAL/HYBRID-only — see "Fault / Warning Code
+> Registers" in section 2.
+
 ### GridBOSS Runtime (getMidboxRuntime)
 
 Mapping dict: `GRIDBOSS_FIELD_MAPPING`
@@ -1014,7 +1042,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
-- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197)
+- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197), `fault_code`/`warning_code` (regs 60-63, eg4-23a6)
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
 
@@ -1038,6 +1066,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
 | `eps_load_power_l1/_l2/` sum | Yes | API (pEpsL1N/L2N) | Yes (transport) | Regs 129/130; EG4_OFFGRID-only entities (#197) |
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
+| `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 
 ---
 

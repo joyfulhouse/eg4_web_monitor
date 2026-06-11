@@ -136,6 +136,14 @@ _TRANSPORT_OVERLAY: tuple[tuple[str, str], ...] = (
     # from the local register, never a cloud property (#197).
     # Entity creation is gated to EG4_OFFGRID in sensor.py.
     ("load_power", "output_power"),
+    # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit
+    # bitfields; pylxpweb merges the BMS code in as a fallback when
+    # the inverter code reads 0).  The cloud getInverterRuntime
+    # response has no faultCode/warningCode field (canonical table
+    # cloud_api_field=None), so HYBRID overlays the local registers
+    # and pure CLOUD correctly stays without the keys (eg4-23a6).
+    ("fault_code", "fault_code"),
+    ("warning_code", "warning_code"),
 )
 
 # Transport-exclusive energy sensor overlay (HYBRID mode).
