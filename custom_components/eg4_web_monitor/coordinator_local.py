@@ -43,6 +43,7 @@ from .coordinator_mixins import (
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
     drop_dead_inverter_grid_legs,
+    is_transport_link_down,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -1078,12 +1079,26 @@ class LocalTransportMixin(_MixinBase):
             TransportReadError,
             TransportError,
         ) as e:
-            _LOGGER.warning(
-                "LOCAL: Failed to update %s (%s): %s",
-                serial,
-                transport_type,
-                e,
+            device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
+                serial
             )
+            if device is not None and is_transport_link_down(device):
+                # Link already declared down: the transition logged one
+                # warning and raised a Repairs issue — keep the per-cycle
+                # noise at debug while the outage lasts (eg4-57g).
+                _LOGGER.debug(
+                    "LOCAL: %s (%s) still link-down: %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
+            else:
+                _LOGGER.warning(
+                    "LOCAL: Failed to update %s (%s): %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
             device_availability[serial] = False
 
         except Exception as e:
@@ -1485,6 +1500,11 @@ class LocalTransportMixin(_MixinBase):
                     device_availability,
                 )
 
+        # Mark link-down devices (error key -> entities unavailable) and
+        # sync their Repairs issues.  Runs BEFORE the all-failed check so a
+        # full-outage cycle still raises/clears the issues (eg4-57g).
+        self._sync_transport_link_state(processed)
+
         # Check if we got any device data
         successful_devices = sum(1 for v in device_availability.values() if v)
         total_devices = len(self._local_transport_configs)
@@ -1497,6 +1517,12 @@ class LocalTransportMixin(_MixinBase):
                     total_devices,
                 )
                 self._last_available_state = False
+            # Full outage raises BEFORE _process_local_parallel_groups()
+            # runs, so the carried-forward PG entries would otherwise keep
+            # passing entity availability and serve the stale aggregate
+            # during the wrapper's suppressed-failure window (cached data
+            # returned, last_update_success still True) — eg4-57g review r2.
+            self._error_mark_stale_parallel_groups(processed)
             raise UpdateFailed(f"All {total_devices} local transports failed to update")
 
         # Silver tier logging: Log when service becomes available again
@@ -1608,6 +1634,18 @@ class LocalTransportMixin(_MixinBase):
                 master_serial = group_devices[0][0]
 
             first_serial = master_serial
+
+            # Members whose device data is error-marked (link-down — see
+            # _sync_transport_link_state, which runs before this method).
+            # Their carried-forward sensors are STALE: an aggregate mixing
+            # stale and fresh members is wrong in both directions, so the
+            # group is error-marked below — honest unavailability beats a
+            # quietly wrong total (eg4-57g review).
+            link_down_members = sorted(
+                member_serial
+                for member_serial, member_data in group_devices
+                if "error" in member_data
+            )
 
             # Collect sensor data from all devices in the group
             group_sensors: dict[str, Any] = {}
@@ -1766,6 +1804,12 @@ class LocalTransportMixin(_MixinBase):
                 if device_data.get("type") != "gridboss":
                     continue
                 has_mid_device = True
+                # The GridBOSS CTs are authoritative contributors to the
+                # group's grid/consumption values — a link-down (error-
+                # marked) GridBOSS taints the aggregate the same way a
+                # link-down inverter member does.
+                if "error" in device_data and serial not in link_down_members:
+                    link_down_members.append(serial)
                 gb_sensors = device_data.get("sensors", {})
 
                 # Apply the canonical GridBOSS workflow to the parallel group.
@@ -1805,12 +1849,25 @@ class LocalTransportMixin(_MixinBase):
 
             group_device_id = f"parallel_group_{group_name.lower()}"
 
-            group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
+            if link_down_members:
+                # Don't claim a fresh poll for an aggregate built from stale
+                # members — carry the previous stamp forward (if any) so it
+                # reflects the last genuinely fresh aggregate.
+                prev_stamp = (
+                    processed["devices"]
+                    .get(group_device_id, {})
+                    .get("sensors", {})
+                    .get("parallel_group_last_polled")
+                )
+                if prev_stamp is not None:
+                    group_sensors["parallel_group_last_polled"] = prev_stamp
+            else:
+                group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
             # Create groups even with 1 inverter if parallel_number > 0,
             # since this indicates the inverter is configured for parallel
             # operation (e.g., single inverter + GridBOSS setup).
-            processed["devices"][group_device_id] = {
+            pg_device_data: dict[str, Any] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",
                 "group_name": group_name,
@@ -1819,6 +1876,15 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
+            if link_down_members:
+                # Error key -> all PG sensor entities go unavailable
+                # (base_entity availability contract), exactly like the
+                # link-down members themselves.
+                pg_device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(link_down_members))}"
+                )
+            processed["devices"][group_device_id] = pg_device_data
 
             self._register_pg_device(group_device_id, group_name)
 
@@ -2073,6 +2139,136 @@ class LocalTransportMixin(_MixinBase):
             self._background_tasks.add(task)
             task.add_done_callback(self._remove_task_from_set)
             task.add_done_callback(self._log_task_exception)
+
+    def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
+        """Sync Repairs issues and device error keys with transport link state.
+
+        Called each update cycle from BOTH paths (eg4-57g):
+
+        - LOCAL passes the processed data dict — there is no cloud to fall
+          back to, so a link-down device gets an ``"error"`` key and its
+          entities go unavailable instead of frozen-fresh (base_entity
+          ``available`` checks for the key).
+        - HYBRID passes ``None`` — link-down devices keep serving
+          cloud-fallback data, so only the Repairs issues are synced.
+
+        Error-key scope (deliberate): the key is honored by MEASUREMENT
+        entities — EG4BaseSensor, EG4BaseBatterySensor, and
+        EG4BatteryBankEntity — because frozen measurements are the bug.
+        Control-entity availability (numbers, switches, selects, update
+        entities) is intentionally unchanged: those are setpoints, not
+        live readings, and this matches the never-attached degraded
+        precedent (transport_attach_failed devices also keep their
+        controls).  Parallel groups whose members are error-marked get
+        error-marked too in _process_local_parallel_groups, which runs
+        after this method.
+
+        One-shot semantics: the issue is created once per down transition
+        (tracked in ``_link_down_notified``) and deleted on recovery.  The
+        healthy-path delete is an idempotent registry no-op, which also
+        clears stale issues left behind by a restart mid-outage.
+        """
+        devices: dict[str, Any] = {}
+        if self.station is not None:
+            # HYBRID: the station owns all devices (caches mirror it).
+            for inv in self.station.all_inverters:
+                devices[str(inv.serial_number)] = inv
+            for mid in self.station.all_mid_devices:
+                devices[str(mid.serial_number)] = mid
+        else:
+            # LOCAL: devices live in the coordinator caches.
+            devices.update(self._inverter_cache)
+            devices.update(self._mid_device_cache)
+
+        for serial, device in devices.items():
+            transport = getattr(device, "transport", None)
+            if transport is None:
+                continue
+            if is_transport_link_down(device):
+                if processed is not None:
+                    device_data = processed.get("devices", {}).get(serial)
+                    if device_data is not None:
+                        device_data["error"] = "Local transport link down"
+                if serial in self._link_down_notified:
+                    continue
+                self._link_down_notified.add(serial)
+                host = getattr(transport, "host", None) or getattr(
+                    transport, "port", "?"
+                )
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"transport_link_down_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="transport_link_down",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "host": str(host),
+                    },
+                )
+            else:
+                if serial in self._link_down_notified:
+                    self._link_down_notified.discard(serial)
+                    _LOGGER.info(
+                        "Local transport link restored for %s — clearing Repairs issue",
+                        serial,
+                    )
+                ir.async_delete_issue(
+                    self.hass, DOMAIN, f"transport_link_down_{serial}"
+                )
+
+    def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
+        """Error-mark carried-forward parallel groups on a full-outage cycle.
+
+        On a full LOCAL outage the ``successful_devices == 0`` branch raises
+        UpdateFailed BEFORE ``_process_local_parallel_groups()`` runs, so
+        the carried-forward PG entries never get the partial-path marking —
+        their sensors would keep passing entity availability and serve the
+        stale aggregate while the coordinator wrapper suppresses the first
+        UpdateFailed cycles.  Apply the same rule the partial path uses: a
+        group is tainted when any of its members — or the GridBOSS CT
+        contributor — is error-marked (link-down).  A transient full outage
+        with no link-down marks leaves the groups alone, matching the
+        member entities (which also stay available on cached values then).
+        The carried ``parallel_group_last_polled`` stamp is left untouched
+        (no fresh-poll claim is ever made on this path).
+
+        DEPENDENCY: like the device-level marks from
+        ``_sync_transport_link_state``, this mark becomes visible through
+        the coordinator's RETAINED data only because the carry-forward in
+        ``_async_update_local_data`` shares dict references with
+        ``self.data`` (``processed["devices"].update(self.data...)``).
+        If that carry-forward ever becomes a deep copy, both marks break
+        together — the suppressed-failure window would silently serve
+        stale data as available again.
+        """
+        devices: dict[str, Any] = processed.get("devices", {})
+        error_serials = {
+            serial
+            for serial, device_data in devices.items()
+            if device_data.get("type") in ("inverter", "gridboss")
+            and "error" in device_data
+        }
+        if not error_serials:
+            return
+        gridboss_down = [
+            serial
+            for serial in error_serials
+            if devices[serial].get("type") == "gridboss"
+        ]
+        for device_data in devices.values():
+            if device_data.get("type") != "parallel_group" or "error" in device_data:
+                continue
+            members = device_data.get("member_serials") or []
+            stale = set(members) & error_serials
+            # GridBOSS CTs contribute to every group (partial-path parity).
+            stale.update(gridboss_down)
+            if stale:
+                device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(stale))}"
+                )
 
     async def _attach_serial_transports_to_station(
         self, configs: list[Any], result: Any

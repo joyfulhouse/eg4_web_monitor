@@ -1955,3 +1955,502 @@ class TestBatteryControlModeMethods:
         calls = coordinator.client.api.control.control_function.call_args_list
         assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
         assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)
+
+
+# ── Transport link-down flow (eg4-57g / #226 attached-but-dead) ──────
+
+
+class TestLocalLinkDownFlow:
+    """LOCAL mode end-to-end: a link-down device must surface an error key
+    (entities unavailable) and a Repairs issue — not frozen-fresh values."""
+
+    async def test_link_down_marks_error_and_raises_repairs_issue(self, hass):
+        """A device whose transport link died gets its cached device data
+        error-marked and a transport_link_down Repairs issue, even when the
+        whole cycle ends in UpdateFailed (single-device outage)."""
+        from homeassistant.helpers import issue_registry as ir
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Link Down",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="link_down_flow_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = False
+
+        # Previous good cycle's data (this is what would freeze pre-fix).
+        coordinator.data = {
+            "devices": {
+                "CE11111111": {
+                    "type": "inverter",
+                    "sensors": {"battery_voltage": 53.2},
+                }
+            },
+            "parameters": {},
+        }
+
+        # Link-down inverter as pylxpweb now presents it: refresh() swallows
+        # the failed probe, transport data caches cleared on the transition.
+        transport = MagicMock(spec=["is_connected", "host", "port", "transport_type"])
+        transport.is_connected = True
+        transport.host = "192.168.1.60"
+        transport.port = 502
+        transport.transport_type = "modbus_tcp"
+        inverter = MagicMock(
+            spec=[
+                "transport",
+                "transport_link_down",
+                "transport_runtime",
+                "refresh",
+                "serial_number",
+            ]
+        )
+        inverter.serial_number = "CE11111111"
+        inverter.transport = transport
+        inverter.transport_link_down = True
+        inverter.transport_runtime = None  # cleared at the down transition
+        inverter.refresh = AsyncMock()
+        coordinator._inverter_cache["CE11111111"] = inverter
+
+        with pytest.raises(UpdateFailed, match="All 1 local transports failed"):
+            await coordinator._async_update_local_data()
+
+        # Probe still attempted this cycle (recovery path stays alive).
+        inverter.refresh.assert_awaited_once()
+
+        # The carried-forward device data is error-marked, which flips the
+        # base_entity availability contract to unavailable.
+        assert (
+            coordinator.data["devices"]["CE11111111"]["error"]
+            == "Local transport link down"
+        )
+
+        # One-shot Repairs issue exists with the right placeholders.
+        registry = ir.async_get(hass)
+        issue = registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111")
+        assert issue is not None
+        assert issue.translation_key == "transport_link_down"
+        assert issue.translation_placeholders == {
+            "serial": "CE11111111",
+            "host": "192.168.1.60",
+        }
+        assert coordinator._link_down_notified == {"CE11111111"}
+
+    async def test_recovery_clears_repairs_issue(self, hass):
+        """When the link comes back, the Repairs issue is deleted."""
+        from homeassistant.helpers import issue_registry as ir
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Link Recovered",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="link_recovered_flow_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        # Simulate the outage having raised the issue earlier.
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            "transport_link_down_CE11111111",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="transport_link_down",
+            translation_placeholders={"serial": "CE11111111", "host": "x"},
+        )
+        coordinator._link_down_notified = {"CE11111111"}
+
+        transport = MagicMock(spec=["is_connected", "host", "port"])
+        inverter = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
+        inverter.serial_number = "CE11111111"
+        inverter.transport = transport
+        inverter.transport_link_down = False  # recovered
+        coordinator._inverter_cache["CE11111111"] = inverter
+
+        processed: dict[str, Any] = {"devices": {}}
+        coordinator._sync_transport_link_state(processed)
+
+        registry = ir.async_get(hass)
+        assert (
+            registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111") is None
+        )
+        assert coordinator._link_down_notified == set()
+
+
+class TestParallelGroupLinkDownMarking:
+    """eg4-57g review HIGH-1a: a PG aggregate mixing stale (link-down) and
+    fresh members is wrong in both directions — the group must be
+    error-marked and must not claim a fresh poll."""
+
+    @staticmethod
+    def _entry(entry_id: str) -> MockConfigEntry:
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - PG Link Down",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                    {
+                        "serial": "CE22222222",
+                        "host": "192.168.1.61",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id=entry_id,
+        )
+
+    @staticmethod
+    def _member(serial: str, master: bool, error: str | None = None) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "type": "inverter",
+            "serial": serial,
+            "parallel_number": 1,
+            "parallel_master_slave": 1 if master else 2,
+            "sensors": {
+                "pv_total_power": 2500.0,
+                "state_of_charge": 80.0,
+                "battery_voltage": 53.0,
+            },
+        }
+        if error is not None:
+            data["error"] = error
+        return data
+
+    async def test_member_link_down_marks_group_and_keeps_old_stamp(self, hass):
+        """One-of-two members link-down: PG error-marked, old stamp carried."""
+        from datetime import UTC, datetime
+
+        entry = self._entry("pg_link_down_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "CE22222222": self._member(
+                    "CE22222222", master=False, error="Local transport link down"
+                ),
+                # Previous cycle's PG entry (carried forward in real cycles)
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "sensors": {"parallel_group_last_polled": old_stamp},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert pg_data["error"] == (
+            "Local transport link down for member(s): CE22222222"
+        )
+        # No fresh-poll claim: the previous stamp is carried forward.
+        assert pg_data["sensors"]["parallel_group_last_polled"] == old_stamp
+
+    async def test_all_members_healthy_group_unmarked_and_stamped_fresh(self, hass):
+        """Recovery: clean members rebuild the PG without error + fresh stamp."""
+        from datetime import UTC, datetime
+
+        entry = self._entry("pg_recovered_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "CE22222222": self._member("CE22222222", master=False),
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "error": "Local transport link down for member(s): CE22222222",
+                    "sensors": {"parallel_group_last_polled": old_stamp},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert "error" not in pg_data
+        assert pg_data["sensors"]["parallel_group_last_polled"] != old_stamp
+        # Aggregate built from both fresh members
+        assert pg_data["sensors"]["pv_total_power"] == 5000.0
+
+    async def test_link_down_gridboss_contributor_marks_group(self, hass):
+        """The GridBOSS CT overlay is a contributor: a link-down GridBOSS
+        taints the aggregate like a link-down inverter member."""
+        entry = self._entry("pg_gridboss_down_test")
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._member("CE11111111", master=True),
+                "GB00000001": {
+                    "type": "gridboss",
+                    "serial": "GB00000001",
+                    "error": "Local transport link down",
+                    "sensors": {"load_power": 1200.0},
+                },
+            },
+        }
+
+        await coordinator._process_local_parallel_groups(processed)
+
+        pg_data = processed["devices"]["parallel_group_a"]
+        assert pg_data["error"] == (
+            "Local transport link down for member(s): GB00000001"
+        )
+        assert "parallel_group_last_polled" not in pg_data["sensors"]
+
+
+class TestFullOutageParallelGroupMarking:
+    """eg4-57g review r2 HIGH: on a FULL outage, UpdateFailed raises before
+    _process_local_parallel_groups() runs — the carried-forward PG entry
+    must still be error-marked (via the shared-dict mutation) or PG sensors
+    serve the stale aggregate during the wrapper's suppressed window."""
+
+    @staticmethod
+    def _link_down_inverter(serial: str, host: str) -> MagicMock:
+        transport = MagicMock(spec=["is_connected", "host", "port", "transport_type"])
+        transport.is_connected = True
+        transport.host = host
+        transport.port = 502
+        transport.transport_type = "modbus_tcp"
+        inverter = MagicMock(
+            spec=[
+                "transport",
+                "transport_link_down",
+                "transport_runtime",
+                "refresh",
+                "serial_number",
+            ]
+        )
+        inverter.serial_number = serial
+        inverter.transport = transport
+        inverter.transport_link_down = True
+        inverter.transport_runtime = None  # cleared at the down transition
+        inverter.refresh = AsyncMock()
+        return inverter
+
+    @staticmethod
+    def _healthy_member(serial: str, master: bool) -> dict[str, Any]:
+        return {
+            "type": "inverter",
+            "serial": serial,
+            "parallel_number": 1,
+            "parallel_master_slave": 1 if master else 2,
+            "sensors": {
+                "pv_total_power": 2500.0,
+                "state_of_charge": 80.0,
+                "battery_voltage": 53.0,
+            },
+        }
+
+    async def test_full_outage_marks_carried_pg_through_retained_data(self, hass):
+        """All members link-down: the suppressed-failure cycle serves cached
+        data with the PG error-marked, so PG sensors read unavailable."""
+        from datetime import UTC, datetime
+
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Full Outage",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                    {
+                        "serial": "CE22222222",
+                        "host": "192.168.1.61",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="full_outage_pg_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = False
+
+        old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
+        coordinator.data = {
+            "devices": {
+                "CE11111111": {
+                    "type": "inverter",
+                    "sensors": {"battery_voltage": 53.2},
+                },
+                "CE22222222": {
+                    "type": "inverter",
+                    "sensors": {"battery_voltage": 52.9},
+                },
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "member_serials": ["CE11111111", "CE22222222"],
+                    "sensors": {
+                        "pv_total_power": 5000.0,
+                        "parallel_group_last_polled": old_stamp,
+                    },
+                },
+            },
+            "parameters": {},
+        }
+
+        coordinator._inverter_cache["CE11111111"] = self._link_down_inverter(
+            "CE11111111", "192.168.1.60"
+        )
+        coordinator._inverter_cache["CE22222222"] = self._link_down_inverter(
+            "CE22222222", "192.168.1.61"
+        )
+
+        # Drive the REAL wrapper: UpdateFailed is suppressed (failure 1/3)
+        # and the cached data dict is served back.
+        returned = await coordinator._async_update_data()
+        assert returned is coordinator.data
+        assert coordinator._consecutive_update_failures == 1
+        assert coordinator.last_update_success is True
+
+        # The shared-dict mutation made the PG mark visible through the
+        # coordinator's RETAINED data — no fresh-poll claim on the stamp.
+        pg_data = coordinator.data["devices"]["parallel_group_a"]
+        assert pg_data["error"] == (
+            "Local transport link down for member(s): CE11111111, CE22222222"
+        )
+        assert pg_data["sensors"]["parallel_group_last_polled"] == old_stamp
+
+        # Member devices were marked too (round-1 behavior, unchanged)
+        assert "error" in coordinator.data["devices"]["CE11111111"]
+
+        # PG sensors read unavailable during the suppressed window
+        pg_sensor = EG4BaseSensor(
+            coordinator,
+            "parallel_group_a",
+            "pv_total_power",
+            device_type="parallel_group",
+        )
+        assert pg_sensor.available is False
+
+        # Recovery: the next successful cycle's PG processing replaces the
+        # carried (still-marked) entry with a clean, freshly-stamped one.
+        recovered_processed: dict[str, Any] = {
+            "devices": {
+                "CE11111111": self._healthy_member("CE11111111", master=True),
+                "CE22222222": self._healthy_member("CE22222222", master=False),
+                "parallel_group_a": coordinator.data["devices"]["parallel_group_a"],
+            },
+        }
+        await coordinator._process_local_parallel_groups(recovered_processed)
+        pg_rebuilt = recovered_processed["devices"]["parallel_group_a"]
+        assert "error" not in pg_rebuilt
+        assert pg_rebuilt["sensors"]["parallel_group_last_polled"] != old_stamp
+        assert pg_rebuilt["sensors"]["pv_total_power"] == 5000.0
+
+    async def test_transient_full_outage_without_link_down_leaves_pg_alone(self, hass):
+        """A full outage with NO link-down marks (transient blips below the
+        threshold) must not mark the PG: its member entities also keep
+        serving cached values then, and marking only the group would be
+        inconsistent (and the 'link down' message false)."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Transient Outage",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "CE11111111",
+                        "host": "192.168.1.60",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                    },
+                ],
+            },
+            entry_id="transient_outage_pg_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = False
+
+        coordinator.data = {
+            "devices": {
+                "CE11111111": {
+                    "type": "inverter",
+                    "sensors": {"battery_voltage": 53.2},
+                },
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "member_serials": ["CE11111111"],
+                    "sensors": {"pv_total_power": 2500.0},
+                },
+            },
+            "parameters": {},
+        }
+
+        # Transient: read fails but the link is NOT declared down yet.
+        inverter = self._link_down_inverter("CE11111111", "192.168.1.60")
+        inverter.transport_link_down = False
+        coordinator._inverter_cache["CE11111111"] = inverter
+
+        returned = await coordinator._async_update_data()
+        assert returned is coordinator.data
+
+        assert "error" not in coordinator.data["devices"]["parallel_group_a"]
+        assert "error" not in coordinator.data["devices"]["CE11111111"]

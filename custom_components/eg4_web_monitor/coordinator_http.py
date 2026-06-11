@@ -45,10 +45,48 @@ from .coordinator_mixins import (
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
+    is_transport_link_down,
 )
 from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _maybe_bust_degraded_cloud_cache(
+    client: Any,
+    last_refresh: dict[str, float],
+    http_interval: float,
+    serial: str,
+) -> bool:
+    """Throttled per-serial cloud cache bust for DEGRADED devices.
+
+    Degraded = locally configured but currently served by the cloud (attach
+    failed, or attached transport link down).  Their cloud caches are
+    aligned to the slow HTTP interval on the assumption local is primary,
+    which froze their sensors for the whole cache window — bust them so
+    degraded devices keep updating.  The bust is throttled per serial to
+    the HTTP polling interval: a hybrid coordinator can tick at the fastest
+    LOCAL interval (5s), which must never leak into the cloud call rate.
+
+    Args:
+        client: LuxpowerClient (or None — returns False).
+        last_refresh: Per-serial monotonic stamps (mutated on a fired bust).
+        http_interval: Cloud-safe HTTP polling interval in seconds.
+        serial: Device serial number.
+
+    Returns:
+        True when the bust fired (cloud window elapsed), False inside the
+        throttle window or without a client.
+    """
+    if client is None:
+        return False
+    now = _time.monotonic()
+    last = last_refresh.get(serial, 0.0)
+    if now - last < http_interval:
+        return False
+    last_refresh[serial] = now
+    client.invalidate_cache_for_device(serial)
+    return True
 
 
 class HTTPUpdateMixin(_MixinBase):
@@ -192,9 +230,24 @@ class HTTPUpdateMixin(_MixinBase):
             endpoint_groups.setdefault(endpoint, []).append(device)
 
         async def _refresh_group_sequentially(devices: list[Any]) -> None:
-            """Refresh devices on the same endpoint one at a time."""
+            """Refresh devices on the same endpoint one at a time.
+
+            A device whose attached transport link is DOWN (eg4-57g) still
+            refreshes every cycle — the refresh probes the dead link (so
+            recovery can happen) and falls back to the cloud inside
+            pylxpweb.  Its per-device cloud caches are busted (throttled to
+            the HTTP interval) so the fallback serves moving values instead
+            of interval-aligned stale cache.
+            """
             for device in devices:
                 try:
+                    if is_transport_link_down(device):
+                        _maybe_bust_degraded_cloud_cache(
+                            self.client,
+                            self._last_degraded_cloud_refresh,
+                            self._http_polling_interval,
+                            str(getattr(device, "serial_number", "?")),
+                        )
                     await device.refresh()
                 except Exception as exc:
                     _LOGGER.debug(
@@ -225,24 +278,23 @@ class HTTPUpdateMixin(_MixinBase):
 
             A device configured for local polling that has NO transport is
             running degraded (attach failed — eg4-05l/o5m). Its cloud caches
-            are aligned to the slow HTTP interval on the assumption local is
-            primary, which froze its sensors for the whole cache window —
-            bust them so degraded devices keep updating. The bust is
-            throttled per serial to the HTTP polling interval: a hybrid
-            coordinator can tick at the fastest LOCAL interval (5s), which
-            must never leak into the cloud call rate. Genuinely cloud-only
-            devices keep their normal caches. Failures are logged instead
-            of being silently swallowed by gather(return_exceptions=True).
+            are busted (throttled per serial to the HTTP polling interval —
+            see _maybe_bust_degraded_cloud_cache) so degraded devices keep
+            updating, and its refresh is skipped entirely inside the
+            throttle window. Genuinely cloud-only devices keep their normal
+            caches. Failures are logged instead of being silently swallowed
+            by gather(return_exceptions=True).
             """
             serial = str(getattr(device, "serial_number", "?"))
             try:
                 if serial in locally_configured and self.client is not None:
-                    now = _time.monotonic()
-                    last = self._last_degraded_cloud_refresh.get(serial, 0.0)
-                    if now - last < self._http_polling_interval:
+                    if not _maybe_bust_degraded_cloud_cache(
+                        self.client,
+                        self._last_degraded_cloud_refresh,
+                        self._http_polling_interval,
+                        serial,
+                    ):
                         return  # cached data stands until the cloud-safe window
-                    self._last_degraded_cloud_refresh[serial] = now
-                    self.client.invalidate_cache_for_device(serial)
                 await device.refresh()
             except Exception as exc:
                 _LOGGER.warning(
@@ -270,14 +322,18 @@ class HTTPUpdateMixin(_MixinBase):
             Dictionary containing device data with transport-aware labels.
         """
         include_mid = self._should_poll_hybrid_local()
-        if not include_mid and self._failed_attach_serials and self.station is not None:
-            # A MID device whose transport attach failed refreshes via the
-            # CLOUD, not the dongle — the dongle-interval gate must not slow
-            # its fallback to one update per dongle window (eg4-o5m). Only
-            # escalate while a MID serial is actually degraded.
-            mid_serials = {str(m.serial_number) for m in self.station.all_mid_devices}
-            if self._failed_attach_serials & mid_serials:
-                include_mid = True
+        if not include_mid and self.station is not None:
+            # A degraded MID device refreshes via the CLOUD, not the dongle —
+            # the dongle-interval gate must not slow its fallback to one
+            # update per dongle window (eg4-o5m). Degraded covers BOTH a
+            # failed attach (no transport) and an attached-but-dead link
+            # (eg4-57g). Only escalate while a MID is actually degraded.
+            for mid in self.station.all_mid_devices:
+                if str(
+                    mid.serial_number
+                ) in self._failed_attach_serials or is_transport_link_down(mid):
+                    include_mid = True
+                    break
         data = await self._async_update_http_data(
             include_mid_refresh=include_mid,
         )
@@ -313,11 +369,21 @@ class HTTPUpdateMixin(_MixinBase):
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")
                 label = _get_transport_label(transport_type)
-                device_data["sensors"]["connection_transport"] = f"Hybrid ({label})"
+                if is_transport_link_down(device):
+                    # Attached but dead (eg4-57g): values come from the cloud
+                    # fallback — dashboards must show the truth.
+                    device_data["sensors"]["connection_transport"] = (
+                        f"Hybrid ({label} — link down)"
+                    )
+                else:
+                    device_data["sensors"]["connection_transport"] = f"Hybrid ({label})"
                 if hasattr(transport, "host"):
                     device_data["sensors"]["transport_host"] = transport.host
             else:
                 device_data["sensors"]["connection_transport"] = "Cloud"
+
+        # Raise/clear Repairs issues for link-down transitions (one-shot).
+        self._sync_transport_link_state(None)
 
         return data
 
