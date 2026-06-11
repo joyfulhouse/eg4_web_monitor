@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "Intervalo de Actualizacion de Parametros (minutos)",
           "library_debug": "Registro de Depuracion de Libreria",
           "data_validation": "Validación de Datos de Registro",
-          "include_ac_couple_pv": "Incluir PV acoplado en CA en totales"
+          "include_ac_couple_pv": "Incluir PV acoplado en CA en totales",
+          "charge_control_mode": "Control de carga de la batería",
+          "discharge_control_mode": "Control de descarga de la batería"
         },
         "data_description": {
           "sensor_update_interval": "Frecuencia de sondeo para actualizaciones de sensores ({min_sensor_interval}-{max_sensor_interval} segundos). Valores mas bajos proporcionan actualizaciones mas rapidas pero aumentan la carga de API.",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "Frecuencia de actualizacion de parametros del inversor como limites SOC y ajustes de carga ({min_param_interval}-{max_param_interval} minutos).",
           "library_debug": "Habilitar registro DEBUG para la libreria pylxpweb (muestra solicitudes API, respuestas y operaciones internas de la libreria)",
           "data_validation": "Habilitar detección de corrupción para lecturas de registros locales. Valida límites físicos (SoC, frecuencia, estado de puertos inteligentes) y monotonía de energía. Solo habilitar si experimenta lecturas inestables (entidades fantasma, picos de energía, valores inválidos).",
-          "include_ac_couple_pv": "Agregar la potencia del inversor solar acoplado en CA (de los Smart Ports del GridBOSS) a los totales de PV del grupo paralelo"
+          "include_ac_couple_pv": "Agregar la potencia del inversor solar acoplado en CA (de los Smart Ports del GridBOSS) a los totales de PV del grupo paralelo",
+          "charge_control_mode": "Cómo decide su batería cuándo DETENER la carga: SOC (lazo cerrado, litio con BMS) o Voltaje (lazo abierto, plomo-ácido / sin BMS). Los controles de límite no seleccionados quedan ocultos por defecto. ⚠️ Cambiar esto también reconfigura su inversor.",
+          "discharge_control_mode": "Cómo decide su batería cuándo DETENER la descarga: SOC (lazo cerrado, litio con BMS) o Voltaje (lazo abierto, plomo-ácido / sin BMS). Los controles de corte no seleccionados quedan ocultos por defecto. ⚠️ Cambiar esto también reconfigura su inversor."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "No se pudo aplicar el modo de control de batería al inversor. Compruebe la conexión del dispositivo e inténtelo de nuevo."
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "El ID de entrada de configuración a conciliar. Si no se proporciona, se conciliarán todas las integraciones de {brand_name} Web Monitor con credenciales de la nube."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Importar datos históricos",
+      "description": "Importa el historial diario de energía a nivel de planta (producción FV, consumo, importación/exportación de red, carga/descarga de batería) desde la nube de {brand_name} a las estadísticas a largo plazo de Home Assistant. Los datos se escriben como estadísticas externas separadas que pueden seleccionarse en el panel de Energía; el historial de sensores existente nunca se modifica. Repetir rangos iguales o solapados es seguro.",
+      "fields": {
+        "config_entry": {
+          "name": "Entrada de configuración",
+          "description": "La entrada de configuración de {brand_name} Web Monitor (planta) cuyo historial se importará."
+        },
+        "dry_run": {
+          "name": "Simulación",
+          "description": "Previsualiza lo que se importaría sin escribir ninguna estadística."
+        },
+        "start_date": {
+          "name": "Fecha de inicio",
+          "description": "Primer día a importar (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Fecha de fin",
+          "description": "Último día a importar (YYYY-MM-DD). Por defecto, hoy. Rango máximo: 2 años."
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "Formato de fecha no válido. Use el formato AAAA-MM-DD."
+    },
+    "cloud_required": {
+      "message": "La importación histórica requiere credenciales de la nube (modo de conexión HTTP o híbrido)."
+    },
+    "date_range_too_large": {
+      "message": "El rango de fechas de {range_days} días supera el máximo de {max_days} días (2 años). Importe el historial en tramos más pequeños."
+    },
+    "history_api_unavailable": {
+      "message": "La biblioteca pylxpweb instalada no proporciona la API de historial de energía que requiere este servicio. Actualice la integración para que se instale la versión de pylxpweb requerida."
+    },
+    "invalid_date_range": {
+      "message": "Rango de fechas no válido: {start_date} a {end_date}. La fecha de inicio no debe estar en el futuro ni ser posterior a la fecha de fin."
+    },
+    "no_devices": {
+      "message": "No se encontraron inversores para esta planta."
+    },
+    "station_not_ready": {
+      "message": "Los datos de la estación en la nube aún no se han cargado. Espere a que la integración termine su primera actualización e inténtelo de nuevo."
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "Validación de datos recomendada para WiFi dongle",
       "description": "Un WiFi dongle está configurado pero la **Validación de datos** está desactivada. Los WiFi dongles comparten un bus Modbus, y las lecturas simultáneas pueden causar datos de registro corruptos (p. ej., picos de energía).\n\nPara solucionarlo, vaya a **Ajustes > Dispositivos y servicios > EG4 Web Monitor > Configurar** y active la **Validación de datos**."
+    },
+    "serial_attach_failed": {
+      "title": "Falló la conexión serie del dispositivo {serial}",
+      "description": "No se pudo abrir la conexión serie Modbus (USB/RS485) en **{serial_port}** para el dispositivo **{serial}**. El dispositivo está usando temporalmente solo datos de la nube.\n\nCompruebe que el adaptador está conectado, que la ruta del puerto es correcta y que ningún otro software tiene el puerto abierto; después recargue la integración."
+    },
+    "transport_attach_failed": {
+      "title": "Falló la conexión local del dispositivo {serial}",
+      "description": "No se pudo establecer la conexión local con **{host}** para el dispositivo **{serial}** — esto ocurre con frecuencia justo después de reiniciar Home Assistant, mientras el dongle WiFi aún mantiene la conexión de la sesión anterior. El dispositivo está usando temporalmente datos de la nube.\n\nLa integración reintenta automáticamente aproximadamente una vez por minuto; este problema se resuelve solo cuando se restablece la conexión local. Si persiste, compruebe que el dispositivo está encendido y accesible en **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Conexión local con el dispositivo {serial} perdida",
+      "description": "La conexión local con **{host}** para el dispositivo **{serial}** dejó de responder tras varios fallos de lectura consecutivos — habitualmente una interrupción de red, una caída de VPN o un dongle/gateway reiniciado. Mientras el enlace está caído, el dispositivo recurre a los datos de la nube si hay credenciales configuradas; de lo contrario, sus entidades pasan a no disponibles en lugar de mostrar valores obsoletos.\n\nLa integración sigue reintentando la conexión local en cada ciclo de actualización; este problema se resuelve solo cuando el enlace se recupera. Si persiste, compruebe que el dispositivo está encendido y accesible en **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Familia de inversor inferida del modelo para {serial}",
+      "description": "El dispositivo **{serial}** no informó una familia de inversor reconocida, así que sus capacidades se derivaron del nombre de modelo **{model}** (familia **{family}**). Los sensores específicos de fase que nunca tuvieron datos (p. ej., sensores trifásicos R/S/T en hardware de fase dividida) ya no se crean.\n\nSi alguna automatización hacía referencia a esos sensores, actualícela. Si este dispositivo realmente es trifásico, configure **Tipo de red** en las opciones de la integración. Informe también el código de tipo de dispositivo de su firmware (vea el sensor de diagnóstico «Device Type Code») para que pueda mapearse."
     }
   }
 }

@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
           "data_validation": "레지스터 데이터 검증",
-          "include_ac_couple_pv": "AC 결합 PV를 합계에 포함"
+          "include_ac_couple_pv": "AC 결합 PV를 합계에 포함",
+          "charge_control_mode": "배터리 충전 제어",
+          "discharge_control_mode": "배터리 방전 제어"
         },
         "data_description": {
           "sensor_update_interval": "센서 업데이트를 폴링하는 빈도 ({min_sensor_interval}-{max_sensor_interval}초). 값이 낮을수록 업데이트가 빠르지만 API 부하가 증가합니다.",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
           "data_validation": "로컬 레지스터 읽기에 대한 손상 감지를 활성화합니다. 물리적 한계(SoC, 주파수, 스마트 포트 상태) 및 에너지 단조성을 검증합니다. 불안정한 레지스터 읽기(고스트 엔티티, 에너지 스파이크, 잘못된 값)가 발생하는 경우에만 활성화하세요.",
-          "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가"
+          "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가",
+          "charge_control_mode": "배터리가 충전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 한도 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다.",
+          "discharge_control_mode": "배터리가 방전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 차단 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "배터리 제어 모드를 인버터에 적용하지 못했습니다. 기기 연결을 확인하고 다시 시도하세요."
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "조정할 구성 항목 ID. 제공하지 않으면 클라우드 자격 증명이 있는 모든 {brand_name} Web Monitor 통합이 조정됩니다."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "과거 데이터 가져오기",
+      "description": "플랜트 수준의 일별 에너지 기록(PV 발전량, 소비량, 그리드 수입/수출, 배터리 충전/방전)을 {brand_name} 클라우드에서 Home Assistant 장기 통계로 가져옵니다. 데이터는 에너지 대시보드에서 선택할 수 있는 별도의 외부 통계로 기록되며, 기존 센서 기록은 절대 수정되지 않습니다. 동일하거나 겹치는 기간을 다시 실행해도 안전합니다.",
+      "fields": {
+        "config_entry": {
+          "name": "구성 항목",
+          "description": "기록을 가져올 {brand_name} Web Monitor 구성 항목(플랜트)입니다."
+        },
+        "dry_run": {
+          "name": "시험 실행",
+          "description": "통계를 기록하지 않고 가져올 내용을 미리 봅니다."
+        },
+        "start_date": {
+          "name": "시작일",
+          "description": "가져올 첫 번째 날짜(YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "종료일",
+          "description": "가져올 마지막 날짜(YYYY-MM-DD). 기본값은 오늘입니다. 최대 범위: 2년."
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용하세요."
+    },
+    "cloud_required": {
+      "message": "과거 데이터 가져오기에는 클라우드 자격 증명이 필요합니다(HTTP 또는 하이브리드 연결 모드)."
+    },
+    "date_range_too_large": {
+      "message": "{range_days}일의 기간이 최대 {max_days}일(2년)을 초과합니다. 기록을 더 작은 구간으로 나누어 가져오세요."
+    },
+    "history_api_unavailable": {
+      "message": "설치된 pylxpweb 라이브러리에 이 서비스에 필요한 에너지 기록 API가 없습니다. 필요한 pylxpweb 버전이 설치되도록 통합구성요소를 업데이트하세요."
+    },
+    "invalid_date_range": {
+      "message": "잘못된 기간입니다: {start_date} ~ {end_date}. 시작일은 미래이거나 종료일 이후일 수 없습니다."
+    },
+    "no_devices": {
+      "message": "이 플랜트에서 인버터를 찾을 수 없습니다."
+    },
+    "station_not_ready": {
+      "message": "클라우드 스테이션 데이터가 아직 로드되지 않았습니다. 통합구성요소의 첫 새로 고침이 완료될 때까지 기다린 후 다시 시도하세요."
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "WiFi dongle 데이터 검증 권장",
       "description": "WiFi dongle이 구성되어 있지만 **데이터 검증**이 비활성화되어 있습니다. WiFi dongle은 Modbus 버스를 공유하며, 동시 읽기로 인해 레지스터 데이터가 손상될 수 있습니다(예: 에너지 스파이크).\n\n수정하려면 **설정 > 기기 및 서비스 > EG4 Web Monitor > 구성**으로 이동하여 **데이터 검증**을 활성화하세요."
+    },
+    "serial_attach_failed": {
+      "title": "기기 {serial}의 시리얼 연결 실패",
+      "description": "기기 **{serial}**의 Modbus 시리얼(USB/RS485) 연결을 **{serial_port}**에서 열 수 없습니다. 이 기기는 일시적으로 클라우드 데이터만 사용합니다.\n\n어댑터가 연결되어 있는지, 포트 경로가 올바른지, 다른 소프트웨어가 포트를 사용하고 있지 않은지 확인한 후 통합구성요소를 다시 로드하세요."
+    },
+    "transport_attach_failed": {
+      "title": "기기 {serial}의 로컬 연결 실패",
+      "description": "기기 **{serial}**의 **{host}**에 대한 로컬 연결을 설정할 수 없습니다. 이는 Home Assistant 재시작 직후 WiFi 동글이 이전 세션의 연결을 아직 유지하고 있을 때 흔히 발생합니다. 이 기기는 일시적으로 클라우드 데이터를 사용합니다.\n\n통합구성요소는 약 1분마다 자동으로 재시도하며, 로컬 연결이 복구되면 이 문제는 자동으로 해결됩니다. 문제가 지속되면 기기의 전원이 켜져 있고 **{host}**에 연결 가능한지 확인하세요."
+    },
+    "transport_link_down": {
+      "title": "기기 {serial}에 대한 로컬 연결 끊김",
+      "description": "기기 **{serial}**의 **{host}**에 대한 로컬 연결이 연속된 읽기 실패 후 응답하지 않습니다. 일반적인 원인은 네트워크 중단, VPN 끊김, 동글/게이트웨이 재부팅입니다. 연결이 끊긴 동안 클라우드 자격 증명이 설정되어 있으면 기기는 클라우드 데이터로 대체되고, 그렇지 않으면 오래된 값을 표시하는 대신 엔티티가 사용 불가 상태가 됩니다.\n\n통합구성요소는 매 업데이트 주기마다 로컬 연결을 계속 재시도하며, 연결이 복구되면 이 문제는 자동으로 해결됩니다. 문제가 지속되면 기기의 전원이 켜져 있고 **{host}**에 연결 가능한지 확인하세요."
+    },
+    "unknown_family_fallback": {
+      "title": "{serial}의 인버터 제품군을 모델명에서 추정함",
+      "description": "기기 **{serial}**이(가) 인식 가능한 인버터 제품군을 보고하지 않아, 모델명 **{model}**(제품군 **{family}**)에서 기능을 도출했습니다. 데이터가 전혀 없던 상별 센서(예: 분상(split-phase) 하드웨어의 3상 R/S/T 센서)는 더 이상 생성되지 않습니다.\n\n해당 센서를 참조하던 자동화가 있다면 업데이트하세요. 이 기기가 실제로 3상이라면 통합구성요소 옵션에서 **그리드 유형**을 설정하세요. 또한 펌웨어의 기기 유형 코드(진단 센서 'Device Type Code' 참조)를 제보해 주시면 정식으로 매핑할 수 있습니다."
     }
   }
 }

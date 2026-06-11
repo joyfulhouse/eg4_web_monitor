@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "Intervalle d'actualisation des parametres (minutes)",
           "library_debug": "Journalisation de debogage de la bibliotheque",
           "data_validation": "Validation des Données de Registre",
-          "include_ac_couple_pv": "Inclure le PV couplé CA dans les totaux"
+          "include_ac_couple_pv": "Inclure le PV couplé CA dans les totaux",
+          "charge_control_mode": "Contrôle de charge de la batterie",
+          "discharge_control_mode": "Contrôle de décharge de la batterie"
         },
         "data_description": {
           "sensor_update_interval": "Frequence d'interrogation pour les mises a jour des capteurs ({min_sensor_interval}-{max_sensor_interval} secondes). Des valeurs plus basses fournissent des mises a jour plus rapides mais augmentent la charge de l'API.",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "Frequence d'actualisation des parametres de l'onduleur comme les limites SOC et les parametres de charge ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Activer la journalisation DEBUG pour la bibliotheque pylxpweb (affiche les requetes API, les reponses et les operations internes de la bibliotheque)",
           "data_validation": "Activer la détection de corruption pour les lectures de registres locaux. Valide les limites physiques (SoC, fréquence, état des ports intelligents) et la monotonie énergétique. À activer uniquement en cas de lectures instables (entités fantômes, pics d'énergie, valeurs invalides).",
-          "include_ac_couple_pv": "Ajouter la puissance de l'onduleur solaire couplé CA (depuis les Smart Ports du GridBOSS) aux totaux PV du groupe parallèle"
+          "include_ac_couple_pv": "Ajouter la puissance de l'onduleur solaire couplé CA (depuis les Smart Ports du GridBOSS) aux totaux PV du groupe parallèle",
+          "charge_control_mode": "Comment votre batterie décide d'ARRÊTER la charge : SOC (boucle fermée, lithium avec BMS) ou Tension (boucle ouverte, plomb-acide / sans BMS). Les commandes de limite non sélectionnées sont masquées par défaut. ⚠️ Modifier ce réglage reconfigure aussi votre onduleur.",
+          "discharge_control_mode": "Comment votre batterie décide d'ARRÊTER la décharge : SOC (boucle fermée, lithium avec BMS) ou Tension (boucle ouverte, plomb-acide / sans BMS). Les commandes de coupure non sélectionnées sont masquées par défaut. ⚠️ Modifier ce réglage reconfigure aussi votre onduleur."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Impossible d'appliquer le mode de contrôle de batterie à l'onduleur. Vérifiez la connexion de l'appareil et réessayez."
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "L'ID d'entrée de configuration à réconcilier. Si non fourni, toutes les intégrations {brand_name} Web Monitor avec des identifiants cloud seront réconciliées."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Importer les données historiques",
+      "description": "Importe l'historique énergétique quotidien au niveau de la centrale (production PV, consommation, import/export réseau, charge/décharge batterie) depuis le cloud {brand_name} vers les statistiques à long terme de Home Assistant. Les données sont écrites comme statistiques externes distinctes, sélectionnables dans le tableau de bord Énergie ; l'historique des capteurs existants n'est jamais modifié. Relancer des plages identiques ou chevauchantes est sans risque.",
+      "fields": {
+        "config_entry": {
+          "name": "Entrée de configuration",
+          "description": "L'entrée de configuration {brand_name} Web Monitor (centrale) dont importer l'historique."
+        },
+        "dry_run": {
+          "name": "Simulation",
+          "description": "Prévisualise ce qui serait importé sans écrire aucune statistique."
+        },
+        "start_date": {
+          "name": "Date de début",
+          "description": "Premier jour à importer (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Date de fin",
+          "description": "Dernier jour à importer (YYYY-MM-DD). Par défaut : aujourd'hui. Plage maximale : 2 ans."
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "Format de date invalide. Veuillez utiliser le format AAAA-MM-JJ."
+    },
+    "cloud_required": {
+      "message": "L'import historique nécessite des identifiants cloud (mode de connexion HTTP ou hybride)."
+    },
+    "date_range_too_large": {
+      "message": "La plage de dates de {range_days} jours dépasse le maximum de {max_days} jours (2 ans). Importez l'historique par tranches plus petites."
+    },
+    "history_api_unavailable": {
+      "message": "La bibliothèque pylxpweb installée ne fournit pas l'API d'historique d'énergie requise par ce service. Mettez à jour l'intégration afin que la version requise de pylxpweb soit installée."
+    },
+    "invalid_date_range": {
+      "message": "Plage de dates non valide : {start_date} à {end_date}. La date de début ne doit pas être dans le futur ni postérieure à la date de fin."
+    },
+    "no_devices": {
+      "message": "Aucun onduleur n'a été trouvé pour cette centrale."
+    },
+    "station_not_ready": {
+      "message": "Les données cloud de la station ne sont pas encore chargées. Attendez que l'intégration termine sa première actualisation, puis réessayez."
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "Validation des données recommandée pour WiFi dongle",
       "description": "Un WiFi dongle est configuré mais la **Validation des données** est désactivée. Les WiFi dongles partagent un bus Modbus, et les lectures simultanées peuvent provoquer des données de registre corrompues (p. ex., pics d'énergie).\n\nPour corriger, allez dans **Paramètres > Appareils et services > EG4 Web Monitor > Configurer** et activez la **Validation des données**."
+    },
+    "serial_attach_failed": {
+      "title": "Échec de la connexion série pour l'appareil {serial}",
+      "description": "La connexion série Modbus (USB/RS485) sur **{serial_port}** n'a pas pu être ouverte pour l'appareil **{serial}**. L'appareil utilise temporairement les seules données cloud.\n\nVérifiez que l'adaptateur est branché, que le chemin du port est correct et qu'aucun autre logiciel n'occupe le port, puis rechargez l'intégration."
+    },
+    "transport_attach_failed": {
+      "title": "Échec de la connexion locale pour l'appareil {serial}",
+      "description": "La connexion locale vers **{host}** n'a pas pu être établie pour l'appareil **{serial}** — cela arrive fréquemment juste après un redémarrage de Home Assistant, tant que le dongle WiFi conserve la connexion de la session précédente. L'appareil utilise temporairement les données cloud.\n\nL'intégration réessaie automatiquement environ une fois par minute ; ce problème se résout de lui-même dès que la connexion locale est rétablie. S'il persiste, vérifiez que l'appareil est alimenté et joignable à **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Connexion locale à l'appareil {serial} perdue",
+      "description": "La connexion locale vers **{host}** pour l'appareil **{serial}** ne répond plus après plusieurs échecs de lecture consécutifs — généralement une coupure réseau, une déconnexion VPN ou un dongle/passerelle redémarré. Tant que la liaison est interrompue, l'appareil bascule sur les données cloud si des identifiants cloud sont configurés ; sinon, ses entités deviennent indisponibles au lieu d'afficher des valeurs périmées.\n\nL'intégration retente la connexion locale à chaque cycle de mise à jour ; ce problème se résout de lui-même dès que la liaison est rétablie. S'il persiste, vérifiez que l'appareil est alimenté et joignable à **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Famille d'onduleur déduite du modèle pour {serial}",
+      "description": "L'appareil **{serial}** n'a pas signalé de famille d'onduleur reconnue ; ses capacités ont donc été déduites du nom de modèle **{model}** (famille **{family}**). Les capteurs propres à une phase qui n'ont jamais eu de données (p. ex. capteurs triphasés R/S/T sur du matériel biphasé) ne sont plus créés.\n\nSi une automatisation référençait ces capteurs, mettez-la à jour. Si cet appareil est réellement triphasé, définissez **Type de réseau** dans les options de l'intégration. Merci de signaler aussi le code de type d'appareil de votre micrologiciel (voir le capteur de diagnostic « Device Type Code ») afin qu'il puisse être référencé."
     }
   }
 }

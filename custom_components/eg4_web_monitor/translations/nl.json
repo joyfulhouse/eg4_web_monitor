@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
           "data_validation": "Registerdata Validatie",
-          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen"
+          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen",
+          "charge_control_mode": "Batterijlaadbesturing",
+          "discharge_control_mode": "Batterijontlaadbesturing"
         },
         "data_description": {
           "sensor_update_interval": "Hoe vaak te pollen voor sensorupdates ({min_sensor_interval}-{max_sensor_interval} seconden). Lagere waarden bieden snellere updates maar verhogen de API-belasting.",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
           "data_validation": "Corruptiedetectie voor lokale registerlezingen inschakelen. Valideert fysieke grenzen (SoC, frequentie, smartpoortstatus) en energiemonotoniteit. Alleen inschakelen bij instabiele registerlezingen (spookentiteiten, energiepieken, ongeldige waarden).",
-          "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep"
+          "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep",
+          "charge_control_mode": "Hoe uw batterij bepaalt wanneer het laden STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde limietbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer.",
+          "discharge_control_mode": "Hoe uw batterij bepaalt wanneer het ontladen STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde afschakelbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Kan de batterijbesturingsmodus niet toepassen op de omvormer. Controleer de apparaatverbinding en probeer het opnieuw."
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "De configuratie-invoer-ID om af te stemmen. Indien niet opgegeven worden alle {brand_name} Web Monitor-integraties met cloud-inloggegevens afgestemd."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Historische gegevens importeren",
+      "description": "Importeert de dagelijkse energiegeschiedenis op installatieniveau (PV-opbrengst, verbruik, netimport/-export, batterijladen/-ontladen) uit de {brand_name}-cloud naar de langetermijnstatistieken van Home Assistant. De gegevens worden weggeschreven als afzonderlijke externe statistieken die in het Energiedashboard te selecteren zijn; bestaande sensorgeschiedenis wordt nooit gewijzigd. Dezelfde of overlappende periodes opnieuw uitvoeren is veilig.",
+      "fields": {
+        "config_entry": {
+          "name": "Configuratie-item",
+          "description": "Het {brand_name} Web Monitor-configuratie-item (installatie) waarvoor de geschiedenis wordt geïmporteerd."
+        },
+        "dry_run": {
+          "name": "Proefrun",
+          "description": "Bekijk wat er zou worden geïmporteerd zonder statistieken weg te schrijven."
+        },
+        "start_date": {
+          "name": "Startdatum",
+          "description": "Eerste dag om te importeren (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Einddatum",
+          "description": "Laatste dag om te importeren (YYYY-MM-DD). Standaard vandaag. Maximaal bereik: 2 jaar."
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "Ongeldig datumformaat. Gebruik het formaat JJJJ-MM-DD."
+    },
+    "cloud_required": {
+      "message": "Historische import vereist cloudreferenties (HTTP- of hybride verbindingsmodus)."
+    },
+    "date_range_too_large": {
+      "message": "Het datumbereik van {range_days} dagen overschrijdt het maximum van {max_days} dagen (2 jaar). Importeer de geschiedenis in kleinere delen."
+    },
+    "history_api_unavailable": {
+      "message": "De geïnstalleerde pylxpweb-bibliotheek biedt niet de energiegeschiedenis-API die deze service vereist. Werk de integratie bij zodat de vereiste pylxpweb-versie wordt geïnstalleerd."
+    },
+    "invalid_date_range": {
+      "message": "Ongeldig datumbereik: {start_date} tot {end_date}. De startdatum mag niet in de toekomst of na de einddatum liggen."
+    },
+    "no_devices": {
+      "message": "Er zijn geen omvormers gevonden voor deze installatie."
+    },
+    "station_not_ready": {
+      "message": "De cloudstationgegevens zijn nog niet geladen. Wacht tot de integratie de eerste vernieuwing heeft voltooid en probeer het opnieuw."
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "Datavalidatie aanbevolen voor WiFi dongle",
       "description": "Een WiFi dongle is geconfigureerd maar **Datavalidatie** is uitgeschakeld. WiFi dongles delen een Modbus-bus, en gelijktijdig lezen kan corrupte registerdata veroorzaken (bijv. energiepieken).\n\nGa naar **Instellingen > Apparaten & diensten > EG4 Web Monitor > Configureren** en schakel **Datavalidatie** in."
+    },
+    "serial_attach_failed": {
+      "title": "Seriële verbinding mislukt voor apparaat {serial}",
+      "description": "De seriële Modbus-verbinding (USB/RS485) op **{serial_port}** kon niet worden geopend voor apparaat **{serial}**. Het apparaat gebruikt tijdelijk alleen cloudgegevens.\n\nControleer of de adapter is aangesloten, het poortpad klopt en geen andere software de poort gebruikt, en herlaad daarna de integratie."
+    },
+    "transport_attach_failed": {
+      "title": "Lokale verbinding mislukt voor apparaat {serial}",
+      "description": "De lokale verbinding met **{host}** kon niet tot stand worden gebracht voor apparaat **{serial}** — dit gebeurt vaak direct na een herstart van Home Assistant, zolang de wifi-dongle de verbinding van de vorige sessie nog vasthoudt. Het apparaat gebruikt tijdelijk cloudgegevens.\n\nDe integratie probeert het automatisch ongeveer één keer per minuut opnieuw; dit probleem verdwijnt vanzelf zodra de lokale verbinding is hersteld. Blijft het bestaan, controleer dan of het apparaat is ingeschakeld en bereikbaar is op **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Lokale verbinding met apparaat {serial} verbroken",
+      "description": "De lokale verbinding met **{host}** voor apparaat **{serial}** reageert niet meer na meerdere opeenvolgende leesfouten — meestal een netwerkonderbreking, een weggevallen VPN of een herstarte dongle/gateway. Zolang de verbinding weg is, valt het apparaat terug op cloudgegevens als er cloudreferenties zijn geconfigureerd; anders worden de entiteiten niet-beschikbaar in plaats van verouderde waarden te tonen.\n\nDe integratie blijft de lokale verbinding elke updatecyclus opnieuw proberen; dit probleem verdwijnt vanzelf zodra de verbinding herstelt. Blijft het bestaan, controleer dan of het apparaat is ingeschakeld en bereikbaar is op **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Omvormerfamilie afgeleid van het model voor {serial}",
+      "description": "Apparaat **{serial}** rapporteerde geen herkende omvormerfamilie, dus zijn de mogelijkheden afgeleid van de modelnaam **{model}** (familie **{family}**). Fasespecifieke sensoren die nooit gegevens hadden (bijv. driefasige R/S/T-sensoren op split-phase-hardware) worden niet meer aangemaakt.\n\nAls een automatisering naar die sensoren verwees, werk deze dan bij. Is dit apparaat werkelijk driefasig, stel dan **Nettype** in bij de integratieopties. Meld ook de apparaattypecode van uw firmware (zie de diagnostische sensor 'Device Type Code'), zodat deze kan worden toegevoegd."
     }
   }
 }

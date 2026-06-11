@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
           "library_debug": "程式庫偵錯日誌",
           "data_validation": "暫存器資料驗證",
-          "include_ac_couple_pv": "將交流耦合光伏納入總量"
+          "include_ac_couple_pv": "將交流耦合光伏納入總量",
+          "charge_control_mode": "電池充電控制",
+          "discharge_control_mode": "電池放電控制"
         },
         "data_description": {
           "sensor_update_interval": "輪詢感測器更新的頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較低的值提供更快的更新，但會增加 API 負載。",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
           "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
           "data_validation": "啟用本地暫存器讀取的損壞偵測。驗證物理邊界（SoC、頻率、智慧埠狀態）和能量單調性。僅在出現不穩定的暫存器讀取時啟用（幽靈實體、能量尖峰、無效值）。",
-          "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中"
+          "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中",
+          "charge_control_mode": "電池如何決定何時停止充電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的限制控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。",
+          "discharge_control_mode": "電池如何決定何時停止放電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的截止控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。"
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "無法將電池控制模式套用到逆變器。請檢查裝置連線後再試一次。"
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "要核對的設定項目ID。如果未提供，將核對所有具有雲端憑據的{brand_name} Web Monitor整合。"
         }
       }
+    },
+    "import_historical_data": {
+      "name": "匯入歷史資料",
+      "description": "將電站層級的每日能源歷史（太陽能發電、用電量、電網買電/賣電、電池充電/放電）從 {brand_name} 雲端匯入 Home Assistant 長期統計。資料會寫入為可在能源儀表板中選取的獨立外部統計；現有感測器歷史絕不會被修改。重複執行相同或重疊的範圍是安全的。",
+      "fields": {
+        "config_entry": {
+          "name": "設定項目",
+          "description": "要匯入歷史資料的 {brand_name} Web Monitor 設定項目（電站）。"
+        },
+        "dry_run": {
+          "name": "試執行",
+          "description": "預覽將匯入的內容，而不寫入任何統計資料。"
+        },
+        "start_date": {
+          "name": "開始日期",
+          "description": "要匯入的第一天（YYYY-MM-DD）。"
+        },
+        "end_date": {
+          "name": "結束日期",
+          "description": "要匯入的最後一天（YYYY-MM-DD）。預設為今天。最大範圍：2 年。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "日期格式無效。請使用YYYY-MM-DD格式。"
+    },
+    "cloud_required": {
+      "message": "歷史資料匯入需要雲端憑證（HTTP 或混合連線模式）。"
+    },
+    "date_range_too_large": {
+      "message": "{range_days} 天的日期範圍超過 {max_days} 天（2 年）的上限。請分成較小的區間匯入歷史資料。"
+    },
+    "history_api_unavailable": {
+      "message": "已安裝的 pylxpweb 程式庫未提供此服務所需的能源歷史 API。請更新整合，以安裝所需的 pylxpweb 版本。"
+    },
+    "invalid_date_range": {
+      "message": "無效的日期範圍：{start_date} 至 {end_date}。開始日期不可在未來，也不可晚於結束日期。"
+    },
+    "no_devices": {
+      "message": "找不到此電站的任何逆變器。"
+    },
+    "station_not_ready": {
+      "message": "雲端電站資料尚未載入。請等待整合完成首次更新後再試一次。"
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "建議為 WiFi dongle 啟用資料驗證",
       "description": "已設定 WiFi dongle，但**資料驗證**已停用。WiFi dongle 共用 Modbus 匯流排，同時讀取可能導致暫存器資料損壞（例如能量尖峰）。\n\n若要修正，請前往**設定 > 裝置與服務 > EG4 Web Monitor > 設定**，然後啟用**資料驗證**。"
+    },
+    "serial_attach_failed": {
+      "title": "裝置 {serial} 的序列連線失敗",
+      "description": "無法在 **{serial_port}** 上為裝置 **{serial}** 開啟 Modbus 序列（USB/RS485）連線。此裝置暫時僅使用雲端資料。\n\n請檢查轉接器是否已插入、連接埠路徑是否正確、是否有其他軟體佔用該連接埠，然後重新載入整合。"
+    },
+    "transport_attach_failed": {
+      "title": "裝置 {serial} 的本地連線失敗",
+      "description": "無法為裝置 **{serial}** 建立到 **{host}** 的本地連線——這通常發生在 Home Assistant 重新啟動後不久，此時 WiFi 收集棒仍保持上一工作階段的連線。此裝置暫時使用雲端資料。\n\n整合大約每分鐘自動重試一次；本地連線恢復後此問題會自行解除。若問題持續，請檢查裝置是否通電並可透過 **{host}** 存取。"
+    },
+    "transport_link_down": {
+      "title": "與裝置 {serial} 的本地連線已中斷",
+      "description": "裝置 **{serial}** 到 **{host}** 的本地連線在連續多次讀取失敗後停止回應——常見原因是網路中斷、VPN 斷線或收集棒/閘道器重新啟動。連線中斷期間，若已設定雲端憑證，裝置會改用雲端資料；否則其實體將變為無法使用，而不是顯示過期數值。\n\n整合會在每個更新週期持續重試本地連線；連線恢復後此問題會自行解除。若問題持續，請檢查裝置是否通電並可透過 **{host}** 存取。"
+    },
+    "unknown_family_fallback": {
+      "title": "已依型號推斷 {serial} 的逆變器系列",
+      "description": "裝置 **{serial}** 未回報可辨識的逆變器系列，因此其功能已依型號名稱 **{model}** 推導（系列 **{family}**）。從未有資料的相位類感測器（例如分相硬體上的三相 R/S/T 感測器）將不再建立。\n\n若有自動化引用了這些感測器，請更新。若此裝置確實為三相，請在整合選項中設定**電網類型**。也請回報韌體的裝置類型代碼（見診斷感測器「Device Type Code」），以便正式納入對應。"
     }
   }
 }

@@ -374,7 +374,9 @@
           "parameter_refresh_interval": "Interwal odswiezania parametrow (minuty)",
           "library_debug": "Logowanie debugowania biblioteki",
           "data_validation": "Walidacja Danych Rejestru",
-          "include_ac_couple_pv": "Uwzględnij PV sprzężone AC w sumach"
+          "include_ac_couple_pv": "Uwzględnij PV sprzężone AC w sumach",
+          "charge_control_mode": "Sterowanie ładowaniem baterii",
+          "discharge_control_mode": "Sterowanie rozładowaniem baterii"
         },
         "data_description": {
           "sensor_update_interval": "Jak czesto odpytywac o aktualizacje czujnikow ({min_sensor_interval}-{max_sensor_interval} sekund). Nizsze wartosci zapewniaja szybsze aktualizacje, ale zwiększaja obciazenie API.",
@@ -384,9 +386,14 @@
           "parameter_refresh_interval": "Jak czesto odswiezac parametry falownika, takie jak limity SOC i ustawienia ladowania ({min_param_interval}-{max_param_interval} minut).",
           "library_debug": "Wlacz logowanie DEBUG dla biblioteki pylxpweb (pokazuje zadania API, odpowiedzi i wewnetrzne operacje biblioteki)",
           "data_validation": "Włącz wykrywanie uszkodzeń dla lokalnych odczytów rejestrów. Sprawdza granice fizyczne (SoC, częstotliwość, status portów inteligentnych) i monotoniczność energii. Włącz tylko w przypadku niestabilnych odczytów (encje-duchy, skoki energii, nieprawidłowe wartości).",
-          "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej"
+          "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej",
+          "charge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ ładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki limitów są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik.",
+          "discharge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ rozładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki odcięcia są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Nie udało się zastosować trybu sterowania baterią w falowniku. Sprawdź połączenie urządzenia i spróbuj ponownie."
     }
   },
   "selector": {
@@ -751,6 +758,28 @@
           "description": "ID wpisu konfiguracji do uzgodnienia. Jeśli nie podano, zostaną uzgodnione wszystkie integracje {brand_name} Web Monitor z poświadczeniami chmury."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Importuj dane historyczne",
+      "description": "Importuje dzienną historię energii na poziomie instalacji (produkcja PV, zużycie, import/eksport z sieci, ładowanie/rozładowanie baterii) z chmury {brand_name} do statystyk długoterminowych Home Assistant. Dane są zapisywane jako osobne statystyki zewnętrzne, które można wybrać na pulpicie Energia; istniejąca historia czujników nigdy nie jest modyfikowana. Ponowne uruchamianie tych samych lub nakładających się zakresów jest bezpieczne.",
+      "fields": {
+        "config_entry": {
+          "name": "Wpis konfiguracji",
+          "description": "Wpis konfiguracji {brand_name} Web Monitor (instalacja), dla którego ma zostać zaimportowana historia."
+        },
+        "dry_run": {
+          "name": "Próba",
+          "description": "Podgląd tego, co zostałoby zaimportowane, bez zapisywania statystyk."
+        },
+        "start_date": {
+          "name": "Data początkowa",
+          "description": "Pierwszy dzień do zaimportowania (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Data końcowa",
+          "description": "Ostatni dzień do zaimportowania (YYYY-MM-DD). Domyślnie dzisiaj. Maksymalny zakres: 2 lata."
+        }
+      }
     }
   },
   "exceptions": {
@@ -765,12 +794,46 @@
     },
     "invalid_date_format": {
       "message": "Nieprawidłowy format daty. Użyj formatu RRRR-MM-DD."
+    },
+    "cloud_required": {
+      "message": "Import danych historycznych wymaga poświadczeń chmury (tryb połączenia HTTP lub hybrydowy)."
+    },
+    "date_range_too_large": {
+      "message": "Zakres dat {range_days} dni przekracza maksimum {max_days} dni (2 lata). Zaimportuj historię w mniejszych częściach."
+    },
+    "history_api_unavailable": {
+      "message": "Zainstalowana biblioteka pylxpweb nie udostępnia interfejsu API historii energii wymaganego przez tę usługę. Zaktualizuj integrację, aby zainstalowana została wymagana wersja pylxpweb."
+    },
+    "invalid_date_range": {
+      "message": "Nieprawidłowy zakres dat: od {start_date} do {end_date}. Data początkowa nie może być w przyszłości ani po dacie końcowej."
+    },
+    "no_devices": {
+      "message": "Nie znaleziono falowników dla tej instalacji."
+    },
+    "station_not_ready": {
+      "message": "Dane stacji z chmury nie zostały jeszcze załadowane. Poczekaj, aż integracja zakończy pierwsze odświeżanie, i spróbuj ponownie."
     }
   },
   "issues": {
     "dongle_validation_disabled": {
       "title": "Zalecana walidacja danych dla WiFi dongle",
       "description": "WiFi dongle jest skonfigurowany, ale **Walidacja danych** jest wyłączona. WiFi dongle współdzielą magistralę Modbus, a jednoczesne odczyty mogą powodować uszkodzone dane rejestrów (np. skoki energii).\n\nAby naprawić, przejdź do **Ustawienia > Urządzenia i usługi > EG4 Web Monitor > Konfiguruj** i włącz **Walidację danych**."
+    },
+    "serial_attach_failed": {
+      "title": "Połączenie szeregowe urządzenia {serial} nie powiodło się",
+      "description": "Nie udało się otworzyć połączenia szeregowego Modbus (USB/RS485) na **{serial_port}** dla urządzenia **{serial}**. Urządzenie tymczasowo korzysta wyłącznie z danych z chmury.\n\nSprawdź, czy adapter jest podłączony, czy ścieżka portu jest poprawna i czy żadne inne oprogramowanie nie zajmuje portu, a następnie załaduj integrację ponownie."
+    },
+    "transport_attach_failed": {
+      "title": "Połączenie lokalne urządzenia {serial} nie powiodło się",
+      "description": "Nie udało się nawiązać lokalnego połączenia z **{host}** dla urządzenia **{serial}** — zdarza się to często tuż po restarcie Home Assistant, gdy klucz WiFi wciąż utrzymuje połączenie z poprzedniej sesji. Urządzenie tymczasowo korzysta z danych z chmury.\n\nIntegracja automatycznie ponawia próbę mniej więcej raz na minutę; problem rozwiąże się sam po przywróceniu połączenia lokalnego. Jeśli będzie się utrzymywać, sprawdź, czy urządzenie jest zasilane i osiągalne pod adresem **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Utracono lokalne połączenie z urządzeniem {serial}",
+      "description": "Lokalne połączenie z **{host}** dla urządzenia **{serial}** przestało odpowiadać po kilku kolejnych nieudanych odczytach — zwykle to przerwa w sieci, zerwane VPN albo zrestartowany klucz/bramka. Gdy łącze nie działa, urządzenie korzysta z danych z chmury, jeśli skonfigurowano poświadczenia chmury; w przeciwnym razie jego encje stają się niedostępne, zamiast pokazywać nieaktualne wartości.\n\nIntegracja ponawia próbę połączenia lokalnego w każdym cyklu aktualizacji; problem rozwiąże się sam po przywróceniu łącza. Jeśli będzie się utrzymywać, sprawdź, czy urządzenie jest zasilane i osiągalne pod adresem **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Rodzina falownika dla {serial} wywnioskowana z modelu",
+      "description": "Urządzenie **{serial}** nie zgłosiło rozpoznawanej rodziny falowników, więc jego możliwości wyprowadzono z nazwy modelu **{model}** (rodzina **{family}**). Czujniki fazowe, które nigdy nie miały danych (np. trójfazowe czujniki R/S/T na sprzęcie dwufazowym split-phase), nie są już tworzone.\n\nJeśli jakaś automatyzacja odwoływała się do tych czujników, zaktualizuj ją. Jeśli urządzenie naprawdę jest trójfazowe, ustaw **Typ sieci** w opcjach integracji. Prosimy też o zgłoszenie kodu typu urządzenia z oprogramowania układowego (patrz czujnik diagnostyczny „Device Type Code”), aby można go było zmapować."
     }
   }
 }
