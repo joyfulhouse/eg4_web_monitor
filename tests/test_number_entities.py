@@ -15,7 +15,7 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeSOCLimitNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
-    ForcedDischargePowerRateNumber,
+    ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
@@ -110,7 +110,7 @@ class TestNumberPlatformSetup:
         assert "SystemChargeSOCLimitNumber" in type_names
         assert "PVStartVoltageNumber" in type_names
         # Forced discharge controls (regs 82/83, GH #207 / PR #249)
-        assert "ForcedDischargePowerRateNumber" in type_names
+        assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
@@ -528,16 +528,20 @@ class TestSystemChargeSOCWrite:
 
 
 class TestForcedDischargeNumbers:
-    """Forced Discharge Power Rate (reg 82) + SOC Limit (reg 83), both %."""
+    """Forced Discharge Power (reg 82, kW) + SOC Limit (reg 83, %).
 
-    def test_power_rate_definition(self):
+    Reg 82 stores 100W units (0-255 = 0-25.5 kW) — hardware-verified in
+    PR #249 (panel 2.5 kW reads raw 25); cloud UI takes float kW [0, 25.5].
+    """
+
+    def test_power_definition(self):
         coordinator = _mock_coordinator()
-        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
-        assert entity.native_min_value == 0
-        assert entity.native_max_value == 100
-        assert entity.native_step == 1
-        assert entity.native_unit_of_measurement == "%"
-        assert entity.unique_id.endswith("_forced_discharge_power_rate")
+        entity = ForcedDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 0.0
+        assert entity.native_max_value == 25.5
+        assert entity.native_step == 0.1
+        assert entity.native_unit_of_measurement == "kW"
+        assert entity.unique_id.endswith("_forced_discharge_power")
 
     def test_soc_limit_definition_and_regime_key(self):
         coordinator = _mock_coordinator()
@@ -550,8 +554,9 @@ class TestForcedDischargeNumbers:
         assert entity._control_key == "forced_discharge_soc_limit"
 
     def test_regime_classification(self):
-        """SOC limit is a discharge/SOC-regime control; power rate is NOT
-        regime-gated (a power level, not a stop limit)."""
+        """SOC limit is a discharge/SOC-regime control; the power command is
+        NOT regime-gated (a power level, not a stop limit — the cloud UI
+        likewise gates only the SOC field with disChgSocEnable)."""
         from custom_components.eg4_web_monitor.const.device_types import (
             DISCHARGE_SOC_CONTROLS,
             REGIME_GATED_CONTROLS,
@@ -563,62 +568,78 @@ class TestForcedDischargeNumbers:
             "discharge",
             "soc",
         )
-        assert "forced_discharge_power_rate" not in REGIME_GATED_CONTROLS
-        assert control_side_and_mode("forced_discharge_power_rate") is None
+        assert "forced_discharge_power" not in REGIME_GATED_CONTROLS
+        assert control_side_and_mode("forced_discharge_power") is None
 
     def test_native_value_from_params_local(self):
-        """LOCAL: values come from the parameter cache (read via the
-        widened (64, 20) range -> REGISTER_TO_PARAM_KEYS 82/83)."""
+        """LOCAL: raw 100W values from the parameter cache scale to kW
+        (read via the widened (64, 20) range -> REGISTER_TO_PARAM_KEYS)."""
         coordinator = _mock_coordinator(
             local_only=True,
             parameters={
-                "HOLD_FORCED_DISCHG_POWER_CMD": 50,
+                "HOLD_FORCED_DISCHG_POWER_CMD": 25,
                 "HOLD_FORCED_DISCHG_SOC_LIMIT": 20,
             },
         )
-        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
         soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
-        assert power.native_value == 50
+        # PR #249 hardware round-trip: panel 2.5 kW == raw 25
+        assert power.native_value == 2.5
         assert soc.native_value == 20
 
     def test_native_value_from_inverter_cloud(self):
-        """CLOUD/HYBRID: pylxpweb cached-parameter properties feed the value."""
+        """CLOUD/HYBRID: pylxpweb cached-parameter properties feed the value
+        (the cloud property already returns kW — no rescale here)."""
         coordinator = _mock_coordinator(
             inverter_attrs={
-                "forced_discharge_power": 40,
+                "forced_discharge_power": 4.0,
                 "forced_discharge_soc_limit": 15,
             },
         )
-        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
         soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
-        assert power.native_value == 40
+        assert power.native_value == 4.0
         assert soc.native_value == 15
 
     @pytest.mark.asyncio
-    async def test_power_rate_write_local(self):
-        """Local transport writes HOLD_FORCED_DISCHG_POWER_CMD by name."""
+    async def test_power_write_local(self):
+        """Local transport writes the raw 100W value by name (2.5 kW -> 25)."""
         coordinator = _mock_coordinator(has_local=True)
-        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(30.0)
+        await entity.async_set_native_value(2.5)
 
         coordinator.write_named_parameter.assert_called_once()
         call_args = coordinator.write_named_parameter.call_args
         assert call_args[0][0] == "HOLD_FORCED_DISCHG_POWER_CMD"
-        assert call_args[0][1] == 30
+        assert call_args[0][1] == 25
 
     @pytest.mark.asyncio
-    async def test_power_rate_write_cloud(self):
-        """Cloud mode calls inverter.set_forced_discharge_power(percent=...)."""
-        coordinator = _mock_coordinator(has_local=False, has_http=True)
-        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+    async def test_power_write_local_float_rounding(self):
+        """kW->raw conversion rounds instead of truncating float artifacts
+        (2.3 * 10 = 22.999... must write 23, not 22)."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(30.0)
+        await entity.async_set_native_value(2.3)
+
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][1] == 23
+
+    @pytest.mark.asyncio
+    async def test_power_write_cloud(self):
+        """Cloud mode calls inverter.set_forced_discharge_power(power_kw=...)
+        — the cloud API takes float kW directly."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = ForcedDischargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(2.5)
 
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.set_forced_discharge_power.assert_called_once_with(percent=30)
+        inverter.set_forced_discharge_power.assert_called_once_with(power_kw=2.5)
 
     @pytest.mark.asyncio
     async def test_soc_limit_write_local(self):
@@ -648,19 +669,25 @@ class TestForcedDischargeNumbers:
 
     @pytest.mark.asyncio
     async def test_write_validation(self):
-        """Out-of-range and non-integer values raise HomeAssistantError."""
+        """Out-of-range kW/SOC and non-integer SOC raise HomeAssistantError.
+
+        The power command accepts fractional kW (0.1 kW register
+        granularity), so only the SOC keeps the integer restriction.
+        """
         coordinator = _mock_coordinator()
-        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
         soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
         _prep(power)
         _prep(soc)
 
         with pytest.raises(HomeAssistantError, match="must be between"):
-            await power.async_set_native_value(101.0)
-        with pytest.raises(HomeAssistantError, match="must be an integer"):
-            await power.async_set_native_value(50.5)
+            await power.async_set_native_value(25.6)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await power.async_set_native_value(-0.1)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await soc.async_set_native_value(-1.0)
+        with pytest.raises(HomeAssistantError, match="must be an integer"):
+            await soc.async_set_native_value(50.5)
 
     @pytest.mark.asyncio
     async def test_cloud_write_guard_on_old_pylxpweb(self):
@@ -671,12 +698,12 @@ class TestForcedDischargeNumbers:
         del inverter.set_forced_discharge_power
         del inverter.set_forced_discharge_soc_limit
 
-        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        power = ForcedDischargePowerNumber(coordinator, "1234567890")
         soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
         _prep(power)
         _prep(soc)
 
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
-            await power.async_set_native_value(30.0)
+            await power.async_set_native_value(2.5)
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
             await soc.async_set_native_value(20.0)

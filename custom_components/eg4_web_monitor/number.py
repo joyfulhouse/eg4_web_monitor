@@ -450,7 +450,7 @@ async def async_setup_entry(
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         GridPeakShavingPowerNumber(coordinator, serial),
-                        ForcedDischargePowerRateNumber(coordinator, serial),
+                        ForcedDischargePowerNumber(coordinator, serial),
                         # SOC limit controls (enabled when the matching control
                         # mode is SOC — default)
                         SystemChargeSOCLimitNumber(coordinator, serial),
@@ -829,52 +829,55 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         )
 
 
-class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
-    """Number entity for Forced Discharge Power Rate control (reg 82, %).
+class ForcedDischargePowerNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge Power control (reg 82, kW).
 
     Discharge power level used while forced discharge
-    (``FUNC_FORCED_DISCHG_EN``) is active, as a percentage of rated power.
-    A power level rather than a stop limit, so deliberately NOT
-    regime-gated (GH #207 / PR #249, hardware-tested by DevTodd).
+    (``FUNC_FORCED_DISCHG_EN``) is active. The register stores 100W units
+    (0-255 = 0-25.5 kW) — the reg-74/66 encoding, hardware-verified in
+    PR #249 (panel 2.5 kW reads raw 25); the cloud takes float kW
+    directly. A power level rather than a stop limit, so deliberately
+    NOT regime-gated (GH #207).
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
-        self._attr_name = "Forced Discharge Power Rate"
+        self._attr_name = "Forced Discharge Power"
         self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_forced_discharge_power_rate"
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_power"
         )
         self._attr_native_min_value = FORCED_DISCHARGE_POWER_MIN
         self._attr_native_max_value = FORCED_DISCHARGE_POWER_MAX
         self._attr_native_step = FORCED_DISCHARGE_POWER_STEP
-        self._attr_native_unit_of_measurement = "%"
+        self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:battery-arrow-down"
-        self._attr_native_precision = 0
+        self._attr_native_precision = 1
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+        return (ForcedDischargePowerNumber, ForcedDischargeSOCLimitNumber)
 
     @property
     def native_value(self) -> float | None:
-        """Return the current forced discharge power rate."""
+        """Return the current forced discharge power in kW.
+
+        Local params hold the raw 100W value (scaled ÷10 here); the cloud
+        ``forced_discharge_power`` property already returns kW.
+        """
         return self._read_param_value(
             param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
             value_min=0,
-            value_max=100,
+            value_max=25.5,
             inverter_attr="forced_discharge_power",
+            as_float=True,
+            param_transform=lambda v: float(v) / 10.0,
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the forced discharge power rate."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
+        """Set the forced discharge power (kW -> reg 82 in 100W units)."""
+        if value < 0.0 or value > 25.5:
             raise HomeAssistantError(
-                f"Forced discharge power rate must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Forced discharge power rate must be an integer value, got {value}"
+                f"Forced discharge power must be between 0.0-25.5 kW, got {value}"
             )
         # Cloud setter ships with pylxpweb > 0.9.36b3 — fail with a clear
         # message instead of an AttributeError if the installed library
@@ -886,15 +889,16 @@ class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
             and not hasattr(inverter, "set_forced_discharge_power")
         ):
             raise HomeAssistantError(
-                "Forced discharge power rate requires a newer pylxpweb "
+                "Forced discharge power requires a newer pylxpweb "
                 "(set_forced_discharge_power missing) — update and reload"
             )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_FORCED_DISCHG_POWER,
+            local_value=int(round(value * 10)),
             cloud_method="set_forced_discharge_power",
-            cloud_kwargs={"percent": int_value},
-            label=f"forced discharge power rate to {int_value}%",
+            cloud_kwargs={"power_kw": value},
+            label=f"forced discharge power to {value:.1f} kW",
         )
 
 
@@ -923,7 +927,7 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 0
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+        return (ForcedDischargePowerNumber, ForcedDischargeSOCLimitNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -946,7 +950,7 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
             raise HomeAssistantError(
                 f"Forced discharge SOC limit must be an integer value, got {value}"
             )
-        # Cloud setter ships with pylxpweb > 0.9.36b3 — see the power-rate
+        # Cloud setter ships with pylxpweb > 0.9.36b3 — see the power
         # entity above for rationale.
         inverter = self.coordinator.get_inverter_object(self.serial)
         if (
