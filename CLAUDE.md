@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.3** — HYBRID attach retry + degraded cloud-fallback unfreeze (live-found on prod); everything from beta.2 (Charge Last, OFFGRID registers, #248 smart-port re-land); 1040 tests, pylxpweb>=0.9.36b2
+- **v3.4.0-beta.4** — `import_historical_data` service (#73), register contract harness (eg4-1z8) with all 8 day-one divergences fixed (output_power load semantics, net grid_power, cloud GridBOSS consumption_power/generator_frequency, fault/warning code sensors, yield canonical pairing), transport link-down handling (#226 second half), bank-sensor late registration (eg4-68y); 1159 tests, pylxpweb>=0.9.36b3
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
