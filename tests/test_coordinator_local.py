@@ -703,12 +703,23 @@ class TestFinishAttachRecovery:
                 raise TimeoutError("bus busy")
             reloaded.append(serial)
 
+        coordinator.data = {
+            "parameters": {
+                "1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12},
+                "9876543210": {"HOLD_AC_CHARGE_POWER_CMD": 12},
+            }
+        }
         with patch.object(
             coordinator, "_refresh_device_parameters", side_effect=reload
         ):
             await coordinator._finish_attach_recovery([], ["1234567890", "9876543210"])
 
         assert reloaded == ["9876543210"]
+        # The failed serial's stale cloud-kW params are dropped (unknown
+        # beats wrong-by-10x); the other serial's cache is untouched here
+        # (the real reload replaces it via _refresh_device_parameters).
+        assert coordinator.data["parameters"]["1234567890"] == {}
+        assert coordinator.data["parameters"]["9876543210"] != {}
 
 
 @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")

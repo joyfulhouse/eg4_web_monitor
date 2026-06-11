@@ -2163,11 +2163,16 @@ class LocalTransportMixin(_MixinBase):
             try:
                 await self._refresh_device_parameters(serial)
             except Exception as err:
-                _LOGGER.debug(
+                _LOGGER.warning(
                     "Parameter reload after attach recovery failed for %s: %s",
                     serial,
                     err,
                 )
+                # Better unknown than wrong-by-10x: drop the stale cloud-kW
+                # values so entities read unknown until the next successful
+                # transport-side parameter load (hourly throttle at worst).
+                if self.data and serial in self.data.get("parameters", {}):
+                    self.data["parameters"][serial] = {}
 
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.
