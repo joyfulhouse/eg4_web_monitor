@@ -1061,8 +1061,9 @@ class DeviceProcessingMixin(_MixinBase):
         """
         return {
             # Power sensors
-            # Note: pylxpweb uses power_output property, but we map to output_power
-            # for consistency with local mode (which uses output_power from Modbus)
+            # power_output carries unified LOAD-OUTPUT semantics (eg4-9e4):
+            # transport reg 170 (Pload) in HYBRID, cloud pLoad170 in CLOUD —
+            # matching the LOCAL table's output_power (reg 170) exactly.
             "power_output": "output_power",
             "pv_total_power": "pv_total_power",
             "pv1_power": "pv1_power",

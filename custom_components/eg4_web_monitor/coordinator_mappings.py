@@ -612,6 +612,18 @@ def _build_runtime_sensor_mapping(
     Returns:
         Dictionary mapping sensor keys to values.
     """
+    # Net grid flow (eg4-9wf): grid_power = import − export (positive = import),
+    # from regs 27/26 (power_to_user/power_to_grid) — the same formula the
+    # CLOUD path computes in _process_inverter_object and the GridBOSS sign
+    # convention.  Reg 17 (Prec) is RECTIFIER power and feeds the separate
+    # rectifier_power sensor; it must never masquerade as grid power.
+    grid_import = runtime_data.power_from_grid
+    grid_export = runtime_data.power_to_grid
+    net_grid_power = (
+        grid_import - grid_export
+        if grid_import is not None and grid_export is not None
+        else None
+    )
     mapping: dict[str, Any] = {
         # PV/Solar input
         "pv1_voltage": runtime_data.pv1_voltage,
@@ -655,7 +667,7 @@ def _build_runtime_sensor_mapping(
         "grid_voltage_l1": runtime_data.grid_l1_voltage,
         "grid_voltage_l2": runtime_data.grid_l2_voltage,
         "grid_frequency": runtime_data.grid_frequency,
-        "grid_power": runtime_data.grid_power,
+        "grid_power": net_grid_power,
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,
