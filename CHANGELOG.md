@@ -5,6 +5,19 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> Requires pylxpweb newer than 0.9.36b3 (next release bumps the manifest
+> requirement accordingly).
+
+### Added
+
+- **`Forced Discharge Power Rate` and `Forced Discharge SOC Limit` controls** ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207), co-authored with [@DevTodd](https://github.com/DevTodd) from [PR #249](https://github.com/joyfulhouse/eg4_web_monitor/pull/249)): two percent number entities per inverter backed by holding registers 82/83, working in cloud, local, and hybrid modes. The register pair was hardware-verified via the WiFi dongle by @DevTodd; this implementation routes through the parameter-cache architecture (the registers ride the existing Modbus parameter read — no extra bus traffic, dongle-safe). The SOC limit participates in the charge/discharge regime gating like the other SOC cutoffs; the power rate applies in both regimes. Use case from the report: closed-loop regulation of forced-discharge output against an external CT.
+
+### Fixed
+
+- **Historical import: plant-level `grid_import` series no longer empty** (via the next pylxpweb release, live-found during beta.4 verification): the cloud's parallel-group month endpoint names grid import `eImportDay` while the single-inverter endpoint uses `eToUserDay` — the parser only knew the latter, so `import_historical_data` reported `no_data` for grid import on multi-inverter plants while the other five series worked. Re-running the service after updating backfills the series (idempotent). The generator-port daily series (`eGenDay` — AC-coupled PV on gen-port sites) is now parsed too.
+
 ## [3.4.0-beta.4] - 2026-06-11
 
 ### Changed
