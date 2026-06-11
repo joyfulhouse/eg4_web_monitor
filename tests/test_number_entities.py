@@ -15,6 +15,8 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeSOCLimitNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
+    ForcedDischargePowerRateNumber,
+    ForcedDischargeSOCLimitNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     SystemChargeSOCLimitNumber,
@@ -67,6 +69,8 @@ def _mock_coordinator(
     mock_inverter.set_ac_charge_power = AsyncMock(return_value=True)
     mock_inverter.set_pv_charge_power = AsyncMock(return_value=True)
     mock_inverter.set_ac_charge_soc_limit = AsyncMock(return_value=True)
+    mock_inverter.set_forced_discharge_power = AsyncMock(return_value=True)
+    mock_inverter.set_forced_discharge_soc_limit = AsyncMock(return_value=True)
     mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
     mock_inverter.set_battery_charge_current = AsyncMock(return_value=True)
     mock_inverter.set_battery_discharge_current = AsyncMock(return_value=True)
@@ -92,7 +96,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 15 number entities (10 base + 5 voltage)."""
+        """FlexBOSS inverter creates 17 number entities (12 base + 5 voltage)."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -100,11 +104,14 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 15
+        assert len(entities) == 17
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
         assert "PVStartVoltageNumber" in type_names
+        # Forced discharge controls (regs 82/83, GH #207 / PR #249)
+        assert "ForcedDischargePowerRateNumber" in type_names
+        assert "ForcedDischargeSOCLimitNumber" in type_names
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
         assert "OnGridCutoffVoltageNumber" in type_names
@@ -515,3 +522,161 @@ class TestSystemChargeSOCWrite:
             HomeAssistantError, match="must be an integer between 10-101"
         ):
             await entity.async_set_native_value(5.0)
+
+
+# ── Forced discharge controls (regs 82/83, GH #207 / PR #249) ────────
+
+
+class TestForcedDischargeNumbers:
+    """Forced Discharge Power Rate (reg 82) + SOC Limit (reg 83), both %."""
+
+    def test_power_rate_definition(self):
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 0
+        assert entity.native_max_value == 100
+        assert entity.native_step == 1
+        assert entity.native_unit_of_measurement == "%"
+        assert entity.unique_id.endswith("_forced_discharge_power_rate")
+
+    def test_soc_limit_definition_and_regime_key(self):
+        coordinator = _mock_coordinator()
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 0
+        assert entity.native_max_value == 100
+        assert entity.native_unit_of_measurement == "%"
+        assert entity.unique_id.endswith("_forced_discharge_soc_limit")
+        # SOC-regime stop limit: participates in reg-179 discharge gating
+        assert entity._control_key == "forced_discharge_soc_limit"
+
+    def test_regime_classification(self):
+        """SOC limit is a discharge/SOC-regime control; power rate is NOT
+        regime-gated (a power level, not a stop limit)."""
+        from custom_components.eg4_web_monitor.const.device_types import (
+            DISCHARGE_SOC_CONTROLS,
+            REGIME_GATED_CONTROLS,
+            control_side_and_mode,
+        )
+
+        assert "forced_discharge_soc_limit" in DISCHARGE_SOC_CONTROLS
+        assert control_side_and_mode("forced_discharge_soc_limit") == (
+            "discharge",
+            "soc",
+        )
+        assert "forced_discharge_power_rate" not in REGIME_GATED_CONTROLS
+        assert control_side_and_mode("forced_discharge_power_rate") is None
+
+    def test_native_value_from_params_local(self):
+        """LOCAL: values come from the parameter cache (read via the
+        widened (64, 20) range -> REGISTER_TO_PARAM_KEYS 82/83)."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={
+                "HOLD_FORCED_DISCHG_POWER_CMD": 50,
+                "HOLD_FORCED_DISCHG_SOC_LIMIT": 20,
+            },
+        )
+        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert power.native_value == 50
+        assert soc.native_value == 20
+
+    def test_native_value_from_inverter_cloud(self):
+        """CLOUD/HYBRID: pylxpweb cached-parameter properties feed the value."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={
+                "forced_discharge_power": 40,
+                "forced_discharge_soc_limit": 15,
+            },
+        )
+        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        assert power.native_value == 40
+        assert soc.native_value == 15
+
+    @pytest.mark.asyncio
+    async def test_power_rate_write_local(self):
+        """Local transport writes HOLD_FORCED_DISCHG_POWER_CMD by name."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(30.0)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_FORCED_DISCHG_POWER_CMD"
+        assert call_args[0][1] == 30
+
+    @pytest.mark.asyncio
+    async def test_power_rate_write_cloud(self):
+        """Cloud mode calls inverter.set_forced_discharge_power(percent=...)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(30.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_forced_discharge_power.assert_called_once_with(percent=30)
+
+    @pytest.mark.asyncio
+    async def test_soc_limit_write_local(self):
+        """Local transport writes HOLD_FORCED_DISCHG_SOC_LIMIT by name."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(20.0)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_FORCED_DISCHG_SOC_LIMIT"
+        assert call_args[0][1] == 20
+
+    @pytest.mark.asyncio
+    async def test_soc_limit_write_cloud(self):
+        """Cloud mode calls inverter.set_forced_discharge_soc_limit(...)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(20.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_forced_discharge_soc_limit.assert_called_once_with(soc_percent=20)
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Out-of-range and non-integer values raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(power)
+        _prep(soc)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await power.async_set_native_value(101.0)
+        with pytest.raises(HomeAssistantError, match="must be an integer"):
+            await power.async_set_native_value(50.5)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await soc.async_set_native_value(-1.0)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_guard_on_old_pylxpweb(self):
+        """Installed pylxpweb without the new setters raises a clean error
+        instead of AttributeError (codex r1 HIGH: version coupling)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        del inverter.set_forced_discharge_power
+        del inverter.set_forced_discharge_soc_limit
+
+        power = ForcedDischargePowerRateNumber(coordinator, "1234567890")
+        soc = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(power)
+        _prep(soc)
+
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await power.async_set_native_value(30.0)
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await soc.async_set_native_value(20.0)

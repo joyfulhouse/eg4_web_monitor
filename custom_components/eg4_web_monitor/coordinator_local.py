@@ -227,7 +227,10 @@ class LocalTransportMixin(_MixinBase):
                     20,
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
-                (64, 16),  # Power settings + AC charge/discharge (64-79)
+                # Power settings + AC charge/discharge (64-79) + forced
+                # discharge power/SOC (82-83, GH #207) — one widened read
+                # keeps the Modbus budget flat vs a separate (82, 2) read.
+                (64, 20),
                 (
                     100,
                     3,
