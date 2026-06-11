@@ -17,7 +17,8 @@ from .const import (
     GRID_TYPE_SPLIT_PHASE,
     GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
-    INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_EG4_HYBRID,
+    INVERTER_FAMILY_LXP,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
 )
@@ -188,12 +189,25 @@ def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
         sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
 
 
+# Families whose cloud pLoad170 mirror is trustworthy for output_power:
+# EG4_HYBRID is live-verified (18kPV pLoad170=2395 / FlexBOSS21 2365,
+# 2026-06-10) and LXP carries the canonical reg-170 pairing with no
+# zeroing evidence.  EG4_OFFGRID is excluded (#197: the cloud zeroes the
+# mirror), and so is UNKNOWN or any unrecognized family — the pylxpweb
+# InverterFamily enum emits the truthy string "UNKNOWN" on failed
+# detection, so membership in this allowlist (not a not-OFFGRID check)
+# is the only safe test (codex r2 HIGH).
+_CLOUD_PLOAD170_TRUSTED_FAMILIES: frozenset[str] = frozenset(
+    {INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP}
+)
+
+
 def drop_offgrid_cloud_output_power(
     sensors: dict[str, Any],
     inverter_family: str | None,
     has_transport_runtime: bool,
 ) -> None:
-    """Drop cloud-sourced ``output_power`` for EG4_OFFGRID (eg4-9e4 / #197).
+    """Drop cloud-sourced ``output_power`` unless its mirror is trusted.
 
     ``output_power`` carries reg-170 load-output semantics on every path,
     but the cloud ZEROES its reg-170 mirror (``pLoad170``) for EG4_OFFGRID
@@ -201,10 +215,10 @@ def drop_offgrid_cloud_output_power(
     cloud-mapped value is that bogus zero — remove the key rather than
     publish a false 0 W load.  Fail-closed like the #197 entity gate in
     sensor.py: the value survives only when it came from the local register
-    (transport runtime present) or the family is positively known and is
-    not EG4_OFFGRID.  A transiently unknown family costs one cycle of the
-    sensor on cloud-connected EG4_HYBRID/LXP systems; the alternative is
-    corrupt data on EG4_OFFGRID.
+    (transport runtime present) or the family is in the positively-known
+    trusted allowlist.  A transiently unknown family costs one cycle of
+    the sensor on cloud-connected EG4_HYBRID/LXP systems; the alternative
+    is corrupt data on EG4_OFFGRID.
 
     Called from the cloud/hybrid device processing path only — the LOCAL
     mapping reads reg 170 directly, which is always genuine.
@@ -217,7 +231,7 @@ def drop_offgrid_cloud_output_power(
     """
     if has_transport_runtime:
         return
-    if inverter_family and inverter_family != INVERTER_FAMILY_EG4_OFFGRID:
+    if inverter_family in _CLOUD_PLOAD170_TRUSTED_FAMILIES:
         return
     sensors.pop("output_power", None)
 
