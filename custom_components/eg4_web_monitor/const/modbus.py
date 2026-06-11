@@ -41,9 +41,9 @@ PARAM_HOLD_CHG_POWER_PERCENT = "HOLD_CHG_POWER_PERCENT_CMD"  # reg 64: charge po
 # path uses. (Local path historically mis-targeted reg 64 % with a lossy kW<->%
 # conversion.)
 PARAM_HOLD_FORCED_CHG_POWER = "HOLD_FORCED_CHG_POWER_CMD"
-# Forced discharge controls (regs 82/83, GH #207 / PR #249). Both PERCENT
-# (0-100) per the canonical holding table and the cloud parameter names —
-# unlike the reg-74 100W forced-charge encoding above.
+# Forced discharge controls (regs 82/83, GH #207 / PR #249). Reg 82 uses the
+# same 100W-unit encoding as reg 74 above (0-255 = 0-25.5 kW; hardware-verified
+# in PR #249: panel 2.5 kW reads raw 25). Reg 83 is percent (0-100).
 PARAM_HOLD_FORCED_DISCHG_POWER = "HOLD_FORCED_DISCHG_POWER_CMD"
 PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT = "HOLD_FORCED_DISCHG_SOC_LIMIT"
 PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"

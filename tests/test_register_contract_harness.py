@@ -1266,9 +1266,10 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # The reg64-vs-reg74 guard: PV/forced charge power is reg 74 (100 W
     # units), NOT the reg-64 percent command (see 3.3.0-beta.7 fix).
     PARAM_HOLD_FORCED_CHG_POWER: (74, None),
-    # Forced discharge power/SOC (GH #207 / PR #249): PERCENT on both —
-    # canonical + cloud param naming agree; the inter-table check below
-    # verifies the pylxpweb REGISTER_TO_PARAM_KEYS pairing added with this.
+    # Forced discharge power/SOC (GH #207 / PR #249): reg 82 is 100W units
+    # like reg 74 (hardware-verified: panel 2.5 kW -> raw 25), reg 83 is
+    # percent; the inter-table check below verifies the pylxpweb
+    # REGISTER_TO_PARAM_KEYS pairing added with this.
     PARAM_HOLD_FORCED_DISCHG_POWER: (82, None),
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT: (83, None),
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE: (100, None),
