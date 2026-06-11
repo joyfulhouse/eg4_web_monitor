@@ -3993,7 +3993,8 @@ class TestMappingKeyConsistency:
         }
 
         property_map = DeviceProcessingMixin._get_mid_device_property_map()
-        http_keys = set(property_map.values())
+        alias_map = DeviceProcessingMixin._get_mid_device_property_aliases()
+        http_keys = set(property_map.values()) | set(alias_map.values())
         allowed = (
             GRIDBOSS_SENSOR_KEYS
             | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
@@ -4014,7 +4015,9 @@ class TestMappingKeyConsistency:
 
         mock_mid = make_real_mid("0987654321", "GridBOSS", runtime=MidboxRuntimeData())
         local_keys = set(_build_gridboss_sensor_mapping(mock_mid).keys())
-        http_keys = set(DeviceProcessingMixin._get_mid_device_property_map().values())
+        http_keys = set(
+            DeviceProcessingMixin._get_mid_device_property_map().values()
+        ) | set(DeviceProcessingMixin._get_mid_device_property_aliases().values())
 
         overlap = local_keys & http_keys
         # Both paths should share at least 40 sensor keys (the core set)
@@ -4022,6 +4025,31 @@ class TestMappingKeyConsistency:
             f"Only {len(overlap)} shared keys between LOCAL and HTTP GridBOSS "
             f"mappings — expected >= 40"
         )
+        # eg4-7uz regression: these two were LOCAL-only before the cloud map
+        # gained generator_frequency and the load_power -> consumption_power
+        # alias — they must stay on BOTH paths.
+        assert {"consumption_power", "generator_frequency"} <= overlap
+
+    def test_gridboss_http_map_sources_for_eg4_7uz_keys(self):
+        """eg4-7uz: cloud MID map sources match the LOCAL table semantics.
+
+        ``generator_frequency`` reads the dual-source MIDDevice property of
+        the same name; ``consumption_power`` aliases the ``load_power``
+        property (load CT measurement), exactly like the LOCAL table in
+        ``_build_gridboss_sensor_mapping()``.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        property_map = DeviceProcessingMixin._get_mid_device_property_map()
+        alias_map = DeviceProcessingMixin._get_mid_device_property_aliases()
+
+        assert property_map["generator_frequency"] == "generator_frequency"
+        assert alias_map["load_power"] == "consumption_power"
+        # Alias keys must not shadow keys the main map already feeds
+        # (the alias pass runs dict.update() over the main map's output).
+        assert not set(alias_map.values()) & set(property_map.values())
 
     def test_inverter_local_runtime_keys_subset_of_static(self):
         """LOCAL _build_runtime_sensor_mapping() keys ⊆ INVERTER_RUNTIME_KEYS."""

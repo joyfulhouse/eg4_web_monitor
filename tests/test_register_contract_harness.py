@@ -378,23 +378,29 @@ LOCAL_GRIDBOSS_MAP = _trace_sensor_mapping(_build_gridboss_sensor_mapping)
 CLOUD_INVERTER_MAP = DeviceProcessingMixin._get_inverter_property_map()
 CLOUD_BATTERY_MAP = DeviceProcessingMixin._get_battery_property_map()
 CLOUD_MID_MAP = DeviceProcessingMixin._get_mid_device_property_map()
+# Alias pairs applied after the main map: a dict keyed by property cannot
+# express one property feeding two sensor keys (GridBOSS load_power ->
+# consumption_power), so the cloud table is the main map PLUS these pairs.
+CLOUD_MID_ALIAS_MAP = DeviceProcessingMixin._get_mid_device_property_aliases()
 
 # sensor_key -> property (property maps are injective on values by design;
 # verified by the explicit assertion below).
 CLOUD_INVERTER_BY_KEY = {key: prop for prop, key in CLOUD_INVERTER_MAP.items()}
 CLOUD_BATTERY_BY_KEY = {key: prop for prop, key in CLOUD_BATTERY_MAP.items()}
-CLOUD_MID_BY_KEY = {key: prop for prop, key in CLOUD_MID_MAP.items()}
+CLOUD_MID_BY_KEY = {
+    key: prop for prop, key in (*CLOUD_MID_MAP.items(), *CLOUD_MID_ALIAS_MAP.items())
+}
 
 
 def test_property_maps_are_injective() -> None:
     """No two properties may feed the same sensor key (silent overwrite)."""
-    for label, prop_map in (
-        ("inverter", CLOUD_INVERTER_MAP),
-        ("battery", CLOUD_BATTERY_MAP),
-        ("mid_device", CLOUD_MID_MAP),
+    for label, prop_pairs in (
+        ("inverter", tuple(CLOUD_INVERTER_MAP.items())),
+        ("battery", tuple(CLOUD_BATTERY_MAP.items())),
+        ("mid_device", (*CLOUD_MID_MAP.items(), *CLOUD_MID_ALIAS_MAP.items())),
     ):
         seen: dict[str, str] = {}
-        for prop, key in prop_map.items():
+        for prop, key in prop_pairs:
             assert key not in seen, (
                 f"{label} property map: sensor key {key!r} fed by both "
                 f"{seen[key]!r} and {prop!r} — last writer silently wins"
@@ -1071,21 +1077,6 @@ KNOWN_GRIDBOSS_TABLE_DIVERGENCES: dict[str, str] = {
     # DELIBERATE: timestamp added at the call site on the HTTP path
     # (_process_mid_device_object) and inside the table on the LOCAL path.
     "midbox_last_polled": "deliberate: HTTP path stamps at call site",
-    # TODO(eg4-7uz): real divergence, needs adjudication.  LOCAL aliases
-    # consumption_power = load_power (CT measurement); the cloud/HYBRID
-    # property map has NO consumption_power entry, so the sensor never gets
-    # data in CLOUD/HYBRID even though docs/DATA_MAPPING.md ("consumption_
-    # power (GridBOSS)") claims BOTH paths set it.
-    "consumption_power": (
-        "TODO(eg4-7uz): LOCAL-only alias of load_power; cloud map misses it"
-    ),
-    # TODO(eg4-7uz): real divergence, needs adjudication.  The MIDDevice
-    # generator_frequency property handles both sources (cloud genFreq is in
-    # the documented GridBOSS cloud mapping), but the cloud/HYBRID property
-    # map omits it, so the sensor is LOCAL-only today.
-    "generator_frequency": (
-        "TODO(eg4-7uz): property exists for both sources; cloud map misses it"
-    ),
 }
 
 
@@ -1121,7 +1112,11 @@ def test_gridboss_properties_exist_on_mid_device() -> None:
     offenders = sorted(
         {
             prop
-            for prop in (set(LOCAL_GRIDBOSS_MAP.values()) | set(CLOUD_MID_MAP.keys()))
+            for prop in (
+                set(LOCAL_GRIDBOSS_MAP.values())
+                | set(CLOUD_MID_MAP.keys())
+                | set(CLOUD_MID_ALIAS_MAP.keys())
+            )
             if prop != DERIVED and not hasattr(MIDDevice, prop)
         }
     )
@@ -1222,7 +1217,11 @@ def test_gridboss_unsurfaced_canonical_keys_are_documented() -> None:
     # aggregate properties merely consume (per-leg energy summed into the
     # aggregate keys) do not publish their advertised per-leg key.
     surfaced_canonicals: set[str] = set()
-    for prop in set(LOCAL_GRIDBOSS_MAP.values()) | set(CLOUD_MID_MAP.keys()):
+    for prop in (
+        set(LOCAL_GRIDBOSS_MAP.values())
+        | set(CLOUD_MID_MAP.keys())
+        | set(CLOUD_MID_ALIAS_MAP.keys())
+    ):
         if prop == DERIVED:
             continue
         field = _single(_trace_mid_property(prop))
@@ -1493,9 +1492,6 @@ def test_todo_divergences_are_inventoried() -> None:
         "output_power": "eg4-9e4",
         # eg4-9wf: grid_power LOCAL=raw Prec vs CLOUD=net pToUser-pToGrid.
         "grid_power": "eg4-9wf",
-        # eg4-7uz: GridBOSS cloud-map omissions.
-        "consumption_power": "eg4-7uz",
-        "generator_frequency": "eg4-7uz",
     }
     assert set(todo_entries) == set(expected), (
         "TODO divergence inventory drifted — update this test AND the owning "

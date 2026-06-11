@@ -58,7 +58,16 @@ _PROPERTY_MAP_TARGETS = [
         DeviceProcessingMixin._get_parallel_group_property_map(),
         ParallelGroup,
     ),
-    ("mid_device", DeviceProcessingMixin._get_mid_device_property_map(), MIDDevice),
+    (
+        "mid_device",
+        # Merge the alias pairs so their source properties are seam-checked
+        # too (only the KEYS — source attrs — matter in this test).
+        {
+            **DeviceProcessingMixin._get_mid_device_property_map(),
+            **DeviceProcessingMixin._get_mid_device_property_aliases(),
+        },
+        MIDDevice,
+    ),
 ]
 
 
