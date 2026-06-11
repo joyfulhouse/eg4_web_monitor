@@ -31,6 +31,12 @@ from .const import (
     CUTOFF_VOLTAGE_MAX,
     CUTOFF_VOLTAGE_MIN,
     CUTOFF_VOLTAGE_STEP,
+    FORCED_DISCHARGE_POWER_MAX,
+    FORCED_DISCHARGE_POWER_MIN,
+    FORCED_DISCHARGE_POWER_STEP,
+    FORCED_DISCHARGE_SOC_LIMIT_MAX,
+    FORCED_DISCHARGE_SOC_LIMIT_MIN,
+    FORCED_DISCHARGE_SOC_LIMIT_STEP,
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
@@ -41,6 +47,8 @@ from .const import (
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
     PARAM_HOLD_FORCED_CHG_POWER,
+    PARAM_HOLD_FORCED_DISCHG_POWER,
+    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -442,12 +450,14 @@ async def async_setup_entry(
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         GridPeakShavingPowerNumber(coordinator, serial),
+                        ForcedDischargePowerRateNumber(coordinator, serial),
                         # SOC limit controls (enabled when the matching control
                         # mode is SOC — default)
                         SystemChargeSOCLimitNumber(coordinator, serial),
                         ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
+                        ForcedDischargeSOCLimitNumber(coordinator, serial),
                         # Voltage limit controls (enabled when the matching
                         # control mode is Voltage). Always created; disabled by
                         # default in SOC mode to reduce entity clutter.
@@ -816,6 +826,119 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_soc_limit",
             cloud_kwargs={"soc_percent": int_value},
             label=f"AC charge SOC limit to {int_value}%",
+        )
+
+
+class ForcedDischargePowerRateNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge Power Rate control (reg 82, %).
+
+    Discharge power level used while forced discharge
+    (``FUNC_FORCED_DISCHG_EN``) is active, as a percentage of rated power.
+    A power level rather than a stop limit, so deliberately NOT
+    regime-gated (GH #207 / PR #249, hardware-tested by DevTodd).
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge Power Rate"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_power_rate"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_POWER_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_POWER_MAX
+        self._attr_native_step = FORCED_DISCHARGE_POWER_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-arrow-down"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current forced discharge power rate."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_POWER,
+            value_min=0,
+            value_max=100,
+            inverter_attr="forced_discharge_power",
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the forced discharge power rate."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be between 0-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge power rate must be an integer value, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_FORCED_DISCHG_POWER,
+            cloud_method="set_forced_discharge_power",
+            cloud_kwargs={"percent": int_value},
+            label=f"forced discharge power rate to {int_value}%",
+        )
+
+
+class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
+    """Number entity for Forced Discharge SOC Limit control (reg 83, %).
+
+    Forced discharge stops when the battery reaches this SOC. An SOC-regime
+    stop limit, so it participates in the reg-179 regime gating like the
+    on/off-grid SOC cutoffs (GH #207 / PR #249).
+    """
+
+    _control_key = "forced_discharge_soc_limit"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Forced Discharge SOC Limit"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_forced_discharge_soc_limit"
+        )
+        self._attr_native_min_value = FORCED_DISCHARGE_SOC_LIMIT_MIN
+        self._attr_native_max_value = FORCED_DISCHARGE_SOC_LIMIT_MAX
+        self._attr_native_step = FORCED_DISCHARGE_SOC_LIMIT_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-20"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ForcedDischargePowerRateNumber, ForcedDischargeSOCLimitNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current forced discharge SOC limit."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+            value_min=0,
+            value_max=100,
+            inverter_attr="forced_discharge_soc_limit",
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the forced discharge SOC limit."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be between 0-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Forced discharge SOC limit must be an integer value, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+            cloud_method="set_forced_discharge_soc_limit",
+            cloud_kwargs={"soc_percent": int_value},
+            label=f"forced discharge SOC limit to {int_value}%",
         )
 
 

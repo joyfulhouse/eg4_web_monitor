@@ -102,6 +102,8 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
     PARAM_HOLD_FORCED_CHG_POWER,
+    PARAM_HOLD_FORCED_DISCHG_POWER,
+    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -1264,6 +1266,11 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # The reg64-vs-reg74 guard: PV/forced charge power is reg 74 (100 W
     # units), NOT the reg-64 percent command (see 3.3.0-beta.7 fix).
     PARAM_HOLD_FORCED_CHG_POWER: (74, None),
+    # Forced discharge power/SOC (GH #207 / PR #249): PERCENT on both —
+    # canonical + cloud param naming agree; the inter-table check below
+    # verifies the pylxpweb REGISTER_TO_PARAM_KEYS pairing added with this.
+    PARAM_HOLD_FORCED_DISCHG_POWER: (82, None),
+    PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT: (83, None),
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE: (100, None),
     PARAM_HOLD_CHARGE_CURRENT: (101, None),
     PARAM_HOLD_DISCHARGE_CURRENT: (102, None),

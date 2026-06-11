@@ -254,6 +254,10 @@ DISCHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
     {
         "on_grid_soc_cutoff",
         "off_grid_soc_cutoff",
+        # Forced discharge stops at this SOC (reg 83) — an SOC-regime stop
+        # limit. The companion power rate (reg 82) is a power level, not a
+        # stop limit, so it is deliberately NOT regime-gated (GH #207).
+        "forced_discharge_soc_limit",
     }
 )
 DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(

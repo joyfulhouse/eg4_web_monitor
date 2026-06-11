@@ -56,6 +56,17 @@ SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
 # =============================================================================
+# Forced Discharge (regs 82/83, GH #207 / PR #249) — both percent
+# =============================================================================
+
+FORCED_DISCHARGE_POWER_MIN = 0
+FORCED_DISCHARGE_POWER_MAX = 100
+FORCED_DISCHARGE_POWER_STEP = 1
+FORCED_DISCHARGE_SOC_LIMIT_MIN = 0
+FORCED_DISCHARGE_SOC_LIMIT_MAX = 100
+FORCED_DISCHARGE_SOC_LIMIT_STEP = 1
+
+# =============================================================================
 # System Charge SOC Limit (%)
 # =============================================================================
 
