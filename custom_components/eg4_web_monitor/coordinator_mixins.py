@@ -48,6 +48,7 @@ from .coordinator_mappings import (
     apply_eps_load_power_sensors,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
+    drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
 from .utils import clean_battery_display_name
@@ -765,6 +766,15 @@ class DeviceProcessingMixin(_MixinBase):
         # Map inverter properties to sensor keys
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
+
+        # The cloud zeroes its reg-170 mirror (pLoad170) for EG4_OFFGRID, so
+        # the mapped output_power is a bogus 0 there unless the value came
+        # from the local register — never publish that zero (eg4-9e4 / #197).
+        drop_offgrid_cloud_output_power(
+            processed["sensors"],
+            features.get("inverter_family"),
+            inverter.transport_runtime is not None,
+        )
 
         # Per-phase EPS load power (regs 129/130 / cloud pEpsL1N/pEpsL2N) +
         # L1+L2 sum — same shared helper as the LOCAL mapping (issue #197).

@@ -17,6 +17,7 @@ from .const import (
     GRID_TYPE_SPLIT_PHASE,
     GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
+    INVERTER_FAMILY_EG4_OFFGRID,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
 )
@@ -185,6 +186,40 @@ def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
         sensors["eps_load_power_l2"] = l2
     if l1 is not None and l2 is not None:
         sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
+
+
+def drop_offgrid_cloud_output_power(
+    sensors: dict[str, Any],
+    inverter_family: str | None,
+    has_transport_runtime: bool,
+) -> None:
+    """Drop cloud-sourced ``output_power`` for EG4_OFFGRID (eg4-9e4 / #197).
+
+    ``output_power`` carries reg-170 load-output semantics on every path,
+    but the cloud ZEROES its reg-170 mirror (``pLoad170``) for EG4_OFFGRID
+    models (12000XP/6000XP, issue #197).  Without transport runtime the
+    cloud-mapped value is that bogus zero — remove the key rather than
+    publish a false 0 W load.  Fail-closed like the #197 entity gate in
+    sensor.py: the value survives only when it came from the local register
+    (transport runtime present) or the family is positively known and is
+    not EG4_OFFGRID.  A transiently unknown family costs one cycle of the
+    sensor on cloud-connected EG4_HYBRID/LXP systems; the alternative is
+    corrupt data on EG4_OFFGRID.
+
+    Called from the cloud/hybrid device processing path only — the LOCAL
+    mapping reads reg 170 directly, which is always genuine.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+        inverter_family: Detected family string, or None when unknown.
+        has_transport_runtime: True when Modbus transport runtime backs the
+            mapped value (pylxpweb ``power_output`` prefers the transport).
+    """
+    if has_transport_runtime:
+        return
+    if inverter_family and inverter_family != INVERTER_FAMILY_EG4_OFFGRID:
+        return
+    sensors.pop("output_power", None)
 
 
 # ---------------------------------------------------------------------------

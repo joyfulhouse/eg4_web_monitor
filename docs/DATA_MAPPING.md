@@ -1467,6 +1467,13 @@ NOT used as the mirror — it reads 0 on FlexBOSS21 while `pLoad170` is
 populated on every model.  Entity creation is no longer split-phase-gated
 (reg 170 exists on all families).
 
+**EG4_OFFGRID cloud-zero gate**: the cloud zeroes its reg-170 mirror for
+EG4_OFFGRID models (#197), so `drop_offgrid_cloud_output_power()` in
+`coordinator_mappings.py` removes the cloud-mapped key when no transport
+runtime backs it — fail-closed (an unknown family also drops).  Pure-CLOUD
+12000XP/6000XP therefore has no `output_power` entity (same policy as
+`load_power`); LOCAL and HYBRID get the genuine register value.
+
 #### `grid_import_power` (Inverter)
 
 Direct alias for register 27 (`power_to_user` in pylxpweb).
