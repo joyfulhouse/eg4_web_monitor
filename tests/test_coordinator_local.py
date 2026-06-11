@@ -702,6 +702,7 @@ class TestFinishAttachRecovery:
             if serial == "1234567890":
                 raise TimeoutError("bus busy")
             reloaded.append(serial)
+            coordinator.data["parameters"][serial] = {"HOLD_AC_CHARGE_POWER_CMD": 25}
 
         coordinator.data = {
             "parameters": {
@@ -715,11 +716,38 @@ class TestFinishAttachRecovery:
             await coordinator._finish_attach_recovery([], ["1234567890", "9876543210"])
 
         assert reloaded == ["9876543210"]
-        # The failed serial's stale cloud-kW params are dropped (unknown
-        # beats wrong-by-10x); the other serial's cache is untouched here
-        # (the real reload replaces it via _refresh_device_parameters).
+        # Both serials were pre-blanked; the successful reload repopulated
+        # its serial (raw), the failed one stays unknown rather than
+        # 10x-wrong.
         assert coordinator.data["parameters"]["1234567890"] == {}
-        assert coordinator.data["parameters"]["9876543210"] != {}
+        assert coordinator.data["parameters"]["9876543210"] == {
+            "HOLD_AC_CHARGE_POWER_CMD": 25
+        }
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_swallowed_reload_failure_leaves_unknown_not_stale(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """pylxpweb swallows parameter-read failures inside refresh() — no
+        exception reaches the recovery loop and the old dict would have been
+        copied straight back (codex r4). Pre-blanking means a reload that
+        silently does nothing leaves the cache unknown, never stale kW."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.data = {
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12}}
+        }
+
+        async def silent_noop(serial):
+            return None  # swallowed-failure mode: no raise, no repopulation
+
+        with patch.object(
+            coordinator, "_refresh_device_parameters", side_effect=silent_noop
+        ):
+            await coordinator._finish_attach_recovery([], ["1234567890"])
+
+        assert coordinator.data["parameters"]["1234567890"] == {}
 
 
 @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")

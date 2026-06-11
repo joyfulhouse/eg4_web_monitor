@@ -2160,6 +2160,18 @@ class LocalTransportMixin(_MixinBase):
         if recovered_modbus:
             await self._drain_modbus_buffers(recovered_modbus)
         for serial in recovered_serials:
+            # Pre-blank BOTH caches before the reload: pylxpweb swallows
+            # parameter-read failures inside refresh() and returns with the
+            # old (cloud-kW) dict intact, so success must be proven by
+            # repopulation — the absence of an exception proves nothing
+            # (codex r4). Unknown beats wrong-by-10x in the meantime; a
+            # successful transport read repopulates raw values seconds later,
+            # and a failed one self-heals at the next parameter refresh.
+            inverter = self.get_inverter_object(serial)
+            if inverter is not None:
+                inverter.parameters = None
+            if self.data and serial in self.data.get("parameters", {}):
+                self.data["parameters"][serial] = {}
             try:
                 await self._refresh_device_parameters(serial)
             except Exception as err:
@@ -2168,11 +2180,6 @@ class LocalTransportMixin(_MixinBase):
                     serial,
                     err,
                 )
-                # Better unknown than wrong-by-10x: drop the stale cloud-kW
-                # values so entities read unknown until the next successful
-                # transport-side parameter load (hourly throttle at worst).
-                if self.data and serial in self.data.get("parameters", {}):
-                    self.data["parameters"][serial] = {}
 
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.
