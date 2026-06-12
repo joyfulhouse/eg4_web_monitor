@@ -245,6 +245,10 @@ class LocalTransportMixin(_MixinBase):
                     179,
                     1,
                 ),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
+                # Stop discharge voltage (_12K_HOLD_STOP_DISCHG_VOLT, decivolts
+                # raw — bead eg4-aa3t). Older pylxpweb without the reg-202 name
+                # mapping surfaces this read under the raw key "202" (unused).
+                (202, 1),
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 # Registers 231-232 were read here as "grid peak shaving power"
                 # — removed (eg4-gfu5): PS1 actually lives at reg 206 (231 is an

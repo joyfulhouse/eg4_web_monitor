@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 > Requires pylxpweb newer than 0.9.36b5 (the manifest requirement is bumped
 > to 0.9.36b6 with this change).
 
@@ -16,6 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Grid Sell Back` (cloud `FUNC_FEED_IN_GRID_EN`, holding register 21 bit 15, live-verified): master enable for exporting surplus to the grid. Works in cloud, local, and hybrid modes.
   - `Grid Sell Back Power` (cloud `HOLD_FEED_IN_GRID_POWER_PERCENT`): maximum sell-back power as 0–100 % of rated output. The discovery session pinned this parameter to holding register 103 via single-register named reads on both inverters — notably the cloud never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for it. Whole percent on every transport (raw register and cloud value are the same number), so it works in cloud, local, and hybrid modes with no scaling hazards.
   - `Export PV Only` (cloud `FUNC_PV_SELL_TO_GRID_EN`): sell PV surplus only, never battery. **Cloud parameter mode only** (including legacy flat-hybrid): the parameter is confirmed to live in the holding-register-179 function family, but the cloud names that register's bits alphabetically, so its exact bit position is still unpinned — the integration deliberately ships no local register write for it, and skips the switch when the parameter cache is local-raw (LOCAL mode, or HYBRID with an attached transport) since its state could never be read truthfully there. A register-contract honesty test keeps this carve-out current: the moment the bit is pinned in pylxpweb, CI demands the full local wiring.
+=======
+> ⚠️ **Release coupling**: the Stop Discharge Voltage control below needs the NEXT
+> pylxpweb release (**> 0.9.36b5** — `feat/eg4-aa3t-stop-dischg-volt`:
+> `REGISTER_TO_PARAM_KEYS[202]` + `set_stop_discharge_voltage`). Cut that pylxpweb
+> release and bump the `manifest.json` requirement before shipping. On 0.9.36b5 the
+> entity degrades cleanly by design: the value stays unknown (reg 202 is read but
+> surfaces under the unused raw key `"202"`), cloud writes raise a clear
+> "requires a newer pylxpweb" error, and local writes fail with the transport's
+> unknown-parameter error — the same staging pattern the Forced Discharge
+> controls shipped with in beta.5.
+
+### Added
+
+- **`Stop Discharge Voltage` control** (bead eg4-aa3t): the voltage-regime counterpart of the Forced Discharge SOC Limit — the cloud maintain page's *"Stop Discharge Volt 1(V)"*, gated by `disChgVoltEnable`. One number entity per inverter (40.0–56.0 V, 0.1 steps), working in cloud, local, and hybrid modes. Holding register 202 was located by single-register cloud window bisection and its raw encoding live-verified as decivolts (raw 400 ↔ cloud 40 V on an 18kPV, 2026-06-11); the cloud accepts fractional volts (round-trip 40 → 41.5 → 40 V on an 18kPV and a FlexBOSS21). Participates in the charge/discharge regime gating like the other voltage cutoffs (disabled by default while the discharge control mode is SOC), rides the existing local parameter poll (one extra holding read per hourly refresh), and is pinned in the register-contract harness like regs 82/83.
+>>>>>>> feat/eg4-aa3t-stop-dischg-volt
 
 ## [3.4.0-beta.6] - 2026-06-12
 
