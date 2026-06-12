@@ -5,6 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.6] - 2026-06-12
+
+> Requires [pylxpweb 0.9.36b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b5)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **Loads no longer goes unknown during a hybrid local-link outage on the EG4 Off-Grid family** ([#226](https://github.com/joyfulhouse/eg4_web_monitor/issues/226) residual, found during the beta.5 reconnect verification): while every other sensor fell back to cloud data, `total_load_power` vanished — it was only ever fed by the local transport overlay, because the cloud's generic `consumptionPower` field reads a false 0 on these units. The off-grid family now falls back to the authoritative cloud split (`epsLoadPower + smartLoadPower + gridLoadPower`, via pylxpweb 0.9.36b5), so Loads rides out an outage like everything else. Bonus: pure-CLOUD off-grid setups gain the Loads sensor for the first time. Grid-tied models are intentionally unchanged (their per-inverter cloud consumption field is unreliable, so honest-unknown remains correct there).
+
 ## [3.4.0-beta.5] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b4](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b4)
