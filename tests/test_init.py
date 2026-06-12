@@ -19,6 +19,9 @@ from custom_components.eg4_web_monitor import (
 from custom_components.eg4_web_monitor.coordinator_mappings import (
     GRIDBOSS_STATIC_ENTITY_KEYS,
 )
+from custom_components.eg4_web_monitor.coordinator_mixins import (
+    _last_good_smart_port_statuses,
+)
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -335,6 +338,17 @@ class TestSmartPortCleanupOnReboot:
     # Non-smart-port GridBOSS sensor (must never be touched)
     PLAIN_KEY = "grid_power"
 
+    @pytest.fixture(autouse=True)
+    def _clean_status_cache(self):
+        """Isolate the module-level good-status cache between tests."""
+        _last_good_smart_port_statuses.pop(self.GRIDBOSS_SERIAL, None)
+        yield
+        _last_good_smart_port_statuses.pop(self.GRIDBOSS_SERIAL, None)
+
+    def _seed_good_status_cache(self):
+        """Simulate a definitive status read this session (port 1 smart load)."""
+        _last_good_smart_port_statuses[self.GRIDBOSS_SERIAL] = {1: 1, 2: 0, 3: 0, 4: 0}
+
     def _seed_registry(self, hass, entry):
         """Pre-create registry entries as they exist after a previous session."""
         registry = er.async_get(hass)
@@ -445,8 +459,10 @@ class TestSmartPortCleanupOnReboot:
         deferred_cleanup = coordinator.async_add_listener.call_args[0][0]
         unsub = coordinator.async_add_listener.return_value
 
-        # First real poll lands: port 1 active, port 2 unused
+        # First real poll lands: port 1 active, port 2 unused.  The filter
+        # caches the good statuses during that poll (simulated here).
         coordinator.data = self._authoritative_data()
+        self._seed_good_status_cache()
         deferred_cleanup()
 
         registry = er.async_get(hass)
@@ -490,6 +506,7 @@ class TestSmartPortCleanupOnReboot:
         """Cloud-style real first refresh cleans stale keys without a listener."""
         mock_config_entry.add_to_hass(hass)
         seeded = self._seed_registry(hass, mock_config_entry)
+        self._seed_good_status_cache()
 
         coordinator = await self._setup_with_data(
             hass, mock_config_entry, self._authoritative_data()
@@ -505,6 +522,61 @@ class TestSmartPortCleanupOnReboot:
 
         # No pending GridBOSS serials => no deferred-cleanup listener
         coordinator.async_add_listener.assert_not_called()
+
+    async def test_suspect_status_skip_defers_cleanup(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Status labels WITHOUT a session-cached good read must defer.
+
+        _filter_unused_smart_port_sensors() writes smart_port*_status labels
+        even on its skip-filtering path for suspect reads — but then the
+        dynamic power keys may be missing for genuinely active ports (LOCAL
+        strips None values before the filter).  Treating those labels as
+        authoritative would still nuke automation-pinned registry entries
+        (codex review HIGH).
+        """
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+
+        # Status keys present (skip path wrote labels), no dynamic keys at
+        # all, and — critically — NO cached good read for this serial.
+        data = self._static_data()
+        data["devices"][self.GRIDBOSS_SERIAL]["sensors"].update(
+            {f"smart_port{p}_status": "unused" for p in range(1, 5)}
+        )
+        coordinator = await self._setup_with_data(hass, mock_config_entry, data)
+
+        registry = er.async_get(hass)
+        for key, entry in seeded.items():
+            current = registry.async_get(entry.entity_id)
+            assert current is not None, f"{key} removed on suspect-status data"
+            assert current.id == entry.id
+        coordinator.async_add_listener.assert_called_once()
+
+    async def test_reload_with_warm_cache_and_static_data_defers(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """A warm session cache must not authorize cleanup of static data.
+
+        Reload scenario: the module-level good-status cache survives a config
+        entry reload, but the post-reload first refresh is static placeholder
+        data again (no smart-port keys).  Gating on the cache alone would
+        re-introduce the every-reload registry nuke.
+        """
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+        self._seed_good_status_cache()  # warm from before the reload
+
+        coordinator = await self._setup_with_data(
+            hass, mock_config_entry, self._static_data()
+        )
+
+        registry = er.async_get(hass)
+        for key, entry in seeded.items():
+            current = registry.async_get(entry.entity_id)
+            assert current is not None, f"{key} removed on post-reload static data"
+            assert current.id == entry.id
+        coordinator.async_add_listener.assert_called_once()
 
 
 class TestAsyncUnloadEntry:

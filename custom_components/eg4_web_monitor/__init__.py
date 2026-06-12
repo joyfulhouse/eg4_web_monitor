@@ -37,6 +37,7 @@ from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     SMART_PORT_STATUS_KEYS,
 )
+from .coordinator_mixins import has_validated_smart_port_statuses
 from .history_import import (
     IMPORT_HISTORICAL_DATA_SCHEMA,
     SERVICE_IMPORT_HISTORICAL_DATA,
@@ -299,15 +300,19 @@ def _async_cleanup_stale_smart_port_entities(
     keys are removed during setup.
 
     Removal only happens for GridBOSS serials whose coordinator data is
-    AUTHORITATIVE — i.e. the sensors dict contains smart_port*_status keys,
-    which _filter_unused_smart_port_sensors() writes on every successful real
-    poll.  The LOCAL-mode first refresh returns static placeholder data
-    without smart-port keys (port statuses are unknown before the first
-    register read); treating that as authoritative deleted every smart-port
-    registry entry on each reboot and re-created them moments later under NEW
-    registry entry IDs, permanently breaking automations pinned to the old
-    entry ID (#217).  The same applies to a CLOUD/HYBRID first refresh where
-    the midbox runtime endpoint returned no data.
+    AUTHORITATIVE: the sensors dict carries smart_port*_status keys (written
+    by _filter_unused_smart_port_sensors() on every real poll, never present
+    in static placeholder data) AND the serial has a session-cached good
+    status read (has_validated_smart_port_statuses — the filter's
+    skip-filtering path for suspect statuses writes the labels without
+    filtering, so status keys alone are not proof).  The LOCAL-mode first
+    refresh returns static placeholder data without smart-port keys (port
+    statuses are unknown before the first register read); treating that as
+    authoritative deleted every smart-port registry entry on each reboot and
+    re-created them moments later under NEW registry entry IDs, permanently
+    breaking automations pinned to the old entry ID (#217).  The same applies
+    to a CLOUD/HYBRID first refresh where the midbox runtime endpoint
+    returned no data.
 
     Returns:
         Serials of GridBOSS devices whose port data is not authoritative yet;
@@ -325,7 +330,19 @@ def _async_cleanup_stale_smart_port_entities(
         if device_data.get("type") != "gridboss":
             continue
         sensors = device_data.get("sensors", {})
-        if SMART_PORT_STATUS_KEYS.isdisjoint(sensors):
+        # BOTH conditions are required for authority (codex review HIGH):
+        # - status keys in the CURRENT sensors dict prove this cycle's data
+        #   went through _filter_unused_smart_port_sensors (never true for
+        #   the static placeholder — guards a reload whose session cache is
+        #   still warm from before the reload while the first refresh is
+        #   static again);
+        # - a session-cached good read proves the filter pass was definitive
+        #   (its skip-filtering path for suspect statuses writes the status
+        #   labels WITHOUT filtering, so dynamic keys may be missing for
+        #   ports that are really active).
+        if SMART_PORT_STATUS_KEYS.isdisjoint(
+            sensors
+        ) or not has_validated_smart_port_statuses(serial):
             pending_serials.add(serial)
             continue
         active_smart_port_keys_by_serial[serial] = {

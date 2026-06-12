@@ -72,6 +72,21 @@ _warned_smart_port_devices: set[str] = set()
 # unused) and should NOT be treated as corrupt (#195/#248).
 _last_good_smart_port_statuses: dict[str, dict[int, int]] = {}
 
+
+def has_validated_smart_port_statuses(serial: str) -> bool:
+    """Return True when a definitive smart-port status read exists for serial.
+
+    _filter_unused_smart_port_sensors() caches statuses only when a read is
+    fully valid (all ports in range 0-2).  Its skip-filtering path for
+    suspect reads still writes smart_port*_status labels into the sensors
+    dict WITHOUT filtering, so status keys alone do not prove the dynamic
+    power/energy keys reflect real port configuration.  The stale smart-port
+    registry cleanup in __init__.py requires this check in addition to the
+    status keys before removing entities (#217 codex review HIGH).
+    """
+    return serial in _last_good_smart_port_statuses
+
+
 # Map raw smart port status integers to human-readable enum labels
 _SMART_PORT_STATUS_LABELS: dict[int, str] = {
     0: "unused",
