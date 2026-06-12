@@ -1010,6 +1010,24 @@ class TestSupportsGridSellback:
 
         assert supports_grid_sellback({"model": "FutureModel 9000"})
 
+    def test_xp_variant_model_strings_blocked(self):
+        """XP-series variants that miss the exact-name table are still
+        classified off-grid by the digits-before-XP pattern (codex HIGH):
+        these pass SUPPORTED_INVERTER_MODELS' "xp" substring and would
+        otherwise default to allowed."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        for model in ("EG4 12000XP", "12000XP-US V2", "EG4-6000XP", "18000XP"):
+            assert not supports_grid_sellback({"model": model}), model
+
+    def test_lxp_models_not_caught_by_xp_pattern(self):
+        """Grid-tied LXP models contain "XP" with a letter before it and
+        must NOT be classified as the off-grid XP series."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        for model in ("LXP-EU 3650", "LXP-LB-BR 5K", "LXP 12K"):
+            assert supports_grid_sellback({"model": model}), model
+
 
 class TestGridSellbackSwitchGating:
     """Setup gating for Grid Sell Back / Export PV Only (GH #135)."""
