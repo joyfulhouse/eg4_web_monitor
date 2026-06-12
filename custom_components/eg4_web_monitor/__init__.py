@@ -501,9 +501,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
     active_smart_port_keys: set[str] = set()
+    gridboss_serials: set[str] = set()
     if coordinator.data and "devices" in coordinator.data:
-        for device_data in coordinator.data["devices"].values():
+        for serial, device_data in coordinator.data["devices"].items():
             if device_data.get("type") == "gridboss":
+                gridboss_serials.add(serial)
                 active_smart_port_keys.update(
                     k
                     for k in device_data.get("sensors", {})
@@ -511,6 +513,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                 )
     for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
         if entity.domain != "sensor":
+            continue
+        # Only GridBOSS entities are smart-port cleanup candidates.  The
+        # aggregate "smart_load_power" key is SHARED with EG4_OFFGRID
+        # inverters (cloud GEN-port smart load, #222) — a suffix-only match
+        # would delete the inverter entity from the registry on every setup
+        # whenever no GridBOSS port is active (codex review MEDIUM).
+        # Unique IDs are "{serial}_{sensor_key}", so gate on the serial.
+        if entity.unique_id.split("_", 1)[0] not in gridboss_serials:
             continue
         # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
         # Match by checking if any smart port key appears in the unique_id suffix

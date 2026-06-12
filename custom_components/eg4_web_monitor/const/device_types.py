@@ -194,11 +194,23 @@ DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
 # Sensors backed by registers confirmed working on EG4_OFFGRID hardware only
 # (12000XP/6000XP — live Modbus sweep + cloud cross-reference, issue #197):
 #   - eps_load_power_l1/_l2: input regs 129/130 (per-phase EPS load, W)
-#   - eps_load_power: L1+L2 sum (matches cloud epsLoadPower within timing skew)
+#   - eps_load_power: L1+L2 sum.  NOTE: regs 129/130 carry the COMBINED
+#     backup-path output — when a GEN-port smart load is active this sum is
+#     smart load + EPS loads, NOT the cloud epsLoadPower field, which is the
+#     EPS-only split (6000XP live evidence, issue #222: L1+L2 = 3371 W =
+#     smartLoadPower 2999 W + epsLoadPower 365 W).  With no smart load active
+#     it matches cloud epsLoadPower within timing skew (12000XP, issue #197).
 #   - load_power: input reg 170 ("Pload" in the 6kXP Modbus PDF, W).  The cloud
 #     zeroes its reg-170 mirror for EG4_OFFGRID, so the value comes from the
 #     LOCAL register only (LOCAL mapping + HYBRID transport overlay).
 #   - battery_discharge_power: input reg 11 / cloud pDisCharge (W)
+#   - smart_load_power / grid_load_power: cloud smartLoadPower /
+#     gridLoadPower fields (W) — the GEN-port smart load + grid-side split of
+#     the backup output (issue #222).  CLOUD/HYBRID supplemental only: no
+#     validated local register on this family (the 18kPV firmware RE names
+#     input reg 232 "smart_load_power" but it is unvalidated on EG4_OFFGRID
+#     hardware), so these keys are intentionally absent from
+#     ALL_INVERTER_SENSOR_KEYS and the LOCAL mapping.
 # NOTE: "load_power" is also a GridBOSS/parallel-group sensor key — this gate
 # only applies to inverter entities (GridBOSS devices carry no inverter
 # features, so _should_create_sensor passes them through).
@@ -209,6 +221,8 @@ OFFGRID_ONLY_SENSORS: frozenset[str] = frozenset(
         "eps_load_power",
         "load_power",
         "battery_discharge_power",
+        "smart_load_power",
+        "grid_load_power",
     }
 )
 

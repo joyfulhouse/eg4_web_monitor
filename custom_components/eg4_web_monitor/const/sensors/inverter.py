@@ -165,6 +165,18 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:home-lightning-bolt",
     },
+    # Grid-side load power — cloud gridLoadPower field (W), the grid leg of
+    # the 6000XP/12000XP load split (issue #222).  EG4_OFFGRID inverters
+    # only, CLOUD/HYBRID supplemental (no validated local register).  Its
+    # sibling smart_load_power shares the GridBOSS aggregate key — see the
+    # "GridBOSS Smart Load sensors" block below.
+    "grid_load_power": {
+        "name": "Grid Load Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower",
+    },
     # Battery discharge power (input reg 11 / cloud pDisCharge, W).
     # Reintroduced for EG4_OFFGRID (issue #197) after the charge/discharge
     # consolidation — the signed battery_power sensor remains the
@@ -1787,6 +1799,12 @@ SENSOR_TYPES = {
         "entity_category": "diagnostic",
     },
     # GridBOSS Smart Load sensors
+    # NOTE: "smart_load_power" is a SHARED key (like "load_power"): GridBOSS
+    # devices publish the all-ports smart-load aggregate, and EG4_OFFGRID
+    # inverters publish the cloud smartLoadPower field — the GEN-port smart
+    # load on 6000XP/12000XP (issue #222, CLOUD/HYBRID supplemental only).
+    # The inverter side is gated via OFFGRID_ONLY_SENSORS; GridBOSS bypasses
+    # that gate through device_type, so one definition serves both.
     "smart_load_power": {
         "name": "Smart Load Power",
         "unit": UnitOfPower.WATT,

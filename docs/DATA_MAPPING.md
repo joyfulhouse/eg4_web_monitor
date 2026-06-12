@@ -169,6 +169,19 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > both data paths).  All `eps_load_power_*`, `load_power` and
 > `battery_discharge_power` inverter entities are gated to EG4_OFFGRID via
 > `OFFGRID_ONLY_SENSORS` in `const/device_types.py`.
+>
+> **GEN-port smart load caveat (issue #222):** on the 6000XP the GEN terminal
+> can be a smart-load output, and regs 129/130 then carry the COMBINED
+> backup-path output (smart load + EPS loads) — live evidence: L1+L2 = 3371 W
+> = cloud `smartLoadPower` 2999 W + `epsLoadPower` 365 W.  The cloud-only
+> split is exposed as `smart_load_power` / `grid_load_power` sensors
+> (CLOUD/HYBRID supplemental, EG4_OFFGRID-gated; no validated local register
+> — the 18kPV firmware RE names input reg 232 `smart_load_power` but it has
+> never been observed non-zero and is unvalidated on off-grid hardware).
+> The cloud `epsLoadPower` (EPS-only) field is intentionally NOT given its
+> own sensor: the `eps_load_power` key already carries the combined L1+L2
+> semantics and renaming/repurposing it would break entity stability —
+> EPS-only load = `eps_load_power` − `smart_load_power`.
 
 > **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
 > firmware-zero on EG4 US split-phase inverters — confirmed live across the full
@@ -1075,6 +1088,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
 | `eps_load_power_l1/_l2/` sum | Yes | API (pEpsL1N/L2N) | Yes (transport) | Regs 129/130; EG4_OFFGRID-only entities (#197) |
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
+| `smart_load_power` / `grid_load_power` | No | API (smartLoadPower/gridLoadPower) | API (cloud supplemental) | Cloud-only GEN-port smart-load split; EG4_OFFGRID-only entities (#222) |
 | `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 
 ---
@@ -1472,6 +1486,28 @@ eps_load_power    = l1 + l2               # None only when BOTH legs are None
 Entities are created only for EG4_OFFGRID (`OFFGRID_ONLY_SENSORS`).
 Live-validated on 12000XP: 1031 + 296 = 1327 W vs cloud `epsLoadPower`
 1338 W (timing skew).
+
+**Smart-load caveat (#222):** with a GEN-port smart load active (6000XP) the
+reg-129/130 values include the smart-load draw, so `eps_load_power` is the
+combined backup output, not the cloud `epsLoadPower` (EPS-only) field.
+
+#### `smart_load_power` / `grid_load_power` (Inverter, EG4_OFFGRID only, #222)
+
+Cloud-only GEN-port smart-load split, mapped from the pylxpweb
+`smart_load_power` / `grid_load_power` properties (cloud `smartLoadPower` /
+`gridLoadPower` runtime fields, raw W):
+
+| Mode | Source |
+|------|--------|
+| CLOUD | `getInverterRuntime` fields via the HTTP property map |
+| HYBRID | Same cloud fields — the pylxpweb properties intentionally read the HTTP runtime even with a transport attached, and `BaseInverter.refresh()` schedules a supplemental `_fetch_runtime_http()` for EG4_OFFGRID devices with a healthy transport so the values track the cloud on the runtime TTL instead of freezing at the setup-time snapshot |
+| LOCAL | **Absent** — no validated register on the off-grid family; keys are deliberately NOT in `ALL_INVERTER_SENSOR_KEYS` |
+
+Live evidence (6000XP, EV charging on the GEN port): `smartLoadPower`
+2999 W + `epsLoadPower` 365 W ≈ `peps` 3371 W combined backup output.
+Candidate local register for future validation: input reg 232
+(`smart_load_power` in the 18kPV firmware RE) — never observed non-zero,
+different firmware codebase, DO NOT wire without off-grid hardware proof.
 
 #### `total_load_power` (Inverter)
 
