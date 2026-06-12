@@ -36,12 +36,21 @@ from custom_components.eg4_web_monitor.coordinator_mixins import DeviceProcessin
 # keep this set SHRINKING.  Tracked in beads (see issue refs).
 # -------------------------------------------------------------------------
 KNOWN_SEAM_GAPS: dict[tuple[str, str], str] = {
-    # Empty: the prior gaps (inverter.power_rating_text / has_runtime_data,
+    # The prior gaps (inverter.power_rating_text / has_runtime_data,
     # battery_bank.cycle_count) were closed in eg4-ohz by exposing honest
     # device properties on pylxpweb, so the device-object path now resolves
     # them for real.  Keep this set SHRINKING — add an entry only with a
     # tracking issue, and `test_known_seam_gaps_are_still_gaps` guards against
     # stale entries pylxpweb has since provided.
+    #
+    # Smart-load split (eg4-1d0 / GH #222): the cloud-only smart_load_power /
+    # grid_load_power properties ship in the NEXT pylxpweb release (branch
+    # fix/eg4-1d0-6000xp-type38).  Until the manifest bumps to it, getattr
+    # returns None and _map_device_properties drops the keys — no entity, no
+    # silent zero.  test_known_seam_gaps_are_still_gaps will force these two
+    # entries out the moment the upgraded library lands.
+    ("inverter", "smart_load_power"): "next pylxpweb release (cloud smartLoadPower)",
+    ("inverter", "grid_load_power"): "next pylxpweb release (cloud gridLoadPower)",
 }
 
 # (label, property_map, target pylxpweb class the map is applied to)

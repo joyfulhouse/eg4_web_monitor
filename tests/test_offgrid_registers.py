@@ -87,6 +87,15 @@ _NEW_KEYS = (
     "battery_discharge_power",
 )
 
+# The two CLOUD-ONLY smart-load split keys introduced by issue #222
+# (6000XP GEN-port smart load).  Unlike the #197 keys these have NO local
+# register source, so they are deliberately absent from the LOCAL static
+# key sets and flow exclusively through the HTTP property map.
+_SMART_LOAD_KEYS = (
+    "smart_load_power",
+    "grid_load_power",
+)
+
 
 # =========================================================================
 # Sensor definitions and static key sets
@@ -111,8 +120,10 @@ class TestSensorDefinitions:
         assert key in ALL_INVERTER_SENSOR_KEYS, f"{key} missing from static set"
 
     def test_offgrid_only_set_matches_issue_scope(self) -> None:
-        """OFFGRID_ONLY_SENSORS is exactly the #197 key set (drift guard)."""
-        assert OFFGRID_ONLY_SENSORS == frozenset(_NEW_KEYS)
+        """OFFGRID_ONLY_SENSORS is exactly the #197 + #222 key set (drift guard)."""
+        assert OFFGRID_ONLY_SENSORS == frozenset(_NEW_KEYS) | frozenset(
+            _SMART_LOAD_KEYS
+        )
 
 
 # =========================================================================
@@ -618,3 +629,217 @@ class TestDeprecatedCleanupSuffixes:
         assert get_eid("sensor", DOMAIN, uid_offgrid) is not None
         assert get_eid("sensor", DOMAIN, uid_hybrid) is None
         assert get_eid("sensor", DOMAIN, uid_unknown) is not None
+
+
+# =========================================================================
+# Smart load (GEN port) split — issue #222 (6000XP)
+# =========================================================================
+
+
+class TestSmartLoadSensors:
+    """Cloud-only smart-load split sensors (issue #222).
+
+    On the 6000XP the GEN terminal doubles as a smart-load output and the
+    cloud splits the backup-path output: smartLoadPower 2999 W (EV charger)
+    + epsLoadPower 365 W vs peps/regs-129+130 carrying the COMBINED 3371 W.
+    The split exists ONLY in the cloud runtime — no validated local register
+    on the off-grid family — so the keys flow exclusively through the HTTP
+    property map (CLOUD + HYBRID supplemental) and must stay out of the
+    LOCAL static key sets.
+    """
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    def test_sensor_types_defined_as_power(self, key: str) -> None:
+        """Every #222 key is a W power measurement sensor."""
+        assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
+        assert SENSOR_TYPES[key]["device_class"] == "power"
+        assert SENSOR_TYPES[key]["state_class"] == "measurement"
+        assert SENSOR_TYPES[key]["unit"] == "W"
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    def test_keys_not_in_local_static_sets(self, key: str) -> None:
+        """Cloud-only contract: NOT in the LOCAL static/runtime key sets.
+
+        Putting these in ALL_INVERTER_SENSOR_KEYS would create permanently
+        unavailable entities in pure-LOCAL mode, where no data source exists.
+        """
+        assert key not in ALL_INVERTER_SENSOR_KEYS, f"{key} leaked into static set"
+        assert key not in INVERTER_RUNTIME_KEYS, f"{key} leaked into runtime keys"
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    def test_created_for_offgrid(self, key: str) -> None:
+        features = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        assert _should_create_sensor(key, features) is True
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    @pytest.mark.parametrize(
+        "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP]
+    )
+    def test_not_created_for_other_families(self, key: str, family: str) -> None:
+        features = {"inverter_family": family}
+        assert _should_create_sensor(key, features) is False
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    def test_no_features_is_fail_closed(self, key: str) -> None:
+        """No detected features → DO NOT create (same rule as the #197 set)."""
+        assert _should_create_sensor(key, None) is False
+        assert _should_create_sensor(key, {}) is False
+
+    def test_gridboss_smart_load_power_unaffected(self) -> None:
+        """ "smart_load_power" is a SHARED key (like "load_power"): GridBOSS
+        publishes the all-ports smart-load aggregate under it.  Adding it to
+        OFFGRID_ONLY_SENSORS must not block GridBOSS / parallel-group
+        entities, which pass via the device_type bypass."""
+        assert _should_create_sensor("smart_load_power", None, "gridboss") is True
+        assert _should_create_sensor("smart_load_power", {}, "gridboss") is True
+        assert _should_create_sensor("smart_load_power", None, "parallel_group") is True
+
+    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
+    def test_in_http_property_map(self, key: str) -> None:
+        """CLOUD/HYBRID map the pylxpweb property of the same name."""
+        property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+        assert property_map.get(key) == key
+
+    @pytest.mark.asyncio
+    async def test_hybrid_cloud_supplemental_end_to_end(
+        self, hass, mock_config_entry
+    ) -> None:
+        """HYBRID: transport regs feed the #197 sensors while the cloud-only
+        smart-load split flows through the property map — and the existing
+        eps sensors keep their combined-output semantics (entity stability).
+
+        The smart-load properties land in pylxpweb (cloud-read even when a
+        transport is attached); they are patched onto the real class here so
+        the integration contract is testable against the released library.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        # Reporter's capture: EV charging on the GEN-port smart load.
+        runtime = InverterRuntimeData(
+            eps_l1_power=1590,
+            eps_l2_power=1740,
+            battery_discharge_power=3240.0,
+        )
+        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+        cls = type(inverter)
+        with (
+            patch.object(
+                cls, "smart_load_power", property(lambda s: 2999), create=True
+            ),
+            patch.object(cls, "grid_load_power", property(lambda s: 0), create=True),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+
+        # New cloud-supplemental split (#222)
+        assert sensors["smart_load_power"] == 2999
+        assert sensors["grid_load_power"] == 0
+        # Existing eps sensors unchanged: combined backup output from the
+        # per-leg registers (1590 + 1740 = 3330 ≈ web UI 3371 W timing skew).
+        assert sensors["eps_load_power_l1"] == 1590
+        assert sensors["eps_load_power_l2"] == 1740
+        assert sensors["eps_load_power"] == 3330
+
+    @pytest.mark.asyncio
+    async def test_smart_port_cleanup_spares_inverter_entity(
+        self, hass, mock_config_entry
+    ) -> None:
+        """The stale GridBOSS smart-port registry cleanup must not delete the
+        inverter's smart_load_power entity (shared key — codex review MEDIUM).
+
+        Before the serial gate, the suffix-only match removed ANY sensor
+        whose unique_id ends in a smart-port key when that key was not
+        active on a GridBOSS — including the new EG4_OFFGRID inverter
+        entity, on every reload, for every system without an active
+        GridBOSS smart port.  The GridBOSS's own stale entities must keep
+        being cleaned.
+        """
+        from unittest.mock import MagicMock
+
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.eg4_web_monitor import async_setup_entry
+
+        mock_config_entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+
+        uid_inverter = "1000000001_smart_load_power"  # OFFGRID inverter (#222)
+        uid_gb_aggregate = "9000000001_smart_load_power"  # inactive GB aggregate
+        uid_gb_port = "9000000001_smart_load1_power"  # stale per-port entity
+        # Second GridBOSS with the SAME key active: per-serial tracking must
+        # still clean unit A's stale entity (codex r2 LOW: a global active
+        # set would let it survive forever) while keeping unit B's.
+        uid_gb2_port = "9000000002_smart_load1_power"  # ACTIVE on unit B
+        for uid in (uid_inverter, uid_gb_aggregate, uid_gb_port, uid_gb2_port):
+            registry.async_get_or_create(
+                "sensor", DOMAIN, uid, config_entry=mock_config_entry
+            )
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator.data = {
+            "devices": {
+                "1000000001": {
+                    "type": "inverter",
+                    "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+                    "sensors": {"smart_load_power": 2999},
+                },
+                # GridBOSS A with NO active smart-port keys this cycle
+                "9000000001": {"type": "gridboss", "sensors": {}},
+                # GridBOSS B with smart_load1_power ACTIVE
+                "9000000002": {
+                    "type": "gridboss",
+                    "sensors": {"smart_load1_power": 480},
+                },
+            }
+        }
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        get_eid = registry.async_get_entity_id
+        # Inverter entity survives (serial gate)
+        assert get_eid("sensor", DOMAIN, uid_inverter) is not None
+        # GridBOSS A stale entities still cleaned — even though B has the
+        # same per-port key active (per-serial active sets)
+        assert get_eid("sensor", DOMAIN, uid_gb_aggregate) is None
+        assert get_eid("sensor", DOMAIN, uid_gb_port) is None
+        # GridBOSS B's active entity is untouched
+        assert get_eid("sensor", DOMAIN, uid_gb2_port) is not None
+
+    @pytest.mark.asyncio
+    async def test_released_pylxpweb_without_properties_drops_keys(
+        self, hass, mock_config_entry
+    ) -> None:
+        """Against a pylxpweb without the new properties the keys simply
+        never materialize — no None-valued ghosts, no broken entities.
+        This pins the safe ship-order: integration first, library after.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(eps_l1_power=1590, eps_l2_power=1740)
+        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        if hasattr(type(inverter), "smart_load_power"):
+            pytest.skip("installed pylxpweb already ships the properties")
+
+        result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+        assert "smart_load_power" not in sensors
+        assert "grid_load_power" not in sensors

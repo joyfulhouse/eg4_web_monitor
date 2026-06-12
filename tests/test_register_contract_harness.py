@@ -588,6 +588,14 @@ _METADATA_INVERTER_PROPERTIES: frozenset[str] = frozenset(
         "has_runtime_data",
         "ac_couple_power",  # cloud acCouplePower; transport field is
         # populated only via the canonical ac_couple_power register on LXP
+        # Smart-load split (eg4-1d0 / GH #222): cloud smartLoadPower /
+        # gridLoadPower only — NO register exists on the off-grid family
+        # (18kPV firmware RE names input reg 232 but it is unvalidated on
+        # EG4_OFFGRID hardware), so there is no canonical triangle to
+        # compare.  The pylxpweb properties read the HTTP runtime even in
+        # HYBRID by design (cloud-supplemental data).
+        "smart_load_power",
+        "grid_load_power",
     }
 )
 
@@ -614,7 +622,7 @@ def test_inverter_triangle_exclusion_lists_are_current() -> None:
     assert not overlap, (
         "Property classified as BOTH derived and metadata: " + ", ".join(overlap)
     )
-    # Anchored counts: 9 derived + 7 metadata = 16 excluded entries today.
+    # Anchored counts: 9 derived + 9 metadata = 18 excluded entries today.
     # A failure here means triangle coverage changed — verify the new
     # classification is correct, then update the anchor.
     assert len(_DERIVED_INVERTER_PROPERTIES) == 9, (
@@ -622,9 +630,9 @@ def test_inverter_triangle_exclusion_lists_are_current() -> None:
         f"({len(_DERIVED_INVERTER_PROPERTIES)} != 9) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
-    assert len(_METADATA_INVERTER_PROPERTIES) == 7, (
+    assert len(_METADATA_INVERTER_PROPERTIES) == 9, (
         f"metadata exclusion list changed size "
-        f"({len(_METADATA_INVERTER_PROPERTIES)} != 7) — triangle coverage "
+        f"({len(_METADATA_INVERTER_PROPERTIES)} != 9) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
 

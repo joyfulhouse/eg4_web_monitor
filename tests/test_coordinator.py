@@ -4083,6 +4083,11 @@ class TestMappingKeyConsistency:
             "ac_couple_power",
             "max_charge_current",
             "max_discharge_current",
+            # Smart load split (#222): cloud smartLoadPower/gridLoadPower —
+            # no validated local register on EG4_OFFGRID, so deliberately
+            # absent from the LOCAL static set (CLOUD/HYBRID supplemental).
+            "smart_load_power",
+            "grid_load_power",
         }
 
         property_map = DeviceProcessingMixin._get_inverter_property_map()
