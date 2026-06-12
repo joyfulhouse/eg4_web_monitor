@@ -35,7 +35,12 @@ if TYPE_CHECKING:
     # The device objects accepted by the generic property mapper.
     _DeviceObject = BaseInverter | Battery | BatteryBank | MIDDevice | ParallelGroup
 
-from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
+from .const import (
+    CONF_LOCAL_TRANSPORTS,
+    DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
+    MANUFACTURER,
+)
 from .coordinator_mappings import (
     _apply_grid_type_override,
     _apply_model_family_fallback,
@@ -850,6 +855,17 @@ class DeviceProcessingMixin(_MixinBase):
                     sensors[sensor_key] = value
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 sensors["total_load_power"] = val
+        elif features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID:
+            # No transport runtime — pure CLOUD, or HYBRID inside a link-down
+            # cloud-fallback window (#226). The off-grid family is the one
+            # case where the cloud carries an authoritative load figure:
+            # pylxpweb sums the epsLoadPower + smartLoadPower + gridLoadPower
+            # split, so the Loads sensor stays honest instead of going
+            # unknown mid-outage. Grid-tied families intentionally remain
+            # transport-only here — their per-inverter cloud consumptionPower
+            # is unreliable.
+            if (val := getattr(inverter, "total_load_power", None)) is not None:
+                processed["sensors"]["total_load_power"] = val
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
