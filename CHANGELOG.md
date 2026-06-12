@@ -5,6 +5,18 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Peak Shaving and Forced Discharge controls are no longer created for the EG4 Off-Grid family** (adjudication of [@jesserobbins](https://github.com/jesserobbins)' withdrawn [PR #220](https://github.com/joyfulhouse/eg4_web_monitor/pull/220) findings, [#197](https://github.com/joyfulhouse/eg4_web_monitor/issues/197) follow-up): the Grid Peak Shaving Mode and Forced Discharge Mode switches plus the Grid Peak Shaving Power, Forced Discharge Power, and Forced Discharge SOC Limit numbers are suppressed on positively-identified 12000XP/6000XP devices. These functions act on grid-parallel export/import blending, which the SNA platform does not do (no sellback; bypass-or-invert topology) — the registers exist on the shared Luxpower layout but the functions are inert (stock SNA cloud data and the #222 6000XP capture both read them permanently disabled, and the SNA parameter set does not expose the peak-shaving power register at all; the platform's real knobs are `FUNC_GEN_PEAK_SHAVING` and the `LSP_*` discharge controls). Devices without a positively detected family keep all controls (fail-open). Users who already had the entities get a **Repairs issue** explaining the removal, in all 13 languages (#219 precedent).
+
+- **Off Grid Mode (Green Mode) writes on the EG4 Off-Grid family now go through the cloud only** (same adjudication, hardened in adversarial review): the local write targets register 110 bit 8 per the 18kPV-derived map, but the SNA platform's register-110 upper-bit layout is hardware-proven to differ (buzzer at 7, ECO at 15 — PR #220) and green's true position there is unverified (the lxp_modbus reference puts it at bit 14). A local bit-8 write on a 12000XP/6000XP would likely flip a CT-sampling config bit while reporting success. HYBRID/CLOUD setups are unaffected (the cloud maps the bit server-side, as before); pure-LOCAL off-grid setups now get an honest error instead of a silent wrong-bit write. A community toggle capture (read holding 110, toggle Green Mode in the EG4 web UI, read again) will pin the bit and restore local writes.
+
+### Fixed
+
+- **pylxpweb (next release): Battery ECO Mode register-110 mapping corrected for EG4_OFFGRID** (claim 1 of PR #220, hardware-verified by @jesserobbins on a 12000XP): the library mapped `FUNC_BATTERY_ECO_EN` to register 110 bit 9 — the 18kPV-derived position — but the SNA platform keeps ECO at **bit 15** (live bidirectional toggle evidence; raw `0x0080`↔`0x8080`; cross-confirmed by the stock SNA cloud decode placing the buzzer at bit 7 and by the ant0nkr lxp_modbus reference). Local transports now use an SNA-specific register-110 layout (`OFFGRID_REGISTER_110_PARAM_KEYS`: ECO=15, buzzer=7, displaced/unverified slots as placeholders). No integration entity reads or writes ECO, so nothing user-visible changes yet — the correction unblocks a future Battery ECO Mode switch once an owner validates it end-to-end. The AC-couple-energy scale claim from the same PR (regs 124-126 as raw Wh) was **rejected** for now: the reporter's own earlier sweep decoded input 124 as a holding-179 status mirror, the successive captures moved by exact powers of two (bit-field churn, not energy), and the claimed today-vs-lifetime figures are mutually inconsistent — the registers stay unmapped to sensors pending a fresh capture.
+
 ## [3.4.0-beta.6] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b5)

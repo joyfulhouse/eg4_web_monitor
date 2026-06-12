@@ -36,8 +36,35 @@ from .const import (
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import flag_offgrid_control_suppression, is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
+
+# Working modes that act on grid-parallel export/import blending. The
+# EG4_OFFGRID (SNA) platform has no grid sellback and no grid-parallel
+# operation (bypass-or-invert topology), so these functions are inert there:
+# the registers exist on the shared Luxpower layout but always read disabled
+# (stock SNA12K-US cloud dump and the 6000XP capture in #222 both show
+# FUNC_GRID_PEAK_SHAVING=False / FUNC_FORCED_DISCHG_EN=False), and the SNA
+# platform manages battery-vs-grid priority through its own LSP_* /
+# discharge-control parameters instead. Suppressed for that family per the
+# PR #220 / issue #197 adjudication (eg4-juzg).
+GRID_TIED_ONLY_WORKING_MODE_PARAMS: frozenset[str] = frozenset(
+    {
+        "FUNC_GRID_PEAK_SHAVING",
+        "FUNC_FORCED_DISCHG_EN",
+    }
+)
+
+# Control keys of the suppressed working-mode switches (entity_key is the
+# param name lowercased without the "func_" prefix — see
+# EG4WorkingModeSwitch.__init__). Unique IDs are ``{serial}_{key}``; the
+# Repairs probe matches by suffix so legacy-prefixed registry entries are
+# caught too.
+_SUPPRESSED_OFFGRID_SWITCH_KEYS: tuple[str, ...] = (
+    "grid_peak_shaving",
+    "forced_dischg_en",
+)
 
 
 def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
@@ -157,18 +184,45 @@ async def async_setup_entry(
                 entities.append(EG4ChargeLastSwitch(coordinator, serial))
 
                 # Add working mode switches
+                offgrid = is_offgrid_family(device_data)
+                if offgrid:
+                    # One-shot Repairs issue for users who already had the
+                    # suppressed grid-tied controls registered (#219
+                    # precedent: explain disappearing entities).
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        device_data.get("model", "Unknown"),
+                        "switch",
+                        tuple(
+                            f"{serial}_{key}" for key in _SUPPRESSED_OFFGRID_SWITCH_KEYS
+                        ),
+                    )
                 for mode_key, mode_config in WORKING_MODES.items():
+                    param = mode_config.get("param", "")
+
+                    # Grid-tied-only controls are inert on EG4_OFFGRID
+                    # hardware — see GRID_TIED_ONLY_WORKING_MODE_PARAMS.
+                    if offgrid and param in GRID_TIED_ONLY_WORKING_MODE_PARAMS:
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (grid-tied only; "
+                            "family=EG4_OFFGRID)",
+                            param,
+                            serial,
+                        )
+                        continue
+
                     # For local-only mode, skip working modes without a Modbus
                     # register mapping in _WORKING_MODE_PARAMETERS.
-                    if coordinator.is_local_only():
-                        param = mode_config.get("param", "")
-                        if not _WORKING_MODE_PARAMETERS.get(param):
-                            _LOGGER.debug(
-                                "Skipping working mode %s for %s (no Modbus support)",
-                                param,
-                                serial,
-                            )
-                            continue
+                    if coordinator.is_local_only() and not _WORKING_MODE_PARAMETERS.get(
+                        param
+                    ):
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (no Modbus support)",
+                            param,
+                            serial,
+                        )
+                        continue
 
                     entities.append(
                         EG4WorkingModeSwitch(
@@ -400,6 +454,21 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
         return attributes if attributes else None
 
+    @property
+    def _green_mode_cloud_only(self) -> bool:
+        """Local FUNC_GREEN_EN writes are withheld on EG4_OFFGRID.
+
+        The SNA register-110 upper-bit layout is hardware-proven to differ
+        from the 18kPV table (buzzer at bit 7, ECO at bit 15 — PR #220 /
+        eg4-juzg), and green's true position on this family is unverified
+        (the lxp_modbus reference puts it at bit 14, not the mapped bit 8).
+        A local bit-8 write on SNA hardware would likely flip a CT-sampling
+        config bit while reading back as success. The cloud applies the bit
+        server-side and is always correct, so offgrid green-mode writes are
+        cloud-only until a community toggle capture pins the bit.
+        """
+        return is_offgrid_family(self._device_data)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable off-grid mode."""
         await self._execute_local_with_fallback(
@@ -408,6 +477,7 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=True,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
+            cloud_only=self._green_mode_cloud_only,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -418,6 +488,7 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=False,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
+            cloud_only=self._green_mode_cloud_only,
         )
 
 

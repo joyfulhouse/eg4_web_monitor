@@ -6385,7 +6385,12 @@ class TestUnknownFamilyModelFallback:
         # EG4_OFFGRID capabilities beyond the phase flags (UNKNOWN profile
         # would leave these False, starving their sensors too).
         assert features["supports_discharge_recovery_hysteresis"] is True
-        assert features["supports_grid_peak_shaving"] is True
+        # Presence only: the OFFGRID grid_peak_shaving default flips to False
+        # in pylxpweb (eg4-juzg adjudication of PR #220 claim 4 — GRID peak
+        # shaving is grid-parallel-only; SNA uses GEN peak shaving), so the
+        # value differs across pylxpweb releases.  Entity gating is
+        # family-based in switch.py/number.py and does not read this flag.
+        assert "supports_grid_peak_shaving" in features
         assert features["grid_type"] == "split_phase"
         assert "pv_string_count" in features
 

@@ -1,7 +1,12 @@
 """Utility functions for EG4 Inverter integration."""
 
 import logging
+from collections.abc import Iterable
+from typing import Any
 
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
@@ -9,10 +14,85 @@ from .const import (
     BATTERY_KEY_SEPARATOR,
     BATTERY_KEY_SHORT_PREFIX,
     DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def is_offgrid_family(device_data: dict[str, Any]) -> bool:
+    """Return True when a device is positively identified as EG4_OFFGRID.
+
+    Fails open (False) when features are missing or the family is unknown, so
+    family-based suppression never removes entities from devices that were
+    not positively identified as 12000XP/6000XP-class hardware.
+    """
+    features = device_data.get("features") or {}
+    return bool(features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID)
+
+
+@callback
+def flag_offgrid_control_suppression(
+    hass: HomeAssistant,
+    serial: str,
+    model: str,
+    platform: str,
+    unique_id_suffixes: Iterable[str],
+) -> None:
+    """Raise a Repairs issue when grid-tied controls vanish from an offgrid device.
+
+    Peak Shaving and Forced Discharge controls are suppressed for the
+    EG4_OFFGRID family (PR #220 / issue #197 adjudication). Users who already
+    had those entities registered should learn why they disappeared instead
+    of finding dead automations — same precedent as the #219 family-profile
+    pruning. The issue is one per device serial; re-creating it with the same
+    issue_id is an idempotent update.
+
+    Matching is suffix-based rather than exact: number unique IDs embed the
+    model slug (``{clean_model}_{serial}_{key}``), and devices that were once
+    misdetected (e.g. the pre-beta.2 ``unknown`` model era, #219/#222) carry
+    legacy prefixes in the registry. All variants end with
+    ``{serial}_{control_key}``, which is what the suffixes pin.
+
+    Args:
+        hass: Home Assistant instance.
+        serial: Inverter serial number.
+        model: Inverter model string (for the issue text).
+        platform: Entity platform domain the unique IDs belong to
+            (``"switch"`` or ``"number"``).
+        unique_id_suffixes: Case-insensitive unique-ID suffixes of the
+            suppressed entities (``{serial}_{control_key}``). The issue is
+            only raised if at least one matching entity was previously
+            registered.
+    """
+    registry = er.async_get(hass)
+    suffixes = tuple(suffix.lower() for suffix in unique_id_suffixes)
+
+    def _was_registered() -> bool:
+        for entry in registry.entities.values():
+            if entry.domain != platform or entry.platform != DOMAIN:
+                continue
+            unique_id = str(entry.unique_id).lower()
+            if any(unique_id.endswith(suffix) for suffix in suffixes):
+                return True
+        return False
+
+    if not _was_registered():
+        return
+
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"offgrid_grid_controls_removed_{serial}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="offgrid_grid_controls_removed",
+        translation_placeholders={
+            "serial": str(serial),
+            "model": str(model),
+        },
+    )
 
 
 def clean_battery_display_name(battery_key: str, serial: str) -> str:

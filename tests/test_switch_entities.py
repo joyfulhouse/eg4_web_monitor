@@ -932,3 +932,220 @@ class TestDSTSwitch:
 
         with pytest.raises(HomeAssistantError, match="Failed to"):
             await switch.async_turn_on()
+
+
+# ── EG4_OFFGRID grid-tied control suppression (PR #220 / #197, eg4-juzg) ──
+
+
+class TestOffgridGridTiedControlSuppression:
+    """Peak Shaving + Forced Discharge switches are inert on EG4_OFFGRID.
+
+    The SNA platform (12000XP/6000XP) has no grid sellback and no
+    grid-parallel operation, so these grid-tied working modes are suppressed
+    for positively-identified EG4_OFFGRID devices only.
+    """
+
+    @staticmethod
+    def _offgrid_device_data() -> dict:
+        return {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
+
+    @pytest.mark.asyncio
+    async def test_offgrid_family_suppresses_grid_tied_modes(self, hass):
+        """EG4_OFFGRID devices get no Peak Shaving / Forced Discharge switches."""
+        coordinator = _mock_coordinator(
+            model="6000XP", device_data=self._offgrid_device_data()
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_mode_params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+
+        assert "FUNC_GRID_PEAK_SHAVING" not in working_mode_params
+        assert "FUNC_FORCED_DISCHG_EN" not in working_mode_params
+        # Offgrid-meaningful modes stay.
+        assert "FUNC_AC_CHARGE" in working_mode_params
+        assert "FUNC_FORCED_CHG_EN" in working_mode_params
+        assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_keeps_grid_tied_modes(self, hass):
+        """EG4_HYBRID devices keep all five working mode switches."""
+        from custom_components.eg4_web_monitor.const import (
+            INVERTER_FAMILY_EG4_HYBRID,
+        )
+
+        coordinator = _mock_coordinator(
+            device_data={"features": {"inverter_family": INVERTER_FAMILY_EG4_HYBRID}}
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_mode_params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+
+        assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
+        assert "FUNC_FORCED_DISCHG_EN" in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_missing_features_fails_open(self, hass):
+        """Without positive family identification, nothing is suppressed.
+
+        XP-style model names alone must not trigger the suppression — only a
+        positively detected EG4_OFFGRID family does (same fail-open principle
+        as OFFGRID_ONLY_SENSORS gating, but in the opposite direction:
+        suppression requires positive identification).
+        """
+        coordinator = _mock_coordinator(model="12000XP")
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        working_mode_params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+
+        assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
+        assert "FUNC_FORCED_DISCHG_EN" in working_mode_params
+
+    @pytest.mark.asyncio
+    async def test_repairs_issue_for_previously_registered_entities(self, hass):
+        """Users who had the suppressed switches get a Repairs explanation."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create("switch", DOMAIN, f"{serial}_grid_peak_shaving")
+
+        coordinator = _mock_coordinator(
+            model="6000XP",
+            serial=serial,
+            device_data=self._offgrid_device_data(),
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+        )
+        assert issue is not None
+        assert issue.translation_key == "offgrid_grid_controls_removed"
+
+    @pytest.mark.asyncio
+    async def test_no_repairs_issue_on_fresh_install(self, hass):
+        """Fresh offgrid installs (nothing registered) get no Repairs noise."""
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            model="6000XP",
+            serial=serial,
+            device_data=self._offgrid_device_data(),
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+        )
+        assert issue is None
+
+
+# ── Off Grid Mode (Green) write-path safety on EG4_OFFGRID ──────────
+
+
+class TestOffgridGreenModeCloudOnly:
+    """FUNC_GREEN_EN local writes are withheld on EG4_OFFGRID (codex MEDIUM).
+
+    The SNA register-110 upper-bit layout differs from the 18kPV table
+    (PR #220: buzzer=7, ECO=15) and green's position on this family is
+    unverified (lxp_modbus says bit 14, the local map says bit 8). A local
+    bit-8 write would likely flip a CT-sampling bit while reading back as
+    success — so offgrid green-mode writes go through the cloud, which maps
+    the bit server-side, or fail honestly.
+    """
+
+    @staticmethod
+    def _offgrid_device_data() -> dict:
+        return {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
+
+    @pytest.mark.asyncio
+    async def test_offgrid_hybrid_uses_cloud_not_local(self):
+        """With local + cloud available, offgrid green writes go to cloud."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="12000XP",
+            device_data=self._offgrid_device_data(),
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_green_mode.assert_called_once()
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_local_only_raises_honestly(self):
+        """LOCAL-only offgrid green writes fail instead of flipping bit 8."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            local_only=True,
+            model="12000XP",
+            device_data=self._offgrid_device_data(),
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="unverified"):
+            await switch.async_turn_on()
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_still_writes_locally(self):
+        """Non-offgrid devices keep the local-first green write (regression)."""
+        from custom_components.eg4_web_monitor.const import (
+            INVERTER_FAMILY_EG4_HYBRID,
+        )
+
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            device_data={"features": {"inverter_family": INVERTER_FAMILY_EG4_HYBRID}},
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_GREEN_EN, True, serial="1234567890"
+        )

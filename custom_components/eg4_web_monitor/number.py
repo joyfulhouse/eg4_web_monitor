@@ -81,6 +81,7 @@ from .const import (
     is_control_active,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import flag_offgrid_control_suppression, is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -459,6 +460,40 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+                # Grid-tied-only controls (Peak Shaving / Forced Discharge)
+                # act on grid-parallel export/import blending; the
+                # EG4_OFFGRID (SNA) platform has no sellback and no
+                # grid-parallel operation, so they are inert there.
+                # Suppressed per the PR #220 / issue #197 adjudication
+                # (eg4-juzg); mirrors GRID_TIED_ONLY_WORKING_MODE_PARAMS in
+                # switch.py.
+                offgrid = is_offgrid_family(device_data)
+                if offgrid:
+                    # Suffix-based probe: number unique IDs embed the model
+                    # slug ({clean_model}_{serial}_{key}), and registry
+                    # entries from a misdetected-model era (e.g. "unknown",
+                    # #219/#222) carry legacy prefixes — all variants end
+                    # with {serial}_{key}.
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        model,
+                        "number",
+                        (
+                            f"{serial.lower()}_grid_peak_shaving_power",
+                            f"{serial.lower()}_forced_discharge_power",
+                            f"{serial.lower()}_forced_discharge_soc_limit",
+                        ),
+                    )
+                else:
+                    entities.extend(
+                        [
+                            GridPeakShavingPowerNumber(coordinator, serial),
+                            ForcedDischargePowerNumber(coordinator, serial),
+                            ForcedDischargeSOCLimitNumber(coordinator, serial),
+                        ]
+                    )
+
                 entities.extend(
                     [
                         # Always-on controls (power, current)
@@ -467,15 +502,12 @@ async def async_setup_entry(
                         PVStartVoltageNumber(coordinator, serial),
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
-                        GridPeakShavingPowerNumber(coordinator, serial),
-                        ForcedDischargePowerNumber(coordinator, serial),
                         # SOC limit controls (enabled when the matching control
                         # mode is SOC — default)
                         SystemChargeSOCLimitNumber(coordinator, serial),
                         ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
-                        ForcedDischargeSOCLimitNumber(coordinator, serial),
                         # Voltage limit controls (enabled when the matching
                         # control mode is Voltage). Always created; disabled by
                         # default in SOC mode to reduce entity clutter.

@@ -815,6 +815,10 @@
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "Commandes réseau retirées de {model} {serial}",
+      "description": "Les commandes **Peak Shaving** et **Forced Discharge** (les commutateurs de mode ainsi que les réglages Grid Peak Shaving Power, Forced Discharge Power et Forced Discharge SOC Limit) ont été retirées de **{serial}** ({model}).\n\nCes fonctions agissent sur le mélange export/import en parallèle réseau, que les modèles hors réseau EG4 (12000XP/6000XP) ne prennent pas en charge — les registres existent mais les fonctions sont inertes sur ce matériel.\n\nSi une automatisation ou un tableau de bord référençait ces entités, supprimez ces références. Si vous pensez que votre appareil prend réellement en charge ces fonctions, signalez-le dans les issues GitHub de l'intégration."
+    },
     "dongle_validation_disabled": {
       "title": "Validation des données recommandée pour WiFi dongle",
       "description": "Un WiFi dongle est configuré mais la **Validation des données** est désactivée. Les WiFi dongles partagent un bus Modbus, et les lectures simultanées peuvent provoquer des données de registre corrompues (p. ex., pics d'énergie).\n\nPour corriger, allez dans **Paramètres > Appareils et services > EG4 Web Monitor > Configurer** et activez la **Validation des données**."

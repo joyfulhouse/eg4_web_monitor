@@ -815,6 +815,10 @@
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "Grid-tied controls removed from {model} {serial}",
+      "description": "**Peak Shaving** and **Forced Discharge** controls (the mode switches plus the Grid Peak Shaving Power, Forced Discharge Power and Forced Discharge SOC Limit settings) have been removed from **{serial}** ({model}).\n\nThese functions act on grid-parallel export/import blending, which EG4 off-grid models (12000XP/6000XP) do not support — the underlying registers exist but the functions are inert on this hardware, so the controls never did anything.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports these functions, please report it on the integration's GitHub issues."
+    },
     "dongle_validation_disabled": {
       "title": "Data validation recommended for WiFi dongle",
       "description": "A WiFi dongle is configured but **Data Validation** is disabled. WiFi dongles share a Modbus bus, and concurrent reads can cause corrupt register data (e.g., energy spikes).\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor > Configure** and enable **Data Validation**."

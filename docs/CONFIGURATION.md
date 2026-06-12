@@ -178,6 +178,11 @@ parameter sync.
 - **Daylight Saving Time** — enable/disable DST for station time sync.
 - **Working modes** — AC Charge, PV Charge Priority, Forced Discharge, Peak
   Shaving, Battery Backup Control.
+  > **EG4 Off-Grid family (12000XP/6000XP):** the **Forced Discharge** and
+  > **Peak Shaving** switches are not created — these grid-parallel functions
+  > are inert on the no-sellback SNA platform (PR #220 / #197 adjudication).
+  > If you had them from an earlier version, a Repairs issue explains the
+  > removal.
 
 ### Selects
 
@@ -196,7 +201,10 @@ parameter sync.
 - AC Charge Power (0.1 kW increments)
 - PV Charge Power
 - PV Start Voltage threshold
-- Grid Peak Shaving Power
+- Grid Peak Shaving Power (not on the EG4 Off-Grid family — see the working
+  modes note above)
+- Forced Discharge Power (kW) and Forced Discharge SOC Limit (%) (not on the
+  EG4 Off-Grid family)
 - Battery Charge Current
 - Battery Discharge Current
 

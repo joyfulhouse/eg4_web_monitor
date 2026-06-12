@@ -428,6 +428,23 @@ if reg1 & 0x100:
 > Local writes read-modify-write the register via the named-parameter map;
 > cloud writes use the function-control API (`control_function`), which
 > applies the bit server-side.
+>
+> **EG4_OFFGRID (SNA) layout differs in the upper bits** (PR #220
+> adjudication, eg4-juzg): on 12000XP/6000XP hardware the buzzer is bit 7
+> (not 6) and `FUNC_BATTERY_ECO_EN` is **bit 15** (not 9) — 12000XP live
+> toggle evidence cross-confirmed by the stock SNA cloud decode
+> (`FUNC_BUZZER_EN` the only set flag with raw `0x0080`) and the ant0nkr
+> lxp_modbus reference (Green=14/ECO=15 there). pylxpweb local transports
+> apply `OFFGRID_REGISTER_110_PARAM_KEYS` for this family. Bit 8
+> (`FUNC_GREEN_EN`, the Off Grid Mode switch) deliberately keeps the 18kPV
+> position pending an SNA toggle test — if the lxp_modbus layout fully
+> applies, green may really live at bit 14; a community capture (read 110,
+> toggle Green in the EG4 cloud UI, read 110 again) settles it. Because of
+> that uncertainty the Off Grid Mode switch writes are **cloud-only on
+> EG4_OFFGRID** (server-side bit mapping is always correct; pure-LOCAL
+> setups get an honest error instead of a suspect bit-8 write). No ECO
+> entity exists in the integration; the relocation only corrects the
+> library mapping.
 
 ### Power Control Registers
 
@@ -472,6 +489,20 @@ if reg1 & 0x100:
 > testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
 
 Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
+
+> **Family availability:** the Grid Peak Shaving switch/power number and the
+> Forced Discharge switch/power/SOC-limit numbers are **not created for
+> EG4_OFFGRID** (12000XP/6000XP). These functions act on grid-parallel
+> export/import blending; the SNA platform has no sellback or grid-parallel
+> operation (bypass-or-invert), uses `FUNC_GEN_PEAK_SHAVING` for its
+> generator-overload variant, and manages battery-vs-grid priority through
+> its own `LSP_*`/discharge-control parameters. Field data: stock SNA12K-US
+> cloud dump and the #222 6000XP capture both read
+> `FUNC_GRID_PEAK_SHAVING=False`/`FUNC_FORCED_DISCHG_EN=False`, and the SNA
+> cloud parameter set does not even expose
+> `_12K_HOLD_GRID_PEAK_SHAVING_POWER`. Existing users see a Repairs issue
+> (`offgrid_grid_controls_removed`) explaining the removal (#219
+> precedent).
 
 ### Extended Function Enable 2 (Register 233)
 
