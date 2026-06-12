@@ -770,7 +770,11 @@ class TestSmartLoadSensors:
         uid_inverter = "1000000001_smart_load_power"  # OFFGRID inverter (#222)
         uid_gb_aggregate = "9000000001_smart_load_power"  # inactive GB aggregate
         uid_gb_port = "9000000001_smart_load1_power"  # stale per-port entity
-        for uid in (uid_inverter, uid_gb_aggregate, uid_gb_port):
+        # Second GridBOSS with the SAME key active: per-serial tracking must
+        # still clean unit A's stale entity (codex r2 LOW: a global active
+        # set would let it survive forever) while keeping unit B's.
+        uid_gb2_port = "9000000002_smart_load1_power"  # ACTIVE on unit B
+        for uid in (uid_inverter, uid_gb_aggregate, uid_gb_port, uid_gb2_port):
             registry.async_get_or_create(
                 "sensor", DOMAIN, uid, config_entry=mock_config_entry
             )
@@ -784,8 +788,13 @@ class TestSmartLoadSensors:
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
                     "sensors": {"smart_load_power": 2999},
                 },
-                # GridBOSS with NO active smart-port keys this cycle
+                # GridBOSS A with NO active smart-port keys this cycle
                 "9000000001": {"type": "gridboss", "sensors": {}},
+                # GridBOSS B with smart_load1_power ACTIVE
+                "9000000002": {
+                    "type": "gridboss",
+                    "sensors": {"smart_load1_power": 480},
+                },
             }
         }
 
@@ -803,9 +812,12 @@ class TestSmartLoadSensors:
         get_eid = registry.async_get_entity_id
         # Inverter entity survives (serial gate)
         assert get_eid("sensor", DOMAIN, uid_inverter) is not None
-        # GridBOSS stale entities still cleaned
+        # GridBOSS A stale entities still cleaned — even though B has the
+        # same per-port key active (per-serial active sets)
         assert get_eid("sensor", DOMAIN, uid_gb_aggregate) is None
         assert get_eid("sensor", DOMAIN, uid_gb_port) is None
+        # GridBOSS B's active entity is untouched
+        assert get_eid("sensor", DOMAIN, uid_gb2_port) is not None
 
     @pytest.mark.asyncio
     async def test_released_pylxpweb_without_properties_drops_keys(

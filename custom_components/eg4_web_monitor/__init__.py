@@ -500,17 +500,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # (determined dynamically by _filter_unused_smart_port_sensors).
     from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
 
-    active_smart_port_keys: set[str] = set()
-    gridboss_serials: set[str] = set()
+    # Active keys are tracked PER GridBOSS serial: with two GridBOSS units a
+    # global set would let a stale entity on unit A survive forever whenever
+    # unit B has the same key active (codex r2 LOW).
+    active_smart_port_keys_by_serial: dict[str, set[str]] = {}
     if coordinator.data and "devices" in coordinator.data:
         for serial, device_data in coordinator.data["devices"].items():
             if device_data.get("type") == "gridboss":
-                gridboss_serials.add(serial)
-                active_smart_port_keys.update(
+                active_smart_port_keys_by_serial[serial] = {
                     k
                     for k in device_data.get("sensors", {})
                     if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-                )
+                }
     for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
         if entity.domain != "sensor":
             continue
@@ -520,15 +521,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         # would delete the inverter entity from the registry on every setup
         # whenever no GridBOSS port is active (codex review MEDIUM).
         # Unique IDs are "{serial}_{sensor_key}", so gate on the serial.
-        if entity.unique_id.split("_", 1)[0] not in gridboss_serials:
+        entity_serial = entity.unique_id.split("_", 1)[0]
+        if entity_serial not in active_smart_port_keys_by_serial:
             continue
+        active_keys = active_smart_port_keys_by_serial[entity_serial]
         # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
         # Match by checking if any smart port key appears in the unique_id suffix
         for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
-            if (
-                entity.unique_id.endswith(f"_{sp_key}")
-                and sp_key not in active_smart_port_keys
-            ):
+            if entity.unique_id.endswith(f"_{sp_key}") and sp_key not in active_keys:
                 entity_registry.async_remove(entity.entity_id)
                 _LOGGER.info(
                     "Removed stale smart port entity: %s (key %s not active)",
