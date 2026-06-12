@@ -24,6 +24,7 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeStartVoltageNumber,
     OffGridCutoffVoltageNumber,
     OnGridCutoffVoltageNumber,
+    StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
     SystemChargeVoltLimitNumber,
 )
@@ -95,6 +96,9 @@ class TestControlClassification:
     def test_discharge_voltage_active_only_in_voltage_discharge_mode(self) -> None:
         assert is_control_active("on_grid_cutoff_voltage", "soc", "voltage") is True
         assert is_control_active("on_grid_cutoff_voltage", "voltage", "soc") is False
+        # Stop discharge voltage (reg 202) is the same discharge/Voltage set
+        assert is_control_active("stop_discharge_voltage", "soc", "voltage") is True
+        assert is_control_active("stop_discharge_voltage", "voltage", "soc") is False
 
     def test_soc_controls_active_in_soc_mode(self) -> None:
         assert is_control_active("system_charge_soc_limit", "soc", "soc") is True
@@ -146,6 +150,20 @@ class TestGatedEnabledDefault:
         charge_volt = SystemChargeVoltLimitNumber(coordinator, "1234567890")
         assert volt_cutoff.entity_registry_enabled_default is True
         assert charge_volt.entity_registry_enabled_default is False
+
+    def test_stop_discharge_voltage_gated_with_discharge_voltage_set(self) -> None:
+        """Reg-202 stop voltage follows the discharge regime: disabled by
+        default in SOC mode, enabled in Voltage mode (bead eg4-aa3t)."""
+        soc_coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_SOC, CONTROL_MODE_SOC)
+        )
+        volt_coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE)
+        )
+        in_soc = StopDischargeVoltageNumber(soc_coordinator, "1234567890")
+        in_volt = StopDischargeVoltageNumber(volt_coordinator, "1234567890")
+        assert in_soc.entity_registry_enabled_default is False
+        assert in_volt.entity_registry_enabled_default is True
 
 
 # ── Effectiveness attribute + warning ────────────────────────────────────────

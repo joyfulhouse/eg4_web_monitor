@@ -71,6 +71,11 @@ PARAM_HOLD_ONGRID_EOD_VOLTAGE = (
 PARAM_HOLD_OFFGRID_EOD_VOLTAGE = "HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT"  # reg 100
 PARAM_HOLD_AC_CHARGE_START_VOLTAGE = "HOLD_AC_CHARGE_START_BATTERY_VOLTAGE"  # reg 158
 PARAM_HOLD_AC_CHARGE_END_VOLTAGE = "HOLD_AC_CHARGE_END_BATTERY_VOLTAGE"  # reg 159
+# Forced-discharge stop voltage (reg 202, bead eg4-aa3t) — the voltage-regime
+# counterpart of PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT (cloud UI gates the field
+# with disChgVoltEnable). Decivolts raw (raw 400 == cloud 40 V, raw-verified
+# 2026-06-11); cloud read/write is float volts [40, 56].
+PARAM_HOLD_STOP_DISCHARGE_VOLTAGE = "_12K_HOLD_STOP_DISCHG_VOLT"  # reg 202
 
 # Raw register addresses (cloud writes via control.write_parameters key by address,
 # avoiding the read/write name aliasing on AC charge voltage).

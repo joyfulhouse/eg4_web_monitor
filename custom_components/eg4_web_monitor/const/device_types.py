@@ -279,6 +279,10 @@ DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
     {
         "on_grid_cutoff_voltage",
         "off_grid_cutoff_voltage",
+        # Forced discharge stops at this battery voltage (reg 202) — the
+        # voltage-regime counterpart of forced_discharge_soc_limit (the
+        # cloud UI gates the field with disChgVoltEnable). Bead eg4-aa3t.
+        "stop_discharge_voltage",
     }
 )
 

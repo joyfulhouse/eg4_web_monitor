@@ -505,12 +505,20 @@ integration 3.4.0 / pylxpweb 0.9.36b1.
 | 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
 | 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
+| 202 | `_12K_HOLD_STOP_DISCHG_VOLT` | `stop_discharge_voltage` | discharge / Voltage | V | 40-56 |
 
 > **Voltage scaling:** local Modbus returns raw decivolts (e.g. `595`) while the cloud
 > API returns already-scaled volts (e.g. `59.5`); the Number entities normalize by
 > magnitude (a value ≥ 100 is decivolts and is divided by 10). Reg 159's cloud param
 > key is `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` (the holding-register `api_param_key`
 > `HOLD_AC_CHARGE_END_VOLTAGE` is aliased to it).
+>
+> **Stop Discharge Voltage (reg 202):** the cloud maintain page's *"Stop Discharge
+> Volt 1(V)"*, gated by `disChgVoltEnable` — the forced-discharge stop limit for the
+> Voltage regime (the voltage twin of `forced_discharge_soc_limit`, reg 83). Located
+> by single-register cloud window bisection and raw-verified DECIVOLTS 2026-06-11
+> (raw 400 ↔ cloud 40 V); cloud accepts fractional volts (live round-trip
+> 40 → 41.5 → 40 V). Added in bead eg4-aa3t (pylxpweb > 0.9.36b5).
 >
 > **EG4 web UI labels:** some of these registers appear under different names on the
 > EG4 monitor — e.g. *"Back Up Volt(V)"* is reg 159 (`ac_charge_end_voltage`, the

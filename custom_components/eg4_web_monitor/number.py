@@ -54,6 +54,7 @@ from .const import (
     PARAM_HOLD_ONGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_EOD_VOLTAGE,
     PARAM_HOLD_START_PV_VOLT,
+    PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
     PV_CHARGE_POWER_MAX,
@@ -70,6 +71,9 @@ from .const import (
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
+    STOP_DISCHARGE_VOLTAGE_MAX,
+    STOP_DISCHARGE_VOLTAGE_MIN,
+    STOP_DISCHARGE_VOLTAGE_STEP,
     SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
@@ -484,6 +488,7 @@ async def async_setup_entry(
                         OffGridCutoffVoltageNumber(coordinator, serial),
                         ACChargeStartVoltageNumber(coordinator, serial),
                         ACChargeEndVoltageNumber(coordinator, serial),
+                        StopDischargeVoltageNumber(coordinator, serial),
                     ]
                 )
 
@@ -897,7 +902,11 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 1
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ForcedDischargePowerNumber, ForcedDischargeSOCLimitNumber)
+        return (
+            ForcedDischargePowerNumber,
+            ForcedDischargeSOCLimitNumber,
+            StopDischargeVoltageNumber,
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -981,7 +990,11 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 0
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ForcedDischargePowerNumber, ForcedDischargeSOCLimitNumber)
+        return (
+            ForcedDischargePowerNumber,
+            ForcedDischargeSOCLimitNumber,
+            StopDischargeVoltageNumber,
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -1022,6 +1035,84 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_method="set_forced_discharge_soc_limit",
             cloud_kwargs={"soc_percent": int_value},
             label=f"forced discharge SOC limit to {int_value}%",
+        )
+
+
+class StopDischargeVoltageNumber(EG4BaseNumberEntity):
+    """Number entity for the forced-discharge Stop Discharge Voltage (reg 202).
+
+    Forced discharge stops when the battery voltage drops to this level —
+    the voltage-regime counterpart of ForcedDischargeSOCLimitNumber (the
+    cloud maintain UI gates "Stop Discharge Volt 1(V)" with
+    disChgVoltEnable), so it participates in the reg-179 discharge regime
+    gating. Register 202 stores decivolts (raw 400 == 40.0 V, raw-verified
+    2026-06-11); the cloud accepts float volts in [40, 56] (live round-trip
+    40 -> 41.5 -> 40 V on an 18kPV and a FlexBOSS21). Bead eg4-aa3t.
+    """
+
+    _control_key = "stop_discharge_voltage"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Stop Discharge Voltage"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_stop_discharge_voltage"
+        )
+        self._attr_native_min_value = STOP_DISCHARGE_VOLTAGE_MIN
+        self._attr_native_max_value = STOP_DISCHARGE_VOLTAGE_MAX
+        self._attr_native_step = STOP_DISCHARGE_VOLTAGE_STEP
+        self._attr_native_unit_of_measurement = "V"
+        self._attr_icon = "mdi:battery-arrow-down-outline"
+        self._attr_native_precision = 1
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (
+            ForcedDischargePowerNumber,
+            ForcedDischargeSOCLimitNumber,
+            StopDischargeVoltageNumber,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current stop discharge voltage (decivolts → V)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
+            value_min=20,
+            value_max=70,
+            as_float=True,
+            param_transform=self._volts_from_param,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the stop discharge voltage (V → reg 202 decivolts locally)."""
+        if value < STOP_DISCHARGE_VOLTAGE_MIN or value > STOP_DISCHARGE_VOLTAGE_MAX:
+            raise HomeAssistantError(
+                f"Stop discharge voltage must be between "
+                f"{STOP_DISCHARGE_VOLTAGE_MIN}-{STOP_DISCHARGE_VOLTAGE_MAX} V, "
+                f"got {value}"
+            )
+        # Cloud setter ships with pylxpweb > 0.9.36b5 — fail with a clear
+        # message instead of an AttributeError if the installed library
+        # predates it (see ForcedDischargePowerNumber for rationale).
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if (
+            not self.coordinator.has_local_transport(self.serial)
+            and inverter is not None
+            and not hasattr(inverter, "set_stop_discharge_voltage")
+        ):
+            raise HomeAssistantError(
+                "Stop discharge voltage requires a newer pylxpweb "
+                "(set_stop_discharge_voltage missing) — update and reload"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
+            local_value=int(round(value * 10)),
+            cloud_method="set_stop_discharge_voltage",
+            cloud_kwargs={"voltage": value},
+            label=f"stop discharge voltage to {value:.1f} V",
         )
 
 

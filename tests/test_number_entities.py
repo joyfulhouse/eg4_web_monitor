@@ -19,6 +19,7 @@ from custom_components.eg4_web_monitor.number import (
     ForcedDischargeSOCLimitNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
+    StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
 )
 
@@ -74,6 +75,7 @@ def _mock_coordinator(
     mock_inverter.set_ac_charge_soc_limit = AsyncMock(return_value=True)
     mock_inverter.set_forced_discharge_power = AsyncMock(return_value=True)
     mock_inverter.set_forced_discharge_soc_limit = AsyncMock(return_value=True)
+    mock_inverter.set_stop_discharge_voltage = AsyncMock(return_value=True)
     mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
     mock_inverter.set_battery_charge_current = AsyncMock(return_value=True)
     mock_inverter.set_battery_discharge_current = AsyncMock(return_value=True)
@@ -99,7 +101,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 17 number entities (12 base + 5 voltage)."""
+        """FlexBOSS inverter creates 18 number entities (12 base + 6 voltage)."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -107,7 +109,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 17
+        assert len(entities) == 18
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
@@ -121,6 +123,8 @@ class TestNumberPlatformSetup:
         assert "OffGridCutoffVoltageNumber" in type_names
         assert "ACChargeStartVoltageNumber" in type_names
         assert "ACChargeEndVoltageNumber" in type_names
+        # Forced-discharge stop voltage (reg 202, bead eg4-aa3t)
+        assert "StopDischargeVoltageNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):
@@ -779,3 +783,123 @@ class TestForcedDischargeNumbers:
             await power.async_set_native_value(2.5)
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
             await soc.async_set_native_value(20.0)
+
+
+class TestStopDischargeVoltageNumber:
+    """Forced-discharge Stop Discharge Voltage (reg 202, V — bead eg4-aa3t).
+
+    The voltage-regime counterpart of the reg-83 stop SOC. Register stores
+    decivolts (raw 400 == 40.0 V, raw-verified 2026-06-11); the cloud takes
+    float volts [40, 56] (live round-trip 40 -> 41.5 -> 40 V on an 18kPV
+    and a FlexBOSS21).
+    """
+
+    def test_definition_and_regime_key(self):
+        coordinator = _mock_coordinator()
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 40.0
+        assert entity.native_max_value == 56.0
+        assert entity.native_step == 0.1
+        assert entity.native_unit_of_measurement == "V"
+        assert entity.unique_id.endswith("_stop_discharge_voltage")
+        # Voltage-regime stop limit: participates in reg-179 discharge gating
+        assert entity._control_key == "stop_discharge_voltage"
+
+    def test_regime_classification(self):
+        """The entity belongs to the discharge/Voltage regime set — the
+        cloud UI gates the field with disChgVoltEnable, the voltage twin
+        of forced_discharge_soc_limit's disChgSocEnable."""
+        from custom_components.eg4_web_monitor.const.device_types import (
+            DISCHARGE_VOLTAGE_CONTROLS,
+            control_side_and_mode,
+        )
+
+        assert "stop_discharge_voltage" in DISCHARGE_VOLTAGE_CONTROLS
+        assert control_side_and_mode("stop_discharge_voltage") == (
+            "discharge",
+            "voltage",
+        )
+
+    def test_native_value_scales_decivolts_local(self):
+        """LOCAL: raw decivolts from the parameter cache scale to volts
+        (raw 400 -> 40.0 V, the 2026-06-11 raw-verified pair)."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            has_local=True,
+            parameters={"_12K_HOLD_STOP_DISCHG_VOLT": 400},
+        )
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        assert entity.native_value == 40.0
+
+    def test_native_value_cloud_already_volts(self):
+        """CLOUD: already-scaled float volts must NOT be divided again
+        (the PVStartVoltage cloud-broken failure class)."""
+        coordinator = _mock_coordinator(parameters={"_12K_HOLD_STOP_DISCHG_VOLT": 41.5})
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        assert entity.native_value == 41.5
+
+    def test_native_value_hybrid_decivolts(self):
+        """HYBRID with attached transport: params hold raw decivolts and
+        the magnitude normalization (>=100 -> /10) applies."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            local_only=False,
+            parameters={"_12K_HOLD_STOP_DISCHG_VOLT": 415},
+        )
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        assert entity.native_value == 41.5
+
+    @pytest.mark.asyncio
+    async def test_write_local_decivolts(self):
+        """Local transport writes raw decivolts by name (41.5 V -> 415)."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(41.5)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "_12K_HOLD_STOP_DISCHG_VOLT"
+        assert call_args[0][1] == 415
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_float_volts(self):
+        """Cloud mode calls inverter.set_stop_discharge_voltage(voltage=...)
+        — the cloud API takes float volts directly."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(41.5)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_stop_discharge_voltage.assert_called_once_with(voltage=41.5)
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Volts outside [40, 56] raise HomeAssistantError (both directions);
+        fractional volts are allowed (cloud-verified 41.5)."""
+        coordinator = _mock_coordinator()
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(39.9)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(56.1)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_guard_on_old_pylxpweb(self):
+        """Installed pylxpweb without set_stop_discharge_voltage raises a
+        clean error instead of AttributeError (version-skew guard — the
+        setter ships after 0.9.36b5)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        del inverter.set_stop_discharge_voltage
+
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await entity.async_set_native_value(41.5)

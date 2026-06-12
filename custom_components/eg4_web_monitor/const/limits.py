@@ -94,6 +94,13 @@ CUTOFF_VOLTAGE_MIN = 40.0
 CUTOFF_VOLTAGE_MAX = 58.0
 CUTOFF_VOLTAGE_STEP = 0.1
 
+# Forced-discharge stop voltage (reg 202) — cloud maintain UI range [40, 56] V;
+# fractional volts accepted (live round-trip 40 -> 41.5 -> 40 V on an 18kPV
+# and a FlexBOSS21).
+STOP_DISCHARGE_VOLTAGE_MIN = 40.0
+STOP_DISCHARGE_VOLTAGE_MAX = 56.0
+STOP_DISCHARGE_VOLTAGE_STEP = 0.1
+
 # AC charge start/stop voltage (regs 158 / 159) — whole volts only
 AC_CHARGE_VOLTAGE_MIN = 38
 AC_CHARGE_VOLTAGE_MAX = 60

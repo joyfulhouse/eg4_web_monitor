@@ -110,6 +110,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_ONGRID_EOD_VOLTAGE,
     PARAM_HOLD_PV_INPUT_MODE,
     PARAM_HOLD_START_PV_VOLT,
+    PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
     REG_AC_CHARGE_END_VOLTAGE,
@@ -1290,6 +1291,11 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE: (158, None),
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE: (159, None),
     PARAM_HOLD_ONGRID_EOD_VOLTAGE: (169, None),
+    # Stop discharge voltage (bead eg4-aa3t): located by single-register
+    # cloud window bisection AND raw-verified live 2026-06-11 (raw 400 ==
+    # cloud 40 V — decivolts); cloud takes float volts [40, 56]. The
+    # voltage-regime counterpart of reg 83, pinned like regs 82/83 above.
+    PARAM_HOLD_STOP_DISCHARGE_VOLTAGE: (202, None),
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: (227, None),
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT: (228, None),
 }
