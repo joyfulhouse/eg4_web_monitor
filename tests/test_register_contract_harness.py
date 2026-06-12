@@ -95,6 +95,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_FUNC_PV_SELL_TO_GRID_EN,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
@@ -1268,6 +1269,15 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_CHARGE_LAST: (110, 4),
     PARAM_FUNC_GREEN_EN: (110, 8),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
+    # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12
+    # ~16:05-16:07 PT via authorized live cloud toggles raw-verified on BOTH
+    # 12K-hybrid models — FlexBOSS21 52842P0581 and 18kPV 4512670118 each
+    # toggled the reg-179 raw frame 0x104c <-> 0x1044 (XOR 0x0008 = single
+    # bit 3) in lockstep with FUNC_PV_SELL_TO_GRID_EN, restores verified by
+    # re-read (remoteRead valueFrame, base64 LE uint16 — register-level
+    # evidence).  Resolvable from pylxpweb 0.9.36b6; DELIBERATELY RED
+    # against older pylxpweb (cut-blocker for the beta.7/b6 coupling).
+    PARAM_FUNC_PV_SELL_TO_GRID_EN: (179, 3),
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
     # Reg 233 bit 1 is live-verified; known to BOTH pylxpweb tables (canonical
@@ -1372,11 +1382,12 @@ def test_control_params_resolve_to_documented_registers() -> None:
 # test below fails as STALE when an entry becomes locally resolvable, at
 # which point it moves into _CONTROL_REGISTER_CONTRACT with its (addr, bit).
 _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
-    "FUNC_PV_SELL_TO_GRID_EN": (
-        "Export PV Only (GH #135): confirmed IN the register-179 family via "
-        "single-register named reads (18kPV + FlexBOSS21, 2026-06-12), but "
-        "named responses are alphabetical so the bit position is unpinned"
-    ),
+    # Currently empty.  FUNC_PV_SELL_TO_GRID_EN graduated 2026-06-12: its
+    # reg-179 bit 3 was pinned by authorized live cloud toggles raw-verified
+    # on both a FlexBOSS21 (52842P0581) and an 18kPV (4512670118) — raw
+    # 0x104c <-> 0x1044, single bit 3 — and the control moved into
+    # _CONTROL_REGISTER_CONTRACT above, exactly the promotion path this
+    # allowlist's honesty test was designed to force.
 }
 
 

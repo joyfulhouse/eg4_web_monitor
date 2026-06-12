@@ -6,11 +6,13 @@ parameters used by switch and number entities.
 Optional per-mode gating keys (read by switch.py setup):
 - ``grid_tied_only``: skip the switch on EG4_OFFGRID inverters (12000XP /
   6000XP have no grid sell-back).
-- ``requires_cloud_params``: the state parameter only exists in the CLOUD
-  parameter cache (no local register/bit mapping), so the switch is skipped
-  whenever the parameter cache holds local-raw register data (LOCAL mode, or
-  HYBRID with a local transport attached) — otherwise is_on could never
-  reflect the true state.
+
+Cloud-only state parameters need no per-mode flag: switch.py setup probes
+the installed pylxpweb register map (``_local_params_can_carry``) and skips
+any mode whose state key cannot be decoded from local registers whenever
+the parameter cache holds local-raw register data (LOCAL mode, or HYBRID
+with a local transport attached) — otherwise is_on could never reflect the
+true state. The probe doubles as the version guard for newly pinned bits.
 """
 
 from __future__ import annotations
@@ -71,9 +73,13 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_category": EntityCategory.CONFIG,
         "grid_tied_only": True,
     },
-    # Export PV Only (FUNC_PV_SELL_TO_GRID_EN, GH #135). Cloud-only: the
-    # parameter lives in the register 179 family but its bit position is
-    # unpinned, so there is no local read/write path.
+    # Export PV Only (FUNC_PV_SELL_TO_GRID_EN, GH #135) — register 179
+    # bit 3, pinned 2026-06-12 via authorized live cloud toggles
+    # raw-verified on BOTH 12K-hybrid models (FlexBOSS21 52842P0581 and
+    # 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, single bit 3,
+    # restores verified by re-read). Local read/write resolves through
+    # pylxpweb's register map from 0.9.36b6 on; against older installs the
+    # switch.py setup probe keeps it cloud-only.
     "export_pv_only_mode": {
         "name": "Export PV Only",
         "param": "FUNC_PV_SELL_TO_GRID_EN",
@@ -81,7 +87,6 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "icon": "mdi:solar-power-variant",
         "entity_category": EntityCategory.CONFIG,
         "grid_tied_only": True,
-        "requires_cloud_params": True,
     },
 }
 

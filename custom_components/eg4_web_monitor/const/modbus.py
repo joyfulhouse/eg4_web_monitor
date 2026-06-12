@@ -31,6 +31,13 @@ PARAM_FUNC_CHARGE_LAST = "FUNC_CHARGE_LAST"
 
 # Extended bit field parameter names (registers 179, 233)
 PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
+# Export PV Only (reg 179 bit 3, GH #135). Bit pinned 2026-06-12 via
+# authorized live cloud toggles raw-verified on BOTH 12K-hybrid models —
+# FlexBOSS21 52842P0581 and 18kPV 4512670118 each toggled reg-179 raw
+# 0x104c <-> 0x1044 (XOR 0x0008 = single bit 3) in lockstep with the named
+# param, restores verified by re-read. Local writes resolve through
+# pylxpweb's REGISTER_TO_PARAM_KEYS (>= 0.9.36b6).
+PARAM_FUNC_PV_SELL_TO_GRID_EN = "FUNC_PV_SELL_TO_GRID_EN"
 PARAM_FUNC_BATTERY_BACKUP_CTRL = "FUNC_BATTERY_BACKUP_CTRL"
 
 # PV configuration parameter names (registers 20, 22)

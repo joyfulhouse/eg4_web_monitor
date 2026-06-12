@@ -15,6 +15,7 @@ from custom_components.eg4_web_monitor.const import (
     PARAM_FUNC_GRID_PEAK_SHAVING,
     WORKING_MODES,
 )
+import custom_components.eg4_web_monitor.switch as switch_module
 from custom_components.eg4_web_monitor.switch import (
     _supports_eps_battery_backup,
     async_setup_entry,
@@ -91,7 +92,7 @@ def _mock_coordinator(
     mock_inverter.enable_pv_sell_to_grid = AsyncMock(return_value=True)
     mock_inverter.disable_pv_sell_to_grid = AsyncMock(return_value=True)
     # pylxpweb transport attachment: None for cloud, object for local/HYBRID
-    # (mirrors BaseInverter.transport; drives the requires_cloud_params gate)
+    # (mirrors BaseInverter.transport; drives the local-raw parameter gate)
     if transport_attached is None:
         transport_attached = has_local
     mock_inverter.transport = object() if transport_attached else None
@@ -243,15 +244,24 @@ class TestSwitchPlatformSetup:
         assert "EG4DSTSwitch" in type_names
 
     @pytest.mark.asyncio
-    async def test_local_only_includes_all_modbus_working_modes(self, hass):
+    async def test_local_only_includes_all_modbus_working_modes(
+        self, hass, monkeypatch
+    ):
         """LOCAL-only mode creates switches for all Modbus-backed working modes.
 
-        All five working modes have holding register bit field mappings:
+        All wired working modes have holding register bit field mappings:
         - FUNC_AC_CHARGE (reg 21 bit 7), FUNC_FORCED_CHG_EN (reg 21 bit 11),
           FUNC_FORCED_DISCHG_EN (reg 21 bit 10), FUNC_GRID_PEAK_SHAVING
-          (reg 179 bit 7), FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1).
-        Regression test for issue #153.
+          (reg 179 bit 7), FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1),
+          FUNC_FEED_IN_GRID_EN (reg 21 bit 15), and — since the 2026-06-12
+          bit-3 pin — FUNC_PV_SELL_TO_GRID_EN (reg 179 bit 3).
+        Regression test for issue #153; the local-map probe is pinned to the
+        post-pin (pylxpweb >= 0.9.36b6) answer so the test encodes the new
+        contract deterministically on either side of the coupling.
         """
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
         coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -262,7 +272,7 @@ class TestSwitchPlatformSetup:
         working_modes = [e for e in entities if isinstance(e, EG4WorkingModeSwitch)]
         working_mode_params = {e._mode_config["param"] for e in working_modes}
 
-        # All five have Modbus register support
+        # All of these have Modbus register support
         assert "FUNC_AC_CHARGE" in working_mode_params  # Register 21, bit 7
         assert "FUNC_FORCED_CHG_EN" in working_mode_params  # Register 21, bit 11
         assert "FUNC_FORCED_DISCHG_EN" in working_mode_params  # Register 21, bit 10
@@ -270,8 +280,8 @@ class TestSwitchPlatformSetup:
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params  # Register 233, bit 1
         # Grid Sell Back has a pinned register (21 bit 15) -> available locally
         assert "FUNC_FEED_IN_GRID_EN" in working_mode_params
-        # Export PV Only is cloud-only (reg-179 bit unpinned) -> never local
-        assert "FUNC_PV_SELL_TO_GRID_EN" not in working_mode_params
+        # Export PV Only pinned to reg 179 bit 3 (GH #135) -> available locally
+        assert "FUNC_PV_SELL_TO_GRID_EN" in working_mode_params
 
     @pytest.mark.asyncio
     async def test_cloud_mode_includes_all_working_modes(self, hass):
@@ -1029,6 +1039,45 @@ class TestSupportsGridSellback:
             assert supports_grid_sellback({"model": model}), model
 
 
+class TestLocalParamsCanCarry:
+    """The pylxpweb register-map probe behind the local-raw setup gate."""
+
+    def test_long_pinned_function_params_resolve(self):
+        """Params pinned in every supported pylxpweb resolve True — the
+        generalized gate must never skip the existing local switches."""
+        for param in (
+            "FUNC_AC_CHARGE",
+            "FUNC_FORCED_CHG_EN",
+            "FUNC_FORCED_DISCHG_EN",
+            "FUNC_GRID_PEAK_SHAVING",
+            "FUNC_BATTERY_BACKUP_CTRL",
+            "FUNC_FEED_IN_GRID_EN",
+        ):
+            assert switch_module._local_params_can_carry(param), param
+
+    def test_unknown_name_does_not_resolve(self):
+        assert not switch_module._local_params_can_carry("FUNC_NOT_A_REAL_PARAM")
+
+    def test_all_wired_working_mode_parameters_resolve_or_are_the_b6_pin(self):
+        """Every name wired in _WORKING_MODE_PARAMETERS resolves in the
+        installed pylxpweb, except FUNC_PV_SELL_TO_GRID_EN which resolves
+        exactly when the installed pylxpweb carries the reg-179 bit-3 pin
+        (0.9.36b6+).  Guards the generalized gate against silently dropping
+        a wired switch."""
+        from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
+
+        for func, param in switch_module._WORKING_MODE_PARAMETERS.items():
+            if param is None:
+                continue
+            if func == "FUNC_PV_SELL_TO_GRID_EN":
+                expected = any(
+                    param in names for names in REGISTER_TO_PARAM_KEYS.values()
+                )
+                assert switch_module._local_params_can_carry(param) == expected
+            else:
+                assert switch_module._local_params_can_carry(param), param
+
+
 class TestGridSellbackSwitchGating:
     """Setup gating for Grid Sell Back / Export PV Only (GH #135)."""
 
@@ -1072,10 +1121,19 @@ class TestGridSellbackSwitchGating:
         assert "FUNC_PV_SELL_TO_GRID_EN" not in params
 
     @pytest.mark.asyncio
-    async def test_hybrid_attached_transport_skips_export_pv_only(self, hass):
-        """HYBRID (local transport attached) keeps Grid Sell Back but skips
-        Export PV Only: the parameter cache is local-raw, where the unpinned
-        FUNC_PV_SELL_TO_GRID_EN key never appears, so is_on would lie OFF."""
+    async def test_hybrid_attached_transport_skips_export_pv_only_pre_pin(
+        self, hass, monkeypatch
+    ):
+        """Pre-pin pylxpweb (< 0.9.36b6): HYBRID keeps Grid Sell Back but
+        skips Export PV Only — the parameter cache is local-raw and an old
+        pylxpweb cannot decode FUNC_PV_SELL_TO_GRID_EN from registers, so
+        is_on would lie OFF.  The probe is pinned to the old-map answer so
+        this version-guard branch stays covered after the b6 coupling."""
+        monkeypatch.setattr(
+            switch_module,
+            "_local_params_can_carry",
+            lambda param: param != "FUNC_PV_SELL_TO_GRID_EN",
+        )
         coordinator = _mock_coordinator(
             has_http=True, has_local=True, transport_attached=True
         )
@@ -1094,10 +1152,68 @@ class TestGridSellbackSwitchGating:
         assert "FUNC_PV_SELL_TO_GRID_EN" not in params
 
     @pytest.mark.asyncio
-    async def test_configured_but_unattached_transport_skips_export_pv_only(self, hass):
+    async def test_hybrid_attached_transport_keeps_export_pv_only_when_pinned(
+        self, hass, monkeypatch
+    ):
+        """Pinned pylxpweb (>= 0.9.36b6): HYBRID creates Export PV Only —
+        reg 179 bit 3 decodes by name in the local-raw cache and local
+        writes RMW it (GH #135 unlock)."""
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, transport_attached=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_FEED_IN_GRID_EN" in params
+        assert "FUNC_PV_SELL_TO_GRID_EN" in params
+
+    @pytest.mark.asyncio
+    async def test_export_pv_only_gate_tracks_installed_pylxpweb(self, hass):
+        """Reality check (no probe patching): the gate's answer for Export
+        PV Only in HYBRID must equal what the INSTALLED pylxpweb register
+        map says — green on both sides of the b6 coupling, and exercises
+        the real probe end to end."""
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, transport_attached=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        expected = switch_module._local_params_can_carry("FUNC_PV_SELL_TO_GRID_EN")
+        assert ("FUNC_PV_SELL_TO_GRID_EN" in params) == expected
+
+    @pytest.mark.asyncio
+    async def test_configured_but_unattached_transport_gates_export_pv_only(
+        self, hass, monkeypatch
+    ):
         """A HYBRID transport that failed to attach at startup (eg4-05l) still
-        gates Export PV Only: the config promises a local-raw parameter cache
-        the moment the retry succeeds, so the switch must not be created."""
+        drives the local-raw gate: with a pre-pin pylxpweb the config promises
+        a local-raw parameter cache the moment the retry succeeds, so the
+        switch must not be created."""
+        monkeypatch.setattr(
+            switch_module,
+            "_local_params_can_carry",
+            lambda param: param != "FUNC_PV_SELL_TO_GRID_EN",
+        )
         coordinator = _mock_coordinator(
             has_http=True, has_local=True, transport_attached=False
         )
@@ -1193,8 +1309,53 @@ class TestGridSellbackSwitchBehavior:
         coordinator.write_named_parameter.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_export_pv_only_turn_on_local(self, monkeypatch):
+        """Local transport writes FUNC_PV_SELL_TO_GRID_EN by name (reg 179
+        bit 3, pinned 2026-06-12) — the GH #135 local-wiring unlock.  The
+        probe is pinned to the post-pin (pylxpweb >= 0.9.36b6) answer."""
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_PV_SELL_TO_GRID_EN"
+        assert call_args[0][1] is True
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_pv_sell_to_grid.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_export_pv_only_legacy_flat_hybrid_pre_pin_uses_cloud(
+        self, monkeypatch
+    ):
+        """Legacy flat HYBRID + pre-pin pylxpweb: the entity exists (its
+        parameter cache is cloud-fed) and a local transport is reported,
+        but the installed pylxpweb cannot resolve the name — the write must
+        go straight to the cloud method with NO doomed local attempt
+        (codex adversarial-review finding)."""
+        monkeypatch.setattr(
+            switch_module,
+            "_local_params_can_carry",
+            lambda param: param != "FUNC_PV_SELL_TO_GRID_EN",
+        )
+        coordinator = _mock_coordinator(has_http=True, has_local=True)
+        switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_pv_sell_to_grid.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_export_pv_only_turn_on_cloud(self):
-        """Export PV Only routes through the cloud enable method only."""
+        """Without a local transport the cloud enable method is used."""
         coordinator = _mock_coordinator(has_http=True, has_local=False)
         switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
         _prep(switch)
