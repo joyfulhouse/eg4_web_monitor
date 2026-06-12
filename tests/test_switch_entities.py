@@ -95,6 +95,11 @@ def _mock_coordinator(
     if transport_attached is None:
         transport_attached = has_local
     mock_inverter.transport = object() if transport_attached else None
+    # Config-based hybrid transport predicate mirrors the attachment state
+    # by default (a configured transport is normally attached by setup time)
+    coordinator.has_configured_local_transport = MagicMock(
+        return_value=transport_attached
+    )
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
     # Cloud client (function-control API) for FUNC_ params without
@@ -1056,6 +1061,31 @@ class TestGridSellbackSwitchGating:
         coordinator = _mock_coordinator(
             has_http=True, has_local=True, transport_attached=True
         )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_FEED_IN_GRID_EN" in params
+        assert "FUNC_PV_SELL_TO_GRID_EN" not in params
+
+    @pytest.mark.asyncio
+    async def test_configured_but_unattached_transport_skips_export_pv_only(
+        self, hass
+    ):
+        """A HYBRID transport that failed to attach at startup (eg4-05l) still
+        gates Export PV Only: the config promises a local-raw parameter cache
+        the moment the retry succeeds, so the switch must not be created."""
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, transport_attached=False
+        )
+        coordinator.has_configured_local_transport = MagicMock(return_value=True)
         entry = MagicMock()
         entry.runtime_data = coordinator
 
