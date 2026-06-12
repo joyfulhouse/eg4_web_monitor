@@ -140,7 +140,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 12 register ranges are read."""
+        """All 11 register ranges are read."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -149,10 +149,38 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 12 register ranges: 20-22, 64-79, 100-102, 105-106, 110, 125, 158-159,
-        # 169, 179, 227-228, 231-232, 233
-        assert mock_transport.read_named_parameters.call_count == 12
+        # 11 register ranges: 20-22, 64-79, 100-102, 105-106, 110, 125, 158-159,
+        # 169, 179, 227-228, 233. Registers 231-232 are no longer read:
+        # the old "grid peak shaving power" mapping at 231 was wrong (PS1 is
+        # reg 206, eg4-gfu5) and the family's raw encoding is unverified.
+        assert mock_transport.read_named_parameters.call_count == 11
         assert "PARAM_A" in result
+
+    async def test_peak_shaving_registers_not_read_locally(
+        self, hass, local_config_entry
+    ):
+        """Registers 231-232 must not be in the local parameter read plan.
+
+        eg4-gfu5: 231 is an unknown register (the old PS1 mapping was wrong)
+        and the true PS family registers (206-208/218-219/232) stay unread
+        until their raw encodings are verified.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+
+        await coordinator._read_modbus_parameters(mock_transport)
+
+        read_registers: set[int] = set()
+        for call in mock_transport.read_named_parameters.call_args_list:
+            start, count = call.args
+            read_registers.update(range(start, start + count))
+        assert 231 not in read_registers
+        assert 232 not in read_registers
+        # True PS1 register also unread until raw encoding is verified
+        assert 206 not in read_registers
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
         """One register range failing doesn't stop the rest."""
@@ -173,10 +201,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 12 ranges attempted despite first failure
-        assert call_count == 12
+        # All 11 ranges attempted despite first failure
+        assert call_count == 11
         # Successful ranges contributed their params
-        assert len(result) == 11  # 12 total - 1 failed
+        assert len(result) == 10  # 11 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""

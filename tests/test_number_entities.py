@@ -17,6 +17,7 @@ from custom_components.eg4_web_monitor.number import (
     BatteryDischargeCurrentNumber,
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
+    GridPeakShavingPowerNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     SystemChargeSOCLimitNumber,
@@ -779,3 +780,126 @@ class TestForcedDischargeNumbers:
             await power.async_set_native_value(2.5)
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
             await soc.async_set_native_value(20.0)
+
+
+# ── Grid Peak Shaving Power (PS1 = reg 206, cloud-write-only; eg4-gfu5) ──
+
+
+class TestGridPeakShavingPowerNumber:
+    """PS1 is cloud-write-only: the old local name-write path resolved to
+    register 231, which is NOT the peak shaving power register (the 2026-06-12
+    sweep pins PS1 at reg 206), so local writes were landing in an unknown
+    register. The raw encoding of reg 206 is unverified, so writes must go
+    through the cloud name-write until a write window proves the encoding."""
+
+    @pytest.mark.asyncio
+    async def test_write_routes_to_cloud_even_with_local_transport(self):
+        """HYBRID (local transport + cloud): the write must use the cloud
+        name-write, NEVER coordinator.write_named_parameter (which would
+        target whatever register the installed pylxpweb maps the name to)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(5.5)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_called_once_with(power_kw=5.5)
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_mode(self):
+        """Cloud-only mode writes float kW via the pylxpweb setter."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(7.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_called_once_with(power_kw=7.0)
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_pure_local_raises(self):
+        """Pure-LOCAL (no cloud client): a clear error, and absolutely no
+        local register write."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="requires the cloud API"):
+            await entity.async_set_native_value(5.0)
+
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_failure_raises(self):
+        """Cloud setter returning False surfaces as HomeAssistantError."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power = AsyncMock(return_value=False)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(3.0)
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Out-of-range kW raises before any write is attempted."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(25.6)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(-0.1)
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_not_called()
+
+    def test_native_value_from_inverter_attr(self):
+        """Cloud modes read the kW value from the pylxpweb property."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={"grid_peak_shaving_power_limit": 7.0},
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 7.0
+
+    def test_native_value_pure_local_is_unavailable(self):
+        """Pure-LOCAL has no trustworthy source: the coordinator no longer
+        reads registers 231-232, so the value is unknown rather than a
+        misread of an unrelated register."""
+        coordinator = _mock_coordinator(has_local=True, local_only=True)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_native_value_hybrid_key_miss_is_unknown_not_zero(self):
+        """HYBRID after a cloud write (codex HIGH): the local-transport
+        parameter refresh cannot name the PS1 key, so the pylxpweb property
+        returns None — the entity must show unknown, never a fabricated 0.0.
+        (pylxpweb>=0.9.36b6 pins the None-on-key-miss property semantics.)"""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            # Transport-named parameter dict: raw string key, no PS1 name
+            parameters={"206": 55},
+            inverter_attrs={"grid_peak_shaving_power_limit": None},
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_disabled_by_default_in_pure_local(self):
+        """Pure-LOCAL registers the entity disabled (it cannot work without
+        cloud); cloud-capable modes keep it enabled."""
+        local_coord = _mock_coordinator(has_local=True, local_only=True)
+        local_entity = GridPeakShavingPowerNumber(local_coord, "1234567890")
+        assert local_entity.entity_registry_enabled_default is False
+
+        cloud_coord = _mock_coordinator(has_http=True)
+        cloud_entity = GridPeakShavingPowerNumber(cloud_coord, "1234567890")
+        assert cloud_entity.entity_registry_enabled_default is True

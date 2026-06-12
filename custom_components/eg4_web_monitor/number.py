@@ -49,6 +49,7 @@ from .const import (
     PARAM_HOLD_FORCED_CHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -773,7 +774,14 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
 
 
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
-    """Number entity for Grid Peak Shaving Power control."""
+    """Number entity for Grid Peak Shaving Power control.
+
+    Cloud-write-only (eg4-gfu5): PS1 lives at holding register 206, not the
+    register 231 the transport name map historically claimed, and the raw
+    register encoding (presumed deci-kW) is unverified. The cloud write goes
+    by parameter NAME, so the server resolves the true register and accepts
+    float kW — local transport name-writes are never used for this control.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
@@ -788,15 +796,21 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:chart-bell-curve-cumulative"
         self._attr_native_precision = 1
+        if coordinator.is_local_only():
+            # Pure-LOCAL can neither read nor write this control (cloud-only
+            # until the reg-206 raw encoding is verified) — register it
+            # disabled instead of shipping a permanently-dead config entity.
+            # Users who later attach cloud credentials can enable it.
+            self._attr_entity_registry_enabled_default = False
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
         return (GridPeakShavingPowerNumber,)
 
     @property
     def native_value(self) -> float | None:
-        """Return the current grid peak shaving power."""
+        """Return the current grid peak shaving power (cloud-sourced kW)."""
         return self._read_param_value(
-            param_key="_12K_HOLD_GRID_PEAK_SHAVING_POWER",
+            param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
             value_min=0,
             value_max=25.5,
             inverter_attr="grid_peak_shaving_power_limit",
@@ -804,19 +818,39 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the grid peak shaving power."""
+        """Set the grid peak shaving power via the cloud API.
+
+        Deliberately NOT routed through the local transport name map: the
+        old map entry pointed local writes at register 231 (an unknown,
+        unrelated register), and the true PS1 register's raw encoding is
+        unverified, so local raw writes cannot be constructed safely. The
+        cloud name-write works in CLOUD and HYBRID modes; in pure-LOCAL mode
+        this control cannot be written.
+        """
         if value < 0.0 or value > 25.5:
             raise HomeAssistantError(
                 f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
             )
-        await self._write_parameter(
-            value,
-            local_param="_12K_HOLD_GRID_PEAK_SHAVING_POWER",
-            local_value=value,
-            cloud_method="set_grid_peak_shaving_power",
-            cloud_kwargs={"power_kw": value},
-            label=f"grid peak shaving power to {value:.1f} kW",
+        if self.coordinator.client is None:
+            raise HomeAssistantError(
+                "Grid peak shaving power requires the cloud API: the local "
+                "register encoding is unverified (the previous local write "
+                "path targeted the wrong register). Add cloud credentials to "
+                "this integration entry to use this control."
+            )
+        _LOGGER.info(
+            "Setting grid peak shaving power to %.1f kW for %s", value, self.serial
         )
+        self._warn_if_ineffective()
+        with optimistic_value_context(self, value):
+            inverter = self._get_inverter_or_raise()
+            success = await inverter.set_grid_peak_shaving_power(power_kw=value)
+            if not success:
+                raise HomeAssistantError(
+                    f"Failed to set grid peak shaving power to {value:.1f} kW"
+                )
+            await inverter.refresh()
+            await self._refresh_related_entities()
 
 
 class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
