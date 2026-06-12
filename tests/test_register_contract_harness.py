@@ -90,6 +90,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
+    PARAM_FUNC_FEED_IN_GRID_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
@@ -101,6 +102,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_CHG_POWER_PERCENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
+    PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
     PARAM_HOLD_FORCED_CHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
@@ -1259,6 +1261,9 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     "FUNC_SET_TO_STANDBY": (21, 9),  # select.py standby control
     PARAM_FUNC_FORCED_DISCHG_EN: (21, 10),
     PARAM_FUNC_FORCED_CHG_EN: (21, 11),
+    # Grid Sell Back enable (GH #135): canonical reg 21 bit 15
+    # (FUNC_FEED_IN_GRID_EN), live-verified.
+    PARAM_FUNC_FEED_IN_GRID_EN: (21, 15),
     PARAM_FUNC_CHARGE_LAST: (110, 4),
     PARAM_FUNC_GREEN_EN: (110, 8),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
@@ -1281,6 +1286,11 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # REGISTER_TO_PARAM_KEYS pairing added with this.
     PARAM_HOLD_FORCED_DISCHG_POWER: (82, None),
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT: (83, None),
+    # Grid Sell Back power cap (GH #135): reg 103, whole percent.  Cloud key
+    # live-pinned via single-register named reads (18kPV value 16,
+    # FlexBOSS21 value 14, 2026-06-12); the cloud never returns the spec's
+    # HOLD_MAX_BACKFLOW_POWER_PERCENT name on this hardware.
+    PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT: (103, None),
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE: (100, None),
     PARAM_HOLD_CHARGE_CURRENT: (101, None),
     PARAM_HOLD_DISCHARGE_CURRENT: (102, None),
@@ -1350,11 +1360,27 @@ def test_control_params_resolve_to_documented_registers() -> None:
     )
 
 
+# Cloud-only controls: function parameters whose local register/bit is
+# UNPINNED — addressable only via the cloud functionControl endpoint, never
+# via named-parameter register writes.  Each entry documents why; the honesty
+# test below fails as STALE when an entry becomes locally resolvable, at
+# which point it moves into _CONTROL_REGISTER_CONTRACT with its (addr, bit).
+_CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
+    "FUNC_PV_SELL_TO_GRID_EN": (
+        "Export PV Only (GH #135): confirmed IN the register-179 family via "
+        "single-register named reads (18kPV + FlexBOSS21, 2026-06-12), but "
+        "named responses are alphabetical so the bit position is unpinned"
+    ),
+}
+
+
 def test_control_params_cover_all_integration_constants() -> None:
     """Every PARAM_* constant and FUNCTION_PARAM_MAPPING entry is contracted.
 
     A new control wired by name without a contract entry would silently
-    bypass the register pinning above.
+    bypass the register pinning above.  Cloud-only controls (register/bit
+    unpinned) are carved out via _CLOUD_ONLY_FUNCTION_PARAMS, whose own
+    honesty test keeps them honest.
     """
     from custom_components.eg4_web_monitor.const import modbus as modbus_const
 
@@ -1364,11 +1390,45 @@ def test_control_params_cover_all_integration_constants() -> None:
         if attr.startswith("PARAM_")
     }
     integration_params |= set(FUNCTION_PARAM_MAPPING)
-    missing = sorted(integration_params - set(_CONTROL_REGISTER_CONTRACT))
+    missing = sorted(
+        integration_params
+        - set(_CONTROL_REGISTER_CONTRACT)
+        - set(_CLOUD_ONLY_FUNCTION_PARAMS)
+    )
     assert not missing, (
         "Control parameters without a register contract entry (add them to "
         "_CONTROL_REGISTER_CONTRACT with the documented address):\n  "
         + "\n  ".join(missing)
+    )
+
+
+def test_cloud_only_controls_stay_unpinned_and_unwired() -> None:
+    """Cloud-only allowlist entries must stay honest.
+
+    Each entry must (a) remain unknown to BOTH pylxpweb local tables — once
+    a register/bit gets pinned the entry is STALE and the control moves into
+    _CONTROL_REGISTER_CONTRACT — and (b) never be wired for local writes in
+    switch._WORKING_MODE_PARAMETERS, which would write an unproven register.
+    """
+    from custom_components.eg4_web_monitor.switch import _WORKING_MODE_PARAMETERS
+
+    offenders: list[str] = []
+    for name in _CLOUD_ONLY_FUNCTION_PARAMS:
+        resolutions = _resolve_param_in_pylxpweb(name)
+        if resolutions:
+            offenders.append(
+                f"{name}: now resolvable in pylxpweb local tables "
+                f"({resolutions}) — STALE: move it into "
+                f"_CONTROL_REGISTER_CONTRACT with the pinned (addr, bit)"
+            )
+        if _WORKING_MODE_PARAMETERS.get(name):
+            offenders.append(
+                f"{name}: wired for local writes in _WORKING_MODE_PARAMETERS "
+                f"but its register/bit is unpinned — local writes would hit "
+                f"an unproven register"
+            )
+    assert not offenders, "Cloud-only control allowlist violations:\n  " + "\n  ".join(
+        offenders
     )
 
 

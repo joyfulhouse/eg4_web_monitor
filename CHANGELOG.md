@@ -5,6 +5,18 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> Requires pylxpweb newer than 0.9.36b5 (the manifest requirement is bumped
+> to 0.9.36b6 with this change).
+
+### Added
+
+- **`Grid Sell Back` switch, `Export PV Only` switch, and `Grid Sell Back Power` number** ([#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)): the EG4 web UI's grid-sell controls, used to stop selling to the grid when wholesale prices go negative. All three are gated to grid-tied families (EG4_HYBRID / LXP) — the off-grid XP series has no sell-back. Backed by a read-only register discovery session on production 18kPV + FlexBOSS21 hardware (2026-06-12):
+  - `Grid Sell Back` (cloud `FUNC_FEED_IN_GRID_EN`, holding register 21 bit 15, live-verified): master enable for exporting surplus to the grid. Works in cloud, local, and hybrid modes.
+  - `Grid Sell Back Power` (cloud `HOLD_FEED_IN_GRID_POWER_PERCENT`): maximum sell-back power as 0–100 % of rated output. The discovery session pinned this parameter to holding register 103 via single-register named reads on both inverters — notably the cloud never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for it. Whole percent on every transport (raw register and cloud value are the same number), so it works in cloud, local, and hybrid modes with no scaling hazards.
+  - `Export PV Only` (cloud `FUNC_PV_SELL_TO_GRID_EN`): sell PV surplus only, never battery. **Cloud parameter mode only** (including legacy flat-hybrid): the parameter is confirmed to live in the holding-register-179 function family, but the cloud names that register's bits alphabetically, so its exact bit position is still unpinned — the integration deliberately ships no local register write for it, and skips the switch when the parameter cache is local-raw (LOCAL mode, or HYBRID with an attached transport) since its state could never be read truthfully there. A register-contract honesty test keeps this carve-out current: the moment the bit is pinned in pylxpweb, CI demands the full local wiring.
+
 ## [3.4.0-beta.6] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b5)

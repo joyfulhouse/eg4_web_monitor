@@ -233,8 +233,9 @@ class LocalTransportMixin(_MixinBase):
                 (64, 20),
                 (
                     100,
-                    3,
-                ),  # Off-grid cutoff voltage (100), charge/discharge current (101-102)
+                    4,
+                ),  # Off-grid cutoff voltage (100), charge/discharge current
+                # (101-102), grid sell back power percent (103, GH #135)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
@@ -2491,6 +2492,24 @@ class LocalTransportMixin(_MixinBase):
             return self.get_local_transport(serial) is not None
         # Fallback for no serial: check deprecated single-transport fields
         return self._modbus_transport is not None or self._dongle_transport is not None
+
+    def has_configured_local_transport(self, serial: str) -> bool:
+        """Whether a per-device local transport is CONFIGURED for this serial.
+
+        Config-based and stable from setup, unlike ``has_local_transport()``
+        which reflects the live attachment state. Setup-time gates that must
+        not flip across the failed-attach-then-recover window (eg4-05l) use
+        this: a configured HYBRID transport makes the parameter cache
+        local-raw as soon as the attach succeeds, even if that happens after
+        the entity platforms were set up.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True if CONF_LOCAL_TRANSPORTS contains an entry for the serial.
+        """
+        return any(c.get("serial") == serial for c in self._local_transport_configs)
 
     def is_local_only(self) -> bool:
         """Check if using local-only connection (Modbus, Dongle, or Local multi-device).

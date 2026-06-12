@@ -28,6 +28,7 @@ from .const import (
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
+    PARAM_FUNC_FEED_IN_GRID_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
@@ -36,6 +37,7 @@ from .const import (
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import supports_grid_sellback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +75,28 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     model = device_data.get("model", "Unknown")
     model_lower = model.lower()
     return "xp" not in model_lower
+
+
+def _params_are_local_raw(coordinator: EG4DataUpdateCoordinator, serial: str) -> bool:
+    """Whether this serial's parameter cache is (or will become) local-raw.
+
+    Mirrors ``EG4BaseNumberEntity._params_are_local_raw()``: in local-only
+    mode and with a HYBRID local transport the parameter cache is decoded
+    from registers, so a cloud-only key whose register/bit is unpinned
+    (e.g. ``FUNC_PV_SELL_TO_GRID_EN``) can never appear and a switch
+    reading it would permanently report OFF.
+
+    Unlike the number-entity property this is evaluated once at setup, so
+    it also consults the CONFIGURED transports: a hybrid attach that fails
+    at startup and recovers later (eg4-05l) must not slip a
+    cloud-param-only switch through the gate.
+    """
+    if coordinator.is_local_only():
+        return True
+    if coordinator.has_configured_local_transport(serial):
+        return True
+    inverter = coordinator.get_inverter_object(serial)
+    return getattr(inverter, "transport", None) is not None
 
 
 # Silver tier requirement: Specify parallel update count
@@ -157,7 +181,28 @@ async def async_setup_entry(
                 entities.append(EG4ChargeLastSwitch(coordinator, serial))
 
                 # Add working mode switches
+                sellback_supported = supports_grid_sellback(device_data)
+                params_local_raw = _params_are_local_raw(coordinator, serial)
                 for mode_key, mode_config in WORKING_MODES.items():
+                    # Grid sell-back controls are meaningless on off-grid
+                    # families (GH #135)
+                    if mode_config.get("grid_tied_only") and not sellback_supported:
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (no grid sell-back)",
+                            mode_config.get("param"),
+                            serial,
+                        )
+                        continue
+                    # Cloud-only state parameters never appear in a local-raw
+                    # parameter cache — skip rather than show a lying OFF state
+                    if mode_config.get("requires_cloud_params") and params_local_raw:
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s "
+                            "(state requires cloud parameters)",
+                            mode_config.get("param"),
+                            serial,
+                        )
+                        continue
                     # For local-only mode, skip working modes without a Modbus
                     # register mapping in _WORKING_MODE_PARAMETERS.
                     if coordinator.is_local_only():
@@ -505,10 +550,14 @@ _WORKING_MODE_METHODS = {
         "enable_battery_backup_ctrl",
         "disable_battery_backup_ctrl",
     ),
+    "FUNC_FEED_IN_GRID_EN": ("enable_feed_in_grid", "disable_feed_in_grid"),
+    "FUNC_PV_SELL_TO_GRID_EN": ("enable_pv_sell_to_grid", "disable_pv_sell_to_grid"),
 }
 
 # Mapping of working mode function names to named-parameter constants used by
 # local Modbus writes.  A non-None value means the mode is writable locally.
+# FUNC_PV_SELL_TO_GRID_EN is deliberately absent: its register-179 bit
+# position is unpinned, so it is a cloud-only control (GH #135).
 _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_AC_CHARGE": PARAM_FUNC_AC_CHARGE,
     "FUNC_FORCED_CHG_EN": PARAM_FUNC_FORCED_CHG_EN,
@@ -516,6 +565,7 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # Extended function registers (verified via Modbus probe 2026-02-13)
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
+    "FUNC_FEED_IN_GRID_EN": PARAM_FUNC_FEED_IN_GRID_EN,  # Register 21, bit 15
 }
 
 

@@ -415,6 +415,7 @@ if reg1 & 0x100:
 | 7 | `ac_charge` | switch | AC (Grid) Charging enable |
 | 10 | `forced_discharge` | switch | Forced Battery Discharge |
 | 11 | `pv_charge_priority` | switch | Forced PV Charge Priority |
+| 15 | `feed_in_grid_en` | switch | Grid Sell Back (feed-in/export enable, [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135); grid-tied families only) |
 
 ### System Function Bitfield (Register 110)
 
@@ -438,6 +439,15 @@ if reg1 & 0x100:
 | 66 | `ac_charge_power` | number | W | 0-15000 |
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
+| 103 | `grid_sell_back_power` | number | % | 0-100 |
+
+> **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
+> cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
+> single-register named cloud reads on 18kPV + FlexBOSS21 (2026-06-12,
+> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)). The cloud
+> never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for
+> this register. Whole percent on both transports — no scaling. Grid-tied
+> families only.
 
 > **`pv_charge_power` targets register 74** (`HOLD_FORCED_CHG_POWER_CMD`, the
 > forced/PV-charge-priority power command), stored in **100W units** (0-150 =
@@ -470,6 +480,15 @@ if reg1 & 0x100:
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
 > `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 7, 9, and 10 are confirmed via live toggle
 > testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
+>
+> `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
+> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) is confirmed to
+> live in this register's family via single-register named cloud reads (18kPV +
+> FlexBOSS21, 2026-06-12), but its **bit position is unpinned** — the cloud names
+> these bits alphabetically. The switch is therefore cloud-parameter-mode only: no
+> local register write exists, and it is skipped whenever the parameter cache is
+> local-raw (LOCAL, or HYBRID with an attached transport). The
+> `test_cloud_only_controls_stay_unpinned_and_unwired` harness test enforces this.
 
 Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 

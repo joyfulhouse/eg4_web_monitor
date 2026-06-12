@@ -70,6 +70,17 @@ FORCED_DISCHARGE_SOC_LIMIT_MAX = 100
 FORCED_DISCHARGE_SOC_LIMIT_STEP = 1
 
 # =============================================================================
+# Grid Sell Back Power (reg 103, GH #135)
+# Whole percent on both paths: the cloud named read returns 0-100 and the raw
+# register is documented 0-100 (live-pinned via single-register named reads on
+# 18kPV + FlexBOSS21, 2026-06-12 — cloud key HOLD_FEED_IN_GRID_POWER_PERCENT).
+# =============================================================================
+
+GRID_SELL_BACK_POWER_MIN = 0
+GRID_SELL_BACK_POWER_MAX = 100
+GRID_SELL_BACK_POWER_STEP = 1
+
+# =============================================================================
 # System Charge SOC Limit (%)
 # =============================================================================
 

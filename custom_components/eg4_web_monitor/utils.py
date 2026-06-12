@@ -1,18 +1,66 @@
 """Utility functions for EG4 Inverter integration."""
 
 import logging
+import re
 
 from homeassistant.helpers.device_registry import DeviceInfo
+
+from typing import Any
 
 from .const import (
     BATTERY_KEY_PREFIX,
     BATTERY_KEY_SEPARATOR,
     BATTERY_KEY_SHORT_PREFIX,
     DOMAIN,
+    INVERTER_FAMILY_EG4_HYBRID,
+    INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_LXP,
     MANUFACTURER,
+    MODEL_NAME_FAMILY_FALLBACK,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# Off-grid XP series model detector: the series uses "<rating>XP" model
+# numbers (6000XP, 12000XP, 18000XP, "12000XP-US V2", "EG4-6000XP", ...) —
+# digits immediately before "XP".  Grid-tied LXP models ("LXP-EU 3650")
+# have a letter before "XP" and never match (codex HIGH on GH #135).
+_OFFGRID_XP_MODEL_RE = re.compile(r"\d+XP\b")
+
+
+def supports_grid_sellback(device_data: dict[str, Any]) -> bool:
+    """Check if the inverter family supports selling power back to the grid.
+
+    EG4_OFFGRID inverters (12000XP / 6000XP) have no grid sell-back, so the
+    Grid Sell Back / Export PV Only controls would be dead entities there.
+    Grid-tied families (EG4_HYBRID, LXP) support feed-in.
+
+    Family detection mirrors the issue #219 pattern: prefer detected
+    features; when the family is missing or UNKNOWN, fall back to the
+    model name — first the exact-name table, then the XP-series pattern
+    (catches variants like "12000XP-US V2" that the exact table misses);
+    default to allowing the controls (grid-tied hybrids dominate the
+    fleet, and a missing control on a grid-tied unit is a worse failure
+    than an inert one on an off-grid unit).
+
+    Args:
+        device_data: Device data dictionary with model and features
+
+    Returns:
+        True if the device family supports grid sell-back (GH #135)
+    """
+    features = device_data.get("features") or {}
+    family = features.get("inverter_family")
+    if family == INVERTER_FAMILY_EG4_OFFGRID:
+        return False
+    if family in (INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP):
+        return True
+    # Family missing or UNKNOWN — classify by model name instead
+    model = str(device_data.get("model", "")).strip().upper()
+    if MODEL_NAME_FAMILY_FALLBACK.get(model) == INVERTER_FAMILY_EG4_OFFGRID:
+        return False
+    return not _OFFGRID_XP_MODEL_RE.search(model)
 
 
 def clean_battery_display_name(battery_key: str, serial: str) -> str:

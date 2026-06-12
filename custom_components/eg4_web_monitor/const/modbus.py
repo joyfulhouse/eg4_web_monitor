@@ -19,6 +19,9 @@ PARAM_FUNC_EPS_EN = "FUNC_EPS_EN"
 PARAM_FUNC_AC_CHARGE = "FUNC_AC_CHARGE"
 PARAM_FUNC_FORCED_DISCHG_EN = "FUNC_FORCED_DISCHG_EN"
 PARAM_FUNC_FORCED_CHG_EN = "FUNC_FORCED_CHG_EN"
+# Grid Sell Back enable (reg 21 bit 15, GH #135) — "Feed-in Grid" in the
+# protocol, "Grid Sell Back" in the EG4 web UI.
+PARAM_FUNC_FEED_IN_GRID_EN = "FUNC_FEED_IN_GRID_EN"
 
 # Bit field parameter names (register 110)
 PARAM_FUNC_GREEN_EN = "FUNC_GREEN_EN"
@@ -46,6 +49,11 @@ PARAM_HOLD_FORCED_CHG_POWER = "HOLD_FORCED_CHG_POWER_CMD"
 # in PR #249: panel 2.5 kW reads raw 25). Reg 83 is percent (0-100).
 PARAM_HOLD_FORCED_DISCHG_POWER = "HOLD_FORCED_DISCHG_POWER_CMD"
 PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT = "HOLD_FORCED_DISCHG_SOC_LIMIT"
+# Grid Sell Back power limit (reg 103, GH #135). Whole percent 0-100 on both
+# paths — cloud key live-pinned via single-register named reads (18kPV +
+# FlexBOSS21, 2026-06-12); the protocol spec's "MaxBackflowPower" name for
+# reg 103 is not used by the cloud API.
+PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT = "HOLD_FEED_IN_GRID_POWER_PERCENT"
 PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"
 PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
