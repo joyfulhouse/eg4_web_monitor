@@ -5,6 +5,22 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> ⚠️ **Release coupling**: the Stop Discharge Voltage control below needs the NEXT
+> pylxpweb release (**> 0.9.36b5** — `feat/eg4-aa3t-stop-dischg-volt`:
+> `REGISTER_TO_PARAM_KEYS[202]` + `set_stop_discharge_voltage`). Cut that pylxpweb
+> release and bump the `manifest.json` requirement before shipping. On 0.9.36b5 the
+> entity degrades cleanly by design: the value stays unknown (reg 202 is read but
+> surfaces under the unused raw key `"202"`), cloud writes raise a clear
+> "requires a newer pylxpweb" error, and local writes fail with the transport's
+> unknown-parameter error — the same staging pattern the Forced Discharge
+> controls shipped with in beta.5.
+
+### Added
+
+- **`Stop Discharge Voltage` control** (bead eg4-aa3t): the voltage-regime counterpart of the Forced Discharge SOC Limit — the cloud maintain page's *"Stop Discharge Volt 1(V)"*, gated by `disChgVoltEnable`. One number entity per inverter (40.0–56.0 V, 0.1 steps), working in cloud, local, and hybrid modes. Holding register 202 was located by single-register cloud window bisection and its raw encoding live-verified as decivolts (raw 400 ↔ cloud 40 V on an 18kPV, 2026-06-11); the cloud accepts fractional volts (round-trip 40 → 41.5 → 40 V on an 18kPV and a FlexBOSS21). Participates in the charge/discharge regime gating like the other voltage cutoffs (disabled by default while the discharge control mode is SOC), rides the existing local parameter poll (one extra holding read per hourly refresh), and is pinned in the register-contract harness like regs 82/83.
+
 ## [3.4.0-beta.6] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b5)
