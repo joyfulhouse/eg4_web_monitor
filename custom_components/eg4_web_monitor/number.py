@@ -40,12 +40,16 @@ from .const import (
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
+    GRID_SELL_BACK_POWER_MAX,
+    GRID_SELL_BACK_POWER_MIN,
+    GRID_SELL_BACK_POWER_STEP,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
+    PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
     PARAM_HOLD_FORCED_CHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
@@ -81,6 +85,7 @@ from .const import (
     is_control_active,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import supports_grid_sellback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -486,6 +491,10 @@ async def async_setup_entry(
                         ACChargeEndVoltageNumber(coordinator, serial),
                     ]
                 )
+                # Grid sell-back power cap (reg 103, GH #135) — grid-tied
+                # families only; off-grid XP units have no sell-back.
+                if supports_grid_sellback(device_data):
+                    entities.append(GridSellBackPowerNumber(coordinator, serial))
 
     if entities:
         _LOGGER.info("Setup complete: %d number entities created", len(entities))
@@ -868,6 +877,78 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_soc_limit",
             cloud_kwargs={"soc_percent": int_value},
             label=f"AC charge SOC limit to {int_value}%",
+        )
+
+
+class GridSellBackPowerNumber(EG4BaseNumberEntity):
+    """Number entity for Grid Sell Back Power control (reg 103, %).
+
+    Maximum export (sell-back) power as a percentage of rated output —
+    "Grid Sell Back Power" in the EG4 web UI (GH #135). Whole percent on
+    both paths: the cloud named read returns 0-100 and the raw register
+    is documented 0-100 (cloud key HOLD_FEED_IN_GRID_POWER_PERCENT,
+    live-pinned via single-register named reads on 18kPV + FlexBOSS21,
+    2026-06-12), so unlike the kW controls there is no raw-vs-scaled
+    display hazard. Only created for grid-tied families.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Grid Sell Back Power"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_grid_sell_back_power"
+        )
+        self._attr_native_min_value = GRID_SELL_BACK_POWER_MIN
+        self._attr_native_max_value = GRID_SELL_BACK_POWER_MAX
+        self._attr_native_step = GRID_SELL_BACK_POWER_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:transmission-tower-export"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (GridSellBackPowerNumber,)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current grid sell back power percentage."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+            value_min=0,
+            value_max=100,
+            inverter_attr="feed_in_grid_power_percent",
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the grid sell back power percentage."""
+        int_value = int(value)
+        if int_value < 0 or int_value > 100:
+            raise HomeAssistantError(
+                f"Grid sell back power must be between 0-100%, got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Grid sell back power must be an integer value, got {value}"
+            )
+        # Cloud setter ships with pylxpweb > 0.9.36b5 — fail with a clear
+        # message instead of an AttributeError if the installed library
+        # predates it (the manifest bump lands with the next release).
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if (
+            not self.coordinator.has_local_transport(self.serial)
+            and inverter is not None
+            and not hasattr(inverter, "set_feed_in_grid_power_percent")
+        ):
+            raise HomeAssistantError(
+                "Grid sell back power requires a newer pylxpweb "
+                "(set_feed_in_grid_power_percent missing) — update and reload"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+            cloud_method="set_feed_in_grid_power_percent",
+            cloud_kwargs={"percent": int_value},
+            label=f"grid sell back power to {int_value}%",
         )
 
 

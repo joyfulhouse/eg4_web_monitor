@@ -233,8 +233,9 @@ class LocalTransportMixin(_MixinBase):
                 (64, 20),
                 (
                     100,
-                    3,
-                ),  # Off-grid cutoff voltage (100), charge/discharge current (101-102)
+                    4,
+                ),  # Off-grid cutoff voltage (100), charge/discharge current
+                # (101-102), grid sell back power percent (103, GH #135)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)

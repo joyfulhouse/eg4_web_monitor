@@ -35,6 +35,7 @@ def _mock_coordinator(
     has_http: bool = True,
     has_local: bool = False,
     local_only: bool = False,
+    transport_attached: bool | None = None,
     model: str = "FlexBOSS21",
     serial: str = "1234567890",
     device_data: dict | None = None,
@@ -85,6 +86,15 @@ def _mock_coordinator(
     mock_inverter.disable_peak_shaving_mode = AsyncMock(return_value=True)
     mock_inverter.enable_battery_backup_ctrl = AsyncMock(return_value=True)
     mock_inverter.disable_battery_backup_ctrl = AsyncMock(return_value=True)
+    mock_inverter.enable_feed_in_grid = AsyncMock(return_value=True)
+    mock_inverter.disable_feed_in_grid = AsyncMock(return_value=True)
+    mock_inverter.enable_pv_sell_to_grid = AsyncMock(return_value=True)
+    mock_inverter.disable_pv_sell_to_grid = AsyncMock(return_value=True)
+    # pylxpweb transport attachment: None for cloud, object for local/HYBRID
+    # (mirrors BaseInverter.transport; drives the requires_cloud_params gate)
+    if transport_attached is None:
+        transport_attached = has_local
+    mock_inverter.transport = object() if transport_attached else None
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
     # Cloud client (function-control API) for FUNC_ params without
@@ -253,6 +263,10 @@ class TestSwitchPlatformSetup:
         assert "FUNC_FORCED_DISCHG_EN" in working_mode_params  # Register 21, bit 10
         assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params  # Register 179, bit 7
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params  # Register 233, bit 1
+        # Grid Sell Back has a pinned register (21 bit 15) -> available locally
+        assert "FUNC_FEED_IN_GRID_EN" in working_mode_params
+        # Export PV Only is cloud-only (reg-179 bit unpinned) -> never local
+        assert "FUNC_PV_SELL_TO_GRID_EN" not in working_mode_params
 
     @pytest.mark.asyncio
     async def test_cloud_mode_includes_all_working_modes(self, hass):
@@ -275,6 +289,9 @@ class TestSwitchPlatformSetup:
         assert "FUNC_AC_CHARGE" in working_mode_params
         assert "FUNC_BATTERY_BACKUP_CTRL" in working_mode_params
         assert "FUNC_GRID_PEAK_SHAVING" in working_mode_params
+        # Grid sell controls (GH #135): both available with cloud parameters
+        assert "FUNC_FEED_IN_GRID_EN" in working_mode_params
+        assert "FUNC_PV_SELL_TO_GRID_EN" in working_mode_params
 
     @pytest.mark.asyncio
     async def test_setup_never_writes_to_inverter(self, hass):
@@ -932,3 +949,226 @@ class TestDSTSwitch:
 
         with pytest.raises(HomeAssistantError, match="Failed to"):
             await switch.async_turn_on()
+
+
+# ── Grid sell-back controls (GH #135) ────────────────────────────────
+
+
+class TestSupportsGridSellback:
+    """Family gating helper for the grid sell controls."""
+
+    def test_offgrid_family_features(self):
+        """Feature-detected EG4_OFFGRID family has no sell-back."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert not supports_grid_sellback(
+            {"model": "6000XP", "features": {"inverter_family": "EG4_OFFGRID"}}
+        )
+
+    def test_hybrid_family_features(self):
+        """EG4_HYBRID family supports sell-back."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert supports_grid_sellback(
+            {"model": "FlexBOSS21", "features": {"inverter_family": "EG4_HYBRID"}}
+        )
+
+    def test_lxp_family_features(self):
+        """LXP (EU/BR grid-tied) family supports sell-back."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert supports_grid_sellback(
+            {"model": "LXP-EU 3650", "features": {"inverter_family": "LXP"}}
+        )
+
+    def test_unknown_family_falls_back_to_model(self):
+        """UNKNOWN family classifies by model name (issue #219 pattern)."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert not supports_grid_sellback(
+            {"model": "12000XP", "features": {"inverter_family": "UNKNOWN"}}
+        )
+        assert supports_grid_sellback(
+            {"model": "18KPV", "features": {"inverter_family": "UNKNOWN"}}
+        )
+
+    def test_no_features_model_fallback(self):
+        """Missing features dict classifies by model name."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert not supports_grid_sellback({"model": "6000XP"})
+        assert supports_grid_sellback({"model": "FlexBOSS21"})
+
+    def test_unrecognized_model_defaults_to_allow(self):
+        """Unknown model + unknown family defaults to creating the controls."""
+        from custom_components.eg4_web_monitor.utils import supports_grid_sellback
+
+        assert supports_grid_sellback({"model": "FutureModel 9000"})
+
+
+class TestGridSellbackSwitchGating:
+    """Setup gating for Grid Sell Back / Export PV Only (GH #135)."""
+
+    @pytest.mark.asyncio
+    async def test_offgrid_model_skips_both_sell_controls(self, hass):
+        """12000XP gets neither Grid Sell Back nor Export PV Only."""
+        coordinator = _mock_coordinator(model="12000XP")
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_FEED_IN_GRID_EN" not in params
+        assert "FUNC_PV_SELL_TO_GRID_EN" not in params
+
+    @pytest.mark.asyncio
+    async def test_offgrid_features_skip_both_sell_controls(self, hass):
+        """Feature-detected EG4_OFFGRID skips both sell controls."""
+        coordinator = _mock_coordinator(
+            model="6000XP",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_FEED_IN_GRID_EN" not in params
+        assert "FUNC_PV_SELL_TO_GRID_EN" not in params
+
+    @pytest.mark.asyncio
+    async def test_hybrid_attached_transport_skips_export_pv_only(self, hass):
+        """HYBRID (local transport attached) keeps Grid Sell Back but skips
+        Export PV Only: the parameter cache is local-raw, where the unpinned
+        FUNC_PV_SELL_TO_GRID_EN key never appears, so is_on would lie OFF."""
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, transport_attached=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_FEED_IN_GRID_EN" in params
+        assert "FUNC_PV_SELL_TO_GRID_EN" not in params
+
+    @pytest.mark.asyncio
+    async def test_legacy_flat_hybrid_keeps_export_pv_only(self, hass):
+        """Legacy flat HYBRID (global transport, no per-inverter attachment)
+        populates parameters from the cloud, so Export PV Only stays."""
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, transport_attached=False
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_PV_SELL_TO_GRID_EN" in params
+
+
+class TestGridSellbackSwitchBehavior:
+    """State reads and writes for the two new working-mode switches."""
+
+    def _make_switch(self, coordinator, param: str) -> EG4WorkingModeSwitch:
+        mode_key = (
+            "grid_sell_back_mode"
+            if param == "FUNC_FEED_IN_GRID_EN"
+            else "export_pv_only_mode"
+        )
+        return EG4WorkingModeSwitch(
+            coordinator=coordinator,
+            serial="1234567890",
+            mode_key=mode_key,
+            mode_config=WORKING_MODES[mode_key],
+        )
+
+    def test_grid_sell_back_is_on_from_params(self):
+        """Grid Sell Back reads FUNC_FEED_IN_GRID_EN from the param cache."""
+        coordinator = _mock_coordinator(parameters={"FUNC_FEED_IN_GRID_EN": True})
+        switch = self._make_switch(coordinator, "FUNC_FEED_IN_GRID_EN")
+        assert switch.is_on is True
+
+    def test_export_pv_only_is_on_from_params(self):
+        """Export PV Only reads FUNC_PV_SELL_TO_GRID_EN from the param cache."""
+        coordinator = _mock_coordinator(
+            parameters={"FUNC_PV_SELL_TO_GRID_EN": True}
+        )
+        switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_grid_sell_back_turn_on_local(self):
+        """Local transport writes FUNC_FEED_IN_GRID_EN by name (reg 21 bit 15)."""
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = self._make_switch(coordinator, "FUNC_FEED_IN_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_FEED_IN_GRID_EN"
+        assert call_args[0][1] is True
+
+    @pytest.mark.asyncio
+    async def test_grid_sell_back_turn_off_cloud(self):
+        """Cloud path calls inverter.disable_feed_in_grid()."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = self._make_switch(coordinator, "FUNC_FEED_IN_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.disable_feed_in_grid.assert_called_once()
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_export_pv_only_turn_on_cloud(self):
+        """Export PV Only routes through the cloud enable method only."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_pv_sell_to_grid.assert_called_once()
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_export_pv_only_turn_off_cloud(self):
+        """Export PV Only off routes through the cloud disable method."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.disable_pv_sell_to_grid.assert_called_once()

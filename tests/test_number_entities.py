@@ -17,6 +17,7 @@ from custom_components.eg4_web_monitor.number import (
     BatteryDischargeCurrentNumber,
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
+    GridSellBackPowerNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     SystemChargeSOCLimitNumber,
@@ -78,6 +79,7 @@ def _mock_coordinator(
     mock_inverter.set_battery_charge_current = AsyncMock(return_value=True)
     mock_inverter.set_battery_discharge_current = AsyncMock(return_value=True)
     mock_inverter.set_grid_peak_shaving_power = AsyncMock(return_value=True)
+    mock_inverter.set_feed_in_grid_power_percent = AsyncMock(return_value=True)
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
     return coordinator
@@ -99,7 +101,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS inverter creates 17 number entities (12 base + 5 voltage)."""
+        """FlexBOSS creates 18 number entities (12 base + 5 voltage + grid sell)."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -107,7 +109,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 17
+        assert len(entities) == 18
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
@@ -115,6 +117,8 @@ class TestNumberPlatformSetup:
         # Forced discharge controls (regs 82/83, GH #207 / PR #249)
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
+        # Grid sell back power cap (reg 103, GH #135)
+        assert "GridSellBackPowerNumber" in type_names
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
         assert "OnGridCutoffVoltageNumber" in type_names
@@ -139,7 +143,7 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_xp(self, hass):
-        """XP device creates number entities."""
+        """XP device creates number entities, minus grid sell back (GH #135)."""
         coordinator = _mock_coordinator(model="12000XP")
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -148,6 +152,29 @@ class TestNumberPlatformSetup:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len(entities) > 0
+        type_names = [type(e).__name__ for e in entities]
+        # Off-grid family has no grid sell-back
+        assert "GridSellBackPowerNumber" not in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_offgrid_features_skip_grid_sell(self, hass):
+        """Feature-detected EG4_OFFGRID family skips grid sell back even when
+        the model string alone would not identify it (GH #135 gating)."""
+        coordinator = _mock_coordinator(model="SomeNewModel")
+        serial = "1234567890"
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        # Model must still pass SUPPORTED_INVERTER_MODELS matching
+        coordinator.data["devices"][serial]["model"] = "6000XP"
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "GridSellBackPowerNumber" not in type_names
 
 
 # ── _read_param_value (via ACChargeSOCLimitNumber) ───────────────────
@@ -779,3 +806,103 @@ class TestForcedDischargeNumbers:
             await power.async_set_native_value(2.5)
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
             await soc.async_set_native_value(20.0)
+
+
+class TestGridSellBackPowerNumber:
+    """Grid Sell Back Power control (reg 103, %, GH #135).
+
+    Whole percent on both transports — the local raw register and the cloud
+    named value are the same 0-100 number, so unlike the kW controls there
+    is no raw-vs-scaled divergence to guard in HYBRID.
+    """
+
+    def test_native_value_cloud_property(self):
+        """Cloud mode reads the pylxpweb feed_in_grid_power_percent property."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={"feed_in_grid_power_percent": 16}
+        )
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 16
+
+    def test_native_value_local_raw_params(self):
+        """Local-only mode reads the raw percent from the parameter cache."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 14},
+        )
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 14
+
+    def test_native_value_cloud_param_fallback(self):
+        """Cloud mode falls back to the parameter cache when the property is
+        missing (older pylxpweb without feed_in_grid_power_percent)."""
+        coordinator = _mock_coordinator(
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": "16"},
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        del inverter.feed_in_grid_power_percent
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 16
+
+    def test_native_value_rejects_out_of_range(self):
+        """Garbage values outside 0-100 read as None."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 250},
+        )
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    @pytest.mark.asyncio
+    async def test_write_local_named_parameter(self):
+        """Local transport writes HOLD_FEED_IN_GRID_POWER_PERCENT raw percent."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(50.0)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_FEED_IN_GRID_POWER_PERCENT"
+        assert call_args[0][1] == 50
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_method(self):
+        """Cloud mode calls inverter.set_feed_in_grid_power_percent(percent=...)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(25.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_feed_in_grid_power_percent.assert_called_once_with(percent=25)
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Out-of-range and non-integer percent raise HomeAssistantError."""
+        coordinator = _mock_coordinator()
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(101.0)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(-1.0)
+        with pytest.raises(HomeAssistantError, match="must be an integer"):
+            await entity.async_set_native_value(50.5)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_guard_on_old_pylxpweb(self):
+        """Installed pylxpweb without set_feed_in_grid_power_percent raises a
+        clean error instead of AttributeError (version-coupling guard)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        del inverter.set_feed_in_grid_power_percent
+
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
+            await entity.async_set_native_value(50.0)
