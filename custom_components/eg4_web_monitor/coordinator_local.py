@@ -244,6 +244,10 @@ class LocalTransportMixin(_MixinBase):
                     179,
                     1,
                 ),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
+                # Stop discharge voltage (_12K_HOLD_STOP_DISCHG_VOLT, decivolts
+                # raw — bead eg4-aa3t). Older pylxpweb without the reg-202 name
+                # mapping surfaces this read under the raw key "202" (unused).
+                (202, 1),
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)

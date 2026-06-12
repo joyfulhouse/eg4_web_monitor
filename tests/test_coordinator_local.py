@@ -140,7 +140,9 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 12 register ranges are read."""
+        """All 13 register ranges are read — pinned exactly so a control's
+        backing register can't silently fall out of the local poll (the
+        codex r1 MEDIUM on reg 202: entity wired but range never read)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -149,9 +151,24 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # 12 register ranges: 20-22, 64-79, 100-102, 105-106, 110, 125, 158-159,
-        # 169, 179, 227-228, 231-232, 233
-        assert mock_transport.read_named_parameters.call_count == 12
+        called_ranges = [
+            call.args for call in mock_transport.read_named_parameters.call_args_list
+        ]
+        assert called_ranges == [
+            (20, 3),
+            (64, 20),
+            (100, 3),
+            (105, 2),
+            (110, 1),
+            (125, 1),
+            (158, 2),
+            (169, 1),
+            (179, 1),
+            (202, 1),  # Stop discharge voltage (bead eg4-aa3t)
+            (227, 2),
+            (231, 2),
+            (233, 1),
+        ]
         assert "PARAM_A" in result
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
@@ -173,10 +190,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 12 ranges attempted despite first failure
-        assert call_count == 12
+        # All 13 ranges attempted despite first failure
+        assert call_count == 13
         # Successful ranges contributed their params
-        assert len(result) == 11  # 12 total - 1 failed
+        assert len(result) == 12  # 13 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""

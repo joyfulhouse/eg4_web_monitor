@@ -879,7 +879,8 @@ class TestStopDischargeVoltageNumber:
     @pytest.mark.asyncio
     async def test_write_validation(self):
         """Volts outside [40, 56] raise HomeAssistantError (both directions);
-        fractional volts are allowed (cloud-verified 41.5)."""
+        fractional volts are allowed (cloud-verified 41.5); NaN is rejected
+        by the non-negated chained comparison (codex r1 LOW)."""
         coordinator = _mock_coordinator()
         entity = StopDischargeVoltageNumber(coordinator, "1234567890")
         _prep(entity)
@@ -888,6 +889,24 @@ class TestStopDischargeVoltageNumber:
             await entity.async_set_native_value(39.9)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await entity.async_set_native_value(56.1)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(float("nan"))
+
+    @pytest.mark.asyncio
+    async def test_write_normalizes_to_tenth_volt(self):
+        """Service-call values are normalized to 0.1 V before validation and
+        write, so local and cloud paths carry the same value and boundary
+        float artifacts are accepted (codex r1 LOW): 56.0000001 -> 56.0 is
+        valid, and 41.55 (float 41.549999...) writes 415, not 416."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = StopDischargeVoltageNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(56.0000001)
+        assert coordinator.write_named_parameter.call_args[0][1] == 560
+
+        await entity.async_set_native_value(41.55)
+        assert coordinator.write_named_parameter.call_args[0][1] == 415
 
     @pytest.mark.asyncio
     async def test_cloud_write_guard_on_old_pylxpweb(self):

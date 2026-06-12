@@ -1087,7 +1087,13 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the stop discharge voltage (V → reg 202 decivolts locally)."""
-        if value < STOP_DISCHARGE_VOLTAGE_MIN or value > STOP_DISCHARGE_VOLTAGE_MAX:
+        # Normalize to the entity's 0.1 V precision first so the local
+        # (decivolt) and cloud (float-volt string) paths always carry the
+        # same value, and boundary float artifacts from service-call
+        # arithmetic (56.0000001) are accepted (codex r1 LOW). The
+        # non-negated chained comparison also rejects NaN.
+        value = round(value, 1)
+        if not STOP_DISCHARGE_VOLTAGE_MIN <= value <= STOP_DISCHARGE_VOLTAGE_MAX:
             raise HomeAssistantError(
                 f"Stop discharge voltage must be between "
                 f"{STOP_DISCHARGE_VOLTAGE_MIN}-{STOP_DISCHARGE_VOLTAGE_MAX} V, "
