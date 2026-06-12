@@ -24,6 +24,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pylxpweb.devices.inverters._features import InverterFamily, InverterFeatures
+from pylxpweb.models import InverterRuntime
 from pylxpweb.transports.data import InverterRuntimeData
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -843,3 +845,99 @@ class TestSmartLoadSensors:
         sensors = result["sensors"]
         assert "smart_load_power" not in sensors
         assert "grid_load_power" not in sensors
+
+
+class TestOffgridLinkDownLoadFallback:
+    """#226 residual (eg4-jzwg): Loads during a hybrid link-down window.
+
+    total_load_power was only ever set by the transport overlay, so a
+    link-down cloud-fallback window (transport caches cleared) dropped the
+    key and the sensor went unknown — the reporter's Loads gauge errored
+    while every other sensor fell back to cloud data.  For EG4_OFFGRID the
+    cloud split (epsLoadPower + smartLoadPower + gridLoadPower) is the
+    authoritative load figure, so the property-path fallback maps it;
+    grid-tied families stay transport-only (their per-inverter cloud
+    consumptionPower is unreliable).
+    """
+
+    @staticmethod
+    def _offgrid_features() -> InverterFeatures:
+        features = InverterFeatures.from_device_type_code(38)
+        assert features.model_family is InverterFamily.EG4_OFFGRID
+        return features
+
+    @pytest.mark.asyncio
+    async def test_link_down_maps_total_load_from_cloud_split(
+        self, hass, mock_config_entry
+    ) -> None:
+        """No transport runtime + offgrid family → split sum (365+2999+0)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("4233740012", "6000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._features = self._offgrid_features()
+        inverter._runtime = InverterRuntime.model_construct(
+            epsLoadPower=365,
+            smartLoadPower=2999,
+            gridLoadPower=0,
+            consumptionPower=0,  # the false 0 the cloud serves this family
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
+        assert result["sensors"]["total_load_power"] == 3364
+
+    @pytest.mark.asyncio
+    async def test_grid_tied_link_down_stays_absent(
+        self, hass, mock_config_entry
+    ) -> None:
+        """Grid-tied family + no transport runtime → key stays absent.
+
+        The cloud's per-inverter consumptionPower is unreliable on grid-tied
+        units; the honest behavior there remains an unknown sensor during the
+        outage window, not a fabricated value.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("1234567890", "FlexBOSS21")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._features = InverterFeatures(
+            model_family=InverterFamily.EG4_HYBRID,
+            split_phase=True,
+        )
+        inverter._runtime = InverterRuntime.model_construct(consumptionPower=1234)
+
+        result = await coordinator._process_inverter_object(inverter)
+        assert "total_load_power" not in result["sensors"]
+
+    @pytest.mark.asyncio
+    async def test_transport_present_keeps_local_balance(
+        self, hass, mock_config_entry
+    ) -> None:
+        """Healthy hybrid: the local energy balance wins over the cloud split."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        runtime = InverterRuntimeData(
+            pv_total_power=1000,
+            power_from_grid=0,
+            power_to_grid=0,
+            battery_discharge_power=500,
+            battery_charge_power=0,
+        )
+        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._features = self._offgrid_features()
+        inverter._runtime = InverterRuntime.model_construct(
+            epsLoadPower=365,
+            smartLoadPower=2999,
+            gridLoadPower=0,
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
+        # 1000 PV + 500 discharge = 1500 from the local balance, not 3364.
+        assert result["sensors"]["total_load_power"] == 1500
