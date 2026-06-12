@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **GridBOSS smart-load automations no longer break on every Home Assistant restart in LOCAL mode** ([#217](https://github.com/joyfulhouse/eg4_web_monitor/issues/217)): the setup-time cleanup that prunes stale smart-port entities ran against the LOCAL first refresh's static placeholder data — which never contains smart-port keys because port statuses are unknown before the first register read. It therefore deleted **every** smart-port registry entry (`Smart Load N Power`, `Smart Load Power`, AC-couple ports, energy sensors) on each reboot, and the late-registration listener re-created them moments later under brand-new registry entry IDs. Automations pin entities by registry entry ID, so each reboot orphaned the reference and the automation failed with `Unknown entity '<32-char id>'` — re-selecting the entity only held until the next restart. The cleanup is now gated on authoritative port data (the `smart_port*_status` values a real poll always carries) and is deferred via a one-shot coordinator listener until the first real GridBOSS read lands, so registry entries — and the automations pinned to them — survive restarts. The same gate protects CLOUD/HYBRID setups whose midbox runtime endpoint returns no data during boot. Genuinely stale entities (ports reconfigured to unused) are still cleaned once real data confirms it.
+
 ## [3.4.0-beta.6] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b5)

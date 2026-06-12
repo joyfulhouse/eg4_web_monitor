@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import homeassistant.helpers.entity_registry as er
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
@@ -14,6 +15,9 @@ from custom_components.eg4_web_monitor import (
     async_setup,
     async_setup_entry,
     async_unload_entry,
+)
+from custom_components.eg4_web_monitor.coordinator_mappings import (
+    GRIDBOSS_STATIC_ENTITY_KEYS,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -311,6 +315,196 @@ class TestAsyncSetupEntry:
             assert "switch" in all_platforms
             assert "button" in all_platforms
             assert "select" in all_platforms
+
+
+class TestSmartPortCleanupOnReboot:
+    """Regression tests for #217: smart-port registry cleanup across restarts.
+
+    The LOCAL-mode first refresh returns static placeholder data without
+    smart-port keys.  The setup-time cleanup must NOT treat that as
+    authoritative — doing so deleted every smart-port registry entry on each
+    reboot and re-created them moments later under NEW registry entry IDs,
+    permanently breaking automations pinned to the old entry ID.
+    """
+
+    GRIDBOSS_SERIAL = "4434850364"
+    # Keys an automation may be pinned to (port 1 = active smart load)
+    ACTIVE_KEYS = ("smart_load1_power_l1", "smart_load1_power", "smart_load_power")
+    # Key for a port that is genuinely inactive (stale, should be cleaned)
+    STALE_KEY = "ac_couple2_power_l1"
+    # Non-smart-port GridBOSS sensor (must never be touched)
+    PLAIN_KEY = "grid_power"
+
+    def _seed_registry(self, hass, entry):
+        """Pre-create registry entries as they exist after a previous session."""
+        registry = er.async_get(hass)
+        entries = {}
+        for key in (*self.ACTIVE_KEYS, self.STALE_KEY, self.PLAIN_KEY):
+            entries[key] = registry.async_get_or_create(
+                "sensor",
+                DOMAIN,
+                f"{self.GRIDBOSS_SERIAL}_{key}",
+                config_entry=entry,
+            )
+        return entries
+
+    def _static_data(self):
+        """Coordinator data as returned by the LOCAL static first refresh."""
+        return {
+            "devices": {
+                self.GRIDBOSS_SERIAL: {
+                    "type": "gridboss",
+                    "serial": self.GRIDBOSS_SERIAL,
+                    "model": "GridBOSS",
+                    "sensors": {k: None for k in GRIDBOSS_STATIC_ENTITY_KEYS},
+                    "binary_sensors": {},
+                }
+            },
+            "device_info": {},
+            "parameters": {},
+        }
+
+    def _authoritative_data(self):
+        """Coordinator data after a real poll (port 1 active, others unused)."""
+        sensors: dict = {k: None for k in GRIDBOSS_STATIC_ENTITY_KEYS}
+        sensors.update(
+            {
+                "smart_port1_status": "smart_load",
+                "smart_port2_status": "unused",
+                "smart_port3_status": "unused",
+                "smart_port4_status": "unused",
+                "smart_load1_power_l1": 120.0,
+                "smart_load1_power_l2": 80.0,
+                "smart_load1_power": 200.0,
+                "smart_load_power": 200.0,
+                "grid_power": 1500.0,
+            }
+        )
+        return {
+            "devices": {
+                self.GRIDBOSS_SERIAL: {
+                    "type": "gridboss",
+                    "serial": self.GRIDBOSS_SERIAL,
+                    "model": "GridBOSS",
+                    "sensors": sensors,
+                    "binary_sensors": {},
+                }
+            },
+            "device_info": {},
+            "parameters": {},
+        }
+
+    async def _setup_with_data(self, hass, entry, data):
+        """Run async_setup_entry with a mock coordinator holding given data."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator.data = data
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, entry)
+        return mock_coordinator
+
+    async def test_static_first_refresh_preserves_registry_entries(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Static (non-authoritative) data must not remove any registry entry."""
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+
+        coordinator = await self._setup_with_data(
+            hass, mock_config_entry, self._static_data()
+        )
+
+        registry = er.async_get(hass)
+        for key, entry in seeded.items():
+            current = registry.async_get(entry.entity_id)
+            assert current is not None, f"{key} was removed during static setup"
+            # Same registry entry ID => automations pinned to it stay valid
+            assert current.id == entry.id
+
+        # Cleanup deferred: exactly one coordinator listener registered
+        coordinator.async_add_listener.assert_called_once()
+
+    async def test_deferred_cleanup_preserves_active_and_removes_stale(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """When real data arrives, stale keys go but active entries keep their ID."""
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+
+        coordinator = await self._setup_with_data(
+            hass, mock_config_entry, self._static_data()
+        )
+        deferred_cleanup = coordinator.async_add_listener.call_args[0][0]
+        unsub = coordinator.async_add_listener.return_value
+
+        # First real poll lands: port 1 active, port 2 unused
+        coordinator.data = self._authoritative_data()
+        deferred_cleanup()
+
+        registry = er.async_get(hass)
+        for key in self.ACTIVE_KEYS:
+            current = registry.async_get(seeded[key].entity_id)
+            assert current is not None, f"active key {key} was removed"
+            assert current.id == seeded[key].id, f"registry ID churned for {key}"
+        assert registry.async_get(seeded[self.PLAIN_KEY].entity_id) is not None
+        assert registry.async_get(seeded[self.STALE_KEY].entity_id) is None
+
+        # Listener unsubscribed after authoritative cleanup; re-firing is a no-op
+        unsub.assert_called_once()
+        deferred_cleanup()
+        unsub.assert_called_once()
+
+    async def test_deferred_cleanup_waits_while_data_stays_static(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """An offline GridBOSS (no real poll yet) must defer cleanup forever."""
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+
+        coordinator = await self._setup_with_data(
+            hass, mock_config_entry, self._static_data()
+        )
+        deferred_cleanup = coordinator.async_add_listener.call_args[0][0]
+        unsub = coordinator.async_add_listener.return_value
+
+        # Coordinator updates but the GridBOSS data is still the static shape
+        deferred_cleanup()
+        deferred_cleanup()
+
+        registry = er.async_get(hass)
+        for key, entry in seeded.items():
+            assert registry.async_get(entry.entity_id) is not None, f"{key} removed"
+        unsub.assert_not_called()
+
+    async def test_authoritative_first_refresh_cleans_immediately(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Cloud-style real first refresh cleans stale keys without a listener."""
+        mock_config_entry.add_to_hass(hass)
+        seeded = self._seed_registry(hass, mock_config_entry)
+
+        coordinator = await self._setup_with_data(
+            hass, mock_config_entry, self._authoritative_data()
+        )
+
+        registry = er.async_get(hass)
+        for key in self.ACTIVE_KEYS:
+            current = registry.async_get(seeded[key].entity_id)
+            assert current is not None, f"active key {key} was removed"
+            assert current.id == seeded[key].id
+        assert registry.async_get(seeded[self.PLAIN_KEY].entity_id) is not None
+        assert registry.async_get(seeded[self.STALE_KEY].entity_id) is None
+
+        # No pending GridBOSS serials => no deferred-cleanup listener
+        coordinator.async_add_listener.assert_not_called()
 
 
 class TestAsyncUnloadEntry:
