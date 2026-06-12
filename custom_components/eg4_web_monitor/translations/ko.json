@@ -815,6 +815,10 @@
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "{model} {serial}에서 계통 연계 제어 제거됨",
+      "description": "**Peak Shaving** 및 **Forced Discharge** 제어(모드 스위치와 Grid Peak Shaving Power, Forced Discharge Power, Forced Discharge SOC Limit 설정)가 **{serial}**({model})에서 제거되었습니다.\n\n이 기능들은 계통 병렬 수출/수입 블렌딩에 작용하지만 EG4 오프그리드 모델(12000XP/6000XP)은 이를 지원하지 않습니다. 레지스터는 존재하지만 이 하드웨어에서는 동작하지 않습니다.\n\n이 엔티티를 참조하는 자동화나 대시보드가 있다면 해당 참조를 제거하세요. 장치가 실제로 이 기능을 지원한다고 생각되면 통합의 GitHub 이슈에 보고해 주세요."
+    },
     "dongle_validation_disabled": {
       "title": "WiFi dongle 데이터 검증 권장",
       "description": "WiFi dongle이 구성되어 있지만 **데이터 검증**이 비활성화되어 있습니다. WiFi dongle은 Modbus 버스를 공유하며, 동시 읽기로 인해 레지스터 데이터가 손상될 수 있습니다(예: 에너지 스파이크).\n\n수정하려면 **설정 > 기기 및 서비스 > EG4 Web Monitor > 구성**으로 이동하여 **데이터 검증**을 활성화하세요."

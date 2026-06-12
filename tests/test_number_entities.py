@@ -1173,3 +1173,123 @@ class TestStopDischargeVoltageNumber:
 
         with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
             await entity.async_set_native_value(41.5)
+
+
+# ── EG4_OFFGRID grid-tied control suppression (PR #220 / #197, eg4-juzg) ──
+
+
+class TestOffgridGridTiedNumberSuppression:
+    """Peak Shaving / Forced Discharge numbers are inert on EG4_OFFGRID.
+
+    Mirrors the switch-side suppression: the SNA platform (12000XP/6000XP)
+    has no grid sellback or grid-parallel operation, so the Grid Peak Shaving
+    Power, Forced Discharge Power and Forced Discharge SOC Limit numbers are
+    suppressed for positively-identified EG4_OFFGRID devices.
+    """
+
+    @pytest.mark.asyncio
+    async def test_offgrid_family_suppresses_grid_tied_numbers(self, hass):
+        coordinator = _mock_coordinator(model="6000XP")
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "GridPeakShavingPowerNumber" not in type_names
+        assert "ForcedDischargePowerNumber" not in type_names
+        assert "ForcedDischargeSOCLimitNumber" not in type_names
+        # The rest of the control set is unaffected: 17 base - 3 suppressed.
+        # 19 grid-tied (incl. Stop Discharge Voltage, eg4-aa3t) minus the 3
+        # suppressed grid-tied controls minus Grid Sell Back (no sell-back
+        # on offgrid, GH #135) = 15
+        assert len(entities) == 15
+        assert "ACChargePowerNumber" in type_names
+        assert "OffGridSOCCutoffNumber" in type_names
+        assert "SystemChargeVoltLimitNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_xp_model_without_family_fails_open(self, hass):
+        """Model name alone must not suppress — positive family ID required."""
+        coordinator = _mock_coordinator(model="12000XP")
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "GridPeakShavingPowerNumber" in type_names
+        assert "ForcedDischargePowerNumber" in type_names
+        assert "ForcedDischargeSOCLimitNumber" in type_names
+        # Fail-open keeps every control except Grid Sell Back, whose own
+        # XP-model gate (GH #135) fires on the model name alone = 18
+        assert len(entities) == 18
+
+    @pytest.mark.asyncio
+    async def test_repairs_issue_for_previously_registered_numbers(self, hass):
+        """A previously-registered suppressed number raises the Repairs issue."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        # 6000XP → clean model "6000xp" (clean_model_name with underscores).
+        registry.async_get_or_create(
+            "number", DOMAIN, f"6000xp_{serial}_forced_discharge_power"
+        )
+
+        coordinator = _mock_coordinator(model="6000XP", serial=serial)
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+        )
+        assert issue is not None
+
+    @pytest.mark.asyncio
+    async def test_repairs_issue_for_legacy_model_prefix_uid(self, hass):
+        """Suffix matching catches registry entries from a misdetected-model era.
+
+        A 6000XP that ran as model "Unknown" before the beta.2 family fixes
+        (#219/#222) registered numbers under the ``unknown_`` prefix. The
+        Repairs probe must still fire for those (codex MEDIUM fix).
+        """
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "number", DOMAIN, f"unknown_{serial}_forced_discharge_power"
+        )
+
+        coordinator = _mock_coordinator(model="6000XP", serial=serial)
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+        )
+        assert issue is not None

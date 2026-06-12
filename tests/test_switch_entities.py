@@ -1094,9 +1094,7 @@ class TestGridSellbackSwitchGating:
         assert "FUNC_PV_SELL_TO_GRID_EN" not in params
 
     @pytest.mark.asyncio
-    async def test_configured_but_unattached_transport_skips_export_pv_only(
-        self, hass
-    ):
+    async def test_configured_but_unattached_transport_skips_export_pv_only(self, hass):
         """A HYBRID transport that failed to attach at startup (eg4-05l) still
         gates Export PV Only: the config promises a local-raw parameter cache
         the moment the retry succeeds, so the switch must not be created."""
@@ -1163,9 +1161,7 @@ class TestGridSellbackSwitchBehavior:
 
     def test_export_pv_only_is_on_from_params(self):
         """Export PV Only reads FUNC_PV_SELL_TO_GRID_EN from the param cache."""
-        coordinator = _mock_coordinator(
-            parameters={"FUNC_PV_SELL_TO_GRID_EN": True}
-        )
+        coordinator = _mock_coordinator(parameters={"FUNC_PV_SELL_TO_GRID_EN": True})
         switch = self._make_switch(coordinator, "FUNC_PV_SELL_TO_GRID_EN")
         assert switch.is_on is True
 
@@ -1220,3 +1216,9 @@ class TestGridSellbackSwitchBehavior:
 
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.disable_pv_sell_to_grid.assert_called_once()
+
+
+# ── Off Grid Mode (Green) write-path safety on EG4_OFFGRID ──────────
+
+
+# ── EG4_OFFGRID grid-tied control suppression (PR #220 / #197, eg4-juzg) ──
