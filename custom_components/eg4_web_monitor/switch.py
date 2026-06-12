@@ -33,6 +33,7 @@ from .const import (
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_FUNC_PV_SELL_TO_GRID_EN,
     SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
@@ -112,9 +113,9 @@ def _params_are_local_raw(coordinator: EG4DataUpdateCoordinator, serial: str) ->
 
     Mirrors ``EG4BaseNumberEntity._params_are_local_raw()``: in local-only
     mode and with a HYBRID local transport the parameter cache is decoded
-    from registers, so a cloud-only key whose register/bit is unpinned
-    (e.g. ``FUNC_PV_SELL_TO_GRID_EN``) can never appear and a switch
-    reading it would permanently report OFF.
+    from registers, so a key the installed pylxpweb cannot decode from a
+    register (see ``_local_params_can_carry``) can never appear and a
+    switch reading it would permanently report OFF.
 
     Unlike the number-entity property this is evaluated once at setup, so
     it also consults the CONFIGURED transports: a hybrid attach that fails
@@ -127,6 +128,24 @@ def _params_are_local_raw(coordinator: EG4DataUpdateCoordinator, serial: str) ->
         return True
     inverter = coordinator.get_inverter_object(serial)
     return getattr(inverter, "transport", None) is not None
+
+
+def _local_params_can_carry(param: str) -> bool:
+    """Whether the installed pylxpweb decodes ``param`` from local registers.
+
+    A local-raw parameter cache (LOCAL mode, or HYBRID with a transport)
+    only contains keys named in pylxpweb's register map — a key absent from
+    the map can never appear, so a switch reading it would permanently
+    report OFF and local writes of it would fail.  Probing the map at setup
+    doubles as the version guard for newly pinned bits: e.g.
+    ``FUNC_PV_SELL_TO_GRID_EN`` (reg 179 bit 3, pinned 2026-06-12) resolves
+    from pylxpweb 0.9.36b6 on, while older installs keep the pre-pin
+    cloud-only behavior (same hasattr-style probing the Stop Discharge
+    Voltage number entity uses for new pylxpweb methods).
+    """
+    from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
+
+    return any(param in names for names in REGISTER_TO_PARAM_KEYS.values())
 
 
 # Silver tier requirement: Specify parallel update count
@@ -248,12 +267,16 @@ async def async_setup_entry(
                             serial,
                         )
                         continue
-                    # Cloud-only state parameters never appear in a local-raw
-                    # parameter cache — skip rather than show a lying OFF state
-                    if mode_config.get("requires_cloud_params") and params_local_raw:
+                    # State keys the installed pylxpweb cannot decode from
+                    # local registers never appear in a local-raw parameter
+                    # cache — skip rather than show a lying OFF state.  This
+                    # probe is also the version guard for newly pinned bits
+                    # (FUNC_PV_SELL_TO_GRID_EN needs pylxpweb >= 0.9.36b6).
+                    if params_local_raw and not _local_params_can_carry(param):
                         _LOGGER.debug(
-                            "Skipping working mode %s for %s "
-                            "(state requires cloud parameters)",
+                            "Skipping working mode %s for %s (state key not "
+                            "decodable from local registers by installed "
+                            "pylxpweb)",
                             param,
                             serial,
                         )
@@ -628,8 +651,6 @@ _WORKING_MODE_METHODS = {
 
 # Mapping of working mode function names to named-parameter constants used by
 # local Modbus writes.  A non-None value means the mode is writable locally.
-# FUNC_PV_SELL_TO_GRID_EN is deliberately absent: its register-179 bit
-# position is unpinned, so it is a cloud-only control (GH #135).
 _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_AC_CHARGE": PARAM_FUNC_AC_CHARGE,
     "FUNC_FORCED_CHG_EN": PARAM_FUNC_FORCED_CHG_EN,
@@ -638,6 +659,13 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
     "FUNC_FEED_IN_GRID_EN": PARAM_FUNC_FEED_IN_GRID_EN,  # Register 21, bit 15
+    # Register 179, bit 3 (GH #135) — pinned 2026-06-12 via authorized live
+    # cloud toggles raw-verified on BOTH 12K-hybrid models (FlexBOSS21
+    # 52842P0581 and 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, XOR
+    # 0x0008 = single bit 3, restores verified by re-read).  Requires
+    # pylxpweb >= 0.9.36b6 for the name to resolve locally; older installs
+    # are handled by the _local_params_can_carry() setup gate.
+    "FUNC_PV_SELL_TO_GRID_EN": PARAM_FUNC_PV_SELL_TO_GRID_EN,
 }
 
 
@@ -748,6 +776,15 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         param = self._mode_config["param"]
         param_name = _WORKING_MODE_PARAMETERS.get(param)
         methods = _WORKING_MODE_METHODS.get(param)
+
+        if param_name and not _local_params_can_carry(param_name):
+            # Execution-time mirror of the setup version guard: the installed
+            # pylxpweb cannot resolve this name to a register (e.g.
+            # FUNC_PV_SELL_TO_GRID_EN before 0.9.36b6), so a local write
+            # could only fail.  Degrade to the cloud method path — legacy
+            # flat HYBRID creates this entity (its parameter cache is
+            # cloud-fed) yet still reports a local transport.
+            param_name = None
 
         if param_name and methods:
             # Both local and cloud paths available — use fallback pattern

@@ -490,22 +490,26 @@ if reg1 & 0x100:
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
+| 3 | `FUNC_PV_SELL_TO_GRID_EN` | `pv_sell_to_grid_en` (switch "Export PV Only") | Only export PV surplus, never battery ([#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135); pinned 2026-06-12) |
 | 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
 | 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
 | 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
 
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
-> `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 7, 9, and 10 are confirmed via live toggle
+> `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 3, 7, 9, and 10 are confirmed via live toggle
 > testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
 >
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
-> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) is confirmed to
-> live in this register's family via single-register named cloud reads (18kPV +
-> FlexBOSS21, 2026-06-12), but its **bit position is unpinned** — the cloud names
-> these bits alphabetically. The switch is therefore cloud-parameter-mode only: no
-> local register write exists, and it is skipped whenever the parameter cache is
-> local-raw (LOCAL, or HYBRID with an attached transport). The
-> `test_cloud_only_controls_stay_unpinned_and_unwired` harness test enforces this.
+> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
+> bit 3** on 2026-06-12 (~16:05–16:07 PT) via authorized live cloud toggles
+> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 52842P0581 and 18kPV
+> 4512670118 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
+> = single bit 3) in lockstep with the named parameter, restores verified by
+> re-read (`remoteRead` valueFrame, base64 LE uint16). With pylxpweb ≥ 0.9.36b6
+> the switch works in ALL modes: local-raw parameter caches decode the bit by
+> name and local writes RMW it; against older pylxpweb the setup probe
+> (`switch._local_params_can_carry`) keeps it cloud-parameter-mode only. The
+> register contract harness pins the name to (179, 3).
 
 Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
