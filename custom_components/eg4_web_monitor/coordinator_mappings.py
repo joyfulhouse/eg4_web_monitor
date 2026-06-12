@@ -558,18 +558,28 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
 # Smart port status keys (smart_port{1-4}_status).  Written into the GridBOSS
 # sensors dict by _filter_unused_smart_port_sensors() on every successful real
 # poll — including its skip-filtering path for invalid statuses — but never
-# present in the static first-refresh placeholder data.  Their presence marks
-# GridBOSS port data as authoritative (a real device read), which gates the
-# stale smart-port registry cleanup in __init__.py (#217).
+# present in the static first-refresh placeholder data.
 SMART_PORT_STATUS_KEYS: frozenset[str] = frozenset(
     f"smart_port{port}_status" for port in range(1, 5)
 )
+
+# Per-cycle authority marker for the stale smart-port registry cleanup in
+# __init__.py (#217).  _filter_unused_smart_port_sensors() writes it ONLY when
+# the current cycle had a fresh, complete good status read (all 4 ports
+# present and in range 0-2).  Static placeholder data, suspect-skip cycles,
+# cached-fallback cycles, and partial reads never carry it — the cleanup must
+# not remove registry entries based on any of those (codex r1 HIGH, r2
+# HIGH/MEDIUM: stale session caches and partial reads are not proof that the
+# dynamic power/energy keys reflect the real port configuration).
+SMART_PORT_VALIDATED_KEY = "smart_port_statuses_validated"
 
 # Keys that live in the coordinator sensors dict but must NOT become HA sensor
 # entities.  They are read by select entities and internal coordinator logic,
 # but are excluded from both the static entity-creation path and the
 # late-registration listener in sensor.py.
-GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = SMART_PORT_STATUS_KEYS
+GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = SMART_PORT_STATUS_KEYS | {
+    SMART_PORT_VALIDATED_KEY
+}
 
 # Smart port keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on

@@ -748,7 +748,7 @@ class TestSmartLoadSensors:
 
     @pytest.mark.asyncio
     async def test_smart_port_cleanup_spares_inverter_entity(
-        self, hass, mock_config_entry, monkeypatch
+        self, hass, mock_config_entry
     ) -> None:
         """The stale GridBOSS smart-port registry cleanup must not delete the
         inverter's smart_load_power entity (shared key — codex review MEDIUM).
@@ -783,23 +783,17 @@ class TestSmartLoadSensors:
 
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
-        # Both GridBOSS units carry AUTHORITATIVE port data: smart_port*_status
-        # keys in the sensors dict AND a session-cached good status read
-        # (both written/stored by _filter_unused_smart_port_sensors on real
-        # polls).  Without either, the cleanup defers to a coordinator
-        # listener instead of running at setup — static first-refresh data
-        # must never trigger registry removal (#217).
-        from custom_components.eg4_web_monitor.coordinator_mixins import (
-            _last_good_smart_port_statuses,
+        # Both GridBOSS units carry AUTHORITATIVE port data: the per-cycle
+        # validation marker _filter_unused_smart_port_sensors writes on a
+        # fresh, complete good status read.  Without it, the cleanup defers
+        # to a coordinator listener instead of running at setup — static
+        # first-refresh data must never trigger registry removal (#217).
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
         )
 
-        monkeypatch.setitem(
-            _last_good_smart_port_statuses, "9000000001", {1: 0, 2: 0, 3: 0, 4: 0}
-        )
-        monkeypatch.setitem(
-            _last_good_smart_port_statuses, "9000000002", {1: 1, 2: 0, 3: 0, 4: 0}
-        )
         _all_unused = {f"smart_port{p}_status": "unused" for p in range(1, 5)}
+        _all_unused[SMART_PORT_VALIDATED_KEY] = True
         mock_coordinator.data = {
             "devices": {
                 "1000000001": {

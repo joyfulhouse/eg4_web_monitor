@@ -517,12 +517,17 @@ class TestSmartPortListenerOwnership:
         sensors = mock_coordinator_gridboss_static.data["devices"][
             self.GRIDBOSS_SERIAL
         ]["sensors"]
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+
         sensors.update(
             {
                 "smart_port1_status": "smart_load",
                 "smart_port2_status": "unused",
                 "smart_port3_status": "unused",
                 "smart_port4_status": "unused",
+                SMART_PORT_VALIDATED_KEY: True,
                 "smart_load1_power_l1": 120.0,
                 "smart_load1_power_l2": 80.0,
                 "smart_load1_power": 200.0,
