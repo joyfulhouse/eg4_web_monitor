@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<<<<<<< HEAD
-> Requires pylxpweb newer than 0.9.36b5 (the manifest requirement is bumped
-> to 0.9.36b6 with this change).
+> ⚠️ **Release coupling**: everything below ships against the NEXT pylxpweb
+> release (> 0.9.36b5; the staging pyproject already reads 0.9.36b6) and the
+> manifest requirement is bumped to `>=0.9.36b6` together with it. On released
+> 0.9.36b5 the new controls degrade cleanly — unknown values and clear
+> "requires a newer pylxpweb" errors — the same staging pattern the Forced
+> Discharge controls shipped with in beta.5.
 
 ### Added
 
@@ -17,21 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Grid Sell Back` (cloud `FUNC_FEED_IN_GRID_EN`, holding register 21 bit 15, live-verified): master enable for exporting surplus to the grid. Works in cloud, local, and hybrid modes.
   - `Grid Sell Back Power` (cloud `HOLD_FEED_IN_GRID_POWER_PERCENT`): maximum sell-back power as 0–100 % of rated output. The discovery session pinned this parameter to holding register 103 via single-register named reads on both inverters — notably the cloud never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for it. Whole percent on every transport (raw register and cloud value are the same number), so it works in cloud, local, and hybrid modes with no scaling hazards.
   - `Export PV Only` (cloud `FUNC_PV_SELL_TO_GRID_EN`): sell PV surplus only, never battery. **Cloud parameter mode only** (including legacy flat-hybrid): the parameter is confirmed to live in the holding-register-179 function family, but the cloud names that register's bits alphabetically, so its exact bit position is still unpinned — the integration deliberately ships no local register write for it, and skips the switch when the parameter cache is local-raw (LOCAL mode, or HYBRID with an attached transport) since its state could never be read truthfully there. A register-contract honesty test keeps this carve-out current: the moment the bit is pinned in pylxpweb, CI demands the full local wiring.
-=======
-> ⚠️ **Release coupling**: the Stop Discharge Voltage control below needs the NEXT
-> pylxpweb release (**> 0.9.36b5** — `feat/eg4-aa3t-stop-dischg-volt`:
-> `REGISTER_TO_PARAM_KEYS[202]` + `set_stop_discharge_voltage`). Cut that pylxpweb
-> release and bump the `manifest.json` requirement before shipping. On 0.9.36b5 the
-> entity degrades cleanly by design: the value stays unknown (reg 202 is read but
-> surfaces under the unused raw key `"202"`), cloud writes raise a clear
-> "requires a newer pylxpweb" error, and local writes fail with the transport's
-> unknown-parameter error — the same staging pattern the Forced Discharge
-> controls shipped with in beta.5.
-
-### Added
 
 - **`Stop Discharge Voltage` control** (bead eg4-aa3t): the voltage-regime counterpart of the Forced Discharge SOC Limit — the cloud maintain page's *"Stop Discharge Volt 1(V)"*, gated by `disChgVoltEnable`. One number entity per inverter (40.0–56.0 V, 0.1 steps), working in cloud, local, and hybrid modes. Holding register 202 was located by single-register cloud window bisection and its raw encoding live-verified as decivolts (raw 400 ↔ cloud 40 V on an 18kPV, 2026-06-11); the cloud accepts fractional volts (round-trip 40 → 41.5 → 40 V on an 18kPV and a FlexBOSS21). Participates in the charge/discharge regime gating like the other voltage cutoffs (disabled by default while the discharge control mode is SOC), rides the existing local parameter poll (one extra holding read per hourly refresh), and is pinned in the register-contract harness like regs 82/83.
->>>>>>> feat/eg4-aa3t-stop-dischg-volt
+
+### Fixed
+
+- **GridBOSS smart-load automations no longer break on every Home Assistant restart in LOCAL mode** ([#217](https://github.com/joyfulhouse/eg4_web_monitor/issues/217)): the setup-time cleanup that prunes stale smart-port entities ran against the LOCAL first refresh's static placeholder data — which never contains smart-port keys because port statuses are unknown before the first register read. It therefore deleted **every** smart-port registry entry (`Smart Load N Power`, `Smart Load Power`, AC-couple ports, energy sensors) on each reboot, and the late-registration listener re-created them moments later under brand-new registry entry IDs. Automations pin entities by registry entry ID, so each reboot orphaned the reference and the automation failed with `Unknown entity '<32-char id>'` — re-selecting the entity only held until the next restart. The cleanup is now gated on authoritative port data (the `smart_port*_status` values a real poll always carries) and is deferred via a one-shot coordinator listener until the first real GridBOSS read lands, so registry entries — and the automations pinned to them — survive restarts. The same gate protects CLOUD/HYBRID setups whose midbox runtime endpoint returns no data during boot. Genuinely stale entities (ports reconfigured to unused) are still cleaned once real data confirms it.
+
+- **Grid Peak Shaving Power: local-mode writes were landing in the wrong register** (bead eg4-gfu5): pylxpweb's register map placed `_12K_HOLD_GRID_PEAK_SHAVING_POWER` at holding register 231, but a dual-device cloud register sweep (18kPV + FlexBOSS21, 2026-06-12) proves PS1 actually lives at **register 206** (with SOC/voltage members at 207/208 and the period-2 set at 218/219/232) — register 231 is an unnamed, unknown field that silently quantizes writes to even values. In LOCAL and HYBRID modes, setting Grid Peak Shaving Power wrote that unknown register and **never changed the real setpoint** (cloud mode always wrote correctly via the server-side name). The control now writes through the cloud parameter API in cloud and hybrid modes; in pure-LOCAL mode it raises a clear error and registers disabled-by-default, because the true register's raw encoding is still unverified — local writes return once a write window proves it. The wrong read range (231-232) was dropped from the local parameter poll, and the corrected register locations are pinned in the register-contract harness.
 
 ## [3.4.0-beta.6] - 2026-06-12
 

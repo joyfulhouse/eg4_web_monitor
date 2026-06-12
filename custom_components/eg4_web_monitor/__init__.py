@@ -11,10 +11,12 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import (
+    CALLBACK_TYPE,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import ServiceValidationError
 
@@ -31,6 +33,10 @@ from .const import (
     MIN_HTTP_POLLING_INTERVAL,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .coordinator_mappings import (
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    SMART_PORT_VALIDATED_KEY,
+)
 from .history_import import (
     IMPORT_HISTORICAL_DATA_SCHEMA,
     SERVICE_IMPORT_HISTORICAL_DATA,
@@ -280,6 +286,93 @@ async def _async_update_device_registry(
         )
 
 
+def _async_cleanup_stale_smart_port_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> set[str]:
+    """Remove stale GridBOSS smart-port sensor entities from the registry.
+
+    Previous versions created entities for all 4 smart ports; now only active
+    ports get entities (determined dynamically by
+    _filter_unused_smart_port_sensors), so registry entries for inactive port
+    keys are removed during setup.
+
+    Removal only happens for GridBOSS serials whose coordinator data is
+    AUTHORITATIVE: the sensors dict carries the SMART_PORT_VALIDATED_KEY
+    marker, which _filter_unused_smart_port_sensors() writes ONLY on a
+    fresh, complete good status read (all 4 ports present and in range this
+    cycle).  Static placeholder data, suspect-skip cycles, cached-fallback
+    cycles, and partial reads never carry it.  The LOCAL-mode first refresh
+    returns static placeholder data without smart-port keys (port statuses
+    are unknown before the first register read); treating that as
+    authoritative deleted every smart-port registry entry on each reboot and
+    re-created them moments later under NEW registry entry IDs, permanently
+    breaking automations pinned to the old entry ID (#217).  The same applies
+    to a CLOUD/HYBRID first refresh where the midbox runtime endpoint
+    returned no data.
+
+    Returns:
+        Serials of GridBOSS devices whose port data is not authoritative yet;
+        their cleanup must be retried when real data arrives.
+    """
+    entity_registry = er.async_get(hass)
+
+    # Active keys are tracked PER GridBOSS serial: with two GridBOSS units a
+    # global set would let a stale entity on unit A survive forever whenever
+    # unit B has the same key active (codex r2 LOW).
+    active_smart_port_keys_by_serial: dict[str, set[str]] = {}
+    pending_serials: set[str] = set()
+    devices = (coordinator.data or {}).get("devices", {})
+    for serial, device_data in devices.items():
+        if device_data.get("type") != "gridboss":
+            continue
+        sensors = device_data.get("sensors", {})
+        # Authority requires the per-cycle validation marker, written by
+        # _filter_unused_smart_port_sensors ONLY on a fresh, complete good
+        # status read (all 4 ports in range this cycle).  Static placeholder
+        # data, suspect-skip cycles, cached-fallback cycles, and partial
+        # reads never carry it — none of those prove the dynamic keys
+        # reflect the real port configuration (codex r1 HIGH, r2
+        # HIGH/MEDIUM), so cleanup waits for a definitive cycle instead.
+        if not sensors.get(SMART_PORT_VALIDATED_KEY):
+            pending_serials.add(serial)
+            continue
+        active_smart_port_keys_by_serial[serial] = {
+            k for k in sensors if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        }
+
+    if not active_smart_port_keys_by_serial:
+        return pending_serials
+
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        # Only GridBOSS entities are smart-port cleanup candidates.  The
+        # aggregate "smart_load_power" key is SHARED with EG4_OFFGRID
+        # inverters (cloud GEN-port smart load, #222) — a suffix-only match
+        # would delete the inverter entity from the registry on every setup
+        # whenever no GridBOSS port is active (codex review MEDIUM).
+        # Unique IDs are "{serial}_{sensor_key}", so gate on the serial.
+        entity_serial = entity.unique_id.split("_", 1)[0]
+        if entity_serial not in active_smart_port_keys_by_serial:
+            continue
+        active_keys = active_smart_port_keys_by_serial[entity_serial]
+        # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
+        # Match by checking if any smart port key appears in the unique_id suffix
+        for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
+            if entity.unique_id.endswith(f"_{sp_key}") and sp_key not in active_keys:
+                entity_registry.async_remove(entity.entity_id)
+                _LOGGER.info(
+                    "Removed stale smart port entity: %s (key %s not active)",
+                    entity.entity_id,
+                    sp_key,
+                )
+                break
+
+    return pending_serials
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up EG4 Web Monitor from a config entry."""
     _LOGGER.debug("Setting up EG4 Web Monitor entry: %s", entry.entry_id)
@@ -498,44 +591,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities
     # (determined dynamically by _filter_unused_smart_port_sensors).
-    from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+    #
+    # The cleanup is gated on AUTHORITATIVE port data: the LOCAL-mode first
+    # refresh returns static placeholder data without smart-port keys, and
+    # running the cleanup against it deleted every smart-port registry entry
+    # on each reboot — breaking automations pinned to the registry entry ID
+    # (#217).  GridBOSS serials without real port data yet are retried via a
+    # one-shot coordinator listener once the first real poll lands.
+    pending_smart_port_serials = _async_cleanup_stale_smart_port_entities(
+        hass, entry, coordinator
+    )
+    if pending_smart_port_serials:
+        unsub_smart_port_cleanup: CALLBACK_TYPE | None = None
 
-    # Active keys are tracked PER GridBOSS serial: with two GridBOSS units a
-    # global set would let a stale entity on unit A survive forever whenever
-    # unit B has the same key active (codex r2 LOW).
-    active_smart_port_keys_by_serial: dict[str, set[str]] = {}
-    if coordinator.data and "devices" in coordinator.data:
-        for serial, device_data in coordinator.data["devices"].items():
-            if device_data.get("type") == "gridboss":
-                active_smart_port_keys_by_serial[serial] = {
-                    k
-                    for k in device_data.get("sensors", {})
-                    if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-                }
-    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if entity.domain != "sensor":
-            continue
-        # Only GridBOSS entities are smart-port cleanup candidates.  The
-        # aggregate "smart_load_power" key is SHARED with EG4_OFFGRID
-        # inverters (cloud GEN-port smart load, #222) — a suffix-only match
-        # would delete the inverter entity from the registry on every setup
-        # whenever no GridBOSS port is active (codex review MEDIUM).
-        # Unique IDs are "{serial}_{sensor_key}", so gate on the serial.
-        entity_serial = entity.unique_id.split("_", 1)[0]
-        if entity_serial not in active_smart_port_keys_by_serial:
-            continue
-        active_keys = active_smart_port_keys_by_serial[entity_serial]
-        # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
-        # Match by checking if any smart port key appears in the unique_id suffix
-        for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
-            if entity.unique_id.endswith(f"_{sp_key}") and sp_key not in active_keys:
-                entity_registry.async_remove(entity.entity_id)
-                _LOGGER.info(
-                    "Removed stale smart port entity: %s (key %s not active)",
-                    entity.entity_id,
-                    sp_key,
-                )
-                break
+        @callback
+        def _async_deferred_smart_port_cleanup() -> None:
+            """Retry the smart-port cleanup once real port data arrives."""
+            nonlocal unsub_smart_port_cleanup
+            if _async_cleanup_stale_smart_port_entities(hass, entry, coordinator):
+                return  # some GridBOSS still lacks authoritative port data
+            if unsub_smart_port_cleanup is not None:
+                unsub_smart_port_cleanup()
+                unsub_smart_port_cleanup = None
+
+        @callback
+        def _async_cancel_smart_port_cleanup() -> None:
+            """Drop the deferred-cleanup listener on entry unload."""
+            nonlocal unsub_smart_port_cleanup
+            if unsub_smart_port_cleanup is not None:
+                unsub_smart_port_cleanup()
+                unsub_smart_port_cleanup = None
+
+        unsub_smart_port_cleanup = coordinator.async_add_listener(
+            _async_deferred_smart_port_cleanup
+        )
+        entry.async_on_unload(_async_cancel_smart_port_cleanup)
 
     # Forward entry setup to platforms (creates devices and entities)
     # Sensor platform first to create parent devices before other platforms

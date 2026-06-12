@@ -42,6 +42,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator_mappings import (
+    SMART_PORT_VALIDATED_KEY,
     _apply_grid_type_override,
     _apply_model_family_fallback,
     _build_battery_bank_sensor_mapping,
@@ -1781,6 +1782,14 @@ class DeviceProcessingMixin(_MixinBase):
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
+            if len(smart_port_statuses) == 4:
+                # Per-cycle authority marker for the stale smart-port registry
+                # cleanup (#217): only a FRESH and COMPLETE good read proves
+                # the dynamic keys reflect the real port configuration.
+                # Cached-fallback and suspect-skip cycles must not authorize
+                # registry removal (codex r2 HIGH), nor partial reads where
+                # some ports were never validated (codex r2 MEDIUM).
+                sensors[SMART_PORT_VALIDATED_KEY] = True
         elif serial in _last_good_smart_port_statuses:
             # Corrupt read -- fall back to cached statuses
             _LOGGER.debug(

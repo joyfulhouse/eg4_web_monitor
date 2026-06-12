@@ -382,6 +382,19 @@ async def async_setup_entry(
                 # Skip battery_bank sensors (handled by their own entity class)
                 if sensor_key.startswith("battery_bank_"):
                     continue
+                # GridBOSS smart-port dynamic keys are owned by the dedicated
+                # smart-port listener above; adding them here too would call
+                # async_add_entities twice for the same unique ID on the first
+                # real poll after a static LOCAL setup ("does not generate
+                # unique IDs" boot errors — #217 codex review).  Inverter and
+                # parallel-group sensors sharing these key names (EG4_OFFGRID
+                # smart_load_power #222, GridBOSS CT overlay) keep using this
+                # listener.
+                if (
+                    dtype == "gridboss"
+                    and sensor_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+                ):
+                    continue
                 if not _should_create_sensor(sensor_key, features, dtype):
                     continue
                 known.add(sensor_key)

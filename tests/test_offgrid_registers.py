@@ -783,6 +783,17 @@ class TestSmartLoadSensors:
 
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        # Both GridBOSS units carry AUTHORITATIVE port data: the per-cycle
+        # validation marker _filter_unused_smart_port_sensors writes on a
+        # fresh, complete good status read.  Without it, the cleanup defers
+        # to a coordinator listener instead of running at setup — static
+        # first-refresh data must never trigger registry removal (#217).
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+
+        _all_unused = {f"smart_port{p}_status": "unused" for p in range(1, 5)}
+        _all_unused[SMART_PORT_VALIDATED_KEY] = True
         mock_coordinator.data = {
             "devices": {
                 "1000000001": {
@@ -791,11 +802,15 @@ class TestSmartLoadSensors:
                     "sensors": {"smart_load_power": 2999},
                 },
                 # GridBOSS A with NO active smart-port keys this cycle
-                "9000000001": {"type": "gridboss", "sensors": {}},
+                "9000000001": {"type": "gridboss", "sensors": dict(_all_unused)},
                 # GridBOSS B with smart_load1_power ACTIVE
                 "9000000002": {
                     "type": "gridboss",
-                    "sensors": {"smart_load1_power": 480},
+                    "sensors": {
+                        **_all_unused,
+                        "smart_port1_status": "smart_load",
+                        "smart_load1_power": 480,
+                    },
                 },
             }
         }

@@ -4460,6 +4460,130 @@ class TestSmartPortFiltering:
         _last_good_smart_port_statuses.pop(serial, None)
         _warned_smart_port_devices.discard(serial)
 
+    def test_good_read_writes_validation_marker(self):
+        """A fresh, complete good read writes the per-cycle authority marker.
+
+        The stale smart-port registry cleanup (#217) only acts on cycles
+        carrying this marker — it must appear on every complete good read.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_MARKER_GOOD"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        mid = self._make_mid_device({1: 1, 2: 0, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert sensors.get(SMART_PORT_VALIDATED_KEY) is True
+
+        _last_good_smart_port_statuses.pop(serial, None)
+
+    def test_cached_fallback_does_not_write_validation_marker(self):
+        """A cached-fallback cycle must NOT carry the authority marker.
+
+        The session cache can be stale (port reconfigured since the last
+        good read), so a cycle filtered with cached statuses is not proof of
+        the real port configuration — the registry cleanup must wait for a
+        fresh good read (codex r2 HIGH).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_MARKER_CACHED"
+        _last_good_smart_port_statuses[serial] = {1: 1, 2: 0, 3: 0, 4: 0}
+        _warned_smart_port_devices.discard(serial)
+
+        # Corrupt current read: port 2 out of range
+        mid = self._make_mid_device({1: 1, 2: 7, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_suspect_skip_does_not_write_validation_marker(self):
+        """The skip-filtering path (corrupt, no cache) must NOT carry the marker.
+
+        It writes status labels for HA enum safety but performs no
+        filtering, so the dynamic key set is not authoritative (codex r1
+        HIGH).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_MARKER_SUSPECT"
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+        mid = self._make_mid_device({1: 0, 2: 5, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+        # Status labels still written (HA enum safety, #195/#248)
+        assert sensors["smart_port2_status"] == "unused"
+
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_partial_good_read_does_not_write_validation_marker(self):
+        """A good-but-partial read (fewer than 4 ports) must NOT carry the marker.
+
+        A device shape exposing only some smart_port*_status properties can
+        validate the ports it has, but the cleanup would then remove
+        registry entries for ports that were never read (codex r2 MEDIUM).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_MARKER_PARTIAL"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        class _PartialMid:
+            """Plain object: only port 1 exposes a status attribute."""
+
+            serial_number = serial
+            smart_port1_status = 0
+
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, _PartialMid())
+
+        # Port 1 validated and cached, but the read is incomplete
+        assert serial in _last_good_smart_port_statuses
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+
+        _last_good_smart_port_statuses.pop(serial, None)
+
 
 class TestCommonVoltageSensors:
     """Test grid_voltage/eps_voltage aliasing for non-three-phase configs."""
