@@ -53,6 +53,14 @@ PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"
 PARAM_HOLD_OFFGRID_DISCHG_SOC = "HOLD_SOC_LOW_LIMIT_EPS_DISCHG"
 PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT = "HOLD_SYSTEM_CHARGE_SOC_LIMIT"
+# Grid peak shaving power, time period 1 (PS1). Lives at reg 206, NOT reg 231
+# (eg4-gfu5: single-register cloud reads on an 18kPV and a FlexBOSS21 name PS1
+# at (206,1); (231,1) names nothing — the old pylxpweb 231 mapping was wrong,
+# so historical local name-writes landed in unrelated register 231). Cloud
+# read/write uses float kW [0, 25.5]; the RAW register encoding is presumed
+# deci-kW but unverified, so this control is cloud-write-only — never write it
+# through the local transport name map.
+PARAM_HOLD_GRID_PEAK_SHAVING_POWER = "_12K_HOLD_GRID_PEAK_SHAVING_POWER"
 
 # =============================================================================
 # Battery control regime (register 179 bits 9/10) and voltage limits

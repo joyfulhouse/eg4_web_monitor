@@ -245,7 +245,11 @@ class LocalTransportMixin(_MixinBase):
                     1,
                 ),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
-                (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
+                # Registers 231-232 were read here as "grid peak shaving power"
+                # — removed (eg4-gfu5): PS1 actually lives at reg 206 (231 is an
+                # unknown, unnamed register) and the PS power raw encoding is
+                # unverified, so there is nothing useful to read locally yet.
+                # Grid Peak Shaving Power is cloud-sourced only.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
             ]
 
@@ -277,7 +281,6 @@ class LocalTransportMixin(_MixinBase):
                     "HOLD_DISCHG_CUT_OFF_SOC_EOD",  # On-Grid SOC (reg 105)
                     "HOLD_SOC_LOW_LIMIT_EPS_DISCHG",  # Off-Grid SOC (reg 125)
                     "HOLD_SYSTEM_CHARGE_SOC_LIMIT",  # System Charge SOC (reg 227)
-                    "_12K_HOLD_GRID_PEAK_SHAVING_POWER",  # Grid Peak Shaving Power (reg 231)
                 )
             }
             if key_params:

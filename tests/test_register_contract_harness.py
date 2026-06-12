@@ -104,6 +104,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_FORCED_CHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -1290,6 +1291,12 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE: (158, None),
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE: (159, None),
     PARAM_HOLD_ONGRID_EOD_VOLTAGE: (169, None),
+    # Grid peak shaving power, period 1 (PS1): reg 206, NOT reg 231 (eg4-gfu5
+    # 2026-06-12 sweep — single-register cloud reads name PS1 at (206,1) on an
+    # 18kPV and a FlexBOSS21; (231,1) names nothing on either). The control is
+    # cloud-write-only (raw encoding unverified), so this pin guards the
+    # canonical table; the transport map deliberately does not know the name.
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER: (206, None),
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: (227, None),
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT: (228, None),
 }
