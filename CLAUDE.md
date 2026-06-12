@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.4** — `import_historical_data` service (#73), register contract harness (eg4-1z8) with all 8 day-one divergences fixed (output_power load semantics, net grid_power, cloud GridBOSS consumption_power/generator_frequency, fault/warning code sensors, yield canonical pairing), transport link-down handling (#226 second half), bank-sensor late registration (eg4-68y); 1159 tests, pylxpweb>=0.9.36b3
+- **v3.4.0-beta.5** — Forced Discharge Power (kW) + SOC Limit controls (#207, co-authored with DevTodd), AC/PV Charge Power 10× hybrid display fix (#207), dongle silent-path-loss reconnect (#226), 6000XP type code 38 + Smart Load Power/Grid Load Power sensors (#222), parallel-group grid_import history fix, 29-key locale catch-up with CI parity gate; 1235 tests, pylxpweb>=0.9.36b4
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
