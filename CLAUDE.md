@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.7** — Grid Sell Back switch + power number, Export PV Only switch with LOCAL/HYBRID support (reg 179 bit 3 pinned live, #135), Stop Discharge Voltage number (reg 202), #217 smart-port registry-nuke fix, off-grid grid-control suppression + Repairs (PR #220 adjudication), peak-shaving wrong-register fix (PS1=206 not 231, cloud-routed), clear dongle/Modbus discovery errors (#250); 1315 tests, pylxpweb>=0.9.36b6
+- **v3.4.0-beta.8** — AC Charge SOC Limit accepts 101% (never-stop / cell balancing, #158; reg 67 + 5 clamp sites, pylxpweb 0.9.36b7); beta.7: Grid Sell Back switch + power number, Export PV Only switch with LOCAL/HYBRID support (reg 179 bit 3 pinned live, #135), Stop Discharge Voltage number (reg 202), #217 smart-port registry-nuke fix, off-grid grid-control suppression + Repairs (PR #220 adjudication), peak-shaving wrong-register fix (PS1=206 not 231, cloud-routed), clear dongle/Modbus discovery errors (#250); 1319 tests, pylxpweb>=0.9.36b7
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
