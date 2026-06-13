@@ -7,12 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> ⚠️ **Release coupling**: everything below ships against the NEXT pylxpweb
-> release (> 0.9.36b5; the staging pyproject already reads 0.9.36b6) and the
-> manifest requirement is bumped to `>=0.9.36b6` together with it. On released
-> 0.9.36b5 the new controls degrade cleanly — unknown values and clear
-> "requires a newer pylxpweb" errors — the same staging pattern the Forced
-> Discharge controls shipped with in beta.5.
+## [3.4.0-beta.7] - 2026-06-12
+
+> Requires [pylxpweb 0.9.36b6](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b6)
+> (installed automatically; the manifest requirement is bumped).
 
 ### Added
 

@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.6** — Loads (total_load_power) honest during hybrid link-down on EG4_OFFGRID via cloud split fallback (#226 residual); beta.5: Forced Discharge kW controls (#207, DevTodd co-author), AC/PV 10× hybrid display fix, dongle silent-path-loss reconnect (#226, field-confirmed), 6000XP type 38 + Smart/Grid Load Power sensors (#222), grid_import history fix, locale parity gate; 1238 tests, pylxpweb>=0.9.36b5
+- **v3.4.0-beta.7** — Grid Sell Back switch + power number, Export PV Only switch with LOCAL/HYBRID support (reg 179 bit 3 pinned live, #135), Stop Discharge Voltage number (reg 202), #217 smart-port registry-nuke fix, off-grid grid-control suppression + Repairs (PR #220 adjudication), peak-shaving wrong-register fix (PS1=206 not 231, cloud-routed), clear dongle/Modbus discovery errors (#250); 1315 tests, pylxpweb>=0.9.36b6
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
