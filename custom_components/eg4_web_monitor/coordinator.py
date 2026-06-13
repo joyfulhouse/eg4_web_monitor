@@ -282,6 +282,11 @@ class EG4DataUpdateCoordinator(
         self._inverter_cache: dict[str, BaseInverter] = {}
         self._firmware_cache: dict[str, str] = {}
 
+        # Per-serial Quick Charge duration preference (minutes), set via the
+        # Quick Charge Duration number entity. Defaults to
+        # QUICK_CHARGE_DURATION_DEFAULT when a serial has no stored value.
+        self._quick_charge_minutes: dict[str, int] = {}
+
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 

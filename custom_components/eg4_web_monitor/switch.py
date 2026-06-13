@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
@@ -34,6 +35,7 @@ from .const import (
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    QUICK_CHARGE_DURATION_DEFAULT,
     SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
@@ -358,6 +360,12 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             if task_status:
                 attributes["task_status"] = task_status
 
+            # Remaining minutes for a fixed-duration quick charge (new firmware).
+            # remainTimeBeforeQuickChargeStop is reported in seconds.
+            remain = quick_charge_status.get("remainTimeBeforeQuickChargeStop")
+            if remain:
+                attributes["minutes_remaining"] = math.ceil(remain / 60)
+
         # Add optimistic state indicator for debugging
         if self._optimistic_state is not None:
             attributes["optimistic_state"] = self._optimistic_state
@@ -365,13 +373,17 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         return attributes if attributes else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on quick charge."""
+        """Turn on quick charge using the stored duration preference."""
+        minute = self.coordinator._quick_charge_minutes.get(
+            self._serial, QUICK_CHARGE_DURATION_DEFAULT
+        )
         await self._execute_switch_action(
             action_name="quick charge",
             enable_method="enable_quick_charge",
             disable_method="disable_quick_charge",
             turn_on=True,
             refresh_params=False,
+            enable_kwargs={"minute": minute},
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> Requires [pylxpweb 0.9.36b8](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b8)
+> (installed automatically; the manifest requirement is bumped).
+
+### Added
+
+- **`Quick Charge Duration` control + remaining-time attribute** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): the newer EG4 firmware added a fixed-duration mode to Quick Charge, so a charge can run for a set number of minutes and then stop on its own. A new **`Quick Charge Duration`** number entity (1–1440 minutes, default 60) sets how long the next Quick Charge runs; turning on the **`Quick Charge`** switch now sends that duration to the cloud. The duration is a per-inverter UI preference — it is not written to the inverter until Quick Charge is turned on. When a timed Quick Charge is running, the `Quick Charge` switch now also exposes a **`minutes_remaining`** attribute (alongside the existing `task_id` / `task_status`). Both are HTTP-only and only appear on supported inverter models, mirroring the existing Quick Charge switch gating. Reverse-engineered live on an 18kPV via the cloud API (2026-06-13).
+
 ## [3.4.0-beta.8] - 2026-06-13
 
 > Requires [pylxpweb 0.9.36b7](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b7)

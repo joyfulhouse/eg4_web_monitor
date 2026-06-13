@@ -55,6 +55,9 @@ def _mock_coordinator(
     coordinator.async_refresh = AsyncMock()
     coordinator.async_refresh_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
+    # Real dict (not an auto-Mock) so QuickChargeDurationNumber / the Quick
+    # Charge switch read a true per-serial duration preference.
+    coordinator._quick_charge_minutes = {}
 
     # Build coordinator.data
     dev_data = device_data if device_data is not None else {}
@@ -361,25 +364,70 @@ class TestQuickChargeSwitch:
 
     @pytest.mark.asyncio
     async def test_turn_on(self):
-        """Turn on calls enable_quick_charge via cloud API."""
+        """Turn on calls enable_quick_charge with the default duration (60)."""
         coordinator = _mock_coordinator()
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
         await switch.async_turn_on()
 
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.enable_quick_charge.assert_called_once()
+        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+
+    @pytest.mark.asyncio
+    async def test_turn_on_uses_stored_duration(self):
+        """Turn on forwards the per-serial duration preference as minute."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 25
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_quick_charge.assert_called_once_with(minute=25)
 
     @pytest.mark.asyncio
     async def test_turn_off(self):
-        """Turn off calls disable_quick_charge via cloud API."""
+        """Turn off calls disable_quick_charge via cloud API (no minute)."""
         coordinator = _mock_coordinator()
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
         await switch.async_turn_off()
 
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.disable_quick_charge.assert_called_once()
+        inverter.disable_quick_charge.assert_called_once_with()
+
+    def test_extra_attributes_minutes_remaining(self):
+        """A running timed charge exposes minutes_remaining (rounded up)."""
+        coordinator = _mock_coordinator(
+            device_data={
+                "quick_charge_status": {
+                    "hasUnclosedQuickChargeTask": True,
+                    "remainTimeBeforeQuickChargeStop": 598,
+                    "unclosedQuickChargeTaskId": 42,
+                    "unclosedQuickChargeTaskStatus": "WAIT_CHARGE",
+                }
+            }
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        attrs = switch.extra_state_attributes
+        assert attrs is not None
+        assert attrs["minutes_remaining"] == 10
+        assert attrs["task_id"] == 42
+        assert attrs["task_status"] == "WAIT_CHARGE"
+
+    def test_extra_attributes_no_minutes_remaining_when_idle(self):
+        """No minutes_remaining attribute when there is no remaining time."""
+        coordinator = _mock_coordinator(
+            device_data={
+                "quick_charge_status": {
+                    "hasUnclosedQuickChargeTask": False,
+                    "remainTimeBeforeQuickChargeStop": 0,
+                }
+            }
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        attrs = switch.extra_state_attributes
+        assert attrs is None or "minutes_remaining" not in attrs
 
 
 # ── BatteryBackupSwitch ──────────────────────────────────────────────

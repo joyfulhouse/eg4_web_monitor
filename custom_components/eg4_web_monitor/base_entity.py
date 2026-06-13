@@ -918,6 +918,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         turn_on: bool,
         refresh_params: bool = False,
         api_delay: float = 1.0,
+        enable_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Execute a switch action with optimistic state handling.
 
@@ -940,6 +941,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             turn_on: True to enable, False to disable.
             refresh_params: If True, refresh parameters instead of just data.
             api_delay: Seconds to wait for API to propagate changes (default 1.0).
+            enable_kwargs: Optional keyword arguments passed to the enable method
+                on the turn-on path only (the disable method is always called with
+                no arguments).
 
         Raises:
             HomeAssistantError: If the action fails.
@@ -968,7 +972,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self.async_write_ha_state()
                 raise HomeAssistantError(f"Method {method_name} not found on inverter")
 
-            success = await method()
+            # Only the enable (turn_on) path forwards enable_kwargs; the disable
+            # method is always called with no arguments.
+            success = (
+                await method(**(enable_kwargs or {})) if turn_on else await method()
+            )
             if not success:
                 self._optimistic_state = None
                 self.async_write_ha_state()

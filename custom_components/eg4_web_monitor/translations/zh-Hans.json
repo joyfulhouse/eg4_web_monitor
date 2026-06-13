@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "交流充电 SOC 限制"
       },
+      "quick_charge_duration": {
+        "name": "快速充电时长"
+      },
       "soc_cutoff": {
         "name": "SOC 截止"
       }

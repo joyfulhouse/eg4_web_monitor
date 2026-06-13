@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "Лимит SOC зарядки от сети"
       },
+      "quick_charge_duration": {
+        "name": "Длительность быстрой зарядки"
+      },
       "soc_cutoff": {
         "name": "Порог отключения SOC"
       }

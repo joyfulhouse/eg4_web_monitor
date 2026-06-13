@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "AC-Lade-SOC-Grenzwert"
       },
+      "quick_charge_duration": {
+        "name": "Schnellladedauer"
+      },
       "soc_cutoff": {
         "name": "SOC-Abschaltgrenze"
       }
