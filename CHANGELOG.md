@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **AC Charge SOC Limit now allows 101%** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): the inverter accepts **101%** as a "never stop AC charging" setting (the stop threshold is unreachable since SOC can't exceed 100), used for battery cell balancing — but the entity capped at 100, so a live-101 value read back as **unavailable** and setting 101 was rejected. The number now spans **0–101%** (its own bound, separate from the on-grid/off-grid discharge cutoffs, which stay 0–100), reads a live 101 correctly, and accepts a 101 write in cloud, local, and hybrid modes. Matches the 101 cap already used by the System Charge SOC Limit. Reported by @DoubleDoc on an 18kPV. (The cloud write path needs the paired pylxpweb fix, so the minimum pylxpweb requirement is bumped to 0.9.36b7.)
+
 ## [3.4.0-beta.7] - 2026-06-12
 
 > Requires [pylxpweb 0.9.36b6](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b6)

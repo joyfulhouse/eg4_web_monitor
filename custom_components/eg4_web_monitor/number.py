@@ -70,6 +70,9 @@ from .const import (
     PV_START_VOLTAGE_STEP,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
+    AC_CHARGE_SOC_LIMIT_MAX,
+    AC_CHARGE_SOC_LIMIT_MIN,
+    AC_CHARGE_SOC_LIMIT_STEP,
     REG_OFFGRID_EOD_VOLTAGE,
     REG_ONGRID_EOD_VOLTAGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
@@ -914,9 +917,9 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_unique_id = (
             f"{self._clean_model}_{serial.lower()}_ac_charge_soc_limit"
         )
-        self._attr_native_min_value = SOC_LIMIT_MIN
-        self._attr_native_max_value = SOC_LIMIT_MAX
-        self._attr_native_step = SOC_LIMIT_STEP
+        self._attr_native_min_value = AC_CHARGE_SOC_LIMIT_MIN
+        self._attr_native_max_value = AC_CHARGE_SOC_LIMIT_MAX
+        self._attr_native_step = AC_CHARGE_SOC_LIMIT_STEP
         self._attr_native_unit_of_measurement = "%"
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 0
@@ -929,17 +932,18 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         """Return the current AC charge SOC limit."""
         return self._read_param_value(
             param_key="HOLD_AC_CHARGE_SOC_LIMIT",
-            value_min=0,
-            value_max=100,
+            value_min=AC_CHARGE_SOC_LIMIT_MIN,
+            value_max=AC_CHARGE_SOC_LIMIT_MAX,
             inverter_attr="ac_charge_soc_limit",
         )
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge SOC limit."""
         int_value = int(value)
-        if int_value < 0 or int_value > 100:
+        if int_value < AC_CHARGE_SOC_LIMIT_MIN or int_value > AC_CHARGE_SOC_LIMIT_MAX:
             raise HomeAssistantError(
-                f"AC charge SOC limit must be between 0-100%, got {int_value}"
+                f"AC charge SOC limit must be between "
+                f"{AC_CHARGE_SOC_LIMIT_MIN}-{AC_CHARGE_SOC_LIMIT_MAX}%, got {int_value}"
             )
         if abs(value - int_value) > 0.01:
             raise HomeAssistantError(
