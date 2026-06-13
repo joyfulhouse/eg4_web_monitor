@@ -1064,6 +1064,105 @@ class TestLocalDongleFlow:
             assert result["step_id"] == "local_dongle"
             assert result["errors"] == {"base": "dongle_connection_failed"}
 
+    async def test_dongle_transport_error_maps_to_connection_failed(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportError maps to dongle_connection_failed, not unknown.
+
+        Regression for #250: a dongle RST during discovery surfaces from
+        pylxpweb as TransportConnectionError/TransportReadError (LuxpowerError
+        subclasses, NOT OSError), which previously fell through to the generic
+        Exception handler and showed "unknown" plus a full traceback.
+        """
+        from pylxpweb.transports import TransportReadError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(
+                side_effect=TransportReadError("Empty response from dongle.")
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.150",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ12345678",
+                    "inverter_serial": "9876543210",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_dongle"
+            assert result["errors"] == {"base": "dongle_connection_failed"}
+
+    async def test_dongle_transport_timeout_maps_to_dongle_timeout(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportTimeoutError maps to dongle_timeout (#250)."""
+        from pylxpweb.transports import TransportTimeoutError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(side_effect=TransportTimeoutError("read timed out")),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.150",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ12345678",
+                    "inverter_serial": "9876543210",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_dongle"
+            assert result["errors"] == {"base": "dongle_timeout"}
+
+    async def test_modbus_transport_error_maps_to_connection_failed(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportError maps to modbus_connection_failed (#250)."""
+        from pylxpweb.transports import TransportConnectionError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(
+                side_effect=TransportConnectionError("Connection reset by peer")
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.100",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_modbus"
+            assert result["errors"] == {"base": "modbus_connection_failed"}
+
     async def test_dongle_unknown_error(self, hass: HomeAssistant):
         """Test dongle unexpected error shows unknown error."""
         with patch(

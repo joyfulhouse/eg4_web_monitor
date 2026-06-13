@@ -1023,6 +1023,74 @@ class TestReconfigureDeviceManagement:
             assert result["step_id"] == "reconfigure_add_dongle"
             assert result["errors"] == {"base": "dongle_connection_failed"}
 
+    async def test_reconfigure_add_dongle_transport_error(self, hass: HomeAssistant):
+        """pylxpweb TransportError in reconfigure maps to dongle_connection_failed.
+
+        Regression for #250 on the reconfigure path: transport exceptions are
+        LuxpowerError subclasses (not OSError) and previously fell through to
+        the generic handler, showing "unknown".
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from pylxpweb.transports import TransportReadError
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Single",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1111111111",
+                        "model": "FlexBOSS21",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    },
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_single_dongle_transport_err",
+        )
+        entry.add_to_hass(hass)
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(
+                side_effect=TransportReadError("Empty response from dongle.")
+            ),
+        ):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_devices"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_device_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_add_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.200",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ55555555",
+                    "inverter_serial": "5555555555",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "reconfigure_add_dongle"
+            assert result["errors"] == {"base": "dongle_connection_failed"}
+
     async def test_reconfigure_add_duplicate_transport(self, hass: HomeAssistant):
         """Test adding duplicate host:port during reconfigure is rejected."""
         from unittest.mock import AsyncMock, patch
