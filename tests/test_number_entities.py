@@ -233,10 +233,23 @@ class TestReadParamValue:
         """Values outside min/max range return None."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"HOLD_AC_CHARGE_SOC_LIMIT": 200},  # > 100
+            parameters={"HOLD_AC_CHARGE_SOC_LIMIT": 200},  # > 101
         )
         entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
         assert entity.native_value is None
+
+    def test_reads_101_not_none(self):
+        """A live 101% reads back as 101, not None (GH #158).
+
+        101 = never stop AC charging (cell balancing). Before the fix the
+        100 ceiling made a real 101 read out-of-range -> None (NaN in the UI).
+        """
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_AC_CHARGE_SOC_LIMIT": 101},
+        )
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_value == 101
 
 
 class TestReadParamValueFloat:
@@ -483,6 +496,36 @@ class TestWriteParameter:
 
         with pytest.raises(HomeAssistantError, match="must be an integer"):
             await entity.async_set_native_value(50.5)
+
+    @pytest.mark.asyncio
+    async def test_write_101_accepted(self):
+        """101% is accepted and written (never-stop / cell balancing, GH #158)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(101.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_ac_charge_soc_limit.assert_called_once_with(soc_percent=101)
+
+    @pytest.mark.asyncio
+    async def test_write_102_rejected(self):
+        """102% is past the 101 cap and raises (GH #158)."""
+        coordinator = _mock_coordinator()
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between 0-101%"):
+            await entity.async_set_native_value(102.0)
+
+    def test_bounds_allow_101(self):
+        """Entity native bounds expose 0-101 (GH #158), distinct from the
+        on-grid/off-grid discharge cutoffs which stay 0-100."""
+        coordinator = _mock_coordinator()
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 0
+        assert entity.native_max_value == 101
 
 
 class TestACChargePowerWrite:

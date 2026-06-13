@@ -55,6 +55,15 @@ SOC_LIMIT_MIN = 0
 SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
+# AC Charge SOC Limit (reg 67). Separate from the shared SOC_LIMIT_* (used by
+# the on-grid/off-grid discharge cutoffs) because the inverter accepts 101% =
+# "never stop AC charging" (the stop threshold is unreachable since SOC <= 100),
+# used for battery cell balancing. Matches SYSTEM_CHARGE_SOC_LIMIT_MAX = 101.
+# GH #158.
+AC_CHARGE_SOC_LIMIT_MIN = 0
+AC_CHARGE_SOC_LIMIT_MAX = 101
+AC_CHARGE_SOC_LIMIT_STEP = 1
+
 # =============================================================================
 # Forced Discharge (regs 82/83, GH #207 / PR #249)
 # Reg 82 is kW (raw 100W units, 0-255 = 0-25.5 kW — hardware-verified in
