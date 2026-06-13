@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "AC 충전 SOC 제한"
       },
+      "quick_charge_duration": {
+        "name": "빠른 충전 시간"
+      },
       "soc_cutoff": {
         "name": "SOC 차단"
       }

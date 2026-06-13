@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "AC充電SOC制限"
       },
+      "quick_charge_duration": {
+        "name": "クイックチャージ時間"
+      },
       "soc_cutoff": {
         "name": "SOCカットオフ"
       }

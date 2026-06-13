@@ -1020,7 +1020,28 @@ class DeviceProcessingMixin(_MixinBase):
         last_qc = self._last_status_fetch.get(qc_key, 0.0)
         if now - last_qc >= _STATUS_FETCH_INTERVAL:
             try:
-                if hasattr(inverter, "get_quick_charge_status"):
+                # Prefer the full detail (new firmware reports remaining time +
+                # task metadata). Version-guard for older pylxpweb that only
+                # exposes the boolean get_quick_charge_status().
+                if hasattr(inverter, "get_quick_charge_detail"):
+                    status = await inverter.get_quick_charge_detail()
+                    processed["quick_charge_status"] = {
+                        "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
+                        "remainTimeBeforeQuickChargeStop": (
+                            status.remainTimeBeforeQuickChargeStop
+                        ),
+                        "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
+                        "unclosedQuickChargeTaskStatus": (
+                            status.unclosedQuickChargeTaskStatus
+                        ),
+                    }
+                    self._last_status_fetch[qc_key] = now
+                    _LOGGER.debug(
+                        "Quick charge status for %s: %s",
+                        serial,
+                        processed["quick_charge_status"],
+                    )
+                elif hasattr(inverter, "get_quick_charge_status"):
                     quick_charge_active = await inverter.get_quick_charge_status()
                     processed["quick_charge_status"] = {
                         "hasUnclosedQuickChargeTask": quick_charge_active,

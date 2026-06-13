@@ -125,3 +125,15 @@ STOP_DISCHARGE_VOLTAGE_STEP = 0.1
 AC_CHARGE_VOLTAGE_MIN = 38
 AC_CHARGE_VOLTAGE_MAX = 60
 AC_CHARGE_VOLTAGE_STEP = 1
+
+# =============================================================================
+# Quick Charge Duration (minutes)
+# =============================================================================
+# UI-only preference for the cloud Quick Charge "minute" parameter. Not an
+# inverter register — the value is stored per-serial on the coordinator and sent
+# when Quick Charge is turned on. 1440 = 24 hours.
+
+QUICK_CHARGE_DURATION_MIN = 1
+QUICK_CHARGE_DURATION_MAX = 1440
+QUICK_CHARGE_DURATION_STEP = 1
+QUICK_CHARGE_DURATION_DEFAULT = 60

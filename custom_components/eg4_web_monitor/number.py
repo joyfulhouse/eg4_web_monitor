@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any, TYPE_CHECKING
@@ -12,9 +13,17 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
-    from homeassistant.components.number import NumberEntity, NumberMode
+    from homeassistant.components.number import (
+        NumberEntity,
+        NumberMode,
+        RestoreNumber,
+    )
 else:
-    from homeassistant.components.number import NumberEntity, NumberMode
+    from homeassistant.components.number import (
+        NumberEntity,
+        NumberMode,
+        RestoreNumber,
+    )
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
@@ -68,6 +77,10 @@ from .const import (
     PV_START_VOLTAGE_MAX,
     PV_START_VOLTAGE_MIN,
     PV_START_VOLTAGE_STEP,
+    QUICK_CHARGE_DURATION_DEFAULT,
+    QUICK_CHARGE_DURATION_MAX,
+    QUICK_CHARGE_DURATION_MIN,
+    QUICK_CHARGE_DURATION_STEP,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     AC_CHARGE_SOC_LIMIT_MAX,
@@ -476,6 +489,12 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+                # Quick Charge Duration preference — HTTP-only, gated exactly
+                # like the Quick Charge switch (switch.py). Sets the cloud
+                # `minute` parameter used when Quick Charge is turned on.
+                if coordinator.has_http_api():
+                    entities.append(QuickChargeDurationNumber(coordinator, serial))
+
                 # Grid-tied-only controls (Peak Shaving / Forced Discharge)
                 # act on grid-parallel export/import blending; the
                 # EG4_OFFGRID (SNA) platform has no sellback and no
@@ -617,6 +636,89 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                     "No local transport or cloud API available for parameter write."
                 )
             await self._refresh_related_entities()
+
+
+class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
+    """Number entity for the Quick Charge Duration preference (minutes).
+
+    This is a UI-only preference, NOT an inverter register. The value is the
+    ``minute`` parameter sent to the cloud Quick Charge start endpoint when the
+    Quick Charge switch is turned on (newer firmware runs a fixed-duration
+    charge). It is stored per-serial on the coordinator and is HTTP-only, gated
+    identically to the Quick Charge switch.
+
+    The preference is restored across restarts via RestoreNumber so a chosen
+    duration is not silently reset to the default on reload.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the Quick Charge Duration number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "Quick Charge Duration"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_quick_charge_duration"
+        )
+        self._attr_native_min_value = QUICK_CHARGE_DURATION_MIN
+        self._attr_native_max_value = QUICK_CHARGE_DURATION_MAX
+        self._attr_native_step = QUICK_CHARGE_DURATION_STEP
+        self._attr_native_unit_of_measurement = "min"
+        self._attr_icon = "mdi:timer"
+        self._attr_native_precision = 0
+
+    @staticmethod
+    def _is_valid_duration(value: float) -> bool:
+        """True when value is a whole number of minutes within the bounds."""
+        return (
+            math.isfinite(value)
+            and value == int(value)
+            and QUICK_CHARGE_DURATION_MIN <= value <= QUICK_CHARGE_DURATION_MAX
+        )
+
+    def _seed_restored_preference(self, native_value: float | None) -> None:
+        """Seed the coordinator from a restored value when it is valid.
+
+        The restored value must pass the same finite/integer/bounds checks as a
+        live set. Invalid restored data (fractional, non-finite, out-of-range)
+        is ignored rather than raising, so a corrupt restore can never break
+        entity setup.
+        """
+        if native_value is None or not self._is_valid_duration(native_value):
+            return
+        self.coordinator._quick_charge_minutes[self.serial] = int(native_value)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the saved duration preference, then wire up the listener."""
+        await super().async_added_to_hass()
+        # Only restore when the coordinator doesn't already hold a value for
+        # this serial (e.g. set during this session).
+        if self.serial not in self.coordinator._quick_charge_minutes:
+            last_data = await self.async_get_last_number_data()
+            self._seed_restored_preference(getattr(last_data, "native_value", None))
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (QuickChargeDurationNumber,)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the stored Quick Charge duration preference (minutes)."""
+        return self.coordinator._quick_charge_minutes.get(
+            self.serial, QUICK_CHARGE_DURATION_DEFAULT
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Store the Quick Charge duration preference (no inverter write)."""
+        if not self._is_valid_duration(value):
+            raise HomeAssistantError(
+                "Quick Charge Duration must be a whole number of minutes between "
+                f"{QUICK_CHARGE_DURATION_MIN} and {QUICK_CHARGE_DURATION_MAX}, "
+                f"got {value}"
+            )
+        minutes = int(value)
+        self.coordinator._quick_charge_minutes[self.serial] = minutes
+        _LOGGER.debug(
+            "Quick Charge duration for %s set to %d minute(s)", self.serial, minutes
+        )
+        self.async_write_ha_state()
 
 
 class ACChargePowerNumber(EG4BaseNumberEntity):

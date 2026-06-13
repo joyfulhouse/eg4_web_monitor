@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "Limite de SOC de Carga AC"
       },
+      "quick_charge_duration": {
+        "name": "Duração da Carga Rápida"
+      },
       "soc_cutoff": {
         "name": "Corte de SOC"
       }

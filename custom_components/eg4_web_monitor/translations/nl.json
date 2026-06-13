@@ -694,6 +694,9 @@
       "ac_charge_soc_limit": {
         "name": "AC-laad-SOC-limiet"
       },
+      "quick_charge_duration": {
+        "name": "Snel laden duur"
+      },
       "soc_cutoff": {
         "name": "SOC-uitschakeling"
       }

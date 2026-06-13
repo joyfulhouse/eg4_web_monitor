@@ -1,8 +1,9 @@
 """Tests for EG4 number entities and shared read/write helpers."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.number import RestoreNumber
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.const import (
@@ -21,6 +22,7 @@ from custom_components.eg4_web_monitor.number import (
     GridSellBackPowerNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
+    QuickChargeDurationNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
 )
@@ -51,6 +53,9 @@ def _mock_coordinator(
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
     coordinator.async_write_battery_control_mode = AsyncMock()
+    # Real dict (not an auto-Mock) so QuickChargeDurationNumber reads a true
+    # per-serial duration preference.
+    coordinator._quick_charge_minutes = {}
     # Battery control regime helpers (used by regime-gated control entities)
     coordinator.get_configured_control_modes = MagicMock(return_value=("soc", "soc"))
     coordinator.get_live_control_mode = MagicMock(return_value="soc")
@@ -104,7 +109,10 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 19 number entities (12 base + 6 voltage + grid sell)."""
+        """FlexBOSS creates 20 number entities.
+
+        12 base + 6 voltage + grid sell + Quick Charge Duration (HTTP-only).
+        """
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -112,9 +120,11 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 19
+        assert len(entities) == 20
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
+        # Quick Charge Duration preference (HTTP-only, #251)
+        assert "QuickChargeDurationNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
         assert "PVStartVoltageNumber" in type_names
         # Forced discharge controls (regs 82/83, GH #207 / PR #249)
@@ -145,6 +155,19 @@ class TestNumberPlatformSetup:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len(entities) == 0
+
+    @pytest.mark.asyncio
+    async def test_quick_charge_duration_skipped_without_http(self, hass):
+        """Local-only mode (no HTTP API) skips the Quick Charge Duration number."""
+        coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "QuickChargeDurationNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_xp(self, hass):
@@ -1246,14 +1269,15 @@ class TestOffgridGridTiedNumberSuppression:
         assert "GridPeakShavingPowerNumber" not in type_names
         assert "ForcedDischargePowerNumber" not in type_names
         assert "ForcedDischargeSOCLimitNumber" not in type_names
-        # The rest of the control set is unaffected: 17 base - 3 suppressed.
-        # 19 grid-tied (incl. Stop Discharge Voltage, eg4-aa3t) minus the 3
-        # suppressed grid-tied controls minus Grid Sell Back (no sell-back
-        # on offgrid, GH #135) = 15
-        assert len(entities) == 15
+        # The rest of the control set is unaffected: 19 grid-tied (incl. Stop
+        # Discharge Voltage, eg4-aa3t) minus the 3 suppressed grid-tied controls
+        # minus Grid Sell Back (no sell-back on offgrid, GH #135) = 15, plus the
+        # HTTP-only Quick Charge Duration preference (#251) = 16.
+        assert len(entities) == 16
         assert "ACChargePowerNumber" in type_names
         assert "OffGridSOCCutoffNumber" in type_names
         assert "SystemChargeVoltLimitNumber" in type_names
+        assert "QuickChargeDurationNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_xp_model_without_family_fails_open(self, hass):
@@ -1270,8 +1294,9 @@ class TestOffgridGridTiedNumberSuppression:
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
-        # XP-model gate (GH #135) fires on the model name alone = 18
-        assert len(entities) == 18
+        # XP-model gate (GH #135) fires on the model name alone = 18, plus the
+        # HTTP-only Quick Charge Duration preference (#251) = 19
+        assert len(entities) == 19
 
     @pytest.mark.asyncio
     async def test_repairs_issue_for_previously_registered_numbers(self, hass):
@@ -1336,3 +1361,136 @@ class TestOffgridGridTiedNumberSuppression:
             DOMAIN, f"offgrid_grid_controls_removed_{serial}"
         )
         assert issue is not None
+
+
+# ── QuickChargeDurationNumber (preference, no register) ───────────────
+
+
+class TestQuickChargeDurationNumber:
+    """Test the Quick Charge Duration preference number entity."""
+
+    def test_default_value_is_60(self):
+        """With no stored preference, native_value defaults to 60 minutes."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 60
+
+    def test_reads_stored_value(self):
+        """native_value returns the per-serial stored preference."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 120
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 120
+
+    def test_bounds(self):
+        """Entity advertises the 1–1440 minute bounds."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 1
+        assert entity.native_max_value == 1440
+        assert entity.native_step == 1
+        assert entity.native_unit_of_measurement == "min"
+
+    @pytest.mark.asyncio
+    async def test_set_persists_to_coordinator(self):
+        """Setting the value stores it on the coordinator (no inverter write)."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        # Preference only — no parameter write to the inverter.
+        coordinator.write_named_parameter.assert_not_called()
+        entity.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_coerces_to_int(self):
+        """Float values are stored as ints."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(90.0)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 90
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_value", [0, 1441, 30.5, float("nan"), float("inf")])
+    async def test_set_rejects_invalid(self, bad_value):
+        """Out-of-bounds or non-integer values raise without touching the store."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_native_value(bad_value)
+
+        assert "1234567890" not in coordinator._quick_charge_minutes
+        entity.async_write_ha_state.assert_not_called()
+
+    def test_seed_restored_preference_valid(self):
+        """A valid restored value seeds the coordinator store."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+
+        entity._seed_restored_preference(120)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 120
+
+    @pytest.mark.parametrize(
+        "bad_value", [None, 30.5, float("nan"), float("inf"), 0, 99999]
+    )
+    def test_seed_restored_preference_ignores_invalid(self, bad_value):
+        """Fractional, non-finite, out-of-range or missing values are ignored.
+
+        A corrupt restore must never raise or store a bad value (the default
+        then applies).
+        """
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+
+        entity._seed_restored_preference(bad_value)
+
+        assert "1234567890" not in coordinator._quick_charge_minutes
+        assert entity.native_value == 60
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass_seeds_and_calls_super(self):
+        """async_added_to_hass calls super (wires the listener) then restores."""
+        coordinator = _mock_coordinator()
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+        restored = MagicMock()
+        restored.native_value = 120
+        super_mock = AsyncMock()
+        with (
+            patch.object(RestoreNumber, "async_added_to_hass", super_mock),
+            patch.object(
+                entity, "async_get_last_number_data", AsyncMock(return_value=restored)
+            ),
+        ):
+            await entity.async_added_to_hass()
+
+        # super() must be awaited (in production this is what wires the
+        # coordinator listener through the base classes).
+        super_mock.assert_awaited_once()
+        assert coordinator._quick_charge_minutes["1234567890"] == 120
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass_skips_fetch_when_session_value_set(self):
+        """An in-session value is preserved and the restore fetch is skipped."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 45
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+        get_last = AsyncMock()
+        with (
+            patch.object(RestoreNumber, "async_added_to_hass", AsyncMock()),
+            patch.object(entity, "async_get_last_number_data", get_last),
+        ):
+            await entity.async_added_to_hass()
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        get_last.assert_not_called()
