@@ -18,6 +18,7 @@ from custom_components.eg4_web_monitor.sensor import (
     EG4BatteryBankSensor,
     EG4BatterySensor,
     EG4InverterSensor,
+    EG4QuickChargeRemainingSensor,
     EG4StationSensor,
     _create_inverter_sensors,
     _create_simple_device_sensors,
@@ -46,6 +47,10 @@ def _mock_coordinator(
     coordinator.get_device_info = MagicMock(return_value=None)
     coordinator.get_battery_device_info = MagicMock(return_value=None)
     coordinator.get_battery_bank_device_info = MagicMock(return_value=None)
+    # Default off so focused sensor-key tests don't pick up the Quick Charge
+    # Remaining sensor; tests that want it opt in explicitly.
+    coordinator.has_http_api = MagicMock(return_value=False)
+    coordinator.has_configured_local_transport = MagicMock(return_value=False)
 
     data: dict[str, Any] = {}
     if devices is not None:
@@ -357,6 +362,79 @@ class TestCreateInverterSensors:
         )
         assert len(inverter_entities) == 0
         assert len(battery_entities) == 0
+
+    def test_quick_charge_remaining_sensor_created_with_http(self):
+        """Supported model + cloud API gets the Quick Charge Remaining sensor."""
+        coordinator = _mock_coordinator(devices={})
+        coordinator.has_http_api = MagicMock(return_value=True)
+        device_data = _inverter_device(sensors={})
+
+        inverter_entities, _ = _create_inverter_sensors(
+            coordinator, "INV001", device_data
+        )
+
+        qc = [
+            e for e in inverter_entities if isinstance(e, EG4QuickChargeRemainingSensor)
+        ]
+        assert len(qc) == 1
+
+    def test_quick_charge_remaining_sensor_created_with_local(self):
+        """Supported model + local transport gets the sensor (no cloud)."""
+        coordinator = _mock_coordinator(devices={})
+        coordinator.has_http_api = MagicMock(return_value=False)
+        coordinator.has_configured_local_transport = MagicMock(return_value=True)
+        device_data = _inverter_device(sensors={})
+
+        inverter_entities, _ = _create_inverter_sensors(
+            coordinator, "INV001", device_data
+        )
+
+        assert any(
+            isinstance(e, EG4QuickChargeRemainingSensor) for e in inverter_entities
+        )
+
+    def test_quick_charge_remaining_sensor_skipped_without_transport(self):
+        """No cloud and no local transport -> no Quick Charge Remaining sensor."""
+        coordinator = _mock_coordinator(devices={})
+        device_data = _inverter_device(sensors={})
+
+        inverter_entities, _ = _create_inverter_sensors(
+            coordinator, "INV001", device_data
+        )
+
+        assert not any(
+            isinstance(e, EG4QuickChargeRemainingSensor) for e in inverter_entities
+        )
+
+    def test_quick_charge_remaining_value_from_status(self):
+        """The sensor reads remaining minutes from quick_charge_status."""
+        device = _inverter_device(sensors={})
+        device["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "remainTimeBeforeQuickChargeStop": 598,  # seconds -> 10 min (ceil)
+        }
+        coordinator = _mock_coordinator(devices={"INV001": device})
+        sensor = EG4QuickChargeRemainingSensor(
+            coordinator=coordinator,
+            serial="INV001",
+            sensor_key="quick_charge_remaining",
+            device_type="inverter",
+        )
+
+        assert sensor._get_raw_value() == 10
+
+    def test_quick_charge_remaining_value_idle(self):
+        """Idle (no status / no remaining) reads 0."""
+        device = _inverter_device(sensors={})
+        coordinator = _mock_coordinator(devices={"INV001": device})
+        sensor = EG4QuickChargeRemainingSensor(
+            coordinator=coordinator,
+            serial="INV001",
+            sensor_key="quick_charge_remaining",
+            device_type="inverter",
+        )
+
+        assert sensor._get_raw_value() == 0
 
 
 # ── _create_simple_device_sensors ────────────────────────────────────

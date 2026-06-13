@@ -193,9 +193,28 @@ class TestSwitchPlatformSetup:
         assert any(n == "EG4WorkingModeSwitch" for n in type_names)
 
     @pytest.mark.asyncio
-    async def test_setup_no_quick_charge_without_http(self, hass):
-        """Local-only mode should skip QuickCharge."""
+    async def test_setup_quick_charge_local_mode(self, hass):
+        """LOCAL mode with a configured transport creates QuickCharge.
+
+        Quick Charge now works over local registers 233/234, so a supported
+        model with a local transport gets the switch even without the cloud API.
+        """
         coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4QuickChargeSwitch" in type_names
+
+    @pytest.mark.asyncio
+    async def test_setup_no_quick_charge_without_transport(self, hass):
+        """Neither cloud API nor local transport -> no QuickCharge switch."""
+        coordinator = _mock_coordinator(
+            has_http=False, has_local=False, local_only=False
+        )
         entry = MagicMock()
         entry.runtime_data = coordinator
 

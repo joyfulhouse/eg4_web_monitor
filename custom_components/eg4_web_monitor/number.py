@@ -71,6 +71,7 @@ from .const import (
     PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
+    PARAM_SNA_QUICK_CHARGE_MINUTE,
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
     PV_CHARGE_POWER_STEP,
@@ -489,10 +490,14 @@ async def async_setup_entry(
             model_lower = model.lower()
 
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
-                # Quick Charge Duration preference — HTTP-only, gated exactly
-                # like the Quick Charge switch (switch.py). Sets the cloud
-                # `minute` parameter used when Quick Charge is turned on.
-                if coordinator.has_http_api():
+                # Quick Charge Duration — gated exactly like the Quick Charge
+                # switch (switch.py). Cloud-only: a UI preference for the
+                # `minute` start parameter. LOCAL/HYBRID: also written to
+                # holding register 234 (the live duration setpoint).
+                if (
+                    coordinator.has_http_api()
+                    or coordinator.has_configured_local_transport(serial)
+                ):
                     entities.append(QuickChargeDurationNumber(coordinator, serial))
 
                 # Grid-tied-only controls (Peak Shaving / Forced Discharge)
@@ -641,14 +646,13 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
     """Number entity for the Quick Charge Duration preference (minutes).
 
-    This is a UI-only preference, NOT an inverter register. The value is the
-    ``minute`` parameter sent to the cloud Quick Charge start endpoint when the
-    Quick Charge switch is turned on (newer firmware runs a fixed-duration
-    charge). It is stored per-serial on the coordinator and is HTTP-only, gated
-    identically to the Quick Charge switch.
-
-    The preference is restored across restarts via RestoreNumber so a chosen
-    duration is not silently reset to the default on reload.
+    The value is the duration (minutes) of a fixed-length Quick Charge. It is
+    always stored per-serial on the coordinator (used as the cloud start
+    ``minute`` parameter and restored across restarts via RestoreNumber). With
+    a local transport (LOCAL/HYBRID) it is ALSO written to holding register 234
+    — the live duration setpoint, so raising it while a charge runs extends it.
+    Cloud-only installs keep it as a UI preference applied when the switch is
+    turned on. Gated identically to the Quick Charge switch.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -706,7 +710,7 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Store the Quick Charge duration preference (no inverter write)."""
+        """Store the duration preference; in LOCAL/HYBRID also write reg 234."""
         if not self._is_valid_duration(value):
             raise HomeAssistantError(
                 "Quick Charge Duration must be a whole number of minutes between "
@@ -715,6 +719,12 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
             )
         minutes = int(value)
         self.coordinator._quick_charge_minutes[self.serial] = minutes
+        # With a local transport, reg 234 is a live setpoint: write it so an
+        # active charge extends and the next start uses this length.
+        if self.coordinator.has_local_transport(self.serial):
+            await self.coordinator.write_named_parameter(
+                PARAM_SNA_QUICK_CHARGE_MINUTE, minutes, serial=self.serial
+            )
         _LOGGER.debug(
             "Quick Charge duration for %s set to %d minute(s)", self.serial, minutes
         )

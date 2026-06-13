@@ -665,6 +665,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "배터리 충전율"
+      },
+      "quick_charge_remaining": {
+        "name": "급속 충전 잔여 시간"
       }
     },
     "switch": {

@@ -14,6 +14,7 @@ from homeassistant.const import (
     UnitOfFrequency,
     UnitOfPower,
     UnitOfTemperature,
+    UnitOfTime,
 )
 
 # Sensor types and their units
@@ -2475,5 +2476,14 @@ SENSOR_TYPES = {
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
         "enabled_default": False,
+    },
+    # Quick Charge remaining time (minutes). Sourced from quick_charge_status,
+    # not the sensors dict — see EG4QuickChargeRemainingSensor.
+    "quick_charge_remaining": {
+        "name": "Quick Charge Remaining",
+        "unit": UnitOfTime.MINUTES,
+        "device_class": "duration",
+        "state_class": "measurement",
+        "icon": "mdi:timer-sand",
     },
 }

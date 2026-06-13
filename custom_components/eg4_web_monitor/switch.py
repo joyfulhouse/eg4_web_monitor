@@ -200,12 +200,17 @@ async def async_setup_entry(
                 SUPPORTED_INVERTER_MODELS,
             )
             if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
-                # Add quick charge switch (HTTP API only - requires cloud API)
-                if coordinator.has_http_api():
+                # Add quick charge switch. Works over the cloud API or, for a
+                # supported model with a local transport, directly via holding
+                # registers 233/234 (HYBRID prefers local; pylxpweb routes it).
+                if (
+                    coordinator.has_http_api()
+                    or coordinator.has_configured_local_transport(serial)
+                ):
                     entities.append(EG4QuickChargeSwitch(coordinator, serial))
                 else:
                     _LOGGER.debug(
-                        "Skipping Quick Charge switch for %s (no HTTP API available)",
+                        "Skipping Quick Charge switch for %s (no transport available)",
                         serial,
                     )
 

@@ -1014,6 +1014,11 @@ class LocalTransportMixin(_MixinBase):
                 if (val := inverter.power_to_user) is not None:
                     sensors["grid_import_power"] = val
 
+                # Quick charge status from local registers 233/234 (throttled).
+                # Populates the same key the Quick Charge switch + remaining
+                # sensor read, so they work in LOCAL-only mode too.
+                await self._fetch_quick_charge_status(inverter, device_data)
+
                 # Add last_polled timestamp so users can see when data was last fetched
                 # (not just when it last changed)
                 sensors["last_polled"] = dt_util.utcnow()

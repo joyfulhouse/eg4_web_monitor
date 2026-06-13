@@ -44,6 +44,7 @@ def _mock_coordinator(
     """Build a mock coordinator for number entity tests."""
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
+    coordinator.has_configured_local_transport = MagicMock(return_value=has_local)
     coordinator.has_http_api = MagicMock(return_value=has_http)
     coordinator.is_local_only = MagicMock(return_value=local_only)
     coordinator.last_update_success = True
@@ -157,9 +158,27 @@ class TestNumberPlatformSetup:
         assert len(entities) == 0
 
     @pytest.mark.asyncio
-    async def test_quick_charge_duration_skipped_without_http(self, hass):
-        """Local-only mode (no HTTP API) skips the Quick Charge Duration number."""
+    async def test_quick_charge_duration_local_mode(self, hass):
+        """LOCAL mode with a configured transport creates the duration number.
+
+        In LOCAL/HYBRID the duration is also written to holding register 234.
+        """
         coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "QuickChargeDurationNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_quick_charge_duration_skipped_without_transport(self, hass):
+        """Neither cloud nor local transport -> no Quick Charge Duration number."""
+        coordinator = _mock_coordinator(
+            has_http=False, has_local=False, local_only=False
+        )
         entry = MagicMock()
         entry.runtime_data = coordinator
 
@@ -1415,6 +1434,34 @@ class TestQuickChargeDurationNumber:
         await entity.async_set_native_value(90.0)
 
         assert coordinator._quick_charge_minutes["1234567890"] == 90
+
+    @pytest.mark.asyncio
+    async def test_set_cloud_only_does_not_write_register(self):
+        """Cloud-only (no local transport): preference only, no reg 234 write."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_set_local_writes_reg234(self):
+        """LOCAL/HYBRID: the duration is also written to holding register 234."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        coordinator.write_named_parameter.assert_called_once()
+        args = coordinator.write_named_parameter.call_args
+        assert args.args[0] == "SNA_HOLD_QUICK_CHARGE_MINUTE"
+        assert args.args[1] == 45
+        assert args.kwargs.get("serial") == "1234567890"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("bad_value", [0, 1441, 30.5, float("nan"), float("inf")])
