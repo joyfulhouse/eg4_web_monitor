@@ -32,6 +32,7 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
+from pylxpweb.transports import TransportError, TransportTimeoutError
 
 from .discovery import (
     DiscoveredDevice,
@@ -501,9 +502,10 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_modbus_device(host, port, unit_id)
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected Modbus discovery error")
@@ -566,9 +568,10 @@ class EG4ConfigFlow(
                     device = await discover_dongle_device(
                         host, dongle_serial, inverter_serial, port
                     )
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected dongle discovery error")
@@ -1106,9 +1109,10 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_modbus_device(host, port, unit_id)
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected Modbus discovery error")
@@ -1175,9 +1179,10 @@ class EG4ConfigFlow(
                     device = await discover_dongle_device(
                         host, dongle_serial, inverter_serial, port
                     )
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected dongle discovery error")
