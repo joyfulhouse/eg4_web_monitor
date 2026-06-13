@@ -1,6 +1,7 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
 import logging
+import math
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,7 @@ from .const import (
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
+    SUPPORTED_INVERTER_MODELS,
     THREE_PHASE_ONLY_SENSORS,
     VOLT_WATT_SENSORS,
 )
@@ -519,6 +521,23 @@ def _create_inverter_sensors(
             skipped_sensors,
         )
 
+    # Quick Charge Remaining (minutes) — custom sensor sourced from
+    # quick_charge_status (cloud getStatusInfo or local registers 233/234),
+    # gated exactly like the Quick Charge switch/duration entities.
+    model = device_data.get("model", "")
+    model_lower = model.lower() if isinstance(model, str) else ""
+    if any(m in model_lower for m in SUPPORTED_INVERTER_MODELS) and (
+        coordinator.has_http_api() or coordinator.has_configured_local_transport(serial)
+    ):
+        inverter_entities.append(
+            EG4QuickChargeRemainingSensor(
+                coordinator=coordinator,
+                serial=serial,
+                sensor_key="quick_charge_remaining",
+                device_type="inverter",
+            )
+        )
+
     # Create battery bank sensors (separate device, phase 2)
     # Battery bank is a parent device for individual batteries
     battery_bank_sensor_count = 0
@@ -597,6 +616,28 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
     """
 
     pass  # All functionality provided by EG4BaseSensor
+
+
+class EG4QuickChargeRemainingSensor(EG4InverterSensor):
+    """Quick Charge remaining time in minutes.
+
+    Sourced from the device's ``quick_charge_status`` (not the sensors dict):
+    the coordinator populates it from the cloud getStatusInfo (HTTP/HYBRID) or
+    local registers 233/234 (LOCAL). Reads 0 when no timed charge is running.
+    """
+
+    def _get_raw_value(self) -> Any:
+        """Return remaining minutes from quick_charge_status (0 when idle)."""
+        if not self.coordinator.data or "devices" not in self.coordinator.data:
+            return None
+        device_data = self.coordinator.data["devices"].get(self._serial)
+        if not device_data:
+            return None
+        status = device_data.get("quick_charge_status")
+        if not isinstance(status, dict):
+            return 0
+        remain = status.get("remainTimeBeforeQuickChargeStop")
+        return math.ceil(remain / 60) if remain else 0
 
 
 class EG4BatteryBankSensor(EG4BatteryBankEntity, SensorEntity):

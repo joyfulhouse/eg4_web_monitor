@@ -235,6 +235,10 @@ class TestFaultWarningEntityCreation:
         coordinator.last_update_success = True
         coordinator.get_device_info = MagicMock(return_value=None)
         coordinator.data = {"devices": {}}
+        # Off so these fault/warning tests don't pick up the Quick Charge
+        # Remaining sensor (gated on cloud/local transport availability).
+        coordinator.has_http_api = MagicMock(return_value=False)
+        coordinator.has_configured_local_transport = MagicMock(return_value=False)
         return coordinator
 
     def test_entities_created_for_codes(self):

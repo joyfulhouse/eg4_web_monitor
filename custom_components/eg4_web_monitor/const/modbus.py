@@ -68,6 +68,9 @@ PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"
 PARAM_HOLD_OFFGRID_DISCHG_SOC = "HOLD_SOC_LOW_LIMIT_EPS_DISCHG"
 PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT = "HOLD_SYSTEM_CHARGE_SOC_LIMIT"
+# Quick Charge duration in minutes (holding reg 234). Writable setpoint that
+# also reads as the live remaining-minutes countdown while a charge runs.
+PARAM_SNA_QUICK_CHARGE_MINUTE = "SNA_HOLD_QUICK_CHARGE_MINUTE"
 # Grid peak shaving power, time period 1 (PS1). Lives at reg 206, NOT reg 231
 # (eg4-gfu5: single-register cloud reads on an 18kPV and a FlexBOSS21 name PS1
 # at (206,1); (231,1) names nothing — the old pylxpweb 231 mapping was wrong,

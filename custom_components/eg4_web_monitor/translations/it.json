@@ -665,6 +665,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "Tasso di carica batteria"
+      },
+      "quick_charge_remaining": {
+        "name": "Carica rapida rimanente"
       }
     },
     "switch": {

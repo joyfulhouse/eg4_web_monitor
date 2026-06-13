@@ -117,6 +117,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
+    PARAM_SNA_QUICK_CHARGE_MINUTE,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     REG_OFFGRID_EOD_VOLTAGE,
@@ -1325,6 +1326,8 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_GRID_PEAK_SHAVING_POWER: (206, None),
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: (227, None),
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT: (228, None),
+    # Quick Charge duration in minutes (also the live remaining countdown).
+    PARAM_SNA_QUICK_CHARGE_MINUTE: (234, None),
 }
 
 

@@ -502,6 +502,9 @@ if TYPE_CHECKING:
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
+        async def _fetch_quick_charge_status(
+            self, inverter: BaseInverter, target: dict[str, Any]
+        ) -> None: ...
         async def _process_inverter_object(
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
@@ -668,6 +671,62 @@ class DeviceProcessingMixin(_MixinBase):
             if transport.get("serial") == serial:
                 return transport.get("grid_type")
         return None
+
+    async def _fetch_quick_charge_status(
+        self, inverter: "BaseInverter", target: dict[str, Any]
+    ) -> None:
+        """Fetch + store ``quick_charge_status`` into ``target`` (throttled).
+
+        Transport-aware via pylxpweb: cloud reads getStatusInfo; LOCAL/HYBRID
+        reads registers 233 (active) + 234 (remaining minutes). Shared by the
+        HTTP/HYBRID (`_process_inverter_object`) and LOCAL
+        (`_process_single_local_device`) paths so the Quick Charge switch and
+        remaining sensor work in every mode. Carries the previous value
+        forward when the throttle window has not elapsed.
+        """
+        interval = 30  # seconds
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+        now = time.monotonic()
+        serial = inverter.serial_number
+        qc_key = f"qc_{serial}"
+        if now - self._last_status_fetch.get(qc_key, 0.0) >= interval:
+            try:
+                # Prefer the full detail (remaining time + task metadata);
+                # version-guard for older pylxpweb exposing only the boolean.
+                if hasattr(inverter, "get_quick_charge_detail"):
+                    status = await inverter.get_quick_charge_detail()
+                    target["quick_charge_status"] = {
+                        "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
+                        "remainTimeBeforeQuickChargeStop": (
+                            status.remainTimeBeforeQuickChargeStop
+                        ),
+                        "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
+                        "unclosedQuickChargeTaskStatus": (
+                            status.unclosedQuickChargeTaskStatus
+                        ),
+                    }
+                elif hasattr(inverter, "get_quick_charge_status"):
+                    target["quick_charge_status"] = {
+                        "hasUnclosedQuickChargeTask": (
+                            await inverter.get_quick_charge_status()
+                        ),
+                    }
+                self._last_status_fetch[qc_key] = now
+                _LOGGER.debug(
+                    "Quick charge status for %s: %s",
+                    serial,
+                    target.get("quick_charge_status"),
+                )
+            except Exception as e:
+                self._last_status_fetch[qc_key] = now
+                _LOGGER.debug(
+                    "Could not fetch quick charge status for %s: %s", serial, e
+                )
+        elif self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("quick_charge_status")
+            if prev is not None:
+                target["quick_charge_status"] = prev
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
@@ -1015,54 +1074,8 @@ class DeviceProcessingMixin(_MixinBase):
         now = time.monotonic()
         serial = inverter.serial_number
 
-        # Quick charge status
-        qc_key = f"qc_{serial}"
-        last_qc = self._last_status_fetch.get(qc_key, 0.0)
-        if now - last_qc >= _STATUS_FETCH_INTERVAL:
-            try:
-                # Prefer the full detail (new firmware reports remaining time +
-                # task metadata). Version-guard for older pylxpweb that only
-                # exposes the boolean get_quick_charge_status().
-                if hasattr(inverter, "get_quick_charge_detail"):
-                    status = await inverter.get_quick_charge_detail()
-                    processed["quick_charge_status"] = {
-                        "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
-                        "remainTimeBeforeQuickChargeStop": (
-                            status.remainTimeBeforeQuickChargeStop
-                        ),
-                        "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
-                        "unclosedQuickChargeTaskStatus": (
-                            status.unclosedQuickChargeTaskStatus
-                        ),
-                    }
-                    self._last_status_fetch[qc_key] = now
-                    _LOGGER.debug(
-                        "Quick charge status for %s: %s",
-                        serial,
-                        processed["quick_charge_status"],
-                    )
-                elif hasattr(inverter, "get_quick_charge_status"):
-                    quick_charge_active = await inverter.get_quick_charge_status()
-                    processed["quick_charge_status"] = {
-                        "hasUnclosedQuickChargeTask": quick_charge_active,
-                    }
-                    self._last_status_fetch[qc_key] = now
-                    _LOGGER.debug(
-                        "Quick charge status for %s: %s",
-                        serial,
-                        quick_charge_active,
-                    )
-            except Exception as e:
-                self._last_status_fetch[qc_key] = now
-                _LOGGER.debug(
-                    "Could not fetch quick charge status for %s: %s",
-                    serial,
-                    e,
-                )
-        elif self.data and serial in self.data.get("devices", {}):
-            prev = self.data["devices"][serial].get("quick_charge_status")
-            if prev is not None:
-                processed["quick_charge_status"] = prev
+        # Quick charge status (shared cloud/local fetch; transport-aware).
+        await self._fetch_quick_charge_status(inverter, processed)
 
         # Battery backup (EPS) status
         # Skip cloud API call when local transport is attached — the parameter

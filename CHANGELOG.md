@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> Requires [pylxpweb 0.9.36b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b9)
+> (installed automatically; the manifest requirement is bumped).
+
+### Added
+
+- **Quick Charge in LOCAL/HYBRID mode** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): the `Quick Charge` switch and `Quick Charge Duration` number now work over a local transport, not just the cloud API. With a local connection they drive holding registers directly — register 233 bit 0 (enable) and register 234 (duration minutes) — so a fixed-length charge can be started without the cloud. In HYBRID mode local registers are preferred (faster, no cloud dependency), falling back to the cloud API if a local write fails. The `Quick Charge Duration` is also a live setpoint in LOCAL/HYBRID: raising it while a charge runs extends it (e.g. to keep cells balancing). A new **`Quick Charge Remaining`** sensor (minutes) shows the live countdown in every mode. The entities are gated to supported inverter models with a cloud or local transport. Confirmed against an 18kPV and reported working on an LXP-LB. Requires pylxpweb 0.9.36b9.
+
 ## [3.4.0-beta.9] - 2026-06-13
 
 > Requires [pylxpweb 0.9.36b8](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b8)
