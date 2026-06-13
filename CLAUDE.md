@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.9** — minute-based Quick Charge (#251): `Quick Charge Duration` number (1–1440 min, default 60) sets next-charge length, switch sends it + exposes `minutes_remaining`; HTTP-only, RestoreNumber-persisted; pylxpweb 0.9.36b8 (`start_quick_charge(minute=…)`, rich `QuickChargeStatus`, start/stop cache-invalidate, reg 227 metadata 0–101); beta.8: AC Charge SOC Limit accepts 101% (never-stop / cell balancing, #158; reg 67 + 5 clamp sites); 1342 tests, pylxpweb>=0.9.36b8
+- **v3.4.0-beta.10** — Quick Charge in LOCAL/HYBRID (#251): switch + `Quick Charge Duration` number work over local registers (233 bit 0 enable, 234 duration minutes; HYBRID prefers local, cloud fallback), duration is a live setpoint (raise to extend); new `Quick Charge Remaining` sensor (min) in every mode; pylxpweb 0.9.36b9 (transport-aware enable/disable + `set_quick_charge_minute`, reg 234 mapped, feature register-detected); beta.9: minute-based Quick Charge (HTTP); 1351 tests, pylxpweb>=0.9.36b9
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
