@@ -648,11 +648,16 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
 
     The value is the duration (minutes) of a fixed-length Quick Charge. It is
     always stored per-serial on the coordinator (used as the cloud start
-    ``minute`` parameter and restored across restarts via RestoreNumber). With
-    a local transport (LOCAL/HYBRID) it is ALSO written to holding register 234
-    — the live duration setpoint, so raising it while a charge runs extends it.
-    Cloud-only installs keep it as a UI preference applied when the switch is
-    turned on. Gated identically to the Quick Charge switch.
+    ``minute`` parameter and restored across restarts via RestoreNumber).
+
+    With a local transport (LOCAL/HYBRID) holding register 234 is the live
+    remaining-minutes value and the firmware only accepts writes to it while a
+    quick charge is *running*. So this entity writes reg 234 only when quick
+    charge is active (raising it extends the running charge, e.g. to keep cells
+    balancing); while idle it just stores the preference without touching the
+    inverter (the firmware would reject the write). Cloud-only installs keep it
+    purely as a UI preference applied when the switch is turned on. Gated
+    identically to the Quick Charge switch.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -710,7 +715,15 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Store the duration preference; in LOCAL/HYBRID also write reg 234."""
+        """Store the duration preference; write reg 234 live only while running.
+
+        Holding register 234 is only writable while a quick charge is active
+        (the firmware rejects it otherwise). When a charge is running we write
+        it live so the duration extends/reduces; when idle we just store the
+        preference (no inverter write, no error). If the live state cannot be
+        read we raise rather than silently store, so a failed live adjust is
+        never reported as success.
+        """
         if not self._is_valid_duration(value):
             raise HomeAssistantError(
                 "Quick Charge Duration must be a whole number of minutes between "
@@ -718,16 +731,41 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                 f"got {value}"
             )
         minutes = int(value)
-        self.coordinator._quick_charge_minutes[self.serial] = minutes
-        # With a local transport, reg 234 is a live setpoint: write it so an
-        # active charge extends and the next start uses this length.
+        # reg 234 is the live remaining-minutes register: the firmware only
+        # accepts a write while quick charge is running. Confirm the live state
+        # (a fresh enable-bit read, not the throttled cache) BEFORE committing,
+        # so we neither drop a wanted write right after switch-on nor surface a
+        # rejected write right after the charge auto-expires. A None result means
+        # the state could not be read — surface that instead of silently
+        # treating it as idle (which would report a failed adjust as success).
+        write_local = False
         if self.coordinator.has_local_transport(self.serial):
+            active = await self.coordinator.is_quick_charge_active_live(self.serial)
+            if active is None:
+                raise HomeAssistantError(
+                    "Could not read the inverter's Quick Charge state; the "
+                    "duration was not changed. Please try again."
+                )
+            write_local = active
+        # State is known (or this is a cloud-only install): commit the preference
+        # (cloud start parameter + restored UI value).
+        self.coordinator._quick_charge_minutes[self.serial] = minutes
+        if write_local:
             await self.coordinator.write_named_parameter(
                 PARAM_SNA_QUICK_CHARGE_MINUTE, minutes, serial=self.serial
             )
-        _LOGGER.debug(
-            "Quick Charge duration for %s set to %d minute(s)", self.serial, minutes
-        )
+            _LOGGER.debug(
+                "Quick Charge duration for %s set to %d min (live reg 234 write)",
+                self.serial,
+                minutes,
+            )
+        else:
+            _LOGGER.debug(
+                "Quick Charge duration preference for %s stored as %d min "
+                "(idle — no inverter write)",
+                self.serial,
+                minutes,
+            )
         self.async_write_ha_state()
 
 

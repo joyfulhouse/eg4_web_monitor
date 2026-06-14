@@ -505,6 +505,7 @@ if TYPE_CHECKING:
         async def _fetch_quick_charge_status(
             self, inverter: BaseInverter, target: dict[str, Any]
         ) -> None: ...
+        async def is_quick_charge_active_live(self, serial: str) -> bool | None: ...
         async def _process_inverter_object(
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
@@ -727,6 +728,41 @@ class DeviceProcessingMixin(_MixinBase):
             prev = self.data["devices"][serial].get("quick_charge_status")
             if prev is not None:
                 target["quick_charge_status"] = prev
+
+    async def is_quick_charge_active_live(self, serial: str) -> bool | None:
+        """Return whether a quick charge is running *right now* for ``serial``.
+
+        Reads the live enable state (LOCAL/HYBRID: holding register 233 bit 0;
+        cloud: getStatusInfo) bypassing the throttled status cache. Callers that
+        must act on the current state use this so a stale cached status — right
+        after the Quick Charge switch toggles, or just after a charge auto-
+        expires — does not mislead them. In particular the Quick Charge Duration
+        write targets register 234, which the firmware only accepts while a
+        charge is running; gating that write on this live read avoids both
+        silently dropping a wanted write (stale-idle) and surfacing a rejected
+        write (stale-active).
+
+        Returns ``True``/``False`` for a *confirmed* live state. Returns
+        ``None`` when the state cannot be determined (no inverter object, or the
+        read failed): callers must treat ``None`` as "unknown" and surface it
+        rather than silently assume idle, otherwise a live duration adjust that
+        actually failed would be reported as success.
+        """
+        inverter = self.get_inverter_object(serial)
+        if inverter is None:
+            return None
+        try:
+            if hasattr(inverter, "get_quick_charge_detail"):
+                detail = await inverter.get_quick_charge_detail()
+                return bool(detail.hasUnclosedQuickChargeTask)
+            if hasattr(inverter, "get_quick_charge_status"):
+                return bool(await inverter.get_quick_charge_status())
+        except Exception as e:  # transport/cloud read failure -> unknown
+            _LOGGER.debug(
+                "Could not read live quick charge state for %s: %s", serial, e
+            )
+            return None
+        return None  # neither read method available -> unknown
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"

@@ -6932,3 +6932,61 @@ class TestPV456DataPath:
         assert sensors["pv5_power"] == 3200
         # pv_string_count surfaced through feature extraction.
         assert result["features"]["pv_string_count"] == 5
+
+
+class TestIsQuickChargeActiveLive:
+    """Live quick-charge active check (reg 233 bit 0), bypassing the throttled
+    status cache. Gates the Quick Charge Duration reg 234 write so it is neither
+    dropped (stale-idle after switch-on) nor rejected (stale-active after the
+    charge auto-expires)."""
+
+    async def test_no_inverter_returns_none(self, hass, mock_config_entry):
+        """No inverter object for the serial -> unknown (None, not False)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        with patch.object(coordinator, "get_inverter_object", return_value=None):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None
+
+    async def test_detail_active_returns_true(self, hass, mock_config_entry):
+        """get_quick_charge_detail with hasUnclosedQuickChargeTask=True -> active."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        detail = MagicMock()
+        detail.hasUnclosedQuickChargeTask = True
+        inverter.get_quick_charge_detail = AsyncMock(return_value=detail)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is True
+
+    async def test_detail_idle_returns_false(self, hass, mock_config_entry):
+        """get_quick_charge_detail with hasUnclosedQuickChargeTask=False -> idle."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        detail = MagicMock()
+        detail.hasUnclosedQuickChargeTask = False
+        inverter.get_quick_charge_detail = AsyncMock(return_value=detail)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is False
+
+    async def test_read_error_returns_none(self, hass, mock_config_entry):
+        """A transport/cloud read failure is swallowed to None (unknown), not
+        False — callers must not treat it as confirmed idle."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None
+
+    async def test_falls_back_to_status_bool(self, hass, mock_config_entry):
+        """Older pylxpweb without get_quick_charge_detail uses the boolean
+        get_quick_charge_status."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock(spec=["get_quick_charge_status"])
+        inverter.get_quick_charge_status = AsyncMock(return_value=True)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is True
+
+    async def test_no_read_method_returns_none(self, hass, mock_config_entry):
+        """An inverter exposing neither read method -> unknown (None)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock(spec=[])
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None

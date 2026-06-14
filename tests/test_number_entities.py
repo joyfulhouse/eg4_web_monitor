@@ -54,6 +54,9 @@ def _mock_coordinator(
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
     coordinator.async_write_battery_control_mode = AsyncMock()
+    # Live quick-charge active check (reg 233 bit 0). Default idle; the
+    # QuickChargeDurationNumber gates its reg 234 write on this.
+    coordinator.is_quick_charge_active_live = AsyncMock(return_value=False)
     # Real dict (not an auto-Mock) so QuickChargeDurationNumber reads a true
     # per-serial duration preference.
     coordinator._quick_charge_minutes = {}
@@ -1448,20 +1451,77 @@ class TestQuickChargeDurationNumber:
         coordinator.write_named_parameter.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_set_local_writes_reg234(self):
-        """LOCAL/HYBRID: the duration is also written to holding register 234."""
+    async def test_set_local_active_writes_reg234(self):
+        """LOCAL/HYBRID with a running charge (live check True): reg 234 is
+        written live to extend/reduce the active charge."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
 
         await entity.async_set_native_value(45)
 
         assert coordinator._quick_charge_minutes["1234567890"] == 45
+        coordinator.is_quick_charge_active_live.assert_awaited_once_with("1234567890")
         coordinator.write_named_parameter.assert_called_once()
         args = coordinator.write_named_parameter.call_args
         assert args.args[0] == "SNA_HOLD_QUICK_CHARGE_MINUTE"
         assert args.args[1] == 45
         assert args.kwargs.get("serial") == "1234567890"
+
+    @pytest.mark.asyncio
+    async def test_set_local_idle_no_register_write(self):
+        """LOCAL/HYBRID while quick charge is OFF (live check False): the
+        firmware rejects reg 234 writes, so the entity stores the preference
+        only — no inverter write, no error (regression for the ivanfmartinez
+        LXP-LB report)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # is_quick_charge_active_live defaults to False (idle).
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        coordinator.write_named_parameter.assert_not_called()
+        entity.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_local_uses_live_check_not_cached_status(self):
+        """The reg 234 gate uses the LIVE active check, not the throttled
+        cached quick_charge_status: a stale-active cache must not trigger a
+        write the firmware would reject right after auto-expiry."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Cache says active, but the live read says the charge has ended.
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True
+        }
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=False)
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_set_local_unknown_state_raises_and_does_not_commit(self):
+        """If the live state can't be read (None), surface an error rather than
+        silently storing the preference and reporting success — a failed live
+        adjust must never look successful."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=None)
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_native_value(45)
+
+        # Nothing committed: no preference store, no register write, no state.
+        assert "1234567890" not in coordinator._quick_charge_minutes
+        coordinator.write_named_parameter.assert_not_called()
+        entity.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("bad_value", [0, 1441, 30.5, float("nan"), float("inf")])
