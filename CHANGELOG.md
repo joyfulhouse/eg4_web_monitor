@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.11] - 2026-06-13
+
+> Requires [pylxpweb 0.9.36b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b10)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **Quick Charge in LOCAL/HYBRID now matches the real hardware behaviour** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): on real LXP-LB hardware (thanks @ivanfmartinez) the inverter firmware **rejects writes to the duration register (234) while Quick Charge is off**, which made beta.10 fail two ways — the switch's start duration was silently ignored, and setting `Quick Charge Duration` while idle raised a write error. Now the **`Quick Charge` switch** just starts the charge at the firmware default length, and **`Quick Charge Duration`** writes register 234 *live* only while a charge is actually running (raising it extends the running charge — the cell-balancing / keep-charging use case). While Quick Charge is off the number simply stores the preference (no inverter write, no error). The live state is confirmed with a fresh register read at write time (not a cached value), so a duration change is never silently dropped right after the switch turns on nor rejected right after a charge auto-expires; if the inverter state can't be read the change is surfaced as an error rather than reported as a false success. The cloud path (minute-based Quick Charge from beta.9) is unchanged. Requires pylxpweb 0.9.36b10.
+
 ## [3.4.0-beta.10] - 2026-06-13
 
 > Requires [pylxpweb 0.9.36b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b9)

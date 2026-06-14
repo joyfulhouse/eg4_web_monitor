@@ -160,7 +160,8 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.10** — Quick Charge in LOCAL/HYBRID (#251): switch + `Quick Charge Duration` number work over local registers (233 bit 0 enable, 234 duration minutes; HYBRID prefers local, cloud fallback), duration is a live setpoint (raise to extend); new `Quick Charge Remaining` sensor (min) in every mode; pylxpweb 0.9.36b9 (transport-aware enable/disable + `set_quick_charge_minute`, reg 234 mapped, feature register-detected); beta.9: minute-based Quick Charge (HTTP); 1351 tests, pylxpweb>=0.9.36b9
+- **v3.4.0-beta.11** — Quick Charge LOCAL/HYBRID matches real hardware (#251, LXP-LB/@ivanfmartinez): firmware rejects reg 234 writes while QC off, so switch now just starts at firmware default and `Quick Charge Duration` writes reg 234 *live only while charging* (idle = store preference, no write/no error); live state confirmed by fresh read at write time (no silent drop after switch-on / no rejected write after auto-expiry; unknown→raise not false-success); pylxpweb 0.9.36b10 (local enable sets only reg 233 bit 0; `minute` cloud-only); 1360 tests, pylxpweb>=0.9.36b10
+- See `CHANGELOG.md` for full history
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
