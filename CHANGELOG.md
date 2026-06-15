@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> Requires [pylxpweb 0.9.36b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b13)
+> (installed automatically; the manifest requirement is bumped).
+
 ### Fixed
 
+- **An offline inverter no longer blacks out all of its entities** ([#256](https://github.com/joyfulhouse/eg4_web_monitor/issues/256)): when an inverter goes offline (cloud `lost: true`) the EG4 cloud returns a *partial* runtime/battery payload that omits the live measurement fields. pylxpweb's `InverterRuntime`/`BatteryInfo` models declared those fields required, so the whole response failed validation, the device reported `has_data=False`, and **every** Home Assistant entity for that inverter — including `Status` — went `unavailable`, while a second, online inverter in the same station (e.g. a FlexBOSS21 next to an 18kPV) was unaffected. The offline device now reports `Status = offline` with its live metrics as *unknown*, instead of disappearing. Fixed in pylxpweb 0.9.36b13 (cloud-omittable fields made optional; battery-bank aggregates made `None`-safe); the manifest now requires `pylxpweb>=0.9.36b13`.
 - **Quick Charge Duration no longer leaks a restored countdown into the cloud start** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): on LOCAL/HYBRID the number mirrors the live holding register 234, so a value restored across a restart (e.g. "3" captured mid-charge) is a stale countdown reading, not a preference. It was being stored as the cloud start `minute` and could make a HYBRID cloud-fallback start a 3-minute charge. The restored value is now kept as a preference only on cloud-only installs (no configured local transport). Found by adversarial review while finalizing #251.
 
 ## [3.4.0-beta.13] - 2026-06-15
