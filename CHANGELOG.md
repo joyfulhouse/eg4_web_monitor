@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.12] - 2026-06-15
+
+> Requires [pylxpweb 0.9.36b11](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b11)
+> (installed automatically; the manifest requirement is bumped).
+
+### Changed
+
+- **Quick Charge remaining time uses the dedicated countdown register** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): in LOCAL/HYBRID the remaining time now prefers **input register 210** (the seconds-resolution countdown on newer firmware, ≈v25+) and falls back to the minute-resolution holding register 234 when it isn't available; CLOUD continues to read the remaining time from the API. The **`Quick Charge Duration`** number now reflects the **live remaining time while a charge is running** (instead of a stored preset), so it agrees with the **`Quick Charge Remaining`** sensor rather than disagreeing until a refresh; when idle it shows the stored preference (default 60) applied on the next start. The **`Quick Charge Duration` number (holding register 234, writable minutes) and the `Quick Charge Remaining` sensor (input register 210, read-only seconds) are intentionally kept as two separate entities** — one per hardware register — rather than collapsed into one. Per LXP-LB hardware reports (@ivanfmartinez). Requires pylxpweb 0.9.36b11.
+
 ## [3.4.0-beta.11] - 2026-06-13
 
 > Requires [pylxpweb 0.9.36b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b10)
