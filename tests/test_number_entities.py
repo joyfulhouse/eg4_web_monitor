@@ -1597,14 +1597,25 @@ class TestQuickChargeDurationNumber:
         assert "1234567890" not in coordinator._quick_charge_minutes
         entity.async_write_ha_state.assert_not_called()
 
-    def test_seed_restored_preference_valid(self):
-        """A valid restored value seeds the coordinator store."""
-        coordinator = _mock_coordinator()
+    def test_seed_restored_preference_valid_cloud_only(self):
+        """A valid restored value seeds the store on a cloud-only install."""
+        coordinator = _mock_coordinator()  # has_local=False -> cloud-only
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
 
         entity._seed_restored_preference(120)
 
         assert coordinator._quick_charge_minutes["1234567890"] == 120
+
+    def test_seed_restored_preference_skipped_with_local_transport(self):
+        """LOCAL/HYBRID: a restored value is the live register mirror, not a
+        preference — it must NOT be seeded, or a stale countdown reading (e.g. a
+        restart mid-charge) would leak into a cloud-fallback start duration."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)  # HYBRID
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+
+        entity._seed_restored_preference(3)  # stale countdown reading
+
+        assert "1234567890" not in coordinator._quick_charge_minutes
 
     @pytest.mark.parametrize(
         "bad_value", [None, 30.5, float("nan"), float("inf"), 0, 99999]

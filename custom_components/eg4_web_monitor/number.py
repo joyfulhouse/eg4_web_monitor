@@ -688,11 +688,18 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
     def _seed_restored_preference(self, native_value: float | None) -> None:
         """Seed the coordinator from a restored value when it is valid.
 
-        The restored value must pass the same finite/integer/bounds checks as a
-        live set. Invalid restored data (fractional, non-finite, out-of-range)
-        is ignored rather than raising, so a corrupt restore can never break
-        entity setup.
+        The stored preference is only meaningful on the CLOUD path (the start
+        ``minute``). On LOCAL/HYBRID the entity mirrors the live holding register
+        234, so a restored value is a stale countdown reading, not a preference —
+        seeding it would leak that value into a cloud-fallback start duration
+        (e.g. restore "3" mid-charge, then a HYBRID cloud fallback starts a
+        3-minute charge). So only seed for cloud-only installs (no configured
+        local transport). The restored value must also pass the same
+        finite/integer/bounds checks as a live set; invalid restored data is
+        ignored rather than raising, so a corrupt restore can never break setup.
         """
+        if self.coordinator.has_configured_local_transport(self.serial):
+            return
         if native_value is None or not self._is_valid_duration(native_value):
             return
         self.coordinator._quick_charge_minutes[self.serial] = int(native_value)
