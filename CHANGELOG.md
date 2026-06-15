@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.13] - 2026-06-15
+
+> Requires [pylxpweb 0.9.36b12](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b12)
+> (installed automatically; the manifest requirement is bumped).
+
+### Changed
+
+- **`Quick Charge Duration` faithfully mirrors the live register** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): in LOCAL/HYBRID the number now shows exactly what holding register 234 holds — idle *and* while charging — instead of a retained UI preference, so it always agrees with what the inverter reports (the firmware governs that value: it starts a charge at its own default, counts down, and rejects changes while quick charge is off). Setting it **while a charge is running** writes register 234 to extend/reduce the charge; setting it **while idle** now returns a clear "Quick Charge must be running to set its duration" message instead of silently storing a value the inverter would reject. The per-serial preference is now used only on the CLOUD path (which has no such register), as the start `minute`. Thanks @ivanfmartinez (LXP-LB) for the hands-on testing.
+- **`Quick Charge Remaining` sensor now reports seconds** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): in LOCAL/HYBRID the remaining time prefers **input register 210** (the dedicated seconds-resolution countdown on newer firmware) and falls back to holding register 234 (minutes) when it isn't available; CLOUD reads it from the API. The sensor's unit changed from minutes to seconds to surface that resolution (the `duration` device class renders it human-readably).
+
+> Note: the `Quick Charge Duration` number (holding register 234, writable minutes) and the `Quick Charge Remaining` sensor (input register 210, read-only seconds) are intentionally kept as two separate entities — one per hardware register.
+
 ## [3.4.0-beta.12] - 2026-06-15
 
 > Requires [pylxpweb 0.9.36b11](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b11)

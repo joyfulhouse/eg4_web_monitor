@@ -160,7 +160,7 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-beta.12** — Quick Charge remaining time uses dedicated countdown register (#251, LXP-LB/@ivanfmartinez): LOCAL/HYBRID remaining prefers INPUT reg 210 (seconds, fw~25+) → falls back to HOLD 234 min×60; CLOUD reads remaining from API. `Quick Charge Duration` number shows LIVE remaining while charging (incl 0; agrees with Remaining sensor) else preset. HOLD 234 number (writable min) + INPUT 210 sensor (read-only sec) INTENTIONALLY kept as two separate entities (one per register). pylxpweb 0.9.36b11 (read_quick_charge_remaining_seconds FC04 non-fatal op-locked; get_quick_charge_detail prefers 210). 1362 tests, pylxpweb>=0.9.36b11
+- **v3.4.0-beta.13** — Quick Charge Duration faithfully mirrors HOLD 234 (#251, LXP-LB/@ivanfmartinez): LOCAL/HYBRID `Quick Charge Duration` number shows the live HOLD 234 register (idle+active) not a retained preference (firmware governs the value); set while charging→writes reg 234, set while idle→ServiceValidationError (firmware rejects idle writes); preference is now CLOUD-only (start minute). `Quick Charge Remaining` sensor now reports SECONDS (INPUT 210 resolution, HOLD 234 fallback; CLOUD=API). HOLD 234 number (writable min) + INPUT 210 sensor (read-only sec) INTENTIONALLY two separate entities (one per register). pylxpweb 0.9.36b12 (QuickChargeStatus.quickChargeMinute = raw HOLD 234). Block-size/poll-speed = separate enhancement #254. 1364 tests, pylxpweb>=0.9.36b12
 - See `CHANGELOG.md` for full history
 
 ## Docker Development Environment
