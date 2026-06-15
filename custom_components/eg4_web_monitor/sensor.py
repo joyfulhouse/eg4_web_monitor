@@ -1,7 +1,6 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
 import logging
-import math
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -619,15 +618,17 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
 
 
 class EG4QuickChargeRemainingSensor(EG4InverterSensor):
-    """Quick Charge remaining time in minutes.
+    """Quick Charge remaining time in seconds.
 
     Sourced from the device's ``quick_charge_status`` (not the sensors dict):
-    the coordinator populates it from the cloud getStatusInfo (HTTP/HYBRID) or
-    local registers 233/234 (LOCAL). Reads 0 when no timed charge is running.
+    the coordinator populates it from the cloud getStatusInfo (HTTP/HYBRID) or,
+    locally, from input register 210 (seconds) with a holding-register 234
+    (minute-resolution) fallback. Reads 0 when no timed charge is running. The
+    duration device class renders the seconds value human-readably.
     """
 
     def _get_raw_value(self) -> Any:
-        """Return remaining minutes from quick_charge_status (0 when idle)."""
+        """Return remaining seconds from quick_charge_status (0 when idle)."""
         if not self.coordinator.data or "devices" not in self.coordinator.data:
             return None
         device_data = self.coordinator.data["devices"].get(self._serial)
@@ -637,7 +638,7 @@ class EG4QuickChargeRemainingSensor(EG4InverterSensor):
         if not isinstance(status, dict):
             return 0
         remain = status.get("remainTimeBeforeQuickChargeStop")
-        return math.ceil(remain / 60) if remain else 0
+        return remain if remain else 0
 
 
 class EG4BatteryBankSensor(EG4BatteryBankEntity, SensorEntity):

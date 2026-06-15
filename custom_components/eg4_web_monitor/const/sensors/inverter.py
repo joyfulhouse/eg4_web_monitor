@@ -2477,11 +2477,13 @@ SENSOR_TYPES = {
         "entity_category": EntityCategory.DIAGNOSTIC,
         "enabled_default": False,
     },
-    # Quick Charge remaining time (minutes). Sourced from quick_charge_status,
-    # not the sensors dict — see EG4QuickChargeRemainingSensor.
+    # Quick Charge remaining time (seconds). Sourced from quick_charge_status,
+    # not the sensors dict — see EG4QuickChargeRemainingSensor. Reported in
+    # seconds to surface the resolution of the dedicated countdown register
+    # (input reg 210); the duration device class renders it human-readably.
     "quick_charge_remaining": {
         "name": "Quick Charge Remaining",
-        "unit": UnitOfTime.MINUTES,
+        "unit": UnitOfTime.SECONDS,
         "device_class": "duration",
         "state_class": "measurement",
         "icon": "mdi:timer-sand",

@@ -407,11 +407,12 @@ class TestCreateInverterSensors:
         )
 
     def test_quick_charge_remaining_value_from_status(self):
-        """The sensor reads remaining minutes from quick_charge_status."""
+        """The sensor reads remaining seconds from quick_charge_status (the raw
+        countdown value, surfacing input-reg-210 resolution)."""
         device = _inverter_device(sensors={})
         device["quick_charge_status"] = {
             "hasUnclosedQuickChargeTask": True,
-            "remainTimeBeforeQuickChargeStop": 598,  # seconds -> 10 min (ceil)
+            "remainTimeBeforeQuickChargeStop": 598,  # seconds (reported as-is)
         }
         coordinator = _mock_coordinator(devices={"INV001": device})
         sensor = EG4QuickChargeRemainingSensor(
@@ -421,7 +422,7 @@ class TestCreateInverterSensors:
             device_type="inverter",
         )
 
-        assert sensor._get_raw_value() == 10
+        assert sensor._get_raw_value() == 598
 
     def test_quick_charge_remaining_value_idle(self):
         """Idle (no status / no remaining) reads 0."""

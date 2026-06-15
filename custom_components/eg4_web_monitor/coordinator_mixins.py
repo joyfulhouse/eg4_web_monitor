@@ -706,6 +706,11 @@ class DeviceProcessingMixin(_MixinBase):
                         "unclosedQuickChargeTaskStatus": (
                             status.unclosedQuickChargeTaskStatus
                         ),
+                        # Raw holding reg 234 (minutes); None on cloud. Lets the
+                        # duration number mirror the live register on LOCAL/HYBRID
+                        # instead of a stored preference. getattr guards older
+                        # pylxpweb without the field.
+                        "quickChargeMinute": getattr(status, "quickChargeMinute", None),
                     }
                 elif hasattr(inverter, "get_quick_charge_status"):
                     target["quick_charge_status"] = {
