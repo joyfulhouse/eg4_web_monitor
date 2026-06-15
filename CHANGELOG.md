@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Quick Charge Duration no longer leaks a restored countdown into the cloud start** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)): on LOCAL/HYBRID the number mirrors the live holding register 234, so a value restored across a restart (e.g. "3" captured mid-charge) is a stale countdown reading, not a preference. It was being stored as the cloud start `minute` and could make a HYBRID cloud-fallback start a 3-minute charge. The restored value is now kept as a preference only on cloud-only installs (no configured local transport). Found by adversarial review while finalizing #251.
+
 ## [3.4.0-beta.13] - 2026-06-15
 
 > Requires [pylxpweb 0.9.36b12](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b12)
