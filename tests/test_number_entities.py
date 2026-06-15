@@ -1398,11 +1398,47 @@ class TestQuickChargeDurationNumber:
         assert entity.native_value == 60
 
     def test_reads_stored_value(self):
-        """native_value returns the per-serial stored preference."""
+        """native_value returns the per-serial stored preference when idle."""
         coordinator = _mock_coordinator()
         coordinator._quick_charge_minutes["1234567890"] = 120
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         assert entity.native_value == 120
+
+    def test_native_value_shows_live_remaining_while_active(self):
+        """While a charge runs, native_value reflects the live remaining time
+        (agreeing with the Remaining sensor), not the stored preset."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 60  # preset (ignored)
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "remainTimeBeforeQuickChargeStop": 320,  # 5m20s -> ceil = 6 min
+        }
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 6
+
+    def test_native_value_active_zero_remaining_shows_zero_not_preset(self):
+        """Active with 0 remaining (about to stop / just enabled) shows the live
+        0, not the stored preset — otherwise the number would disagree with the
+        Remaining sensor at that edge."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 60  # preset (must NOT win)
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "remainTimeBeforeQuickChargeStop": 0,
+        }
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 0
+
+    def test_native_value_uses_preset_when_idle(self):
+        """An explicit idle status falls back to the stored preset."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 45
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "remainTimeBeforeQuickChargeStop": 0,
+        }
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 45
 
     def test_bounds(self):
         """Entity advertises the 1–1440 minute bounds."""

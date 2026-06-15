@@ -709,7 +709,27 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the stored Quick Charge duration preference (minutes)."""
+        """Return live remaining minutes while charging, else the preference.
+
+        While a quick charge is running the remaining time counts down (sourced
+        from input register 210 / holding register 234 locally, or the cloud
+        status), so the entity reflects the live value — agreeing with the
+        ``Quick Charge Remaining`` sensor instead of showing a stale preset.
+        When idle it shows the stored preference (default 60) that a cloud start
+        applies.
+        """
+        devices = (self.coordinator.data or {}).get("devices", {})
+        status = devices.get(self.serial, {}).get("quick_charge_status")
+        if isinstance(status, dict) and status.get("hasUnclosedQuickChargeTask"):
+            remain = status.get("remainTimeBeforeQuickChargeStop")
+            # While active, always reflect the live remaining time — including 0
+            # (a charge about to stop, or just enabled before the register
+            # populates). Treating 0 as "no value" would fall back to the preset
+            # and recreate the number-vs-sensor disagreement at that edge. The
+            # display value may be below native_min (1); min/max only constrain
+            # user input, not the read-back state.
+            if remain is not None:
+                return float(math.ceil(remain / 60))
         return self.coordinator._quick_charge_minutes.get(
             self.serial, QUICK_CHARGE_DURATION_DEFAULT
         )
