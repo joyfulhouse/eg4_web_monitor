@@ -232,6 +232,25 @@ automation:
           entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
+## Service Actions
+
+The integration registers these service actions (callable from **Developer Tools → Actions** or automations):
+
+| Service | Description |
+|---------|-------------|
+| `eg4_web_monitor.refresh_data` | Force an immediate refresh of all EG4 device data from the API. Optional `entry_id` targets a single config entry (default: all). |
+| `eg4_web_monitor.reconcile_history` | Backfill missing energy statistics from the EG4 cloud for gaps in your energy-sensor history (requires cloud/hybrid mode). Accepts `lookback_hours` or an explicit `start_date`/`end_date`, and an optional `entry_id`. |
+| `eg4_web_monitor.import_historical_data` | Import plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the EG4 cloud into Home Assistant long-term statistics as external statistics, selectable in the Energy dashboard. |
+
+Example — force a data refresh:
+
+```yaml
+action:
+  - service: eg4_web_monitor.refresh_data
+```
+
+See each service's fields in **Developer Tools → Actions** (defined in `services.yaml`).
+
 ## Troubleshooting
 
 Common issues and fixes — including "Cannot connect", "Invalid username or
