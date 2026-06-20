@@ -412,6 +412,9 @@
           "on": "已連線",
           "off": "已斷線"
         }
+      },
+      "off_grid": {
+        "name": "離網"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "BT溫度"
       },
+      "operating_state": {
+        "name": "運作狀態",
+        "state": {
+          "standby": "待機",
+          "fault": "故障",
+          "programming": "編程中",
+          "pv_to_grid": "PV → 電網",
+          "pv_charging": "PV → 電池",
+          "pv_charging_to_grid": "PV → 電池 + 電網",
+          "battery_to_grid": "電池 → 電網",
+          "pv_battery_to_grid": "PV + 電池 → 電網",
+          "ac_charging": "AC → 電池",
+          "pv_ac_charging": "PV + AC → 電池",
+          "off_grid_battery": "離網（電池）",
+          "ac_coupled_charging": "離網（AC 耦合充電）",
+          "pv_off_grid": "離網（PV，不穩定）",
+          "pv_charging_off_grid": "離網（PV + 充電）",
+          "pv_battery_off_grid": "離網（PV + 電池）"
+        }
+      },
       "status_code": {
         "name": "狀態代碼"
       },
       "status_text": {
-        "name": "狀態"
+        "name": "雲端狀態"
       },
       "fault_code": {
         "name": "故障代碼"

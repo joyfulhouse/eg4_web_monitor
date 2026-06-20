@@ -412,6 +412,9 @@
           "on": "Polaczony",
           "off": "Rozlaczony"
         }
+      },
+      "off_grid": {
+        "name": "Poza siecią"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "Temperatura BT"
       },
+      "operating_state": {
+        "name": "Stan pracy",
+        "state": {
+          "standby": "Czuwanie",
+          "fault": "Awaria",
+          "programming": "Programowanie",
+          "pv_to_grid": "PV → Sieć",
+          "pv_charging": "PV → Bateria",
+          "pv_charging_to_grid": "PV → Bateria + Sieć",
+          "battery_to_grid": "Bateria → Sieć",
+          "pv_battery_to_grid": "PV + Bateria → Sieć",
+          "ac_charging": "AC → Bateria",
+          "pv_ac_charging": "PV + AC → Bateria",
+          "off_grid_battery": "Poza siecią (bateria)",
+          "ac_coupled_charging": "Poza siecią (Ładowanie AC-Couple)",
+          "pv_off_grid": "Poza siecią (PV, niestabilne)",
+          "pv_charging_off_grid": "Poza siecią (PV + ładowanie)",
+          "pv_battery_off_grid": "Poza siecią (PV + bateria)"
+        }
+      },
       "status_code": {
         "name": "Kod statusu"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Status chmury"
       },
       "fault_code": {
         "name": "Kod usterki"

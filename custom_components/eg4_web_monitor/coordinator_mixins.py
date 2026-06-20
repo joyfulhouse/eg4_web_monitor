@@ -40,6 +40,7 @@ from .const import (
     DOMAIN,
     INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
+    operating_state_slug,
 )
 from .coordinator_mappings import (
     SMART_PORT_VALIDATED_KEY,
@@ -876,11 +877,23 @@ class DeviceProcessingMixin(_MixinBase):
                     ]
                 if "grid_type" in features:
                     processed["sensors"]["grid_type"] = features["grid_type"]
+            # Operating State is a primary, always-present entity. Publish None
+            # (HA "unknown") even with no runtime data so CLOUD/HYBRID create it
+            # too (LOCAL always does via the static key set), rather than letting
+            # it vanish for a no-data inverter (issue #262; #256 philosophy).
+            processed["sensors"]["operating_state"] = None
             return processed
 
         # Map inverter properties to sensor keys
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
+
+        # Friendly operating-state slug decoded from the status code (issue
+        # #262). Shared decode -> identical to the LOCAL path. None (unknown
+        # code / offline inverter) is published so the enum reads "unknown".
+        processed["sensors"]["operating_state"] = operating_state_slug(
+            processed["sensors"].get("status_code")
+        )
 
         # The cloud zeroes its reg-170 mirror (pLoad170) for EG4_OFFGRID, so
         # the mapped output_power is a bogus 0 there unless the value came

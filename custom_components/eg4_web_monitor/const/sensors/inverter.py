@@ -17,6 +17,8 @@ from homeassistant.const import (
     UnitOfTime,
 )
 
+from ..operating_state import OPERATING_STATE_OPTIONS
+
 # Sensor types and their units
 SENSOR_TYPES = {
     # Power sensors
@@ -1723,14 +1725,28 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
     },
+    # Operating state (issue #262): friendly decode of the operating-mode code
+    # (status_code / INPUT reg 0 / cloud "status"). Enum state; the labels live
+    # in strings.json (entity.sensor.operating_state.state) so they localize.
+    # Primary (non-diagnostic) so it is prominent for at-a-glance status.
+    "operating_state": {
+        "name": "Operating State",
+        "icon": "mdi:state-machine",
+        "device_class": "enum",
+        "options": OPERATING_STATE_OPTIONS,
+        "translation_key": "operating_state",
+    },
     # Status sensors (diagnostic)
     "status_code": {
         "name": "Status Code",
         "icon": "mdi:numeric",
         "entity_category": "diagnostic",
     },
+    # Cloud connection/health string ("normal"/"offline"); CLOUD/HYBRID only.
+    # Named "Cloud Status" (issue #262) to disambiguate it from the operating
+    # mode shown by "Operating State" / "Status Code".
     "status_text": {
-        "name": "Status",
+        "name": "Cloud Status",
         "icon": "mdi:information",
         "entity_category": "diagnostic",
     },

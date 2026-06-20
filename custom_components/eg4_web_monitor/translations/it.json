@@ -412,6 +412,9 @@
           "on": "Connesso",
           "off": "Disconnesso"
         }
+      },
+      "off_grid": {
+        "name": "Fuori Rete"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "Temperatura BT"
       },
+      "operating_state": {
+        "name": "Stato Operativo",
+        "state": {
+          "standby": "Standby",
+          "fault": "Guasto",
+          "programming": "Programmazione",
+          "pv_to_grid": "PV → Rete",
+          "pv_charging": "PV → Batteria",
+          "pv_charging_to_grid": "PV → Batteria + Rete",
+          "battery_to_grid": "Batteria → Rete",
+          "pv_battery_to_grid": "PV + Batteria → Rete",
+          "ac_charging": "AC → Batteria",
+          "pv_ac_charging": "PV + AC → Batteria",
+          "off_grid_battery": "Fuori Rete (Batteria)",
+          "ac_coupled_charging": "Fuori Rete (Carica AC Couple)",
+          "pv_off_grid": "Fuori Rete (PV, instabile)",
+          "pv_charging_off_grid": "Fuori Rete (PV + Carica)",
+          "pv_battery_off_grid": "Fuori Rete (PV + Batteria)"
+        }
+      },
       "status_code": {
         "name": "Codice Stato"
       },
       "status_text": {
-        "name": "Stato"
+        "name": "Stato cloud"
       },
       "fault_code": {
         "name": "Codice Guasto"

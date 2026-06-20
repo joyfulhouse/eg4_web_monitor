@@ -412,6 +412,9 @@
           "on": "Verbunden",
           "off": "Getrennt"
         }
+      },
+      "off_grid": {
+        "name": "Inselbetrieb"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "BT-Temperatur"
       },
+      "operating_state": {
+        "name": "Betriebszustand",
+        "state": {
+          "standby": "Standby",
+          "fault": "Fehler",
+          "programming": "Programmierung",
+          "pv_to_grid": "PV → Netz",
+          "pv_charging": "PV → Batterie",
+          "pv_charging_to_grid": "PV → Batterie + Netz",
+          "battery_to_grid": "Batterie → Netz",
+          "pv_battery_to_grid": "PV + Batterie → Netz",
+          "ac_charging": "AC → Batterie",
+          "pv_ac_charging": "PV + AC → Batterie",
+          "off_grid_battery": "Inselbetrieb (Batterie)",
+          "ac_coupled_charging": "Inselbetrieb (AC-gekoppeltes Laden)",
+          "pv_off_grid": "Inselbetrieb (PV, instabil)",
+          "pv_charging_off_grid": "Inselbetrieb (PV + Laden)",
+          "pv_battery_off_grid": "Inselbetrieb (PV + Batterie)"
+        }
+      },
       "status_code": {
         "name": "Statuscode"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Cloud-Status"
       },
       "fault_code": {
         "name": "Fehlercode"

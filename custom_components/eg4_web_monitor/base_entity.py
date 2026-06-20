@@ -334,6 +334,14 @@ def _apply_sensor_config(
     if options is not None:
         entity._attr_options = options
 
+    # Opt-in translation key for sensors whose STATE is one of a fixed set of
+    # slugs (e.g. the operating_state enum). Setting it activates HA's
+    # entity.sensor.<key>.state translations; the display name still comes from
+    # the "name" field below. Only sensors that declare it are affected.
+    translation_key = sensor_config.get("translation_key")
+    if translation_key is not None:
+        entity._attr_translation_key = translation_key
+
     # Set display precision
     precision = _get_display_precision(sensor_config, entity._attr_device_class)
     if precision is not None:
@@ -406,9 +414,12 @@ class EG4BaseSensor(EG4DeviceEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id based on device type
         model = _get_model_from_coordinator(coordinator, serial)
@@ -518,9 +529,12 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
         model = _get_model_from_coordinator(coordinator, serial)
@@ -611,9 +625,12 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_battery_bank_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
         model = _get_model_from_coordinator(coordinator, serial)

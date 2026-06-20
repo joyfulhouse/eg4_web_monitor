@@ -412,6 +412,9 @@
           "on": "接続済み",
           "off": "切断"
         }
+      },
+      "off_grid": {
+        "name": "オフグリッド"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "BT温度"
       },
+      "operating_state": {
+        "name": "稼働状態",
+        "state": {
+          "standby": "スタンバイ",
+          "fault": "障害",
+          "programming": "プログラミング中",
+          "pv_to_grid": "PV → 系統",
+          "pv_charging": "PV → バッテリー",
+          "pv_charging_to_grid": "PV → バッテリー + 系統",
+          "battery_to_grid": "バッテリー → 系統",
+          "pv_battery_to_grid": "PV + バッテリー → 系統",
+          "ac_charging": "AC → バッテリー",
+          "pv_ac_charging": "PV + AC → バッテリー",
+          "off_grid_battery": "オフグリッド（バッテリー）",
+          "ac_coupled_charging": "オフグリッド（AC連系充電）",
+          "pv_off_grid": "オフグリッド（PV、不安定）",
+          "pv_charging_off_grid": "オフグリッド（PV + 充電）",
+          "pv_battery_off_grid": "オフグリッド（PV + バッテリー）"
+        }
+      },
       "status_code": {
         "name": "ステータスコード"
       },
       "status_text": {
-        "name": "ステータス"
+        "name": "クラウドステータス"
       },
       "fault_code": {
         "name": "障害コード"

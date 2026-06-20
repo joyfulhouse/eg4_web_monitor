@@ -83,9 +83,7 @@ def _load_env() -> dict[str, str]:
 
 def _load_cloud_creds() -> dict[str, Any]:
     """Read EG4 cloud credentials from the HTTP config entry."""
-    store = json.loads(
-        (HA_DEV / "config/.storage/core.config_entries").read_text()
-    )
+    store = json.loads((HA_DEV / "config/.storage/core.config_entries").read_text())
     for entry in store["data"]["entries"]:
         if entry.get("domain") != "eg4_web_monitor":
             continue
@@ -111,9 +109,7 @@ class HA:
         self._s = session
 
     async def states(self) -> list[dict[str, Any]]:
-        async with self._s.get(
-            f"{self._base}/api/states", headers=self._headers
-        ) as r:
+        async with self._s.get(f"{self._base}/api/states", headers=self._headers) as r:
             r.raise_for_status()
             return await r.json()
 
@@ -205,16 +201,20 @@ async def cmd_snapshot(args: argparse.Namespace) -> None:
                 cloud = {"_error": repr(exc)}
     snap = {"mode": args.mode, "entities": entities, "cloud_registers": cloud}
     Path(args.out).write_text(json.dumps(snap, indent=2, sort_keys=True))
-    print(f"Wrote {args.out}: {len(entities)} control entities, "
-          f"{len(cloud)} cloud device(s)")
+    print(
+        f"Wrote {args.out}: {len(entities)} control entities, "
+        f"{len(cloud)} cloud device(s)"
+    )
     for eid in sorted(entities):
         e = entities[eid]
         print(f"  {eid} = {e['state']}  {e['attributes']}")
     if cloud and "_error" not in cloud:
         for serial, regs in cloud.items():
-            print(f"  [cloud {serial}] "
-                  f"charge={'V' if regs.get('FUNC_BAT_CHARGE_CONTROL') else 'SOC'} "
-                  f"discharge={'V' if regs.get('FUNC_BAT_DISCHARGE_CONTROL') else 'SOC'}")
+            print(
+                f"  [cloud {serial}] "
+                f"charge={'V' if regs.get('FUNC_BAT_CHARGE_CONTROL') else 'SOC'} "
+                f"discharge={'V' if regs.get('FUNC_BAT_DISCHARGE_CONTROL') else 'SOC'}"
+            )
     elif "_error" in cloud:
         print(f"  cloud read error: {cloud['_error']}")
 
@@ -247,7 +247,9 @@ async def cmd_set_mode(args: argparse.Namespace) -> None:
             raise SystemExit("No battery control select entities found")
         for eid in targets:
             print(f"set {eid} -> {target}")
-            await ha.call("select", "select_option", {"entity_id": eid, "option": target})
+            await ha.call(
+                "select", "select_option", {"entity_id": eid, "option": target}
+            )
 
 
 def cmd_diff(args: argparse.Namespace) -> None:

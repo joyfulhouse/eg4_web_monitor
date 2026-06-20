@@ -55,6 +55,7 @@ EG4ConfigEntry: TypeAlias = ConfigEntry[EG4DataUpdateCoordinator]
 # via via_device.  The remaining platforms can load concurrently.
 SENSOR_PLATFORM: list[Platform] = [Platform.SENSOR]
 OTHER_PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,

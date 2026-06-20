@@ -412,6 +412,9 @@
           "on": "Verbonden",
           "off": "Niet verbonden"
         }
+      },
+      "off_grid": {
+        "name": "Off-grid"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "BT-temperatuur"
       },
+      "operating_state": {
+        "name": "Bedrijfstoestand",
+        "state": {
+          "standby": "Stand-by",
+          "fault": "Storing",
+          "programming": "Programmeren",
+          "pv_to_grid": "PV → Net",
+          "pv_charging": "PV → Batterij",
+          "pv_charging_to_grid": "PV → Batterij + Net",
+          "battery_to_grid": "Batterij → Net",
+          "pv_battery_to_grid": "PV + Batterij → Net",
+          "ac_charging": "AC → Batterij",
+          "pv_ac_charging": "PV + AC → Batterij",
+          "off_grid_battery": "Off-grid (Batterij)",
+          "ac_coupled_charging": "Off-grid (AC Couple laden)",
+          "pv_off_grid": "Off-grid (PV, instabiel)",
+          "pv_charging_off_grid": "Off-grid (PV + laden)",
+          "pv_battery_off_grid": "Off-grid (PV + Batterij)"
+        }
+      },
       "status_code": {
         "name": "Statuscode"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Cloud-status"
       },
       "fault_code": {
         "name": "Foutcode"

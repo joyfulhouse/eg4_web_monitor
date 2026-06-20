@@ -248,6 +248,15 @@ from .working_modes import (
     WORKING_MODES,
 )
 
+# Inverter operating-state decode (INPUT reg 0 / cloud status) - issue #262
+from .operating_state import (
+    OFF_GRID_STATUS_CODES,
+    OPERATING_STATE_LABELS,
+    OPERATING_STATE_OPTIONS,
+    is_off_grid,
+    operating_state_slug,
+)
+
 # Diagnostics - extracted to diagnostics.py
 from .diagnostics import (
     # Battery constants
@@ -507,6 +516,12 @@ __all__ = [
     # Working modes
     "FUNCTION_PARAM_MAPPING",
     "WORKING_MODES",
+    # Inverter operating-state decode (issue #262)
+    "OFF_GRID_STATUS_CODES",
+    "OPERATING_STATE_LABELS",
+    "OPERATING_STATE_OPTIONS",
+    "is_off_grid",
+    "operating_state_slug",
     # Battery constants
     "BATTERY_KEY_PREFIX",
     "BATTERY_KEY_SEPARATOR",
