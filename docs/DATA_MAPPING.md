@@ -1101,19 +1101,30 @@ produce the identical `status_code`:
 | 0x08 | `pv_charging` | PV → Battery | |
 | 0x0C | `pv_charging_to_grid` | PV → Battery + Grid | |
 | 0x10 | `battery_to_grid` | Battery → Grid | |
+| 0x11 | `standby` | Standby | |
 | 0x14 | `pv_battery_to_grid` | PV + Battery → Grid | |
-| 0x20 | `ac_charging` | Grid → Battery | |
-| 0x28 | `pv_ac_charging` | PV + Grid → Battery | |
+| 0x20 | `ac_charging` | AC → Battery | |
+| 0x28 | `pv_ac_charging` | PV + AC → Battery | |
 | 0x40 | `off_grid_battery` | Off-Grid (Battery) | ✅ |
-| 0x60 | `ac_coupled_charging` | AC-Coupled Charging | |
+| 0x60 | `ac_coupled_charging` | Off-Grid (AC-Coupled Charging) | ✅ |
 | 0x80 | `pv_off_grid` | Off-Grid (PV, unstable) | ✅ |
 | 0x88 | `pv_charging_off_grid` | Off-Grid (PV + Charging) | ✅ |
 | 0xC0 | `pv_battery_off_grid` | Off-Grid (PV + Battery) | ✅ |
 
-An unmapped code → `operating_state` is `unknown` (the raw `status_code` remains
-for diagnosis). `0x60` is *named* "Off-grid + battery charging" in Table 9 but
-*described* as on-grid AC-coupled charging; the description is treated as
-authoritative, so it is **not** flagged off-grid.
+**Off-grid** is determined by the threshold rule **`code >= 0x40`** (bit 6/7),
+so even an undocumented ≥0x40 combination still trips the Off-Grid binary
+sensor. This was corrected against real LXP-LB hardware and the `lxp_modbus`
+integration (#262, @ivanfmartinez):
+- `0x60` — Table 9 *names* it "Off-grid + battery charging" but *describes* it as
+  "On-grid … AC Coupled" (contradictory). Hardware (main breaker off, AC-couple
+  charging the battery) and `lxp_modbus` both confirm it is **off-grid**.
+- `0x20` — Table 9's description "Grid charges the battery" is misleading; on real
+  hardware this also occurs charging from AC-coupled PV with no grid, so the
+  label is **"AC → Battery"**, not "Grid → Battery".
+- `0x11` — an observed Standby alias (not in Table 9) that `lxp_modbus` also maps.
+
+An unmapped code → `operating_state` is `unknown` (a debug log records the raw
+value; the `status_code` sensor retains it for diagnosis).
 
 > Distinct from the **Operating Mode** *select* (holding reg 21 Normal/Standby
 > power control) and the **Cloud Status** sensor (`status_text` — cloud health

@@ -51,7 +51,7 @@ from tests.conftest import make_real_inverter, make_transport_spec
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Code -> expected slug, straight from Table 9 (the documented set, #262).
+# Code -> expected slug. Table 9 set + 0x11 (observed Standby alias, #262).
 EXPECTED_DECODE: dict[int, str] = {
     0x00: "standby",
     0x01: "fault",
@@ -60,6 +60,7 @@ EXPECTED_DECODE: dict[int, str] = {
     0x08: "pv_charging",
     0x0C: "pv_charging_to_grid",
     0x10: "battery_to_grid",
+    0x11: "standby",
     0x14: "pv_battery_to_grid",
     0x20: "ac_charging",
     0x28: "pv_ac_charging",
@@ -96,23 +97,31 @@ class TestOperatingStateDecode:
         assert operating_state_slug(None) is None
 
     def test_options_are_unique_and_complete(self):
-        """Enum options list every slug once, in code order."""
-        assert OPERATING_STATE_OPTIONS == list(EXPECTED_DECODE.values())
+        """Enum options list every slug once, in code order (0x11 dedup)."""
+        assert OPERATING_STATE_OPTIONS == list(dict.fromkeys(EXPECTED_DECODE.values()))
         assert len(OPERATING_STATE_OPTIONS) == len(set(OPERATING_STATE_OPTIONS))
 
     def test_off_grid_code_set_is_exact(self):
-        """Off-grid set is the islanded codes only (0x60 AC-coupled excluded)."""
-        assert OFF_GRID_STATUS_CODES == frozenset({0x40, 0x80, 0x88, 0xC0})
+        """Off-grid set is every documented code >= 0x40 (incl. 0x60, #262)."""
+        assert OFF_GRID_STATUS_CODES == frozenset({0x40, 0x60, 0x80, 0x88, 0xC0})
 
     @pytest.mark.parametrize("code", sorted(OFF_GRID_STATUS_CODES))
     def test_is_off_grid_true(self, code: int):
-        """Islanded codes report off-grid."""
+        """Islanded codes (>= 0x40) report off-grid."""
         assert is_off_grid(code) is True
 
-    @pytest.mark.parametrize("code", [0x00, 0x04, 0x10, 0x20, 0x28, 0x60])
+    @pytest.mark.parametrize("code", [0x00, 0x04, 0x10, 0x11, 0x20, 0x28])
     def test_is_off_grid_false(self, code: int):
-        """On-grid codes (incl. 0x60 AC-coupled) report not off-grid."""
+        """On-grid codes (< 0x40) report not off-grid."""
         assert is_off_grid(code) is False
+
+    @pytest.mark.parametrize(
+        ("code", "expected"),
+        [(0x3F, False), (0x40, True), (0x50, True), (0xFF, True)],
+    )
+    def test_is_off_grid_threshold_rule(self, code: int, expected: bool):
+        """Off-grid is the >= 0x40 threshold, so undocumented >=0x40 codes too."""
+        assert is_off_grid(code) is expected
 
     def test_is_off_grid_none(self):
         """Missing value -> None (binary sensor reads 'unknown', not 'off')."""
@@ -310,13 +319,13 @@ class TestOffGridBinarySensor:
         ("code", "expected"),
         [
             (0x40, True),
+            (0x60, True),
             (0x80, True),
             (0x88, True),
             (0xC0, True),
             (0x00, False),
             (0x10, False),
             (0x20, False),
-            (0x60, False),
             (None, None),
         ],
     )
@@ -400,3 +409,15 @@ class TestOperatingStateTranslations:
             data = json.loads(path.read_text(encoding="utf-8"))
             entry = data["entity"]["binary_sensor"]["off_grid"]
             assert entry["name"], f"off_grid name empty in {path.name}"
+
+    def test_english_labels_reflect_hardware_corrections(self):
+        """Pin the #262 wording fixes: 0x20 = AC (not Grid); 0x60 = off-grid."""
+        base = _REPO_ROOT / "custom_components" / "eg4_web_monitor"
+        for name in ("strings.json", "translations/en.json"):
+            states = json.loads((base / name).read_text(encoding="utf-8"))["entity"][
+                "sensor"
+            ]["operating_state"]["state"]
+            assert states["ac_charging"] == "AC → Battery"
+            assert states["pv_ac_charging"] == "PV + AC → Battery"
+            assert states["ac_coupled_charging"] == "Off-Grid (AC-Coupled Charging)"
+            assert "Grid" not in states["ac_charging"]

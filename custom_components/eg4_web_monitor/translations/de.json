@@ -489,10 +489,10 @@
           "pv_charging_to_grid": "PV → Batterie + Netz",
           "battery_to_grid": "Batterie → Netz",
           "pv_battery_to_grid": "PV + Batterie → Netz",
-          "ac_charging": "Netz → Batterie",
-          "pv_ac_charging": "PV + Netz → Batterie",
+          "ac_charging": "AC → Batterie",
+          "pv_ac_charging": "PV + AC → Batterie",
           "off_grid_battery": "Inselbetrieb (Batterie)",
-          "ac_coupled_charging": "AC-gekoppeltes Laden",
+          "ac_coupled_charging": "Inselbetrieb (AC-gekoppeltes Laden)",
           "pv_off_grid": "Inselbetrieb (PV, instabil)",
           "pv_charging_off_grid": "Inselbetrieb (PV + Laden)",
           "pv_battery_off_grid": "Inselbetrieb (PV + Batterie)"

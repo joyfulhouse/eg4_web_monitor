@@ -489,10 +489,10 @@
           "pv_charging_to_grid": "PV → Batería + Red",
           "battery_to_grid": "Batería → Red",
           "pv_battery_to_grid": "PV + Batería → Red",
-          "ac_charging": "Red → Batería",
-          "pv_ac_charging": "PV + Red → Batería",
+          "ac_charging": "AC → Batería",
+          "pv_ac_charging": "PV + AC → Batería",
           "off_grid_battery": "Fuera de Red (Batería)",
-          "ac_coupled_charging": "Carga Acoplada AC",
+          "ac_coupled_charging": "Fuera de Red (Carga Acoplada AC)",
           "pv_off_grid": "Fuera de Red (PV, inestable)",
           "pv_charging_off_grid": "Fuera de Red (PV + Carga)",
           "pv_battery_off_grid": "Fuera de Red (PV + Batería)"

@@ -489,10 +489,10 @@
           "pv_charging_to_grid": "PV → バッテリー + 系統",
           "battery_to_grid": "バッテリー → 系統",
           "pv_battery_to_grid": "PV + バッテリー → 系統",
-          "ac_charging": "系統 → バッテリー",
-          "pv_ac_charging": "PV + 系統 → バッテリー",
+          "ac_charging": "AC → バッテリー",
+          "pv_ac_charging": "PV + AC → バッテリー",
           "off_grid_battery": "オフグリッド（バッテリー）",
-          "ac_coupled_charging": "AC連系充電",
+          "ac_coupled_charging": "オフグリッド（AC連系充電）",
           "pv_off_grid": "オフグリッド（PV、不安定）",
           "pv_charging_off_grid": "オフグリッド（PV + 充電）",
           "pv_battery_off_grid": "オフグリッド（PV + バッテリー）"
