@@ -787,11 +787,12 @@ jobs:
 
       - name: Install mypy and dependencies with uv
         run: |
-          # Pin pylxpweb to the manifest's required (pre-release) version so
-          # mypy type-checks against the API the integration actually uses;
-          # bare "pylxpweb" installs the older stable and misses new attributes
-          # (e.g. InverterRuntimeData.rectifier_power).
-          uv pip install --system 'homeassistant>=2025.11.0' mypy 'pylxpweb>=0.9.36b14'
+          # Match tests/requirements-test.txt's pre-release pin so mypy
+          # type-checks against the SAME pylxpweb the tests use, not the older
+          # stable (bare "pylxpweb" -> 0.9.35, which lacks new attributes such
+          # as InverterRuntimeData.rectifier_power). The pre-release marker lets
+          # uv resolve the latest 0.9.36 beta.
+          uv pip install --system 'homeassistant>=2025.11.0' mypy 'pylxpweb>=0.9.36b9'
 
       - name: Verify strict typing configuration
         run: |
