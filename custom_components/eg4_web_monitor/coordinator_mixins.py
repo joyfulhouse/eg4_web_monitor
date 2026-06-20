@@ -646,6 +646,25 @@ def _safe_numeric(value: Any) -> float:
         return 0.0
 
 
+def _bank_battery_count(bank: Any) -> int:
+    """Return a battery bank's reported module count as a non-negative int.
+
+    ``battery_count`` is reg 96 for a transport ``BatteryBankData`` and the
+    cloud ``BatteryBank.battery_count`` property (parallel-count / totalNumber /
+    battery-array length) for a cloud bank; both are None/0 for a device that
+    owns no bank.  Returns 0 whenever the bank or its count is absent, None, or
+    unreadable (cloud computed properties may raise on partial data) so callers
+    can treat "no usable count" uniformly.
+    """
+    if bank is None:
+        return 0
+    try:
+        raw = getattr(bank, "battery_count", None)
+        return int(raw) if raw else 0
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
 class DeviceProcessingMixin(_MixinBase):
     """Mixin for device data processing logic.
 
@@ -968,6 +987,33 @@ class DeviceProcessingMixin(_MixinBase):
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 processed["sensors"]["total_load_power"] = val
 
+        # Carry the last-known fault/warning code forward across a HYBRID local
+        # link-down (#261).  These codes are transport-exclusive (the cloud
+        # getInverterRuntime response has no faultCode/warningCode field), so the
+        # overlay above only sets them while the link is up.  When pylxpweb
+        # clears _transport_runtime on a link-down the keys would otherwise
+        # vanish and the Fault Code sensor flickers to "unknown" — while
+        # cloud-backed Status Code stays alive — on every transient Modbus drop.
+        # A status code is safe to hold: unlike a measurement a stale code is
+        # more useful than a gap, and the true state can't be observed locally
+        # during the outage anyway (the cloud carries no fault field).  Scoped to
+        # the codes only; measurements stay honestly absent during an outage
+        # (#226).  Gated on an ATTACHED transport so this is a HYBRID-only path —
+        # pure CLOUD (no transport) never sets these codes, and the gate keeps
+        # that a deliberate no-op rather than an incidental one.  The carry is
+        # intentionally sticky for the whole outage (no expiry): the value is
+        # the last live reading, other sensors (connection_transport, status)
+        # already signal the link state, and reverting to unknown would just
+        # reintroduce the flicker this fixes (codex review, risk-accepted #261).
+        if transport_runtime is None and inverter.transport is not None:
+            prev_devices = (self.data or {}).get("devices", {})
+            prev_sensors = prev_devices.get(inverter.serial_number, {}).get(
+                "sensors", {}
+            )
+            for code_key in ("fault_code", "warning_code"):
+                if code_key not in processed["sensors"] and code_key in prev_sensors:
+                    processed["sensors"][code_key] = prev_sensors[code_key]
+
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
         transport_energy = inverter.transport_energy
@@ -1025,81 +1071,74 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter.is_using_generator
             )
 
-        # Process battery bank aggregate data if available
-        # Prefer transport battery data (local Modbus) over cloud battery_bank
-        # In hybrid mode, _transport_battery is refreshed each cycle while
-        # _battery_bank may be stale from initial cloud station load
+        # Process battery bank aggregate data.
         #
-        # Skip battery bank creation when battery_count is 0 or None.
-        # In parallel systems with shared batteries, the secondary inverter
-        # reports battery_count=0 (cloud: totalNumber=0, local: reg 96=0)
-        # because the CAN bus is wired only to the primary.  Creating a
-        # battery bank device with no actual batteries leads to
-        # Unknown/Unavailable entities (issue #169).
+        # Prefer the live local transport bank (HYBRID/LOCAL) and fall back to
+        # the cloud bank when the transport count is 0/None.  The presence gate
+        # is ``battery_count > 0`` so a genuine shared-battery secondary stays
+        # skipped: in a parallel system the secondary reports 0 (cloud
+        # totalNumber=0, local reg 96=0) because the CAN bus is wired only to
+        # the primary, and a bank device with no batteries yields
+        # Unknown/Unavailable entities (#169).
+        #
+        # BUT reg 96 (the transport ``battery_count``) is unreliable on
+        # parallel/multi-battery systems and intermittently reads 0 even for a
+        # real bank (#258/#170) — the #261 log shows ``reg 96 = 0`` while the
+        # cloud reports 8 batteries.  When that happens, fall back to the cloud
+        # bank (an independent source, unaffected by the flaky local Modbus
+        # read) instead of dropping every battery_bank_* sensor and flicking the
+        # aggregate entities to Unavailable.  A genuine secondary reports 0 on
+        # BOTH sources and is still skipped.
         transport_battery = inverter.transport_battery
-        if transport_battery:
-            raw_count = getattr(transport_battery, "battery_count", None)
-            bank_count = int(raw_count) if raw_count else 0
-            if bank_count > 0:
-                _LOGGER.debug(
-                    "Battery bank for %s: using LOCAL transport data "
-                    "(hybrid/local mode, battery_count=%d)",
-                    inverter.serial_number,
-                    bank_count,
+        cloud_battery_bank = getattr(inverter, "_battery_bank", None)
+        transport_count = _bank_battery_count(transport_battery)
+        cloud_count = _bank_battery_count(cloud_battery_bank)
+
+        if transport_battery is not None and transport_count > 0:
+            _LOGGER.debug(
+                "Battery bank for %s: using LOCAL transport data "
+                "(hybrid/local mode, battery_count=%d)",
+                inverter.serial_number,
+                transport_count,
+            )
+            try:
+                processed["sensors"].update(
+                    _build_battery_bank_sensor_mapping(transport_battery)
                 )
-                try:
-                    battery_bank_sensors = _build_battery_bank_sensor_mapping(
-                        transport_battery
-                    )
-                    processed["sensors"].update(battery_bank_sensors)
-                except Exception as e:
-                    _LOGGER.warning(
-                        "Error extracting transport battery bank data for inverter %s: %s",
-                        inverter.serial_number,
-                        e,
-                    )
-            else:
-                _LOGGER.debug(
-                    "Battery bank for %s: skipping — transport battery_count=%s "
-                    "(shared battery secondary)",
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error extracting transport battery bank data for inverter %s: %s",
                     inverter.serial_number,
-                    bank_count,
+                    e,
+                )
+        elif cloud_count > 0:
+            # Cloud-only mode, or HYBRID where the transport reg-96 count
+            # flickered to 0/None while the cloud bank stayed populated (#261).
+            _LOGGER.debug(
+                "Battery bank for %s: using CLOUD data (battery_count=%d, "
+                "transport reg-96 count=%d)",
+                inverter.serial_number,
+                cloud_count,
+                transport_count,
+            )
+            try:
+                processed["sensors"].update(
+                    self._extract_battery_bank_from_object(cloud_battery_bank)
+                )
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error extracting battery bank data for inverter %s: %s",
+                    inverter.serial_number,
+                    e,
                 )
         else:
-            # Fall back to cloud battery_bank for cloud-only mode
-            battery_bank = getattr(inverter, "_battery_bank", None)
-            if battery_bank:
-                raw_count = getattr(battery_bank, "battery_count", None)
-                bank_count = int(raw_count) if raw_count else 0
-                if bank_count > 0:
-                    _LOGGER.debug(
-                        "Battery bank for %s: using CLOUD data (battery_count=%d)",
-                        inverter.serial_number,
-                        bank_count,
-                    )
-                    try:
-                        battery_bank_sensors = self._extract_battery_bank_from_object(
-                            battery_bank
-                        )
-                        processed["sensors"].update(battery_bank_sensors)
-                    except Exception as e:
-                        _LOGGER.warning(
-                            "Error extracting battery bank data for inverter %s: %s",
-                            inverter.serial_number,
-                            e,
-                        )
-                else:
-                    _LOGGER.debug(
-                        "Battery bank for %s: skipping — cloud battery_count=%s "
-                        "(shared battery secondary)",
-                        inverter.serial_number,
-                        bank_count,
-                    )
-            else:
-                _LOGGER.debug(
-                    "Battery bank for %s: NO DATA (no transport or cloud battery_bank)",
-                    inverter.serial_number,
-                )
+            _LOGGER.debug(
+                "Battery bank for %s: skipping — no usable bank "
+                "(transport count=%d, cloud count=%d, shared battery secondary)",
+                inverter.serial_number,
+                transport_count,
+                cloud_count,
+            )
 
         # Compute battery bank charge/discharge rate percentages.
         # At this point sensors dict has battery_bank_current (from battery
