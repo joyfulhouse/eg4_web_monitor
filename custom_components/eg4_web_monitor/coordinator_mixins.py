@@ -647,7 +647,7 @@ def _safe_numeric(value: Any) -> float:
 
 
 def _bank_battery_count(bank: Any) -> int:
-    """Return a battery bank's reported module count as a non-negative int.
+    """Return a battery bank's reported module count as an int (0 when absent).
 
     ``battery_count`` is reg 96 for a transport ``BatteryBankData`` and the
     cloud ``BatteryBank.battery_count`` property (parallel-count / totalNumber /
@@ -1071,10 +1071,11 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter.is_using_generator
             )
 
-        # Process battery bank aggregate data.
+        # Process battery bank aggregate data.  (This path serves HYBRID and
+        # pure CLOUD; LOCAL builds its bank in _process_single_local_device.)
         #
-        # Prefer the live local transport bank (HYBRID/LOCAL) and fall back to
-        # the cloud bank when the transport count is 0/None.  The presence gate
+        # Prefer the live local transport bank in HYBRID and fall back to the
+        # cloud bank when the transport count is 0/None.  The presence gate
         # is ``battery_count > 0`` so a genuine shared-battery secondary stays
         # skipped: in a parallel system the secondary reports 0 (cloud
         # totalNumber=0, local reg 96=0) because the CAN bus is wired only to
