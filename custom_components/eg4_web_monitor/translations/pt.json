@@ -412,6 +412,9 @@
           "on": "Conectado",
           "off": "Desconectado"
         }
+      },
+      "off_grid": {
+        "name": "Fora da Rede"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "Temperatura BT"
       },
+      "operating_state": {
+        "name": "Estado Operacional",
+        "state": {
+          "standby": "Espera",
+          "fault": "Falha",
+          "programming": "Programação",
+          "pv_to_grid": "PV → Rede",
+          "pv_charging": "PV → Bateria",
+          "pv_charging_to_grid": "PV → Bateria + Rede",
+          "battery_to_grid": "Bateria → Rede",
+          "pv_battery_to_grid": "PV + Bateria → Rede",
+          "ac_charging": "Rede → Bateria",
+          "pv_ac_charging": "PV + Rede → Bateria",
+          "off_grid_battery": "Fora da Rede (Bateria)",
+          "ac_coupled_charging": "Carga AC Couple",
+          "pv_off_grid": "Fora da Rede (PV, instável)",
+          "pv_charging_off_grid": "Fora da Rede (PV + Carga)",
+          "pv_battery_off_grid": "Fora da Rede (PV + Bateria)"
+        }
+      },
       "status_code": {
         "name": "Código de Status"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Estado da nuvem"
       },
       "fault_code": {
         "name": "Código de Falha"

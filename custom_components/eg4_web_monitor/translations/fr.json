@@ -412,6 +412,9 @@
           "on": "Connecte",
           "off": "Deconnecte"
         }
+      },
+      "off_grid": {
+        "name": "Hors réseau"
       }
     },
     "sensor": {
@@ -475,11 +478,31 @@
       "bt_temperature": {
         "name": "Température BT"
       },
+      "operating_state": {
+        "name": "État de fonctionnement",
+        "state": {
+          "standby": "Veille",
+          "fault": "Défaut",
+          "programming": "Programmation",
+          "pv_to_grid": "PV → Réseau",
+          "pv_charging": "PV → Batterie",
+          "pv_charging_to_grid": "PV → Batterie + Réseau",
+          "battery_to_grid": "Batterie → Réseau",
+          "pv_battery_to_grid": "PV + Batterie → Réseau",
+          "ac_charging": "Réseau → Batterie",
+          "pv_ac_charging": "PV + Réseau → Batterie",
+          "off_grid_battery": "Hors réseau (Batterie)",
+          "ac_coupled_charging": "Charge couplée AC",
+          "pv_off_grid": "Hors réseau (PV, instable)",
+          "pv_charging_off_grid": "Hors réseau (PV + Charge)",
+          "pv_battery_off_grid": "Hors réseau (PV + Batterie)"
+        }
+      },
       "status_code": {
         "name": "Code d'etat"
       },
       "status_text": {
-        "name": "Etat"
+        "name": "Statut cloud"
       },
       "fault_code": {
         "name": "Code de defaut"

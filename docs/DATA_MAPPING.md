@@ -1076,6 +1076,48 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `eps_power_l1` | Direct reg 129 (pylxpweb ≥0.9.36b1); voltage-ratio split `eps_power * (V_l1 / (V_l1 + V_l2))` as fallback | pylxpweb `eps_power_l1` |
 | `eps_power_l2` | Direct reg 130 (pylxpweb ≥0.9.36b1); voltage-ratio split as fallback | pylxpweb `eps_power_l2` |
 | `eps_load_power` | `eps_load_power_l1 + eps_load_power_l2` (None only when both legs None) | `apply_eps_load_power_sensors()` in coordinator_mappings.py (#197) |
+| `operating_state` | Friendly decode of `status_code` (see below) | `operating_state_slug()` in `const/operating_state.py`; injected in both paths |
+
+### Operating State Decode (Table 9, issue #262)
+
+`status_code` (INPUT reg 0 `device_status` / cloud `status`) is a bit-packed
+operating-mode code. The shared helpers in `const/operating_state.py`
+(`operating_state_slug()` / `is_off_grid()`) decode it into two friendly
+entities available in **all modes** (LOCAL/CLOUD/HYBRID), since both paths
+produce the identical `status_code`:
+
+- `operating_state` — a **primary enum sensor**. The stored state is a stable
+  slug; the localized label lives in `strings.json`/`translations`
+  (`entity.sensor.operating_state.state.*`).
+- `off_grid` — a **binary sensor** (`binary_sensor.py`), ON when `status_code`
+  is one of the off-grid codes (`OFF_GRID_STATUS_CODES`).
+
+| Code | Slug (`operating_state`) | Label (en) | Off-grid |
+|------|--------------------------|------------|:--------:|
+| 0x00 | `standby` | Standby | |
+| 0x01 | `fault` | Fault | |
+| 0x02 | `programming` | Programming | |
+| 0x04 | `pv_to_grid` | PV → Grid | |
+| 0x08 | `pv_charging` | PV → Battery | |
+| 0x0C | `pv_charging_to_grid` | PV → Battery + Grid | |
+| 0x10 | `battery_to_grid` | Battery → Grid | |
+| 0x14 | `pv_battery_to_grid` | PV + Battery → Grid | |
+| 0x20 | `ac_charging` | Grid → Battery | |
+| 0x28 | `pv_ac_charging` | PV + Grid → Battery | |
+| 0x40 | `off_grid_battery` | Off-Grid (Battery) | ✅ |
+| 0x60 | `ac_coupled_charging` | AC-Coupled Charging | |
+| 0x80 | `pv_off_grid` | Off-Grid (PV, unstable) | ✅ |
+| 0x88 | `pv_charging_off_grid` | Off-Grid (PV + Charging) | ✅ |
+| 0xC0 | `pv_battery_off_grid` | Off-Grid (PV + Battery) | ✅ |
+
+An unmapped code → `operating_state` is `unknown` (the raw `status_code` remains
+for diagnosis). `0x60` is *named* "Off-grid + battery charging" in Table 9 but
+*described* as on-grid AC-coupled charging; the description is treated as
+authoritative, so it is **not** flagged off-grid.
+
+> Distinct from the **Operating Mode** *select* (holding reg 21 Normal/Standby
+> power control) and the **Cloud Status** sensor (`status_text` — cloud health
+> string, CLOUD/HYBRID only).
 
 ### GridBOSS Computed Keys
 

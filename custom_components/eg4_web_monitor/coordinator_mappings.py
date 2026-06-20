@@ -21,6 +21,7 @@ from .const import (
     INVERTER_FAMILY_LXP,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
+    operating_state_slug,
 )
 
 if TYPE_CHECKING:
@@ -300,6 +301,8 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "radiator2_temperature",
         "bt_temperature",
         "status_code",
+        # Friendly decode of status_code (issue #262); same value all modes.
+        "operating_state",
         # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields;
         # BMS code merged in as fallback by pylxpweb).  LOCAL/HYBRID only —
         # the cloud runtime endpoint has no faultCode/warningCode (eg4-23a6).
@@ -800,6 +803,9 @@ def _build_runtime_sensor_mapping(
         "bt_temperature": runtime_data.temperature_t1,
         # Status
         "status_code": runtime_data.device_status,
+        # Friendly operating-state slug decoded from status_code (issue #262).
+        # Shared decode -> identical to the CLOUD/HYBRID path.
+        "operating_state": operating_state_slug(runtime_data.device_status),
         # Fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields) — raw
         # passthrough; pylxpweb already merged the BMS code in as a fallback
         # when the inverter code reads 0 (eg4-23a6).
