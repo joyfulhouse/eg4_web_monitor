@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.14] - 2026-06-21
+
 > Requires [pylxpweb 0.9.36b15](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b15)
 > (installed automatically; the manifest requirement is bumped).
 
