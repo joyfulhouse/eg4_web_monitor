@@ -87,6 +87,21 @@ _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
+# Issue #253: the per-inverter "Has Runtime Data" sensor was created twice —
+# from the inverter ``has_data`` property (key ``has_data``) and from the
+# redundant ``has_runtime_data``/cloud ``hasRuntimeData`` field (key
+# ``inverter_has_runtime_data``).  Both rendered the identical name and
+# collided onto one entity_id slug, so installs accumulated two active
+# entities per inverter.  The duplicate key has been removed; this suffix
+# purges its orphaned registry entries.  Matching requires the literal
+# ``_inverter_has_runtime_data`` tail so the surviving ``_has_data`` entity
+# (and any ``_runtime_..._has_data`` variant) is never touched.
+_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "_inverter_has_runtime_data",
+    }
+)
+
 SERVICE_REFRESH_DATA = "refresh_data"
 SERVICE_RECONCILE_HISTORY = "reconcile_history"
 
@@ -285,6 +300,35 @@ async def _async_update_device_registry(
             serial_number=serial,
             sw_version=firmware_version,
         )
+
+
+def _async_cleanup_duplicate_runtime_data_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+) -> None:
+    """Remove orphaned duplicate "Has Runtime Data" sensor entities (#253).
+
+    Earlier versions exposed the same inverter runtime-data flag as two
+    sensors sharing the name "Has Runtime Data": the canonical ``has_data``
+    key and the redundant ``inverter_has_runtime_data`` key.  Both mapped the
+    identical underlying value and collided onto one entity_id slug, so
+    installs accumulated two active entities per inverter.  The
+    ``inverter_has_runtime_data`` sensor has been removed; purge its stale
+    registry entries so the duplicate disappears without manual deletion.
+    """
+    entity_registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        if any(
+            entity.unique_id.endswith(suffix)
+            for suffix in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+        ):
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed duplicate Has Runtime Data sensor (#253): %s",
+                entity.entity_id,
+            )
 
 
 def _async_cleanup_stale_smart_port_entities(
@@ -557,6 +601,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         ):
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
+
+    # One-time cleanup: remove the duplicate "Has Runtime Data" sensor (#253).
+    _async_cleanup_duplicate_runtime_data_entities(hass, entry)
 
     # Conditional cleanup: per-inverter "_battery_discharge_power" was
     # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs

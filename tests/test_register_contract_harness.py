@@ -591,7 +591,8 @@ _METADATA_INVERTER_PROPERTIES: frozenset[str] = frozenset(
         "status_text",
         "has_data",
         "is_lost",
-        "has_runtime_data",
+        # NOTE: ``has_runtime_data`` removed in #253 — it duplicated ``has_data``
+        # (identical value + display name) and is no longer in the property map.
         "ac_couple_power",  # cloud acCouplePower; transport field is
         # populated only via the canonical ac_couple_power register on LXP
         # Smart-load split (eg4-1d0 / GH #222): cloud smartLoadPower /
@@ -628,17 +629,18 @@ def test_inverter_triangle_exclusion_lists_are_current() -> None:
     assert not overlap, (
         "Property classified as BOTH derived and metadata: " + ", ".join(overlap)
     )
-    # Anchored counts: 9 derived + 9 metadata = 18 excluded entries today.
-    # A failure here means triangle coverage changed — verify the new
-    # classification is correct, then update the anchor.
+    # Anchored counts: 9 derived + 8 metadata = 17 excluded entries today.
+    # (metadata dropped from 9 to 8 in #253 — duplicate ``has_runtime_data``
+    # removed.)  A failure here means triangle coverage changed — verify the
+    # new classification is correct, then update the anchor.
     assert len(_DERIVED_INVERTER_PROPERTIES) == 9, (
         f"derived exclusion list changed size "
         f"({len(_DERIVED_INVERTER_PROPERTIES)} != 9) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
-    assert len(_METADATA_INVERTER_PROPERTIES) == 9, (
+    assert len(_METADATA_INVERTER_PROPERTIES) == 8, (
         f"metadata exclusion list changed size "
-        f"({len(_METADATA_INVERTER_PROPERTIES)} != 9) — triangle coverage "
+        f"({len(_METADATA_INVERTER_PROPERTIES)} != 8) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
 

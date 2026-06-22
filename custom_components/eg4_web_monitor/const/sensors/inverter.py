@@ -2414,14 +2414,10 @@ SENSOR_TYPES = {
         "icon": "mdi:transmission-tower-off",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
-    "inverter_has_runtime_data": {
-        "name": "Has Runtime Data",
-        "unit": None,
-        "device_class": None,
-        "state_class": None,
-        "icon": "mdi:database-check",
-        "entity_category": EntityCategory.DIAGNOSTIC,
-    },
+    # NOTE: a second "Has Runtime Data" sensor (key ``inverter_has_runtime_data``)
+    # was removed in #253 — it duplicated the ``has_data`` sensor above (identical
+    # display name and identical underlying value) and collided onto the same
+    # entity_id, leaving two active entities per inverter.
     "connection_transport": {
         "name": "Connection Transport",
         "unit": None,
