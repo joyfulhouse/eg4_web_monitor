@@ -71,7 +71,7 @@ eg4_web_monitor: coordinator_http.py
     → _map_device_properties(json_dict, FIELD_MAPPING)
     → const/sensors/mappings.py → INVERTER_RUNTIME_FIELD_MAPPING
                                 → GRIDBOSS_FIELD_MAPPING
-                                → PARALLEL_GROUP_FIELD_MAPPING
+    → Parallel groups: coordinator_mixins._get_parallel_group_property_map()
     → Applies scaling (÷10, ÷100) per DIVIDE_BY_10_SENSORS etc.
     |
     v
@@ -869,7 +869,8 @@ Mapping dict: `GRIDBOSS_FIELD_MAPPING`
 
 ### Parallel Group Energy (getInverterEnergyInfoParallel)
 
-Mapping dict: `PARALLEL_GROUP_FIELD_MAPPING`
+Mapped via `_get_parallel_group_property_map()` (coordinator_mixins.py) from the
+parsed pylxpweb parallel-group object. The cloud API fields are:
 
 | API Field | HA Sensor Key | Scale |
 |-----------|---------------|-------|

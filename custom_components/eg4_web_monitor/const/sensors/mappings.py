@@ -163,49 +163,12 @@ GRIDBOSS_FIELD_MAPPING = {
     "lost": "inverter_lost_status",
 }
 
-PARALLEL_GROUP_FIELD_MAPPING = {
-    # Today energy values (need division by 10)
-    "todayYielding": "yield",
-    "todayDischarging": "discharging",
-    "todayCharging": "charging",
-    "todayExport": "grid_export",
-    "todayImport": "grid_import",
-    "todayUsage": "consumption",
-    # Total energy values (need division by 10)
-    "totalYielding": "yield_lifetime",
-    "totalDischarging": "discharging_lifetime",
-    "totalCharging": "charging_lifetime",
-    "totalExport": "grid_export_lifetime",
-    "totalImport": "grid_import_lifetime",
-    "totalUsage": "consumption_lifetime",
-}
-
-# Add individual inverter energy fields to the existing parallel group mapping
-# This extends the parallel group mapping to include additional fields from individual inverter API
-PARALLEL_GROUP_FIELD_MAPPING.update(
-    {
-        # Additional fields from individual inverter energy API
-        "soc": "state_of_charge",
-        "powerRatingText": "inverter_power_rating",
-        "lost": "inverter_lost_status",
-        # NOTE: ``hasRuntimeData`` removed in #253 — it duplicated the
-        # ``has_data`` sensor (see coordinator_mixins._get_inverter_property_map).
-    }
-)
-
-# Use the same field mapping for both parallel group and individual inverter energy data
-# This ensures consistent entity creation across different API endpoints
-INVERTER_ENERGY_FIELD_MAPPING = PARALLEL_GROUP_FIELD_MAPPING.copy()
-
-# Add basic energy information fields that might come from other endpoints
-INVERTER_ENERGY_FIELD_MAPPING.update(
-    {
-        "totalEnergy": "total_energy",
-        "dailyEnergy": "daily_energy",
-        "monthlyEnergy": "monthly_energy",
-        "yearlyEnergy": "yearly_energy",
-    }
-)
+# NOTE: the PARALLEL_GROUP_FIELD_MAPPING / INVERTER_ENERGY_FIELD_MAPPING dicts
+# were removed in #253 — they were dead code (only re-exported, never consumed).
+# Parallel-group and individual-inverter energy data is mapped live from the
+# pylxpweb device objects by _get_parallel_group_property_map() in
+# coordinator_mixins.py. The dead cloud `hasRuntimeData` entry that produced the
+# duplicate "Has Runtime Data" sensor previously lived here.
 
 # Shared sensor lists to reduce duplication
 DIVIDE_BY_10_SENSORS = {

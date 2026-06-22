@@ -26,10 +26,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.const.sensors.inverter import SENSOR_TYPES
-from custom_components.eg4_web_monitor.const.sensors.mappings import (
-    INVERTER_ENERGY_FIELD_MAPPING,
-    PARALLEL_GROUP_FIELD_MAPPING,
-)
 from custom_components.eg4_web_monitor.coordinator_mixins import DeviceProcessingMixin
 
 
@@ -70,9 +66,13 @@ def test_duplicate_runtime_data_key_removed() -> None:
     property_map = DeviceProcessingMixin._get_inverter_property_map()
     assert "inverter_has_runtime_data" not in property_map.values()
 
-    # The dead cloud field mapping is removed from both field maps.
-    assert "hasRuntimeData" not in PARALLEL_GROUP_FIELD_MAPPING
-    assert "hasRuntimeData" not in INVERTER_ENERGY_FIELD_MAPPING
+    # The dead PARALLEL_GROUP_FIELD_MAPPING / INVERTER_ENERGY_FIELD_MAPPING dicts
+    # that carried the duplicate cloud ``hasRuntimeData`` field were removed
+    # entirely in #253 — guard against their re-introduction.
+    from custom_components.eg4_web_monitor.const.sensors import mappings
+
+    assert not hasattr(mappings, "PARALLEL_GROUP_FIELD_MAPPING")
+    assert not hasattr(mappings, "INVERTER_ENERGY_FIELD_MAPPING")
 
 
 def test_canonical_has_data_sensor_retained() -> None:
