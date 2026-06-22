@@ -1,6 +1,7 @@
 """Tests for the HTTP/cloud update mixin (coordinator_http.py)."""
 
 import asyncio
+from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
@@ -1019,6 +1021,177 @@ class TestBatteryExtraction:
         batteries = result["devices"]["INV001"]["batteries"]
         assert len(batteries) == 1
         assert "INV001-01" in batteries
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_skips_stale_transport_battery(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """HYBRID: a frozen transport battery must not hide fresh cloud data.
+
+        pylxpweb's serial-keyed accumulator never evicts (#170 round-robin), so
+        a battery the firmware stops surfacing locally keeps its last register
+        block forever. On an 18kPV that exposes only one battery per register
+        page for hours (#258), overlaying that frozen block over the refreshed
+        cloud baseline froze the other batteries by day. A transport block
+        older than HYBRID_TRANSPORT_FRESHNESS is skipped so the fresh cloud
+        value stands; a recently-read block still overlays.
+        """
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        inv = make_real_inverter(serial_number="INV001")
+
+        # Cloud baseline — both batteries fresh from the cloud (SOC 85 / 82).
+        cloud1 = MagicMock(
+            battery_sn="BAT001",
+            battery_index=0,
+            soc=85,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        cloud2 = MagicMock(
+            battery_sn="BAT002",
+            battery_index=1,
+            soc=82,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        bank = MagicMock()
+        bank.batteries = [cloud1, cloud2]
+        inv._battery_bank = bank
+
+        # Transport — BAT001 read just now, BAT002 frozen 2h ago at SOC 50.
+        # last_seen arrives from pylxpweb as tz-aware UTC (matches production).
+        fresh = BatteryData(
+            battery_index=0, serial_number="BAT001", voltage=52.0, soc=90
+        )
+        fresh.last_seen = dt_util.utcnow()
+        stale = BatteryData(
+            battery_index=1, serial_number="BAT002", voltage=51.0, soc=50
+        )
+        stale.last_seen = dt_util.utcnow() - timedelta(hours=2)
+        inv._transport_battery = BatteryBankData(batteries=[fresh, stale])
+
+        coordinator.station = _mock_station([inv])
+        coordinator._inverter_cache = {"INV001": inv}
+        # Seed parameters so _process_station_data does not schedule the
+        # background parameter refresh.
+        coordinator.data = {"parameters": {"INV001": {}}}
+
+        def fake_map(b):
+            return {"battery_soc": b.soc}
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "FlexBOSS21",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
+                side_effect=fake_map,
+            ),
+        ):
+            result = await coordinator._process_station_data()
+
+        batteries = result["devices"]["INV001"]["batteries"]
+        # Fresh transport overlays the cloud baseline.
+        assert batteries["INV001-01"]["battery_soc"] == 90
+        # Stale transport is skipped — the fresh cloud value stands (NOT 50).
+        assert batteries["INV001-02"]["battery_soc"] == 82
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_stale_skip_is_timezone_independent(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """The stale-skip decision must not depend on Home Assistant's timezone.
+
+        last_seen arrives from pylxpweb as tz-aware UTC and the age math is done
+        in UTC, so a fresh battery is overlaid and a 2-hour-old one skipped
+        regardless of the configured HA timezone (the container TZ commonly
+        differs from HA's — the maintainer's own dev env is 3 h apart). Earlier
+        the age was computed by treating a naive local stamp as HA-local, which
+        skewed the decision by the UTC offset (#258).
+        """
+        # A non-UTC HA timezone that differs from the (UTC) stamp frame.
+        await hass.config.async_set_time_zone("America/Los_Angeles")
+
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        inv = make_real_inverter(serial_number="INV001")
+        cloud1 = MagicMock(
+            battery_sn="BAT001",
+            battery_index=0,
+            soc=85,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        cloud2 = MagicMock(
+            battery_sn="BAT002",
+            battery_index=1,
+            soc=82,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        bank = MagicMock()
+        bank.batteries = [cloud1, cloud2]
+        inv._battery_bank = bank
+
+        fresh = BatteryData(
+            battery_index=0, serial_number="BAT001", voltage=52.0, soc=90
+        )
+        fresh.last_seen = dt_util.utcnow()
+        stale = BatteryData(
+            battery_index=1, serial_number="BAT002", voltage=51.0, soc=50
+        )
+        stale.last_seen = dt_util.utcnow() - timedelta(hours=2)
+        inv._transport_battery = BatteryBankData(batteries=[fresh, stale])
+
+        coordinator.station = _mock_station([inv])
+        coordinator._inverter_cache = {"INV001": inv}
+        coordinator.data = {"parameters": {"INV001": {}}}
+
+        def fake_map(b):
+            return {"battery_soc": b.soc}
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "FlexBOSS21",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
+                side_effect=fake_map,
+            ),
+        ):
+            result = await coordinator._process_station_data()
+
+        batteries = result["devices"]["INV001"]["batteries"]
+        # Fresh battery overlaid, stale battery skipped — same as under UTC.
+        assert batteries["INV001-01"]["battery_soc"] == 90
+        assert batteries["INV001-02"]["battery_soc"] == 82
 
 
 # ── _refresh_station_devices (serialized dongle access) ──────────────
