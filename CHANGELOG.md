@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.15] - 2026-06-22
+
+> Requires [pylxpweb 0.9.36b16](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b16)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **`Fault Code` / `Warning Code` no longer flicker to "unknown" on a dropped `bms_data` read** ([#261](https://github.com/joyfulhouse/eg4_web_monitor/issues/261)): beta.14 fixed the *full link-down* case (the codes hold their last value when the local Modbus link drops entirely), but they still went **unknown** in the far more common case where only the BMS register block (`bms_data`, regs 80-112) dropped while the rest of the read succeeded — the frequent WiFi-dongle mismatch storms [@ivanfmartinez](https://github.com/ivanfmartinez) reported, which (as he noted) did *not* correlate with full link-downs. The inverter's own fault/warning registers (60-63) read a healthy `0`, but pylxpweb merged that `0` with the now-missing BMS fallback code as `0 if 0 else None` → `None`, and a `None` code is dropped from the sensor payload (so the sensor reads *unknown*) in **both** HYBRID and LOCAL mode. Fixed in [pylxpweb 0.9.36b16](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b16): a known-healthy `0` is preserved when only the BMS read drops, and the codes go `None` only when neither register was read at all. An active fault from either source is still reported. The manifest now requires `pylxpweb>=0.9.36b16`.
+
 ## [3.4.0-beta.14] - 2026-06-21
 
 > Requires [pylxpweb 0.9.36b15](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b15)
