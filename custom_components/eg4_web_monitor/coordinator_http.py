@@ -51,6 +51,22 @@ from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
+# HYBRID battery overlay freshness window.
+#
+# pylxpweb's serial-keyed battery accumulator never evicts (#170 round-robin):
+# a battery the firmware rotates — or stops surfacing — out of the local
+# register page keeps its last-read block indefinitely. In HYBRID mode the
+# cloud baseline is refreshed independently (cloud battery cache TTL ~5 min), so
+# overlaying a *stale* transport block would hide fresher cloud data. Some
+# firmware exposes only a subset of batteries per page for many hours (#258: an
+# 18kPV surfaces one battery by day, all of them at night), which froze the
+# cloud-backed batteries. Transport blocks not read within this window are
+# therefore skipped in HYBRID so the fresh cloud value stands. The window
+# matches the cloud battery cache TTL: once local data is older than the cloud
+# refresh interval, the cloud copy is at least as current. LOCAL-only mode keeps
+# the never-evict block (it has no cloud fallback).
+HYBRID_TRANSPORT_FRESHNESS = timedelta(minutes=5)
+
 
 def _maybe_bust_degraded_cloud_cache(
     client: Any,
@@ -886,6 +902,25 @@ class HTTPUpdateMixin(_MixinBase):
                         continue
                     bat_serial: str = getattr(batt, "serial_number", "") or ""
                     if not bat_serial or bat_serial not in cloud_by_serial:
+                        continue
+                    # Skip a frozen transport block so the fresh cloud baseline
+                    # stands (#258). pylxpweb's accumulator never evicts, so a
+                    # battery the firmware stopped surfacing locally keeps its
+                    # last-read block indefinitely; overlaying that stale block
+                    # would hide the independently-refreshed cloud value. Only
+                    # overlay when the block was read within the freshness window.
+                    last_seen = getattr(batt, "last_seen", None)
+                    if (
+                        last_seen is not None
+                        and dt_util.utcnow() - dt_util.as_utc(last_seen)
+                        > HYBRID_TRANSPORT_FRESHNESS
+                    ):
+                        _LOGGER.debug(
+                            "HYBRID: battery %s transport block stale "
+                            "(last seen %s) — keeping fresh cloud value",
+                            bat_serial,
+                            last_seen,
+                        )
                         continue
                     cloud_idx, cloud_batt = cloud_by_serial[bat_serial]
                     battery_key = f"{serial}-{cloud_idx + 1:02d}"
