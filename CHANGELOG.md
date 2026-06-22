@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Duplicate "Has Runtime Data" sensor removed** ([#253](https://github.com/joyfulhouse/eg4_web_monitor/issues/253)): every inverter exposed this diagnostic flag twice — two `..._has_runtime_data` sensors holding the identical value (e.g. `sensor.lxp_us_8_10k_XXXX_has_runtime_data` and `sensor.lxp_lb_us_10k_XXXX_has_runtime_data`), differing only by the model name in the entity ID because each was first registered under a different model string. They came from two internal keys (`has_data` and a redundant `inverter_has_runtime_data`) that resolve to the same underlying state ("runtime or transport data is present"). The redundant sensor has been removed, and its now-orphaned registry entry is purged automatically on restart, leaving a single "Has Runtime Data" sensor per inverter. Affects Cloud and Hybrid installs. Thanks @ivanfmartinez for the report.
+
 ## [3.4.0-beta.15] - 2026-06-22
 
 > Requires [pylxpweb 0.9.36b16](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b16)

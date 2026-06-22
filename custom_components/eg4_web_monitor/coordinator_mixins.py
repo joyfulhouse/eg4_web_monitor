@@ -1341,7 +1341,10 @@ class DeviceProcessingMixin(_MixinBase):
             "has_data": "has_data",
             # Diagnostic sensors from energy API
             "is_lost": "inverter_lost_status",
-            "has_runtime_data": "inverter_has_runtime_data",
+            # NOTE: ``has_runtime_data`` is intentionally NOT mapped — it is the
+            # same value as ``has_data`` (both: runtime or transport data
+            # present) and mapping it created a duplicate "Has Runtime Data"
+            # sensor (#253).
         }
 
     @staticmethod

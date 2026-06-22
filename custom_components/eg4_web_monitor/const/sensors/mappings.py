@@ -188,7 +188,8 @@ PARALLEL_GROUP_FIELD_MAPPING.update(
         "soc": "state_of_charge",
         "powerRatingText": "inverter_power_rating",
         "lost": "inverter_lost_status",
-        "hasRuntimeData": "inverter_has_runtime_data",
+        # NOTE: ``hasRuntimeData`` removed in #253 — it duplicated the
+        # ``has_data`` sensor (see coordinator_mixins._get_inverter_property_map).
     }
 )
 

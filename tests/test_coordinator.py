@@ -4079,7 +4079,6 @@ class TestMappingKeyConsistency:
             "status_text",
             "has_data",
             "inverter_lost_status",
-            "inverter_has_runtime_data",
             "ac_couple_power",
             "max_charge_current",
             "max_discharge_current",
