@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0-beta.17] - 2026-06-23
+
+> Requires [pylxpweb 0.9.36b18](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b18)
+> (installed automatically; the manifest requirement is bumped).
+
 ### Fixed
+
+- **HYBRID `>4`-battery systems: the 5th battery no longer slows to hourly updates** ([#258](https://github.com/joyfulhouse/eg4_web_monitor/issues/258)): beta.16 restored cloud login and added a freshness overlay so a stale *local* battery yields to the fresher *cloud* value. But on the reporter's non-rotating 18kPV firmware, the moment the firmware placed the 5th battery into a Modbus slot even once, pylxpweb's never-evict accumulator cached that block and re-presented it forever — making the library believe the local side already surfaced all five batteries. That switched off the supplemental cloud refresh that had been keeping the 5th battery current, so it dropped from ~5-minute to roughly hourly updates and looked "stuck"/"dropped" on the dashboard. The supplemental-refresh gate now ignores any battery whose local reading has fallen behind its freshest sibling, so the cloud refresh keeps running and every battery stays current. Requires [pylxpweb 0.9.36b18](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b18), which also adds raw round-robin slot logging to help pin down why this firmware barely rotates. Reported by @firestormo.
 
 - **12000XP (and other SNA-platform units) missing all controls in Cloud mode** ([#259](https://github.com/joyfulhouse/eg4_web_monitor/issues/259)): a 15 kW 12000XP reported its model over the cloud as `SNA-US 15K`, and the integration decided which inverters get writable entities (switches, numbers, selects) purely by matching that model string against a list of known substrings (`xp`, `12k`, `18k`, …). `SNA-US 15K` contains none of them — `"15k"` was not in the list and there is no `xp`/`sna` token — so the device was created with **no Controls and no Configuration blocks at all**: no Quick Charge, no charge/discharge limits, no operating-mode selects. (A 12 kW unit reporting `SNA-US 12K` slipped through by accidentally matching `"12k"`, which is why other 12000XP owners did have controls.) The control gate now also accepts any device whose detected inverter family is one the integration drives (`EG4_OFFGRID`, `EG4_HYBRID`, `LXP`) — a signal that is available in every connection mode (cloud included) — so these units get their full control set regardless of how the cloud spells the model name. Off-grid units still correctly omit the grid-tied-only controls (Peak Shaving / Forced Discharge). Reported by @brendonlobo123 and @ivanfmartinez.
 
