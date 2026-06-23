@@ -36,13 +36,13 @@ from .const import (
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
     QUICK_CHARGE_DURATION_DEFAULT,
-    SUPPORTED_INVERTER_MODELS,
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     flag_offgrid_control_suppression,
     is_offgrid_family,
+    is_supported_control_model,
     supports_grid_sellback,
 )
 
@@ -187,19 +187,23 @@ async def async_setup_entry(
 
         # Only create switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
-            # Get device model for compatibility check
+            # Get device model for compatibility check (defensive against a
+            # non-str model, matching is_supported_control_model()).
             model = device_data.get("model", "Unknown")
-            model_lower = model.lower()
+            model_lower = model.lower() if isinstance(model, str) else ""
 
-            # Check if device model is known to support switch functions
+            # Check if device model is known to support switch functions.
+            # Matches by model-name substring or, for cloud deviceTypeText
+            # variants the substrings miss (e.g. "SNA-US 15K", #259), by the
+            # detected inverter family.
             _LOGGER.debug(
-                "Switch setup for %s: model=%s, model_lower=%s, supported=%s",
+                "Switch setup for %s: model=%s, model_lower=%s, family=%s",
                 serial,
                 model,
                 model_lower,
-                SUPPORTED_INVERTER_MODELS,
+                (device_data.get("features") or {}).get("inverter_family"),
             )
-            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+            if is_supported_control_model(device_data):
                 # Add quick charge switch. Works over the cloud API or, for a
                 # supported model with a local transport, directly via holding
                 # registers 233/234 (HYBRID prefers local; pylxpweb routes it).

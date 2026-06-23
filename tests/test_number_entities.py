@@ -210,13 +210,11 @@ class TestNumberPlatformSetup:
     async def test_async_setup_entry_offgrid_features_skip_grid_sell(self, hass):
         """Feature-detected EG4_OFFGRID family skips grid sell back even when
         the model string alone would not identify it (GH #135 gating)."""
-        coordinator = _mock_coordinator(model="SomeNewModel")
+        coordinator = _mock_coordinator(model="6000XP")
         serial = "1234567890"
         coordinator.data["devices"][serial]["features"] = {
             "inverter_family": "EG4_OFFGRID"
         }
-        # Model must still pass SUPPORTED_INVERTER_MODELS matching
-        coordinator.data["devices"][serial]["model"] = "6000XP"
         entry = MagicMock()
         entry.runtime_data = coordinator
 
@@ -225,6 +223,38 @@ class TestNumberPlatformSetup:
 
         type_names = [type(e).__name__ for e in entities]
         assert "GridSellBackPowerNumber" not in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_sna_15k_offgrid_creates_config_controls(
+        self, hass
+    ):
+        """#259: cloud "SNA-US 15K" (EG4_OFFGRID) gets its Configuration controls.
+
+        The model string matches no SUPPORTED_INVERTER_MODELS substring, so the
+        legacy gate created zero number entities (empty Configuration block).
+        The detected family backstops the gate; off-grid still omits the
+        grid-tied-only power controls.
+        """
+        coordinator = _mock_coordinator(model="SNA-US 15K")
+        serial = "1234567890"
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        # Core configuration controls are present again
+        assert "ACChargePowerNumber" in type_names
+        assert "SystemChargeSOCLimitNumber" in type_names
+        assert "BatteryChargeCurrentNumber" in type_names
+        # Off-grid family still omits the grid-tied-only controls
+        assert "GridSellBackPowerNumber" not in type_names
+        assert "GridPeakShavingPowerNumber" not in type_names
+        assert "ForcedDischargePowerNumber" not in type_names
 
 
 # ── _read_param_value (via ACChargeSOCLimitNumber) ───────────────────

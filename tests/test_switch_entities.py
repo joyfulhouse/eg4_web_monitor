@@ -193,6 +193,54 @@ class TestSwitchPlatformSetup:
         assert any(n == "EG4WorkingModeSwitch" for n in type_names)
 
     @pytest.mark.asyncio
+    async def test_setup_sna_15k_offgrid_creates_controls(self, hass):
+        """#259: cloud "SNA-US 15K" (EG4_OFFGRID) gets control switches.
+
+        Its deviceTypeText matches no SUPPORTED_INVERTER_MODELS substring
+        ("15k" is not in the set, no "xp"/"sna" token), so the legacy
+        model-only gate created zero switches. The detected family backstops
+        the gate so the Controls block is populated again.
+        """
+        coordinator = _mock_coordinator(
+            has_http=True,
+            model="SNA-US 15K",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4QuickChargeSwitch" in type_names
+        assert "EG4OffGridModeSwitch" in type_names
+        assert "EG4ChargeLastSwitch" in type_names
+
+    @pytest.mark.asyncio
+    async def test_setup_unknown_model_and_family_creates_no_controls(self, hass):
+        """No substring match and no known family -> no inverter switches.
+
+        Guards the family backstop from over-firing: a genuinely unrecognized
+        device must still be skipped (only the station DST switch may remain).
+        """
+        coordinator = _mock_coordinator(
+            has_http=True,
+            model="SNA-US 15K",
+            device_data={"features": {"inverter_family": "UNKNOWN"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4QuickChargeSwitch" not in type_names
+        assert "EG4OffGridModeSwitch" not in type_names
+        assert "EG4ChargeLastSwitch" not in type_names
+
+    @pytest.mark.asyncio
     async def test_setup_quick_charge_local_mode(self, hass):
         """LOCAL mode with a configured transport creates QuickCharge.
 

@@ -97,6 +97,27 @@ class TestSelectPlatformSetup:
 
         assert len(entities) == 0
 
+    @pytest.mark.asyncio
+    async def test_setup_sna_15k_offgrid_creates_mode_select(self, hass):
+        """#259: cloud "SNA-US 15K" (EG4_OFFGRID) gets the operating-mode select.
+
+        This is the "set mode" action the issue explicitly asked for; the
+        model string matches no substring, so the family backstops the gate.
+        """
+        coordinator = _mock_coordinator(model="SNA-US 15K")
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4OperatingModeSelect" in type_names
+        assert "EG4PVInputModeSelect" in type_names
+
 
 # ── OperatingModeSelect ──────────────────────────────────────────────
 

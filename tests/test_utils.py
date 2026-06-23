@@ -6,6 +6,7 @@ from custom_components.eg4_web_monitor.utils import (
     create_device_info,
     generate_entity_id,
     generate_unique_id,
+    is_supported_control_model,
 )
 
 
@@ -130,3 +131,66 @@ class TestGenerateUniqueId:
         """Test unique ID with suffix."""
         unique_id = generate_unique_id("1234567890", "battery", "01")
         assert unique_id == "1234567890_battery_01"
+
+
+class TestIsSupportedControlModel:
+    """Test is_supported_control_model — the control/config entity gate (#259)."""
+
+    def test_model_substring_match(self):
+        """A model whose name contains a known substring is supported."""
+        assert is_supported_control_model({"model": "12000XP"}) is True
+        assert is_supported_control_model({"model": "FlexBOSS21"}) is True
+        assert is_supported_control_model({"model": "18kPV"}) is True
+        # SNA-US 12K accidentally matches "12k" — still supported.
+        assert is_supported_control_model({"model": "SNA-US 12K"}) is True
+
+    def test_sna_15k_falls_back_to_family(self):
+        """#259: "SNA-US 15K" matches no substring but is EG4_OFFGRID family.
+
+        device type code 54 (SNA12K-US) reports deviceTypeText "SNA-US 15K" in
+        cloud mode — "15k" is not in SUPPORTED_INVERTER_MODELS and there is no
+        "xp"/"sna" token, so the substring gate fails. The detected family
+        backstops it so control/config entities are still created.
+        """
+        assert (
+            is_supported_control_model(
+                {"model": "SNA-US 15K", "features": {"inverter_family": "EG4_OFFGRID"}}
+            )
+            is True
+        )
+
+    def test_hybrid_and_lxp_families_supported(self):
+        """EG4_HYBRID and LXP families are control-capable even with odd names."""
+        assert (
+            is_supported_control_model(
+                {"model": "Mystery 99K", "features": {"inverter_family": "EG4_HYBRID"}}
+            )
+            is True
+        )
+        assert (
+            is_supported_control_model(
+                {"model": "Mystery 99K", "features": {"inverter_family": "LXP"}}
+            )
+            is True
+        )
+
+    def test_unknown_model_and_family_not_supported(self):
+        """No substring match and no known family → not supported (fails closed)."""
+        assert (
+            is_supported_control_model(
+                {"model": "SNA-US 15K", "features": {"inverter_family": "UNKNOWN"}}
+            )
+            is False
+        )
+        assert is_supported_control_model({"model": "SomeGenericThing"}) is False
+        assert is_supported_control_model({}) is False
+
+    def test_non_string_model_is_safe(self):
+        """A non-string model must not raise; only family can rescue it."""
+        assert is_supported_control_model({"model": None}) is False
+        assert (
+            is_supported_control_model(
+                {"model": None, "features": {"inverter_family": "EG4_OFFGRID"}}
+            )
+            is True
+        )

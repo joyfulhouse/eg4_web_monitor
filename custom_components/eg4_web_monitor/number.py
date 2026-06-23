@@ -96,7 +96,6 @@ from .const import (
     STOP_DISCHARGE_VOLTAGE_MAX,
     STOP_DISCHARGE_VOLTAGE_MIN,
     STOP_DISCHARGE_VOLTAGE_STEP,
-    SUPPORTED_INVERTER_MODELS,
     SYSTEM_CHARGE_SOC_LIMIT_MAX,
     SYSTEM_CHARGE_SOC_LIMIT_MIN,
     SYSTEM_CHARGE_SOC_LIMIT_STEP,
@@ -110,6 +109,7 @@ from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     flag_offgrid_control_suppression,
     is_offgrid_family,
+    is_supported_control_model,
     supports_grid_sellback,
 )
 
@@ -487,9 +487,11 @@ async def async_setup_entry(
         device_type = device_data.get("type")
         if device_type == "inverter":
             model = device_data.get("model", "Unknown")
-            model_lower = model.lower()
 
-            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+            # Matches by model-name substring or, for cloud deviceTypeText
+            # variants the substrings miss (e.g. "SNA-US 15K", #259), by the
+            # detected inverter family.
+            if is_supported_control_model(device_data):
                 # Quick Charge Duration — gated exactly like the Quick Charge
                 # switch (switch.py). Cloud-only: a UI preference for the
                 # `minute` start parameter. LOCAL/HYBRID: also written to

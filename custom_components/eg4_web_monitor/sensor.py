@@ -29,12 +29,12 @@ from .const import (
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
-    SUPPORTED_INVERTER_MODELS,
     THREE_PHASE_ONLY_SENSORS,
     VOLT_WATT_SENSORS,
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+from .utils import is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -522,10 +522,9 @@ def _create_inverter_sensors(
 
     # Quick Charge Remaining (minutes) — custom sensor sourced from
     # quick_charge_status (cloud getStatusInfo or local registers 233/234),
-    # gated exactly like the Quick Charge switch/duration entities.
-    model = device_data.get("model", "")
-    model_lower = model.lower() if isinstance(model, str) else ""
-    if any(m in model_lower for m in SUPPORTED_INVERTER_MODELS) and (
+    # gated exactly like the Quick Charge switch/duration entities (matches by
+    # model-name substring or detected inverter family, #259).
+    if is_supported_control_model(device_data) and (
         coordinator.has_http_api() or coordinator.has_configured_local_transport(serial)
     ):
         inverter_entities.append(
