@@ -21,9 +21,50 @@ from .const import (
     INVERTER_FAMILY_LXP,
     MANUFACTURER,
     MODEL_NAME_FAMILY_FALLBACK,
+    SUPPORTED_INVERTER_MODELS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# Inverter families whose control/config entities (switches, numbers, selects)
+# the integration knows how to drive. The model-name substring gate
+# (SUPPORTED_INVERTER_MODELS) backstops this for devices whose family is
+# UNKNOWN, but the family is the canonical, string-agnostic signal and is
+# populated in every connection mode (cloud, local, hybrid).
+CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
+    {
+        INVERTER_FAMILY_EG4_OFFGRID,
+        INVERTER_FAMILY_EG4_HYBRID,
+        INVERTER_FAMILY_LXP,
+    }
+)
+
+
+def is_supported_control_model(device_data: dict[str, Any]) -> bool:
+    """Whether the integration should create control/config entities for a device.
+
+    Switches, numbers, and selects historically gated solely on a substring
+    match of the model name against ``SUPPORTED_INVERTER_MODELS``. That misses
+    cloud ``deviceTypeText`` variants such as ``"SNA-US 15K"`` — a 15 kW
+    EG4_OFFGRID unit (device type code 54) whose name contains none of the
+    known substrings (no ``"xp"``/``"sna"`` token, and ``"15k"`` is not in the
+    set) — so the gate produced an inverter with zero writable entities
+    (GH #259). The detected ``inverter_family`` is the canonical signal and is
+    available in every connection mode, so it backstops the substring check.
+
+    Args:
+        device_data: Device data dictionary with ``model`` and ``features``.
+
+    Returns:
+        True if control/config entities should be created for the device.
+    """
+    model = device_data.get("model", "")
+    model_lower = model.lower() if isinstance(model, str) else ""
+    if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+        return True
+    features = device_data.get("features") or {}
+    return features.get("inverter_family") in CONTROL_CAPABLE_FAMILIES
 
 
 # Off-grid XP series model detector: the series uses "<rating>XP" model
