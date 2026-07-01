@@ -10,6 +10,7 @@ from custom_components.eg4_web_monitor._config_flow.schemas import (
     build_modbus_schema,
     build_plant_selection_schema,
     build_reauth_schema,
+    build_serial_schema,
 )
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
@@ -22,6 +23,8 @@ from custom_components.eg4_web_monitor.const import (
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
     CONF_PLANT_ID,
+    CONF_SERIAL_BAUDRATE,
+    CONF_SERIAL_STOPBITS,
     CONF_VERIFY_SSL,
     DEFAULT_DONGLE_PORT,
     DEFAULT_MODBUS_PORT,
@@ -159,31 +162,42 @@ class TestBuildPlantSelectionSchema:
 
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
-        plants = [{"plantId": "123", "name": "Test Plant"}]
+        plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
         assert isinstance(schema, vol.Schema)
 
     def test_requires_plant_id(self):
         """Test that plant ID is required."""
-        plants = [{"plantId": "123", "name": "Test Plant"}]
+        plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
 
         with pytest.raises(vol.MultipleInvalid):
             schema({})
 
     def test_validates_plant_id(self):
-        """Test that invalid plant ID is rejected."""
-        plants = [{"plantId": "123", "name": "Test Plant"}]
+        """Test that a plant ID not in the list is rejected."""
+        plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
 
         with pytest.raises(vol.MultipleInvalid):
-            schema({CONF_PLANT_ID: "invalid"})
+            schema({CONF_PLANT_ID: "999"})
+
+    def test_string_submission_accepted_against_int_plant_ids(self):
+        """Test that a string submission against int station ids is accepted."""
+        plants = [
+            {"plantId": 12345, "name": "Plant A"},
+            {"plantId": 67890, "name": "Plant B"},
+        ]
+        schema = build_plant_selection_schema(plants)
+        result = schema({CONF_PLANT_ID: "67890"})
+        assert result[CONF_PLANT_ID] == "67890"
+        assert isinstance(result[CONF_PLANT_ID], str)
 
     def test_accepts_valid_plant_id(self):
-        """Test that valid plant ID is accepted."""
+        """Test that a valid plant ID is accepted and stored as a string."""
         plants = [
-            {"plantId": "123", "name": "Plant 1"},
-            {"plantId": "456", "name": "Plant 2"},
+            {"plantId": 123, "name": "Plant 1"},
+            {"plantId": 456, "name": "Plant 2"},
         ]
         schema = build_plant_selection_schema(plants)
         result = schema({CONF_PLANT_ID: "456"})
@@ -192,10 +206,10 @@ class TestBuildPlantSelectionSchema:
     def test_uses_current_as_default(self):
         """Test that current plant is used as default."""
         plants = [
-            {"plantId": "123", "name": "Plant 1"},
-            {"plantId": "456", "name": "Plant 2"},
+            {"plantId": 123, "name": "Plant 1"},
+            {"plantId": 456, "name": "Plant 2"},
         ]
-        schema = build_plant_selection_schema(plants, current="456")
+        schema = build_plant_selection_schema(plants, current=456)
         result = schema({})
         assert result[CONF_PLANT_ID] == "456"
 
@@ -244,3 +258,34 @@ class TestBuildHttpReconfigureSchema:
         assert result[CONF_BASE_URL] == "https://old.example.com"
         assert result[CONF_VERIFY_SSL] is False
         assert result[CONF_DST_SYNC] is False
+
+
+class TestBuildSerialSchema:
+    """Tests for build_serial_schema function."""
+
+    def test_defaults_pass_validation(self):
+        """Test that untouched defaults validate cleanly."""
+        schema = build_serial_schema()
+        result = schema({})
+        assert result[CONF_SERIAL_BAUDRATE] == 19200
+        assert result[CONF_SERIAL_STOPBITS] == 1
+
+    def test_baudrate_string_coerced_to_int(self):
+        """Test that a baudrate submitted as a string is coerced to int."""
+        schema = build_serial_schema()
+        result = schema({CONF_SERIAL_BAUDRATE: "115200"})
+        assert result[CONF_SERIAL_BAUDRATE] == 115200
+        assert isinstance(result[CONF_SERIAL_BAUDRATE], int)
+
+    def test_stopbits_string_coerced_to_int(self):
+        """Test that stopbits submitted as a string is coerced to int."""
+        schema = build_serial_schema()
+        result = schema({CONF_SERIAL_STOPBITS: "2"})
+        assert result[CONF_SERIAL_STOPBITS] == 2
+        assert isinstance(result[CONF_SERIAL_STOPBITS], int)
+
+    def test_invalid_baudrate_rejected(self):
+        """Test that a baudrate not in the option list is rejected."""
+        schema = build_serial_schema()
+        with pytest.raises(vol.MultipleInvalid):
+            schema({CONF_SERIAL_BAUDRATE: "12345"})
