@@ -460,6 +460,150 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
     assert result["data"][CONF_PLANT_NAME] == "Test Plant 2"
 
 
+# =====================================================================
+# Issue #275 regression: the API returns station ids as INT, but the HA
+# frontend submits the selected option as a STRING. These tests mirror
+# production exactly (int station ids + string form submissions).
+# =====================================================================
+
+
+@pytest.fixture
+def mock_api_int_ids():
+    """Mock LuxpowerClient with multiple plants using int ids (real API shape)."""
+    from tests.conftest import create_mock_station
+
+    stations = [
+        create_mock_station(12345, "Plant A"),
+        create_mock_station(67890, "Plant B"),
+    ]
+    with _mock_luxpower_client(stations=stations):
+        yield None
+
+
+async def _submit_cloud_credentials(hass: HomeAssistant, result):
+    """Submit valid cloud credentials on the cloud_credentials form."""
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+
+async def test_multi_station_string_submission_with_int_station_ids(
+    hass: HomeAssistant, mock_api_int_ids
+):
+    """Selecting a station must accept the string value the frontend submits (#275)."""
+    result = await _init_and_select_cloud(hass)
+    result = await _submit_cloud_credentials(hass, result)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_station"
+
+    # The HA frontend serializes the selected option as a string
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_PLANT_ID: "67890"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "cloud_add_local"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PLANT_ID] == "67890"
+    assert isinstance(result["data"][CONF_PLANT_ID], str)
+    assert result["data"][CONF_PLANT_NAME] == "Plant B"
+    # Unique ID must match the pre-fix format (f-string over the plant id)
+    assert result["result"].unique_id == "test@example.com_67890"
+
+    await hass.async_block_till_done()
+
+
+async def test_single_station_auto_select_with_int_station_id(hass: HomeAssistant):
+    """Single-station auto-select must store the plant id as a string (#275)."""
+    from tests.conftest import create_mock_station
+
+    with _mock_luxpower_client(stations=[create_mock_station(12345, "Solo Plant")]):
+        result = await _init_and_select_cloud(hass)
+        result = await _submit_cloud_credentials(hass, result)
+
+        # Single plant is auto-selected; no station form shown
+        assert result["type"] == data_entry_flow.FlowResultType.MENU
+        assert result["step_id"] == "cloud_add_local"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "cloud_finish"},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PLANT_ID] == "12345"
+    assert isinstance(result["data"][CONF_PLANT_ID], str)
+    assert result["data"][CONF_PLANT_NAME] == "Solo Plant"
+    assert result["result"].unique_id == "test@example.com_12345"
+
+    await hass.async_block_till_done()
+
+
+async def test_duplicate_station_aborts_for_entry_created_before_fix(
+    hass: HomeAssistant, mock_api_int_ids
+):
+    """Unique IDs must be stable: entries created pre-fix still deduplicate (#275).
+
+    Pre-fix entries could store CONF_PLANT_ID as an int (auto-select path) with a
+    unique_id built via f-string. Selecting the same station post-fix must still
+    abort with already_configured, proving the unique_id derivation is unchanged.
+    """
+    MockConfigEntry(
+        version=1,
+        domain=DOMAIN,
+        title="EG4 Electronics - Plant A",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            # Stored as int by pre-fix versions (single-station auto-select)
+            CONF_PLANT_ID: 12345,
+            CONF_PLANT_NAME: "Plant A",
+            CONF_LOCAL_TRANSPORTS: [],
+        },
+        source=config_entries.SOURCE_USER,
+        unique_id="test@example.com_12345",
+    ).add_to_hass(hass)
+
+    result = await _init_and_select_cloud(hass)
+    result = await _submit_cloud_credentials(hass, result)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_station"
+
+    # Select the already-configured station (frontend submits a string)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_PLANT_ID: "12345"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_plant):
     """Test flow with custom base URL."""
     result = await _init_and_select_cloud(hass)
