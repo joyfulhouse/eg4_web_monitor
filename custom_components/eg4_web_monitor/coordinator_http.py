@@ -873,7 +873,19 @@ class HTTPUpdateMixin(_MixinBase):
             # Batteries are keyed by the canonical cloud batteryKey derivation
             # — identical to the CLOUD-only path — so a cloud→hybrid migration
             # never re-keys a battery (#252).
-            if transport_batteries and cloud_batteries:
+            #
+            # Defense-in-depth (#258): also run the merge when the transport
+            # battery list is momentarily EMPTY (a dropped 5002+ block read on
+            # pylxpweb <= 0.9.36b18 published a bank with batteries=[]) or
+            # None (link down clears the transport cache), instead of falling
+            # through to the CLOUD-ONLY branch for that cycle.  Since #252,
+            # both branches derive the same canonical keys, so the fallthrough
+            # no longer re-keys entities — but staying in the hybrid merge
+            # keeps the sensor mapping and freshness-overlay semantics
+            # identical across outage cycles (the cloud-only branch extracts a
+            # different sensor set and re-stamps battery_last_seen).
+            has_transport = bool(getattr(inverter, "has_transport", False))
+            if cloud_batteries and (has_transport or transport_batteries is not None):
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
 
@@ -916,7 +928,7 @@ class HTTPUpdateMixin(_MixinBase):
 
                 # Overlay transport real-time data matched by serial
                 transport_matched = 0
-                for batt in transport_batteries:
+                for batt in transport_batteries or []:
                     # Skip ghost batteries (no real data) — matches pylxpweb's
                     # canonical ghost definition (BatteryData voltage/soc are
                     # non-optional, defaulting to 0, so an empty 5002+ slot reads

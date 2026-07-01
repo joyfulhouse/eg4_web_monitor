@@ -1117,6 +1117,155 @@ class TestBatteryExtraction:
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_empty_transport_batteries_keeps_cloud_baseline_keys(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """A failed 5002+ block read must keep the hybrid merge semantics.
+
+        In the 2026-06-28 #258 incident, one dropped battery block read made
+        pylxpweb (<= 0.9.36b18) publish a bank with batteries=[]. The empty
+        list is falsy, so the cycle fell through to the CLOUD-ONLY branch —
+        which, pre-#252, derived different keys and blacked out every battery
+        entity at the exact second of the failed read. #252's canonical keys
+        root-fixed the re-keying; this guard is defense-in-depth: the cycle
+        stays in the hybrid merge, so the sensor mapping and freshness-overlay
+        semantics stay identical through outage cycles (the cloud-only branch
+        extracts a different sensor set and re-stamps battery_last_seen).
+        """
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        inv = make_real_inverter(serial_number="INV001")
+        inv._transport = MagicMock()  # the incident's shape: transport attached
+
+        cloud1 = MagicMock(
+            battery_key="INV001_BAT001",
+            battery_sn="BAT001",
+            battery_index=0,
+            soc=85,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        cloud2 = MagicMock(
+            battery_key="INV001_BAT002",
+            battery_sn="BAT002",
+            battery_index=1,
+            soc=82,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        bank = MagicMock()
+        bank.batteries = [cloud1, cloud2]
+        inv._battery_bank = bank
+
+        # The failed-block-read cycle shape: a bank object with NO batteries.
+        inv._transport_battery = BatteryBankData(batteries=[])
+
+        coordinator.station = _mock_station([inv])
+        coordinator._inverter_cache = {"INV001": inv}
+        coordinator.data = {"parameters": {"INV001": {}}}
+
+        def fake_map(b):
+            return {"battery_soc": b.soc}
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "FlexBOSS21",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
+                side_effect=fake_map,
+            ),
+        ):
+            result = await coordinator._process_station_data()
+
+        batteries = result["devices"]["INV001"]["batteries"]
+        # The canonical #252 keys survive the failed-read cycle with the fresh
+        # cloud values, via the hybrid merge (not the cloud-only branch).
+        assert batteries["INV001-BAT001"]["battery_soc"] == 85
+        assert batteries["INV001-BAT002"]["battery_soc"] == 82
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hybrid_link_down_none_transport_battery_keeps_cloud_baseline_keys(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """With the local link down, cloud data must flow through the hybrid merge.
+
+        A link-down transition clears the transport battery cache
+        (transport_battery is None) while _refresh_http_fallback keeps the
+        cloud bank fresh. The cycle used to fall through to the CLOUD-ONLY
+        branch (pre-#252 that re-keyed every battery — a whole-outage
+        blackout on LXP clouds; post-#252 the keys match but the branch
+        extracts a different sensor set and re-stamps battery_last_seen).
+        With a transport attached, the hybrid merge publishes the cloud
+        baseline under the canonical keys with consistent semantics.
+        """
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        inv = make_real_inverter(serial_number="INV001")
+        inv._transport = MagicMock()  # transport attached -> hybrid identity
+
+        cloud1 = MagicMock(
+            battery_key="INV001_BAT001",
+            battery_sn="BAT001",
+            battery_index=0,
+            soc=77,
+            model=None,
+            bms_model=None,
+            battery_type_text=None,
+        )
+        bank = MagicMock()
+        bank.batteries = [cloud1]
+        inv._battery_bank = bank
+
+        # Link down: the transport battery cache was cleared.
+        inv._transport_battery = None
+
+        coordinator.station = _mock_station([inv])
+        coordinator._inverter_cache = {"INV001": inv}
+        coordinator.data = {"parameters": {"INV001": {}}}
+
+        def fake_map(b):
+            return {"battery_soc": b.soc}
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "FlexBOSS21",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
+                side_effect=fake_map,
+            ),
+        ):
+            result = await coordinator._process_station_data()
+
+        batteries = result["devices"]["INV001"]["batteries"]
+        assert batteries["INV001-BAT001"]["battery_soc"] == 77
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
     async def test_hybrid_stale_skip_is_timezone_independent(
         self, mock_aiohttp, mock_client_cls, hass, http_config_entry
     ):
