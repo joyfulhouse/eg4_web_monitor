@@ -1020,7 +1020,9 @@ class TestBatteryExtraction:
 
         batteries = result["devices"]["INV001"]["batteries"]
         assert len(batteries) == 1
-        assert "INV001-01" in batteries
+        # Canonical serial-based key (#252): matches the CLOUD derivation for
+        # the same battery instead of the positional slot number.
+        assert "INV001-BAT-SN-001" in batteries
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -1043,7 +1045,9 @@ class TestBatteryExtraction:
         inv = make_real_inverter(serial_number="INV001")
 
         # Cloud baseline — both batteries fresh from the cloud (SOC 85 / 82).
+        # batteryKey mirrors the real cloud shape: {inverterSn}_{batterySn}.
         cloud1 = MagicMock(
+            battery_key="INV001_BAT001",
             battery_sn="BAT001",
             battery_index=0,
             soc=85,
@@ -1052,6 +1056,7 @@ class TestBatteryExtraction:
             battery_type_text=None,
         )
         cloud2 = MagicMock(
+            battery_key="INV001_BAT002",
             battery_sn="BAT002",
             battery_index=1,
             soc=82,
@@ -1105,10 +1110,10 @@ class TestBatteryExtraction:
             result = await coordinator._process_station_data()
 
         batteries = result["devices"]["INV001"]["batteries"]
-        # Fresh transport overlays the cloud baseline.
-        assert batteries["INV001-01"]["battery_soc"] == 90
+        # Fresh transport overlays the cloud baseline (canonical #252 keys).
+        assert batteries["INV001-BAT001"]["battery_soc"] == 90
         # Stale transport is skipped — the fresh cloud value stands (NOT 50).
-        assert batteries["INV001-02"]["battery_soc"] == 82
+        assert batteries["INV001-BAT002"]["battery_soc"] == 82
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -1132,6 +1137,7 @@ class TestBatteryExtraction:
 
         inv = make_real_inverter(serial_number="INV001")
         cloud1 = MagicMock(
+            battery_key="INV001_BAT001",
             battery_sn="BAT001",
             battery_index=0,
             soc=85,
@@ -1140,6 +1146,7 @@ class TestBatteryExtraction:
             battery_type_text=None,
         )
         cloud2 = MagicMock(
+            battery_key="INV001_BAT002",
             battery_sn="BAT002",
             battery_index=1,
             soc=82,
@@ -1190,8 +1197,8 @@ class TestBatteryExtraction:
 
         batteries = result["devices"]["INV001"]["batteries"]
         # Fresh battery overlaid, stale battery skipped — same as under UTC.
-        assert batteries["INV001-01"]["battery_soc"] == 90
-        assert batteries["INV001-02"]["battery_soc"] == 82
+        assert batteries["INV001-BAT001"]["battery_soc"] == 90
+        assert batteries["INV001-BAT002"]["battery_soc"] == 82
 
 
 # ── _refresh_station_devices (serialized dongle access) ──────────────

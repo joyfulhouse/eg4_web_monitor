@@ -12,7 +12,7 @@ final coordinator class inheriting all mixins together.
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -560,6 +560,22 @@ if TYPE_CHECKING:
             self, inverter: "BaseInverter", transport_type: str
         ) -> None: ...
 
+        # ── Battery identity migration (#252, coordinator.py) ──
+        _battery_key_migrations_done: set[tuple[str, str]]
+        _battery_fallback_keys: dict[str, set[str]]
+        _battery_noserial_polls: dict[str, dict[int, int]]
+        _battery_migration_suppressed: set[str]
+
+        def _register_battery_key_migrations(
+            self,
+            inverter_serial: str,
+            pairs: dict[str, str],
+            active_keys: Collection[str],
+        ) -> None: ...
+        def _suppress_battery_migration(
+            self, inverter_serial: str, reason: str, *, level: int = ...
+        ) -> None: ...
+
         # ── LocalTransportMixin attributes ──
         _battery_rr_cache: dict[str, dict[str, dict[str, Any]]]
         _battery_serial_to_key: dict[str, dict[str, str]]
@@ -581,6 +597,7 @@ if TYPE_CHECKING:
             self,
             inverter_serial: str,
             transport_batteries: list["BatteryData"],
+            reported_count: int | None = None,
         ) -> dict[str, dict[str, Any]]: ...
 
 else:

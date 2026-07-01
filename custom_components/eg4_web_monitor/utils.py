@@ -225,6 +225,98 @@ def clean_battery_display_name(battery_key: str, serial: str) -> str:
     return battery_key.replace("_", "-")
 
 
+def local_battery_key(
+    inverter_serial: str, battery_serial: str | None, battery_index: int
+) -> str:
+    """Derive the canonical battery key from locally-read (CAN bus) identity.
+
+    Produces the same key the CLOUD path derives for the same battery: the
+    cloud ``batteryKey`` is ``{inverterSn}_{batterySn}`` and the cloud
+    ``batterySn`` equals the CAN-reported serial (the same equality the #258
+    hybrid overlay matches on).  Placeholder serials (``Battery_ID_NN``)
+    therefore collapse to the historical ``{inv}-NN`` form, and real serials
+    yield ``{inv}-{serial}`` — identical across CLOUD/LOCAL/HYBRID (#252).
+
+    Args:
+        inverter_serial: Parent inverter serial number.
+        battery_serial: Per-battery serial from the BMS/CAN bus, if any.
+        battery_index: Zero-based register slot index (positional fallback).
+
+    Returns:
+        Canonical battery key.
+    """
+    if battery_serial:
+        return clean_battery_display_name(
+            f"{inverter_serial}_{battery_serial}", inverter_serial
+        )
+    return f"{inverter_serial}-{battery_index + 1:02d}"
+
+
+# One-shot dedup for the batteryKey/batterySn divergence warning below.
+# Module-level because cloud_battery_key() is a pure helper called from
+# several coordinator paths every refresh; tests may clear it.
+_battery_key_divergence_warned: set[tuple[str, str]] = set()
+
+
+def cloud_battery_key(inverter_serial: str, battery: Any) -> str:
+    """Derive the canonical battery key from a cloud battery object.
+
+    Shared by the CLOUD and HYBRID paths so a mode migration never re-keys a
+    battery (#252).  Uses the cloud ``batteryKey`` exactly like the stable
+    3.3.0 CLOUD path always has (existing cloud-created entities keep their
+    ids), falling back to the battery serial and finally the positional index.
+
+    The LOCAL path derives its key from the battery serial on the assumption
+    that ``batteryKey == {inverterSn}_{batterySn}``.  When a cloud battery
+    carries a real (non-placeholder) serial whose derived key differs from
+    the ``batteryKey``-derived one, that API invariant is broken and LOCAL
+    and CLOUD identities would split — a one-shot WARNING per (inverter,
+    battery) surfaces it in the field.
+
+    Args:
+        inverter_serial: Parent inverter serial number.
+        battery: Cloud battery object (pylxpweb ``Battery``) exposing
+            ``battery_key``/``battery_sn``/``battery_index``.
+
+    Returns:
+        Canonical battery key.
+    """
+    raw_key = getattr(battery, "battery_key", None)
+    battery_sn = getattr(battery, "battery_sn", None)
+    index = getattr(battery, "battery_index", 0) or 0
+    if isinstance(raw_key, str) and raw_key:
+        key = clean_battery_display_name(raw_key, inverter_serial)
+        if (
+            isinstance(battery_sn, str)
+            and battery_sn
+            and not battery_sn.startswith(BATTERY_KEY_PREFIX)
+        ):
+            sn_key = local_battery_key(inverter_serial, battery_sn, index)
+            if (
+                sn_key != key
+                and (dedup := (inverter_serial, battery_sn))
+                not in _battery_key_divergence_warned
+            ):
+                _battery_key_divergence_warned.add(dedup)
+                _LOGGER.warning(
+                    "Cloud batteryKey %r for inverter %s yields key %s but its "
+                    "batterySn %r yields %s — the batteryKey format deviates "
+                    "from '{inverterSn}_{batterySn}', so LOCAL-derived battery "
+                    "identity would differ from CLOUD for this battery. "
+                    "Please report this at "
+                    "https://github.com/joyfulhouse/eg4_web_monitor/issues/252",
+                    raw_key,
+                    inverter_serial,
+                    key,
+                    battery_sn,
+                    sn_key,
+                )
+        return key
+    if isinstance(battery_sn, str) and battery_sn:
+        return local_battery_key(inverter_serial, battery_sn, index)
+    return f"{inverter_serial}-{index + 1:02d}"
+
+
 # ========== CONSOLIDATED UTILITY FUNCTIONS ==========
 # These functions eliminate code duplication across multiple platform files
 

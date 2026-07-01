@@ -934,6 +934,58 @@ soc=None) are skipped. This prevents creating "Unknown" entities when CAN
 communication is not established. The guard checks `batt.voltage is None and
 batt.soc is None` in both `coordinator_local.py` and `coordinator_http.py`.
 
+### Battery Device Identity (#252)
+
+The battery key is the battery **device identifier** (`(DOMAIN, battery_key)`)
+and is embedded in every battery entity unique_id
+(`{inverterSn}_{batteryKey}_{suffix}`). All three modes derive ONE canonical,
+serial-first key (helpers in `utils.py`):
+
+| Mode | Derivation | Result |
+|------|-----------|--------|
+| CLOUD | `cloud_battery_key()` — cleans the cloud `batteryKey` (`{inverterSn}_{batterySn}`) | `{inv}-{batterySn}` |
+| HYBRID | `cloud_battery_key()` on the same cloud battery objects (baseline + transport overlay) | identical to CLOUD |
+| LOCAL | `local_battery_key()` — synthesized from the CAN-reported serial | identical to CLOUD (cloud `batterySn` == CAN serial) |
+| No serial | positional fallback | `{inv}-{slot+1:02d}` |
+
+Placeholder serials (`Battery_ID_NN`, packs whose BMS reports no serial)
+collapse to `{inv}-NN` in every path via `clean_battery_display_name()`. A
+cloud battery whose `batteryKey` deviates from `{inverterSn}_{batterySn}`
+(which would split LOCAL vs CLOUD identity) logs a one-shot WARNING.
+
+**No-serial debounce (LOCAL):** a serial-less slot is held for
+`_NO_SERIAL_EXPOSE_POLLS` (3) data-bearing polls before its positional
+fallback entity is exposed, so a late-arriving CAN serial claims the identity
+first. When a serial later claims a slot, the slot's positional fallback cache
+entry is retired (same physical battery — the rr-cache never evicts on its
+own).
+
+**Migration:** pre-#252 HYBRID/LOCAL installs used positional keys
+(`{inv}-01..NN`). Once serials are known, `battery_migration.py`:
+
+- re-identifies the positional **device in place** when no canonical device
+  exists (device UUID, area, user name and labels survive; device automations
+  and dashboard cards keep working) and renames entity unique_ids in place
+  (entity_id and recorder history preserved);
+- when the canonical entity/device **already exists** (cloud→hybrid installs
+  that ran both identities), the positional duplicates are **removed — their
+  own accumulated history and long-term statistics are deleted, not merged**;
+  area/name/label customizations on the positional device are backfilled onto
+  the canonical device where the canonical's value is unset;
+- **skips migration entirely** (positional registry rows stay as removable
+  orphans, logged once) when the legacy positional history cannot be
+  attributed safely: rotating packs (more distinct serials than the 4
+  register slots, or reg 96 > 4) and payloads with duplicate battery serials;
+- never renames or removes a row whose entity object is currently live —
+  deferred to the next restart/reload (migration runs before entities
+  instantiate);
+- marks a key migrated only after its registry ops succeed (in-memory,
+  per-session guard; a restart re-run is a proven no-op).
+
+Driven by `_register_battery_key_migrations()` from all three battery
+processing paths. **Downgrade note:** rolling back to a pre-#252 beta
+re-creates the positional duplicates.
+
 ### Battery Register Space (Modbus)
 
 Base address: 5002, 30 registers per battery, max 5 batteries per inverter.

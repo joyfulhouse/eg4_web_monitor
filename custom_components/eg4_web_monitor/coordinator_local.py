@@ -64,6 +64,7 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .utils import local_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,6 +82,20 @@ _LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTran
 # are skipped to avoid creating phantom battery entities.
 _MIN_SERIAL_LENGTH = 10
 
+# Individual-battery register slots per atomic read (5002+, 4 slots × 30
+# registers fits the FC04 125-register PDU limit; there is no readable 5th
+# slot — #170).  More distinct serials than slots means the firmware rotates
+# batteries through the fixed slots, so pre-#252 positional keys were
+# assigned in an order this session cannot reconstruct.
+_BATTERY_SLOTS_PER_PAGE = 4
+
+# A serial-less battery slot must persist this many data-bearing polls before
+# its positional fallback entry is exposed.  Gives slow firmware a chance to
+# surface the CAN serial first, so the late-battery listener never
+# instantiates a positional entity that a serial-based identity is about to
+# replace (#252 cold-start sequence).
+_NO_SERIAL_EXPOSE_POLLS = 3
+
 # Minimum seconds between retries of failed local-transport attaches
 # (eg4-05l).  Long enough that a wedged dongle isn't hammered (each attempt
 # costs up to 3 connect timeouts), short enough that the post-restart
@@ -95,6 +110,7 @@ class LocalTransportMixin(_MixinBase):
         self,
         inverter_serial: str,
         transport_batteries: list["BatteryData"],
+        reported_count: int | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Merge transport battery slot data into the round-robin cache.
 
@@ -103,9 +119,19 @@ class LocalTransportMixin(_MixinBase):
         accumulates readings keyed by battery serial so that all batteries
         eventually appear as HA entities.
 
+        Batteries are keyed by their canonical serial-based key (#252) —
+        identical to the key the CLOUD path derives for the same battery — so
+        mode migrations never duplicate battery devices.  Batteries without a
+        CAN serial keep the positional slot key, debounced by
+        ``_NO_SERIAL_EXPOSE_POLLS`` so a late-arriving serial claims the
+        identity before any positional entity is instantiated.
+
         Args:
             inverter_serial: Parent inverter serial number.
             transport_batteries: List of BatteryData from current poll.
+            reported_count: Battery count from reg 96, when available.  Only
+                used as a rotation hint (values > slots-per-page); reg 96 is
+                unreliable (#258) so it never gates battery creation here.
 
         Returns:
             Full battery dict for device_data["batteries"], containing all
@@ -117,11 +143,16 @@ class LocalTransportMixin(_MixinBase):
             self._battery_next_index[inverter_serial] = 1
 
         cache = self._battery_rr_cache[inverter_serial]
-        key_map = self._battery_serial_to_key[inverter_serial]
+        legacy_key_map = self._battery_serial_to_key[inverter_serial]
+        fallback_keys = self._battery_fallback_keys.setdefault(inverter_serial, set())
+        noserial_polls = self._battery_noserial_polls.setdefault(inverter_serial, {})
 
         poll_serials: list[str] = []
         poll_slots_skipped = 0
         new_serials: list[str] = []
+        key_migrations: dict[str, str] = {}
+        # Canonical keys claimed this poll → slot, for duplicate detection.
+        keys_this_poll: dict[str, int] = {}
 
         for batt in transport_batteries:
             # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
@@ -137,16 +168,35 @@ class LocalTransportMixin(_MixinBase):
                 )
                 continue
 
+            slot: int = batt.battery_index
             bat_serial: str = getattr(batt, "serial_number", "") or ""
             if not bat_serial:
-                # No serial → fall back to slot-index keying (pre-round-robin
-                # firmware or battery without CAN serial).
-                fallback_key = f"{inverter_serial}-{batt.battery_index + 1:02d}"
+                # No serial → positional slot keying (pre-round-robin firmware
+                # or battery without CAN serial), debounced: expose only after
+                # the slot has reported serial-less data several polls in a
+                # row, so a slow-to-arrive serial can claim the identity first
+                # (#252 cold start — see _NO_SERIAL_EXPOSE_POLLS).
+                seen_polls = noserial_polls.get(slot, 0) + 1
+                noserial_polls[slot] = seen_polls
+                fallback_key = f"{inverter_serial}-{slot + 1:02d}"
+                if seen_polls < _NO_SERIAL_EXPOSE_POLLS:
+                    poll_slots_skipped += 1
+                    _LOGGER.debug(
+                        "RR [%s] slot %d: no serial, holding positional key %s "
+                        "(%d/%d polls before exposure)",
+                        inverter_serial,
+                        slot,
+                        fallback_key,
+                        seen_polls,
+                        _NO_SERIAL_EXPOSE_POLLS,
+                    )
+                    continue
+                fallback_keys.add(fallback_key)
                 cache[fallback_key] = _build_individual_battery_mapping(batt)
                 _LOGGER.debug(
                     "RR [%s] slot %d: no serial, fallback key %s (V=%.1f SoC=%s)",
                     inverter_serial,
-                    getattr(batt, "battery_index", -1),
+                    slot,
                     fallback_key,
                     batt.voltage or 0.0,
                     batt.soc,
@@ -162,7 +212,7 @@ class LocalTransportMixin(_MixinBase):
                 _LOGGER.debug(
                     "RR [%s] slot %d: skipping truncated serial %r (len=%d < %d)",
                     inverter_serial,
-                    getattr(batt, "battery_index", -1),
+                    slot,
                     bat_serial,
                     len(bat_serial),
                     _MIN_SERIAL_LENGTH,
@@ -171,24 +221,97 @@ class LocalTransportMixin(_MixinBase):
 
             poll_serials.append(bat_serial)
 
-            # Assign a stable battery_key on first encounter
-            if bat_serial not in key_map:
+            # Canonical serial-based key — identical to the CLOUD-derived key
+            # for the same battery (#252).
+            battery_key = local_battery_key(inverter_serial, bat_serial, slot)
+
+            # Same-poll canonical collision (duplicate/misreported serials):
+            # two slots claiming one identity means last-write-wins data and
+            # unsafe registry migration.  Keep positional disambiguation for
+            # the colliding battery and stop trusting migration for this
+            # inverter.
+            if battery_key in keys_this_poll:
+                self._suppress_battery_migration(
+                    inverter_serial,
+                    f"slots {keys_this_poll[battery_key]} and {slot} both "
+                    f"resolve to battery identity {battery_key!r}",
+                    level=logging.WARNING,
+                )
+                collision_key = f"{inverter_serial}-{slot + 1:02d}"
+                fallback_keys.add(collision_key)
+                cache[collision_key] = _build_individual_battery_mapping(batt)
+                continue
+            keys_this_poll[battery_key] = slot
+
+            # A serial now claims this slot: retire the slot's positional
+            # fallback entry — it was the same physical battery read before
+            # its serial became available (#252 cold-start P0).  The rr-cache
+            # never evicts on its own, so without this the stale positional
+            # twin would shadow the serial identity forever (and its presence
+            # in the active-key set would permanently block the migration).
+            noserial_polls.pop(slot, None)
+            slot_fallback_key = f"{inverter_serial}-{slot + 1:02d}"
+            if slot_fallback_key in fallback_keys:
+                fallback_keys.discard(slot_fallback_key)
+                if slot_fallback_key != battery_key:
+                    cache.pop(slot_fallback_key, None)
+                    _LOGGER.debug(
+                        "RR [%s] slot %d: retired positional fallback %s "
+                        "(serial %s now known)",
+                        inverter_serial,
+                        slot,
+                        slot_fallback_key,
+                        bat_serial,
+                    )
+
+            # On first encounter, also reproduce the legacy positional key the
+            # pre-#252 code would have assigned (same first-seen order) so any
+            # existing registry entries can be renamed to the canonical key.
+            if bat_serial not in legacy_key_map:
                 idx = self._battery_next_index[inverter_serial]
-                key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
+                legacy_key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
                 self._battery_next_index[inverter_serial] = idx + 1
                 new_serials.append(bat_serial)
+                key_migrations[legacy_key_map[bat_serial]] = battery_key
 
-            battery_key = key_map[bat_serial]
             cache[battery_key] = _build_individual_battery_mapping(batt)
             _LOGGER.debug(
                 "RR [%s] slot %d: serial=%s → key=%s (V=%.1f SoC=%d%%)",
                 inverter_serial,
-                getattr(batt, "battery_index", -1),
+                slot,
                 bat_serial,
                 battery_key,
                 batt.voltage or 0.0,
                 batt.soc or 0,
             )
+
+        if key_migrations:
+            # Rotation trust guard: with more distinct serials than register
+            # slots (or reg 96 reporting more), the firmware rotates batteries
+            # through the slots and the pre-#252 positional keys were assigned
+            # in an order this session cannot reconstruct — renaming could
+            # bind battery X's history to battery Y.  Leave the positional
+            # registry rows untouched as orphans; live data still converges on
+            # the serial-based keys.
+            if (
+                len(legacy_key_map) > _BATTERY_SLOTS_PER_PAGE
+                or (reported_count or 0) > _BATTERY_SLOTS_PER_PAGE
+            ):
+                self._suppress_battery_migration(
+                    inverter_serial,
+                    f"rotating pack ({len(legacy_key_map)} distinct serials "
+                    f"seen, reg-96 count {reported_count}); legacy positional "
+                    "history is not attributable",
+                )
+            else:
+                # Debounced no-serial slots count as active: their positional
+                # key belongs to a live battery even before exposure.
+                active_keys = set(cache) | {
+                    f"{inverter_serial}-{s + 1:02d}" for s in noserial_polls
+                }
+                self._register_battery_key_migrations(
+                    inverter_serial, key_migrations, active_keys
+                )
 
         _LOGGER.debug(
             "RR [%s] poll summary: %d responded, %d skipped, "
@@ -200,7 +323,7 @@ class LocalTransportMixin(_MixinBase):
             len(new_serials),
             len(cache),
             poll_serials,
-            list(key_map.keys()),
+            list(legacy_key_map.keys()),
         )
 
         return dict(cache)
@@ -966,7 +1089,9 @@ class LocalTransportMixin(_MixinBase):
                             # batteries eventually appear as entities.
                             device_data["batteries"] = (
                                 self._merge_round_robin_batteries(
-                                    serial, list(battery_data.batteries)
+                                    serial,
+                                    list(battery_data.batteries),
+                                    battery_data.battery_count,
                                 )
                             )
                             _LOGGER.debug(

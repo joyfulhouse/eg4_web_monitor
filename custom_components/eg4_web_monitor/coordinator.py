@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -84,6 +84,7 @@ from .const import (
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
 )
+from .battery_migration import async_migrate_battery_keys
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -300,10 +301,30 @@ class EG4DataUpdateCoordinator(
         # appear as entities regardless of which slot they occupied.
         # Outer key = inverter serial, inner key = battery serial.
         self._battery_rr_cache: dict[str, dict[str, dict[str, Any]]] = {}
-        # Stable battery_key assignment: battery serial → "inverter-NN" key.
+        # Legacy positional key shadow: battery serial → "inverter-NN" key in
+        # first-seen order — the exact assignment the pre-#252 LOCAL path used.
+        # Kept only so existing registry entries can be migrated to the
+        # canonical serial-based keys (see battery_migration.py).
         self._battery_serial_to_key: dict[str, dict[str, str]] = {}
-        # Next available index per inverter for stable key assignment.
+        # Next available index per inverter for the legacy shadow assignment.
         self._battery_next_index: dict[str, int] = {}
+        # One-shot guard for #252 battery-identity registry migrations:
+        # (inverter serial, legacy key) pairs already migrated this session.
+        self._battery_key_migrations_done: set[tuple[str, str]] = set()
+        # Cache keys created by the no-serial positional fallback (per
+        # inverter).  When a serial later claims the same slot, the fallback
+        # entry is retired — it was the same physical battery (#252 P0).
+        self._battery_fallback_keys: dict[str, set[str]] = {}
+        # Consecutive serial-less polls per (inverter, slot).  A positional
+        # fallback entity is only exposed after _NO_SERIAL_EXPOSE_POLLS so a
+        # slow-to-arrive serial can claim the identity before any positional
+        # entity is instantiated (#252 cold start).
+        self._battery_noserial_polls: dict[str, dict[int, int]] = {}
+        # Inverters whose battery-identity migration is disabled this session
+        # (rotating pack with unattributable positional history, or a
+        # duplicate/misreported battery serial).  Sticky until restart;
+        # positional registry rows are left untouched as orphans.
+        self._battery_migration_suppressed: set[str] = set()
 
         # Shared-battery secondary inverters: in parallel systems the CAN bus
         # connects only to the primary.  Secondaries (role >= 2) with
@@ -608,6 +629,118 @@ class EG4DataUpdateCoordinator(
 
         setattr(self, ts_attr, now)
         return True
+
+    def _suppress_battery_migration(
+        self, inverter_serial: str, reason: str, *, level: int = logging.INFO
+    ) -> None:
+        """Disable #252 battery-identity migration for an inverter (sticky).
+
+        Used when the legacy positional history cannot be attributed safely:
+        rotating packs (positional keys were assigned in an order this
+        session cannot reconstruct) or duplicate/misreported battery serials.
+        Positional registry rows are left untouched as orphans — safe beats
+        clever.  Logged once per inverter per session.
+        """
+        if inverter_serial in self._battery_migration_suppressed:
+            return
+        self._battery_migration_suppressed.add(inverter_serial)
+        _LOGGER.log(
+            level,
+            "Battery identity migration disabled for inverter %s this "
+            "session: %s. Existing positional battery entities are left "
+            "untouched; stale ones can be removed manually from the device "
+            "page (#252)",
+            inverter_serial,
+            reason,
+        )
+
+    def _register_battery_key_migrations(
+        self,
+        inverter_serial: str,
+        pairs: dict[str, str],
+        active_keys: Collection[str],
+    ) -> None:
+        """Run the #252 legacy→canonical battery-key registry migration.
+
+        Called from the battery processing paths (LOCAL round-robin merge,
+        HYBRID cloud baseline, CLOUD fallback) once the legacy positional key
+        each battery *would* have had is known alongside its canonical
+        serial-based key.
+
+        Args:
+            inverter_serial: Parent inverter serial number.
+            pairs: Mapping of legacy positional key → canonical key.
+            active_keys: Battery keys currently in use for this inverter
+                (including debounced no-serial fallback slots).  A legacy key
+                that is still an active key belongs to a live battery (mixed
+                serial/no-serial pack) and is never migrated.
+        """
+        if inverter_serial in self._battery_migration_suppressed:
+            return
+
+        active = set(active_keys)
+        pending: dict[str, str] = {}
+        for old_key, new_key in pairs.items():
+            if old_key == new_key:
+                continue
+            if (inverter_serial, old_key) in self._battery_key_migrations_done:
+                continue
+            if old_key in active:
+                _LOGGER.debug(
+                    "Skipping battery key migration %s -> %s for %s: "
+                    "legacy key still active (mixed serial/no-serial pack)",
+                    old_key,
+                    new_key,
+                    inverter_serial,
+                )
+                continue
+            pending[old_key] = new_key
+
+        if not pending:
+            return
+
+        # Same-inverter canonical-key collision safety: two legacy keys
+        # resolving to one canonical target means two physical batteries
+        # claim one identity — renaming would misbind history and the
+        # duplicate-removal branch could delete a live battery's rows.
+        # Drop the colliding pairs and warn.
+        targets = list(pending.values())
+        colliding = {t for t in targets if targets.count(t) > 1}
+        if colliding:
+            _LOGGER.warning(
+                "Skipping battery key migration for inverter %s: multiple "
+                "legacy keys resolve to the same canonical key(s) %s "
+                "(duplicate battery identity in the payload?)",
+                inverter_serial,
+                sorted(colliding),
+            )
+            pending = {o: n for o, n in pending.items() if n not in colliding}
+            if not pending:
+                return
+
+        # The done-guard is intentionally in-memory only: after a restart the
+        # migration re-runs once per battery and finds nothing left to rename
+        # (a proven no-op), so a persistent marker isn't warranted.  Retiring
+        # the legacy shadow map entirely is deferred to 3.5.0.
+        try:
+            migrated = async_migrate_battery_keys(
+                self.hass, self.entry.entry_id, inverter_serial, pending
+            )
+        except Exception:
+            # Never let a registry problem take down the refresh; the pairs
+            # are re-derived and retried (HYBRID/CLOUD: next refresh; LOCAL:
+            # next restart/reload).
+            _LOGGER.exception(
+                "Battery identity migration failed for inverter %s; "
+                "data refresh continues",
+                inverter_serial,
+            )
+            return
+        # Mark only the keys whose registry operations completed, so a
+        # per-key failure or live-entity deferral is retried instead of
+        # being lost for the session.
+        for old_key in migrated:
+            self._battery_key_migrations_done.add((inverter_serial, old_key))
 
     async def write_named_parameter(
         self,
