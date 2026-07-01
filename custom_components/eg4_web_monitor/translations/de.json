@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Inselbetrieb"
+      },
+      "fast_zero_export": {
+        "name": "Schneller Null-Export"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOC-Abschaltgrenze"
+      },
+      "grid_sell_back_power": {
+        "name": "Netzeinspeiseleistung"
       }
     },
     "button": {

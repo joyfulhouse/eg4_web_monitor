@@ -96,6 +96,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    PARAM_FUNC_RUN_WITHOUT_GRID,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
@@ -1270,6 +1271,12 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # (FUNC_FEED_IN_GRID_EN), live-verified.
     PARAM_FUNC_FEED_IN_GRID_EN: (21, 15),
     PARAM_FUNC_CHARGE_LAST: (110, 4),
+    # Fast Zero Export (GH #274): reg 110 bit 1 —
+    # "FunctionEn1.ubFastZeroExport" in the LXP protocol PDF (issue
+    # screenshot); the EG4 and Luxpower web UIs both toggle cloud param
+    # FUNC_RUN_WITHOUT_GRID for their Grid Sell tab "Fast Zero Export"
+    # button. Same bit in pylxpweb's base AND SNA reg-110 tables.
+    PARAM_FUNC_RUN_WITHOUT_GRID: (110, 1),
     PARAM_FUNC_GREEN_EN: (110, 8),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12
@@ -1300,10 +1307,14 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # REGISTER_TO_PARAM_KEYS pairing added with this.
     PARAM_HOLD_FORCED_DISCHG_POWER: (82, None),
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT: (83, None),
-    # Grid Sell Back power cap (GH #135): reg 103, whole percent.  Cloud key
-    # live-pinned via single-register named reads (18kPV value 16,
-    # FlexBOSS21 value 14, 2026-06-12); the cloud never returns the spec's
-    # HOLD_MAX_BACKFLOW_POWER_PERCENT name on this hardware.
+    # Grid Sell Back power cap (GH #135 / #274): reg 103, kW with 100 W raw
+    # units (NOT the percent in the spec or the param name). The 2026-04-13
+    # live local probe read raw 160 on the 18kPV whose cloud named read
+    # returned "16" (2026-06-12), and both web UIs label the field
+    # "Grid Sell Back Power(kW)" — the #274 LXP shows 12.1 kW (raw 121).
+    # Cloud key live-pinned via single-register named reads; the cloud
+    # never returns the spec's HOLD_MAX_BACKFLOW_POWER_PERCENT name on
+    # this hardware.
     PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT: (103, None),
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE: (100, None),
     PARAM_HOLD_CHARGE_CURRENT: (101, None),

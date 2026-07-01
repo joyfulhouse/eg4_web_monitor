@@ -834,6 +834,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         name: str,
         icon: str = "mdi:toggle-switch",
         entity_category: EntityCategory | None = None,
+        translation_key: str | None = None,
     ) -> None:
         """Initialize the base switch entity.
 
@@ -841,9 +842,12 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             coordinator: The data update coordinator.
             serial: The device serial number.
             entity_key: Unique key for this entity (used in entity_id and unique_id).
-            name: Display name for the entity.
+            name: Display name for the entity. Ignored when ``translation_key``
+                is provided — a set ``_attr_name`` overrides the translated
+                name in HA (issue #262 gotcha).
             icon: MDI icon for the entity.
             entity_category: Optional entity category (CONFIG, DIAGNOSTIC, etc.).
+            translation_key: Localize the entity name via strings.json.
         """
         super().__init__(coordinator)
         self.coordinator: EG4DataUpdateCoordinator = coordinator
@@ -857,7 +861,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         # Set entity attributes
         self._attr_has_entity_name = True
-        self._attr_name = name
+        if translation_key is not None:
+            self._attr_translation_key = translation_key
+        else:
+            self._attr_name = name
         self._attr_icon = icon
         self._attr_unique_id = generate_unique_id(serial, entity_key)
         self._attr_entity_id = generate_entity_id(

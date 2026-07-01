@@ -421,14 +421,24 @@ if reg1 & 0x100:
 
 | Bit | Parameter Key | HA Entity Key | Entity Type | Purpose |
 |-----|---------------|---------------|-------------|---------|
+| 1 | `FUNC_RUN_WITHOUT_GRID` | `fast_zero_export` | switch | Fast Zero Export — speeds up the zero-export control loop; select as the opposite of Grid Sell Back ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274); grid-tied families only) |
 | 4 | `FUNC_CHARGE_LAST` | `charge_last` | switch | Charge Last — PV serves loads/export first, charges battery last ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)) |
 | 8 | `FUNC_GREEN_EN` | `off_grid_mode` | switch | Green/Off-Grid Mode |
 
 > Register 110 holds 14 verified bit fields (`REGISTER_TO_PARAM_KEYS[110]` in
-> pylxpweb `constants/registers.py`); only bits 4 and 8 are mapped to entities.
-> Local writes read-modify-write the register via the named-parameter map;
-> cloud writes use the function-control API (`control_function`), which
-> applies the bit server-side.
+> pylxpweb `constants/registers.py`); only bits 1, 4 and 8 are mapped to
+> entities. Local writes read-modify-write the register via the
+> named-parameter map; cloud writes use the function-control API
+> (`control_function`), which applies the bit server-side.
+>
+> **`FUNC_RUN_WITHOUT_GRID` (bit 1) is "Fast Zero Export"** — the LXP
+> protocol PDF names the bit `FunctionEn1.ubFastZeroExport`, and both the
+> EG4 (#135 screenshot) and Luxpower (#274 screenshot) web UIs toggle the
+> `FUNC_RUN_WITHOUT_GRID` cloud param from their Grid Sell tab's
+> "Fast Zero Export" button. pylxpweb's canonical name `run_without_grid`
+> is the vendor param dictionary's literal wording, not the function: the
+> bit does not make the inverter run without grid. Same bit position in
+> the base (18kPV) and SNA register-110 tables.
 >
 > **EG4_OFFGRID (SNA) layout differs in the upper bits** (PR #220
 > adjudication, eg4-juzg): on 12000XP/6000XP hardware the buzzer is bit 7
@@ -456,15 +466,22 @@ if reg1 & 0x100:
 | 66 | `ac_charge_power` | number | W | 0-15000 |
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
-| 103 | `grid_sell_back_power` | number | % | 0-100 |
+| 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
 > single-register named cloud reads on 18kPV + FlexBOSS21 (2026-06-12,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)). The cloud
 > never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for
-> this register. Whole percent on both transports — no scaling. Grid-tied
-> families only.
+> this register. **kW with 100 W raw units** (the reg-66/74/82 encoding), NOT
+> the percent in the spec or the param name
+> ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)):
+> the 2026-04-13 live local probe read raw **160** on the 18kPV whose cloud
+> named read returned **"16"**, both web UIs label the field "Grid Sell Back
+> Power(kW)" (#135 + #274 screenshots), and the #274 LXP-LB shows 12.1 kW
+> (raw 121) — impossible as a 0-100 percent. Cloud reads/writes are kW floats
+> (server scales); the local/Modbus path scales kW×10 on write and ÷10 on
+> read. Grid-tied families only.
 
 > **`pv_charge_power` targets register 74** (`HOLD_FORCED_CHG_POWER_CMD`, the
 > forced/PV-charge-priority power command), stored in **100W units** (0-150 =

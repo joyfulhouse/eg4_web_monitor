@@ -35,6 +35,7 @@ from .const import (
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    PARAM_FUNC_RUN_WITHOUT_GRID,
     QUICK_CHARGE_DURATION_DEFAULT,
     WORKING_MODES,
 )
@@ -687,6 +688,13 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # pylxpweb >= 0.9.36b6 for the name to resolve locally; older installs
     # are handled by the _local_params_can_carry() setup gate.
     "FUNC_PV_SELL_TO_GRID_EN": PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    # Register 110, bit 1 (GH #274) — "Fast Zero Export" in both web UIs
+    # ("FunctionEn1.ubFastZeroExport" in the LXP protocol PDF). Same bit in
+    # pylxpweb's base and SNA register-110 tables, so the name resolves
+    # locally on every supported install. Deliberately absent from
+    # _WORKING_MODE_METHODS: the cloud path goes through the generic
+    # function-control API — the exact call the website makes.
+    "FUNC_RUN_WITHOUT_GRID": PARAM_FUNC_RUN_WITHOUT_GRID,
 }
 
 
@@ -704,16 +712,19 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         self._mode_key = mode_key
         self._mode_config = mode_config
 
-        # Clean parameter name for entity key (remove func_ prefix for cleaner IDs)
+        # Clean parameter name for entity key (remove func_ prefix for cleaner
+        # IDs). Modes may override via "entity_key" when the param-derived
+        # default would mislead (e.g. FUNC_RUN_WITHOUT_GRID -> fast_zero_export).
         param_clean = mode_config["param"].lower().replace("func_", "")
 
         super().__init__(
             coordinator=coordinator,
             serial=serial,
-            entity_key=param_clean,  # Use cleaned name directly as entity_key
+            entity_key=mode_config.get("entity_key", param_clean),
             name=mode_config["name"],
             icon=mode_config.get("icon", "mdi:toggle-switch"),
             entity_category=mode_config.get("entity_category"),
+            translation_key=mode_config.get("translation_key"),
         )
 
     @property
@@ -817,8 +828,12 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 cloud_disable_method=methods[1],
             )
         elif param_name:
-            # Local-only, no cloud methods available
-            await self._execute_named_parameter_action(
+            # No dedicated cloud methods: prefer the local named write and
+            # fall back to (or, without a transport, go straight to) the
+            # generic cloud function-control API — the same route the
+            # vendor websites use for FUNC_ bits (e.g. FUNC_RUN_WITHOUT_GRID,
+            # GH #274).
+            await self._execute_local_with_fallback(
                 action_name=f"working mode {param}",
                 parameter=param_name,
                 value=turn_on,

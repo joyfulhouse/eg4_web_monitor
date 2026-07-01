@@ -7,6 +7,14 @@ Optional per-mode gating keys (read by switch.py setup):
 - ``grid_tied_only``: skip the switch on EG4_OFFGRID inverters (12000XP /
   6000XP have no grid sell-back).
 
+Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
+- ``entity_key``: override for the unique_id/entity_id key when the
+  param-derived default would mislead (e.g. FUNC_RUN_WITHOUT_GRID is the
+  web UIs' "Fast Zero Export").
+- ``translation_key``: localize the entity name via strings.json instead
+  of the hardcoded ``name`` (which HA would otherwise let override the
+  translation — issue #262 gotcha).
+
 Cloud-only state parameters need no per-mode flag: switch.py setup probes
 the installed pylxpweb register map (``_local_params_can_carry``) and skips
 any mode whose state key cannot be decoded from local registers whenever
@@ -88,6 +96,30 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_category": EntityCategory.CONFIG,
         "grid_tied_only": True,
     },
+    # Fast Zero Export (FUNC_RUN_WITHOUT_GRID, GH #274) — register 110
+    # bit 1 ("FunctionEn1.ubFastZeroExport" in the LXP protocol PDF; same
+    # bit in pylxpweb's base AND SNA register-110 tables). Both web UIs
+    # expose the toggle on their Grid Sell tab (EG4: GH #135 screenshot;
+    # Luxpower: GH #274 screenshot) and both flip cloud param
+    # FUNC_RUN_WITHOUT_GRID. Vendor help text: speeds up the zero-export
+    # control loop (import control slows down); select as the opposite of
+    # Grid Sell Back. Grid-tied families only — off-grid units have no
+    # export to suppress. No dedicated pylxpweb enable/disable methods:
+    # the cloud path uses the generic function-control API, so no
+    # version guard is needed.
+    "fast_zero_export_mode": {
+        "name": "Fast Zero Export",
+        "param": "FUNC_RUN_WITHOUT_GRID",
+        "description": "Speed up zero-export control (opposite of Grid Sell Back)",
+        "icon": "mdi:transmission-tower-off",
+        "entity_category": EntityCategory.CONFIG,
+        "grid_tied_only": True,
+        # entity_key/translation_key: the param name would yield
+        # "run_without_grid", which misdescribes the function — the web
+        # UIs and the protocol PDF both call it Fast Zero Export.
+        "entity_key": "fast_zero_export",
+        "translation_key": "fast_zero_export",
+    },
 }
 
 # =============================================================================
@@ -104,4 +136,5 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_SET_TO_STANDBY": "FUNC_SET_TO_STANDBY",
     "FUNC_FEED_IN_GRID_EN": "FUNC_FEED_IN_GRID_EN",
     "FUNC_PV_SELL_TO_GRID_EN": "FUNC_PV_SELL_TO_GRID_EN",
+    "FUNC_RUN_WITHOUT_GRID": "FUNC_RUN_WITHOUT_GRID",
 }

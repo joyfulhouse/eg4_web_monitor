@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "オフグリッドモード"
+      },
+      "fast_zero_export": {
+        "name": "高速ゼロエクスポート"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOCカットオフ"
+      },
+      "grid_sell_back_power": {
+        "name": "売電電力"
       }
     },
     "button": {

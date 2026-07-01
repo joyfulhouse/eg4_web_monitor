@@ -1498,3 +1498,192 @@ class TestGridSellbackSwitchBehavior:
 
 
 # ── EG4_OFFGRID grid-tied control suppression (PR #220 / #197, eg4-juzg) ──
+
+
+# ── Fast Zero Export (FUNC_RUN_WITHOUT_GRID, reg 110 bit 1, GH #274) ──
+
+
+def _make_fast_zero_export_switch(coordinator) -> EG4WorkingModeSwitch:
+    """Build the Fast Zero Export working-mode switch under test."""
+    return EG4WorkingModeSwitch(
+        coordinator=coordinator,
+        serial="1234567890",
+        mode_key="fast_zero_export_mode",
+        mode_config=WORKING_MODES["fast_zero_export_mode"],
+    )
+
+
+class TestFastZeroExportGating:
+    """Setup gating for the Fast Zero Export switch (GH #274).
+
+    Both web UIs (EG4 monitor, GH #135 screenshot; Luxpower, GH #274
+    screenshot) expose the toggle on grid-tied models, so creation follows
+    the grid_tied_only/supports_grid_sellback gate: EG4_HYBRID and LXP get
+    it, EG4_OFFGRID does not.
+    """
+
+    @pytest.mark.asyncio
+    async def test_lxp_family_creates_fast_zero_export(self, hass):
+        """LXP (grid-tied three-phase) family gets the switch (GH #274)."""
+        coordinator = _mock_coordinator(
+            model="LXP-LB 12K",
+            device_data={"features": {"inverter_family": "LXP"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_RUN_WITHOUT_GRID" in params
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_creates_fast_zero_export(self, hass):
+        """EG4_HYBRID gets the switch too — the EG4 web UI has the same
+        toggle on the Grid Sell tab (GH #135 screenshot)."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_RUN_WITHOUT_GRID" in params
+
+    @pytest.mark.asyncio
+    async def test_offgrid_family_skips_fast_zero_export(self, hass):
+        """EG4_OFFGRID has no grid sell-back — no Fast Zero Export switch."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_RUN_WITHOUT_GRID" not in params
+
+    def test_local_map_carries_run_without_grid(self):
+        """The installed pylxpweb decodes FUNC_RUN_WITHOUT_GRID from local
+        registers (base table reg 110 bit 1) — no version guard needed."""
+        assert switch_module._local_params_can_carry("FUNC_RUN_WITHOUT_GRID")
+
+
+class TestFastZeroExportSwitchBehavior:
+    """State reads and writes for the Fast Zero Export switch (GH #274).
+
+    Register HOLD 110 bit 1 — ``FunctionEn1.ubFastZeroExport`` in the LXP
+    protocol PDF; the web UIs toggle cloud param ``FUNC_RUN_WITHOUT_GRID``.
+    """
+
+    def test_entity_identity(self):
+        """entity_key 'fast_zero_export' (not the raw param name) and a
+        translation_key instead of a hardcoded _attr_name."""
+        coordinator = _mock_coordinator()
+        switch = _make_fast_zero_export_switch(coordinator)
+        assert switch.unique_id == "1234567890_fast_zero_export"
+        assert switch.translation_key == "fast_zero_export"
+        # Localizable name: translation_key must not be overridden by name
+        assert getattr(switch, "_attr_name", None) is None
+
+    def test_is_on_from_params(self):
+        """State decodes from the FUNC_RUN_WITHOUT_GRID parameter."""
+        coordinator = _mock_coordinator(parameters={"FUNC_RUN_WITHOUT_GRID": True})
+        switch = _make_fast_zero_export_switch(coordinator)
+        assert switch.is_on is True
+
+    def test_is_off_from_params(self):
+        coordinator = _mock_coordinator(parameters={"FUNC_RUN_WITHOUT_GRID": False})
+        switch = _make_fast_zero_export_switch(coordinator)
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_local(self):
+        """Local transport writes FUNC_RUN_WITHOUT_GRID by name (reg 110
+        bit 1 read-modify-write in pylxpweb)."""
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = _make_fast_zero_export_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_RUN_WITHOUT_GRID"
+        assert call_args[0][1] is True
+
+    @pytest.mark.asyncio
+    async def test_turn_off_local(self):
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = _make_fast_zero_export_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_RUN_WITHOUT_GRID"
+        assert call_args[0][1] is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_cloud_uses_function_control(self):
+        """Cloud path writes FUNC_RUN_WITHOUT_GRID via the generic
+        function-control API — the exact call the website makes (GH #274)."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_fast_zero_export_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_RUN_WITHOUT_GRID", True
+        )
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_cloud_uses_function_control(self):
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_fast_zero_export_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_RUN_WITHOUT_GRID", False
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_local_fail_falls_back_to_cloud(self):
+        """HYBRID: failed local write falls back to cloud function control."""
+        coordinator = _mock_coordinator(has_http=True, has_local=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = _make_fast_zero_export_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_RUN_WITHOUT_GRID", True
+        )

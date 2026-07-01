@@ -28,6 +28,12 @@ PARAM_FUNC_GREEN_EN = "FUNC_GREEN_EN"
 # Charge Last (reg 110 bit 4): when enabled, PV surplus serves loads/export
 # first and charges the battery last (issue #177).
 PARAM_FUNC_CHARGE_LAST = "FUNC_CHARGE_LAST"
+# Fast Zero Export (reg 110 bit 1, GH #274) — "FunctionEn1.ubFastZeroExport"
+# in the LXP protocol PDF; both the EG4 and Luxpower web UIs toggle cloud
+# param FUNC_RUN_WITHOUT_GRID for their "Fast Zero Export" button (GH #135
+# + #274 screenshots). Speeds up the zero-export control loop; the vendors
+# advise selecting it as the opposite of the Grid Sell Back setting.
+PARAM_FUNC_RUN_WITHOUT_GRID = "FUNC_RUN_WITHOUT_GRID"
 
 # Extended bit field parameter names (registers 179, 233)
 PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"

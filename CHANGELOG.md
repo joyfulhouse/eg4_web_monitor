@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fast Zero Export switch** ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)): the Grid Sell tab's "Fast Zero Export" toggle from the EG4/Luxpower web UIs is now a switch on grid-tied inverters (EG4_HYBRID and LXP families; off-grid XP units have no export to suppress). It speeds up the inverter's zero-export control loop (import control slows down) and the vendors advise selecting it as the opposite of Grid Sell Back. The bit is HOLD register 110 bit 1 (`FunctionEn1.ubFastZeroExport` in the LXP protocol PDF); the cloud path writes the same `FUNC_RUN_WITHOUT_GRID` function-control parameter the websites use, and the local path read-modify-writes the register bit — state follows parameter polling in all connection modes. Requested by @ivanfmartinez for an LXP-LB; EG4 hybrids expose the same web toggle (first pictured in [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)).
+
+### Fixed
+
+- **Grid Sell Back Power is a kW control, not a percent** ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)): the reg-103 export cap shipped as a 0-100 % number, trusting the protocol PDF and the cloud key name (`HOLD_FEED_IN_GRID_POWER_PERCENT`). It is actually **kilowatts with 100 W raw units** — the same encoding as the AC/PV/forced-charge power registers: the 2026-04-13 live register probe read raw **160** on the very 18kPV whose cloud named read returns **"16"**, and both vendor web UIs label the field "Grid Sell Back Power(**kW**)". On @ivanfmartinez's LXP-LB the website value 12.1 kW (raw 121) failed the old 0-100 integer check, so the entity sat on *unknown* and never reflected website changes; on EG4 hybrids the number silently showed kW labeled as %, and a cloud write of "50 %" actually set a 50 kW cap. The entity now displays kW (0-25.5 in 0.1 steps), scales the raw register ×10/÷10 on the local path, sends kW floats on the cloud path, and keeps the same entity/unique ID. Review automations that set this number: values are now interpreted as kW.
+
 ## [3.4.0-beta.17] - 2026-06-23
 
 > Requires [pylxpweb 0.9.36b18](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b18)
