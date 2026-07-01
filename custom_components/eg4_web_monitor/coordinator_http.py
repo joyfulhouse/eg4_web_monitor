@@ -600,7 +600,7 @@ class HTTPUpdateMixin(_MixinBase):
         # Add station data
         processed["station"] = {
             "name": self.station.name,
-            "plant_id": self.station.id,
+            "plant_id": str(self.station.id),
             "station_last_polled": dt_util.utcnow(),
         }
 
