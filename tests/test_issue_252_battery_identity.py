@@ -308,14 +308,22 @@ class TestCrossModeIdentity:
 
         assert set(r1) == set(r2) == {f"{INV}-{BAT_SN_1}", f"{INV}-{BAT_SN_2}"}
 
-    async def test_local_no_serial_fallback_unchanged(self, hass, mock_config_entry):
-        """Packs without CAN serials keep positional keys (pre-#165 firmware)."""
+    async def test_local_no_serial_fallback_after_debounce(
+        self, hass, mock_config_entry
+    ):
+        """Packs without CAN serials keep positional keys (pre-#165 firmware).
+
+        Positional fallback entries are debounced (_NO_SERIAL_EXPOSE_POLLS) so
+        a late-arriving serial can claim the identity first; a genuinely
+        serial-less pack surfaces its positional entities after the debounce.
+        """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        result = coordinator._merge_round_robin_batteries(
-            INV, [_transport_battery(0, ""), _transport_battery(1, "")]
-        )
+        payload = [_transport_battery(0, ""), _transport_battery(1, "")]
+        assert coordinator._merge_round_robin_batteries(INV, payload) == {}
+        assert coordinator._merge_round_robin_batteries(INV, payload) == {}
+        result = coordinator._merge_round_robin_batteries(INV, payload)
 
         assert set(result) == {f"{INV}-01", f"{INV}-02"}
 
@@ -375,12 +383,17 @@ class TestPositionalKeyMigration:
     async def test_local_merge_renames_positional_entities(
         self, hass, mock_config_entry
     ):
-        """Pure-LOCAL beta install: unique_ids renamed in place, history kept."""
+        """Pure-LOCAL beta install: device re-identified in place, history kept.
+
+        The positional device must keep its UUID (device automations, device
+        triggers and dashboard cards reference it) and its area/name/labels;
+        the entity unique_ids are renamed in place (entity_id preserved).
+        """
         mock_config_entry.add_to_hass(hass)
         area = ar.async_get(hass).async_create("Casa de Maquinas")
         old_key = f"{INV}-01"
         new_key = f"{INV}-{BAT_SN_1}"
-        _, entity_ids = _seed_positional_battery(
+        seeded_device_id, entity_ids = _seed_positional_battery(
             hass, mock_config_entry, old_key, area_id=area.id
         )
 
@@ -395,13 +408,15 @@ class TestPositionalKeyMigration:
             assert new_key in entry_.unique_id
             assert old_key not in entry_.unique_id
 
-        # Old positional device is gone; canonical device carries the area.
+        # The positional identifier no longer resolves; the canonical one
+        # resolves to the SAME device row (re-identified in place).
         device_registry = dr.async_get(hass)
         assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
         new_device = device_registry.async_get_device({(DOMAIN, new_key)})
         assert new_device is not None
+        assert new_device.id == seeded_device_id  # device UUID preserved
         assert new_device.area_id == area.id
-        # Migrated entities point at the canonical device.
+        # Entities still point at that device.
         for entity_id in entity_ids:
             assert entity_registry.async_get(entity_id).device_id == new_device.id
 
@@ -503,9 +518,11 @@ class TestPositionalKeyMigration:
     async def test_active_positional_key_not_migrated(self, hass, mock_config_entry):
         """A positional key still actively used by a no-serial battery stays.
 
-        Mixed pack: slot 0 has no serial (fallback key {inv}-01), slot 1 has a
-        real serial whose legacy shadow key is ALSO {inv}-01.  Migrating would
-        steal the live battery's entities — it must be skipped.
+        Mixed pack: slot 0 has no serial (fallback key {inv}-01, debounced but
+        counting as active), slot 1 has a real serial whose legacy shadow key
+        is ALSO {inv}-01.  Migrating would steal the live battery's entities —
+        it must be skipped, on the very first poll and after the fallback is
+        exposed.
         """
         mock_config_entry.add_to_hass(hass)
         old_key = f"{INV}-01"
@@ -514,12 +531,14 @@ class TestPositionalKeyMigration:
         )
 
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-        result = coordinator._merge_round_robin_batteries(
-            INV,
-            [_transport_battery(0, ""), _transport_battery(1, BAT_SN_1)],
-        )
+        payload = [_transport_battery(0, ""), _transport_battery(1, BAT_SN_1)]
+        result = coordinator._merge_round_robin_batteries(INV, payload)
+        # Serial battery exposed immediately; fallback slot still debounced.
+        assert f"{INV}-{BAT_SN_1}" in result
+        result = coordinator._merge_round_robin_batteries(INV, payload)
+        result = coordinator._merge_round_robin_batteries(INV, payload)
 
-        # Fallback key is active for the no-serial battery.
+        # Fallback key is active for the no-serial battery after debounce.
         assert f"{INV}-01" in result
         # Registry untouched: unique_ids still positional.
         entity_registry = er.async_get(hass)
@@ -563,3 +582,540 @@ class TestPositionalKeyMigration:
         entry_ = entity_registry.async_get(entity_ids[0])
         assert entry_ is not None
         assert f"{INV}-01" in entry_.unique_id
+
+    async def test_dup_path_backfills_unset_customizations(
+        self, hass, mock_config_entry
+    ):
+        """Dup removal backfills area from the positional device when unset.
+
+        Cloud→hybrid scenario: the user assigned an area to the fresh
+        positional device while the cloud device sat stale.  The positional
+        device is removed, but its area must move to the canonical device —
+        without overwriting a canonical customization that exists.
+        """
+        mock_config_entry.add_to_hass(hass)
+        area = ar.async_get(hass).async_create("Garagem")
+        old_key = f"{INV}-01"
+        new_key = f"{INV}-{BAT_SN_1}"
+
+        device_registry = dr.async_get(hass)
+        entity_registry = er.async_get(hass)
+        # Canonical (cloud-era) device WITHOUT an area, but with a user name.
+        cloud_device = device_registry.async_get_or_create(
+            config_entry_id=mock_config_entry.entry_id,
+            identifiers={(DOMAIN, new_key)},
+            name=f"Battery {new_key}",
+        )
+        device_registry.async_update_device(cloud_device.id, name_by_user="Cloud Name")
+        entity_registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"{INV}_{new_key}_battery_soc",
+            config_entry=mock_config_entry,
+            device_id=cloud_device.id,
+        )
+        # Positional device WITH an area and a user name.
+        old_device_id, _ = _seed_positional_battery(
+            hass,
+            mock_config_entry,
+            old_key,
+            area_id=area.id,
+            sensor_suffixes=("battery_soc",),
+        )
+        device_registry.async_update_device(old_device_id, name_by_user="Beta Name")
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._merge_round_robin_batteries(INV, [_transport_battery(0, BAT_SN_1)])
+
+        surviving = device_registry.async_get_device({(DOMAIN, new_key)})
+        assert surviving is not None
+        # Area backfilled from the positional device (canonical had none)...
+        assert surviving.area_id == area.id
+        # ...but the canonical user name wins over the positional one.
+        assert surviving.name_by_user == "Cloud Name"
+        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
+
+
+# ── P0: no-serial → serial cold-start sequence (third review) ─────────
+
+
+class TestNoSerialThenSerialSequence:
+    """A battery whose serial arrives late must not fork into two identities."""
+
+    async def test_two_poll_no_serial_then_serial_single_identity(
+        self, hass, mock_config_entry
+    ):
+        """Poll 1 without serial, poll 2 with serial → ONE battery, migrated.
+
+        Regression for the review P0: the poll-1 positional fallback entry
+        used to persist in the never-evicting rr-cache, keeping a frozen
+        positional twin forever AND blocking the registry migration via the
+        active-key guard.
+        """
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        new_key = f"{INV}-{BAT_SN_1}"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Poll 1: battery reports data but no CAN serial yet.
+        result1 = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, "")]
+        )
+        # Poll 2: same battery, serial now readable.
+        result2 = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, BAT_SN_1)]
+        )
+
+        # Exactly one identity — no frozen positional twin.
+        assert set(result2) == {new_key}
+        assert old_key not in result2
+        # And it stays gone on subsequent polls.
+        result3 = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, BAT_SN_1)]
+        )
+        assert set(result3) == {new_key}
+        _ = result1
+
+        # Migration fired: registry rows renamed to the canonical key.
+        entity_registry = er.async_get(hass)
+        for entity_id in entity_ids:
+            entry_ = entity_registry.async_get(entity_id)
+            assert entry_ is not None
+            assert new_key in entry_.unique_id
+        device_registry = dr.async_get(hass)
+        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
+        assert device_registry.async_get_device({(DOMAIN, new_key)}) is not None
+
+    async def test_exposed_fallback_then_serial_still_single_identity(
+        self, hass, mock_config_entry
+    ):
+        """Serial arriving after the debounce window still retires the twin."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        no_serial = [_transport_battery(0, "")]
+        for _ in range(3):  # exposed after _NO_SERIAL_EXPOSE_POLLS
+            result = coordinator._merge_round_robin_batteries(INV, no_serial)
+        assert set(result) == {f"{INV}-01"}
+
+        result = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, BAT_SN_1)]
+        )
+        assert set(result) == {f"{INV}-{BAT_SN_1}"}
+
+    async def test_placeholder_serial_claiming_own_fallback_slot(
+        self, hass, mock_config_entry
+    ):
+        """Serial 'Battery_ID_01' at slot 0 owns the {inv}-01 key cleanly.
+
+        The canonical key equals the slot's fallback key here — retiring the
+        fallback must not delete the entry the serial just claimed.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        no_serial = [_transport_battery(0, "")]
+        for _ in range(3):
+            coordinator._merge_round_robin_batteries(INV, no_serial)
+
+        result = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, "Battery_ID_01")]
+        )
+        assert set(result) == {f"{INV}-01"}
+
+
+# ── Rotation trust guard (third review, LOCAL only) ───────────────────
+
+
+class TestRotationTrustGuard:
+    """Rotating packs must not have positional history renamed blindly."""
+
+    async def test_reported_count_over_page_skips_migration(
+        self, hass, mock_config_entry
+    ):
+        """reg-96 count > 4 slots ⇒ LOCAL migration suppressed, rows orphaned."""
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        result = coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, BAT_SN_1)], reported_count=8
+        )
+
+        # Live data still keyed canonically...
+        assert set(result) == {f"{INV}-{BAT_SN_1}"}
+        # ...but the positional registry rows are untouched (orphans).
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert old_key in entry_.unique_id
+        assert INV in coordinator._battery_migration_suppressed
+
+    async def test_more_serials_than_slots_skips_migration(
+        self, hass, mock_config_entry
+    ):
+        """>4 accumulated distinct serials ⇒ rotation ⇒ suppression (sticky)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        serials = [f"02920011223{i}" for i in range(4)]
+        coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(i, sn) for i, sn in enumerate(serials)]
+        )
+        assert INV not in coordinator._battery_migration_suppressed
+
+        # 5th serial rotates into slot 0 → rotation detected.
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, f"{INV}-05", sensor_suffixes=("battery_soc",)
+        )
+        coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, "029200112239")]
+        )
+
+        assert INV in coordinator._battery_migration_suppressed
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert f"{INV}-05" in entry_.unique_id
+
+    async def test_four_or_fewer_batteries_still_migrate(self, hass, mock_config_entry):
+        """The common ≤4-battery case keeps migrating (reg-96 agrees)."""
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        new_key = f"{INV}-{BAT_SN_1}"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(0, BAT_SN_1)], reported_count=1
+        )
+
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert new_key in entry_.unique_id
+
+
+# ── Duplicate battery identity (third review P1) ──────────────────────
+
+
+class TestDuplicateSerialCollision:
+    """Two batteries resolving to one canonical key must not merge silently."""
+
+    async def test_local_duplicate_serial_disambiguated_and_suppressed(
+        self, hass, mock_config_entry, caplog
+    ):
+        """Same serial in two slots: positional disambiguation + no migration."""
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        result = coordinator._merge_round_robin_batteries(
+            INV,
+            [_transport_battery(0, BAT_SN_1), _transport_battery(1, BAT_SN_1)],
+        )
+
+        # Both batteries visible: canonical + positional disambiguation.
+        assert f"{INV}-{BAT_SN_1}" in result
+        assert f"{INV}-02" in result
+        # Migration suppressed for the inverter; registry untouched.
+        assert INV in coordinator._battery_migration_suppressed
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert old_key in entry_.unique_id
+        assert "resolve to battery identity" in caplog.text
+
+    async def test_register_drops_colliding_target_pairs(
+        self, hass, mock_config_entry, caplog
+    ):
+        """Two legacy keys mapping to one canonical target are dropped."""
+        mock_config_entry.add_to_hass(hass)
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, f"{INV}-01", sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._register_battery_key_migrations(
+            INV,
+            {f"{INV}-01": f"{INV}-{BAT_SN_1}", f"{INV}-02": f"{INV}-{BAT_SN_1}"},
+            active_keys=set(),
+        )
+
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert f"{INV}-01" in entry_.unique_id
+        assert "resolve to the same canonical key" in caplog.text
+
+
+# ── Done-guard exception safety (third review P1) ─────────────────────
+
+
+class TestMigrationGuardExceptionSafety:
+    """Keys are marked done only after their registry ops succeed."""
+
+    async def test_failed_key_not_marked_done_and_retries(
+        self, hass, mock_config_entry
+    ):
+        """A registry exception leaves the key retryable; retry succeeds."""
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        new_key = f"{INV}-{BAT_SN_1}"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        pairs = {old_key: new_key}
+
+        with patch.object(
+            er.EntityRegistry,
+            "async_update_entity",
+            side_effect=RuntimeError("registry exploded"),
+        ):
+            coordinator._register_battery_key_migrations(INV, pairs, set())
+
+        # Not marked done — the failure is retryable.
+        assert (INV, old_key) not in coordinator._battery_key_migrations_done
+        entity_registry = er.async_get(hass)
+        assert old_key in entity_registry.async_get(entity_ids[0]).unique_id
+
+        # Retry without the fault: migration completes and is marked done.
+        coordinator._register_battery_key_migrations(INV, pairs, set())
+        assert (INV, old_key) in coordinator._battery_key_migrations_done
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert new_key in entry_.unique_id
+
+    async def test_one_failing_key_does_not_block_others(self, hass, mock_config_entry):
+        """Per-key containment: other keys still migrate when one fails."""
+        mock_config_entry.add_to_hass(hass)
+        _, ids_1 = _seed_positional_battery(
+            hass, mock_config_entry, f"{INV}-01", sensor_suffixes=("battery_soc",)
+        )
+        _, ids_2 = _seed_positional_battery(
+            hass, mock_config_entry, f"{INV}-02", sensor_suffixes=("battery_soc",)
+        )
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        entity_registry = er.async_get(hass)
+        real_update = er.EntityRegistry.async_update_entity
+
+        def _fail_key_one(self, entity_id, **kwargs):
+            if entity_id in ids_1:
+                raise RuntimeError("registry exploded")
+            return real_update(self, entity_id, **kwargs)
+
+        with patch.object(er.EntityRegistry, "async_update_entity", _fail_key_one):
+            coordinator._register_battery_key_migrations(
+                INV,
+                {
+                    f"{INV}-01": f"{INV}-{BAT_SN_1}",
+                    f"{INV}-02": f"{INV}-{BAT_SN_2}",
+                },
+                set(),
+            )
+
+        # Key 2 migrated and is done; key 1 failed and is retryable.
+        assert (INV, f"{INV}-02") in coordinator._battery_key_migrations_done
+        assert (INV, f"{INV}-01") not in coordinator._battery_key_migrations_done
+        assert f"{INV}-{BAT_SN_2}" in entity_registry.async_get(ids_2[0]).unique_id
+        assert f"{INV}-01" in entity_registry.async_get(ids_1[0]).unique_id
+
+    async def test_live_entity_defers_migration(self, hass, mock_config_entry):
+        """A live positional entity defers the key instead of stranding it."""
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        _, entity_ids = _seed_positional_battery(
+            hass, mock_config_entry, old_key, sensor_suffixes=("battery_soc",)
+        )
+        # Simulate an instantiated entity: a state exists for the entity_id.
+        hass.states.async_set(entity_ids[0], "85")
+
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._merge_round_robin_batteries(INV, [_transport_battery(0, BAT_SN_1)])
+
+        # Deferred: registry untouched, key NOT marked done (retry later).
+        entity_registry = er.async_get(hass)
+        entry_ = entity_registry.async_get(entity_ids[0])
+        assert entry_ is not None
+        assert old_key in entry_.unique_id
+        assert (INV, old_key) not in coordinator._battery_key_migrations_done
+
+
+# ── batteryKey/batterySn divergence warning (third review P1) ─────────
+
+
+class TestBatteryKeyDivergenceWarning:
+    """A batteryKey that deviates from {inv}_{batterySn} must be surfaced."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_warned(self):
+        from custom_components.eg4_web_monitor import utils
+
+        utils._battery_key_divergence_warned.clear()
+        yield
+        utils._battery_key_divergence_warned.clear()
+
+    def test_warns_once_on_divergence(self, caplog):
+        batt = SimpleNamespace(
+            battery_key="SOMETHING_ELSE_ENTIRELY",
+            battery_sn=BAT_SN_1,
+            battery_index=0,
+        )
+        key = cloud_battery_key(INV, batt)
+        # batteryKey precedence is kept (CLOUD ids stay 3.3.0-identical)...
+        assert key == "SOMETHING-ELSE-ENTIRELY"
+        # ...but the invariant violation is surfaced.
+        assert "deviates" in caplog.text
+        caplog.clear()
+        cloud_battery_key(INV, batt)
+        assert "deviates" not in caplog.text  # one-shot
+
+    def test_no_warning_on_placeholder_pack(self, caplog):
+        batt = SimpleNamespace(
+            battery_key=f"{INV}_Battery_ID_01",
+            battery_sn="Battery_ID_01",
+            battery_index=0,
+        )
+        assert cloud_battery_key(INV, batt) == f"{INV}-01"
+        assert "deviates" not in caplog.text
+
+    def test_no_warning_when_consistent(self, caplog):
+        batt = _cloud_battery(0, BAT_SN_1)
+        assert cloud_battery_key(INV, batt) == f"{INV}-{BAT_SN_1}"
+        assert "deviates" not in caplog.text
+
+
+# ── Full-setup ordering invariant (migration before instantiation) ────
+
+
+class TestSetupOrderingInvariant:
+    """End-to-end: migration fires before battery entities instantiate.
+
+    Pre-seeds positional registry rows, runs REAL config-entry setup
+    (async_config_entry_first_refresh → async_forward_entry_setups → the
+    sensor.py late-battery listener), then lets batteries appear on a later
+    refresh.  The seeded rows must be renamed BEFORE the listener creates the
+    battery entity objects, so the objects adopt the renamed rows: zero
+    duplicate battery devices/entities, entity_ids preserved.
+    """
+
+    async def test_full_setup_migrates_before_battery_entities_instantiate(
+        self, hass, mock_config_entry
+    ):
+        from custom_components.eg4_web_monitor.const import DOMAIN as EG4_DOMAIN
+
+        mock_config_entry.add_to_hass(hass)
+        old_key = f"{INV}-01"
+        new_key = f"{INV}-{BAT_SN_1}"
+        # Suffixes must be sensor keys the real pipeline emits so the late
+        # listener instantiates entities that adopt the renamed rows.
+        seeded_device_id, entity_ids = _seed_positional_battery(
+            hass,
+            mock_config_entry,
+            old_key,
+            sensor_suffixes=("battery_rsoc", "battery_real_voltage"),
+        )
+        seeded_sensor_id = entity_ids[0]
+
+        inv = make_real_inverter(serial_number=INV, model="LXP-LB-US 10K")
+        inv._battery_bank = None  # no batteries at first refresh (cold start)
+        station = _mock_station([inv])
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator.LuxpowerClient"
+            ) as mock_client_cls,
+            patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http.Station.load",
+                new=AsyncMock(return_value=station),
+            ),
+            patch.object(
+                EG4DataUpdateCoordinator,
+                "_process_inverter_object",
+                new=AsyncMock(
+                    return_value={
+                        "type": "inverter",
+                        "model": "LXP-LB-US 10K",
+                        "serial": INV,
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                ),
+            ),
+            patch.object(
+                EG4DataUpdateCoordinator,
+                "_refresh_missing_parameters",
+                new=AsyncMock(),
+            ),
+        ):
+            mock_client_cls.return_value.close = AsyncMock()
+
+            # Phase A: full real setup, batteries not yet known.
+            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+            await hass.async_block_till_done()
+
+            entity_registry = er.async_get(hass)
+            # Positional rows untouched (no serials known yet), no battery
+            # entity objects instantiated.
+            assert old_key in entity_registry.async_get(seeded_sensor_id).unique_id
+            assert hass.states.get(seeded_sensor_id) is None
+
+            # Phase B: batteries appear on a later refresh (serials known).
+            bank = MagicMock()
+            bank.batteries = [_cloud_battery(0, BAT_SN_1)]
+            bank.battery_count = 1
+            inv._battery_bank = bank
+
+            coordinator = mock_config_entry.runtime_data
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+
+            # Rows renamed in place: same entity_ids, canonical unique_ids.
+            for entity_id in entity_ids:
+                entry_ = entity_registry.async_get(entity_id)
+                assert entry_ is not None, f"{entity_id} vanished"
+                assert new_key in entry_.unique_id
+                assert old_key not in entry_.unique_id
+
+            # The listener-created entity objects ADOPTED the renamed rows —
+            # the seeded entity_id is now a live state (ordering invariant).
+            assert hass.states.get(seeded_sensor_id) is not None
+
+            # Zero duplicates: exactly one entity owns the canonical soc
+            # unique_id and it is the seeded row.
+            soc_uid = f"{INV}_{new_key}_battery_rsoc"
+            assert (
+                entity_registry.async_get_entity_id("sensor", EG4_DOMAIN, soc_uid)
+                == seeded_sensor_id
+            )
+            positional_uid = f"{INV}_{old_key}_battery_rsoc"
+            assert (
+                entity_registry.async_get_entity_id(
+                    "sensor", EG4_DOMAIN, positional_uid
+                )
+                is None
+            )
+
+            # Exactly one battery device: the seeded one, re-identified.
+            device_registry = dr.async_get(hass)
+            assert device_registry.async_get_device({(EG4_DOMAIN, old_key)}) is None
+            new_device = device_registry.async_get_device({(EG4_DOMAIN, new_key)})
+            assert new_device is not None
+            assert new_device.id == seeded_device_id
+
+            await hass.config_entries.async_unload(mock_config_entry.entry_id)
+            await hass.async_block_till_done()

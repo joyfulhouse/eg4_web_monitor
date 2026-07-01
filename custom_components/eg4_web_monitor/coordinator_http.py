@@ -886,13 +886,30 @@ class HTTPUpdateMixin(_MixinBase):
 
                 # First, populate all cloud batteries as baseline
                 key_migrations: dict[str, str] = {}
+                baseline_keys: dict[str, int] = {}
                 for cloud_batt in cloud_batteries:
                     c_idx = getattr(cloud_batt, "battery_index", None)
                     if c_idx is None:
                         continue
                     battery_key = cloud_battery_key(serial, cloud_batt)
-                    # Legacy positional key the pre-#252 HYBRID path used.
-                    key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
+                    if battery_key in baseline_keys:
+                        # Duplicate battery identity in one payload: keep
+                        # positional disambiguation for the colliding battery
+                        # and stop trusting registry migration for this
+                        # inverter (last-write-wins would hide a battery and
+                        # the migration could misbind history).
+                        self._suppress_battery_migration(
+                            serial,
+                            f"cloud batteries {baseline_keys[battery_key]} "
+                            f"and {c_idx} both resolve to identity "
+                            f"{battery_key!r}",
+                            level=logging.WARNING,
+                        )
+                        battery_key = f"{serial}-{c_idx + 1:02d}"
+                    else:
+                        baseline_keys[battery_key] = c_idx
+                        # Legacy positional key the pre-#252 HYBRID path used.
+                        key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(cloud_batt)
                     )
@@ -967,7 +984,9 @@ class HTTPUpdateMixin(_MixinBase):
             # Round-robin merge: accumulate by battery serial across polls.
             if transport_batteries:
                 device_data["batteries"] = self._merge_round_robin_batteries(
-                    serial, list(transport_batteries)
+                    serial,
+                    list(transport_batteries),
+                    getattr(transport_battery, "battery_count", None),
                 )
                 _LOGGER.debug(
                     "LOCAL: %d individual batteries for %s (round-robin cache)",
@@ -999,11 +1018,25 @@ class HTTPUpdateMixin(_MixinBase):
             _LOGGER.debug("Found %d batteries for inverter %s", len(batteries), serial)
 
             cloud_key_migrations: dict[str, str] = {}
+            cloud_seen_keys: dict[str, int] = {}
             for battery in batteries:
                 try:
                     battery_key = cloud_battery_key(serial, battery)
                     c_idx = getattr(battery, "battery_index", None)
-                    if c_idx is not None:
+                    if c_idx is not None and battery_key in cloud_seen_keys:
+                        # Duplicate battery identity in one payload — keep
+                        # positional disambiguation and stop trusting registry
+                        # migration for this inverter (#252).
+                        self._suppress_battery_migration(
+                            serial,
+                            f"cloud batteries {cloud_seen_keys[battery_key]} "
+                            f"and {c_idx} both resolve to identity "
+                            f"{battery_key!r}",
+                            level=logging.WARNING,
+                        )
+                        battery_key = f"{serial}-{c_idx + 1:02d}"
+                    elif c_idx is not None:
+                        cloud_seen_keys[battery_key] = c_idx
                         # Legacy positional key a pre-#252 HYBRID/LOCAL install
                         # would have used for this battery.
                         cloud_key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
