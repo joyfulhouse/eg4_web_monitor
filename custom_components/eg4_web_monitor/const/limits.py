@@ -79,15 +79,19 @@ FORCED_DISCHARGE_SOC_LIMIT_MAX = 100
 FORCED_DISCHARGE_SOC_LIMIT_STEP = 1
 
 # =============================================================================
-# Grid Sell Back Power (reg 103, GH #135)
-# Whole percent on both paths: the cloud named read returns 0-100 and the raw
-# register is documented 0-100 (live-pinned via single-register named reads on
-# 18kPV + FlexBOSS21, 2026-06-12 — cloud key HOLD_FEED_IN_GRID_POWER_PERCENT).
+# Grid Sell Back Power (reg 103, GH #135 / #274)
+# kW with 100 W raw units — the reg-66/74/82 encoding, NOT the percent the
+# protocol PDF claims: the 2026-04-13 live local probe read raw 160 on an
+# 18kPV + FlexBOSS21 while the same 18kPV's cloud named read returned "16"
+# (kW), and both the EG4 and Luxpower web UIs label the field "Grid Sell
+# Back Power(kW)" (GH #135 + #274 screenshots; the #274 LXP shows 12.1 kW =
+# raw 121, impossible as a 0-100 percent). Cloud key stays
+# HOLD_FEED_IN_GRID_POWER_PERCENT — the "PERCENT" is the vendor's mislabel.
 # =============================================================================
 
 GRID_SELL_BACK_POWER_MIN = 0
-GRID_SELL_BACK_POWER_MAX = 100
-GRID_SELL_BACK_POWER_STEP = 1
+GRID_SELL_BACK_POWER_MAX = 25.5
+GRID_SELL_BACK_POWER_STEP = 0.1
 
 # =============================================================================
 # System Charge SOC Limit (%)

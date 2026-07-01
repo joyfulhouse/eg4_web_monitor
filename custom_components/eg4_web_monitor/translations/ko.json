@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "오프그리드 모드"
+      },
+      "fast_zero_export": {
+        "name": "고속 제로 수출"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOC 차단"
+      },
+      "grid_sell_back_power": {
+        "name": "계통 판매 전력"
       }
     },
     "button": {

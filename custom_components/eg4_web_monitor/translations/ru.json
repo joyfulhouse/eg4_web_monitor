@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Автономный режим"
+      },
+      "fast_zero_export": {
+        "name": "Быстрый нулевой экспорт"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "Порог отключения SOC"
+      },
+      "grid_sell_back_power": {
+        "name": "Мощность продажи в сеть"
       }
     },
     "button": {

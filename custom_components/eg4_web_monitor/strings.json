@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Off Grid Mode"
+      },
+      "fast_zero_export": {
+        "name": "Fast Zero Export"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOC Cut-Off"
+      },
+      "grid_sell_back_power": {
+        "name": "Grid Sell Back Power"
       }
     },
     "button": {

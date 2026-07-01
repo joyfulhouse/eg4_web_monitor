@@ -1055,103 +1055,131 @@ class TestGridPeakShavingPowerNumber:
 
 
 class TestGridSellBackPowerNumber:
-    """Grid Sell Back Power control (reg 103, %, GH #135).
+    """Grid Sell Back Power control (reg 103, kW, GH #135 / #274).
 
-    Whole percent on both transports — the local raw register and the cloud
-    named value are the same 0-100 number, so unlike the kW controls there
-    is no raw-vs-scaled divergence to guard in HYBRID.
+    The register stores 100 W units — the reg-66/74/82 encoding — NOT the
+    percent the protocol PDF claims: the 2026-04-13 live probe read raw 160
+    on an 18kPV + FlexBOSS21 while the same 18kPV's cloud named read
+    returned "16", and both web UIs label the field "Grid Sell Back
+    Power(kW)" (GH #135 + #274 screenshots; the #274 LXP shows 12.1 kW =
+    raw 121, impossible as a 0-100 percent). Cloud named reads/writes are
+    kW floats; local raw needs the ÷10/×10 scaling.
     """
 
-    def test_native_value_cloud_property(self):
-        """Cloud mode reads the pylxpweb feed_in_grid_power_percent property."""
+    def test_entity_definition_kw(self):
+        """Unit is kW with 0.1 steps; unique_id suffix unchanged (#274)."""
+        coordinator = _mock_coordinator()
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_unit_of_measurement == "kW"
+        assert entity.native_min_value == 0
+        assert entity.native_max_value == 25.5
+        assert entity.native_step == 0.1
+        assert entity.unique_id.endswith("_grid_sell_back_power")
+        # Localizable name: translation_key, no hardcoded _attr_name
+        assert entity.translation_key == "grid_sell_back_power"
+        assert getattr(entity, "_attr_name", None) is None
+
+    def test_native_value_cloud_kw_float(self):
+        """Cloud named reads return kW floats — LXP shows 12.1 (GH #274)."""
         coordinator = _mock_coordinator(
-            inverter_attrs={"feed_in_grid_power_percent": 16}
+            inverter_attrs={"parameters": {"HOLD_FEED_IN_GRID_POWER_PERCENT": "12.1"}},
         )
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 16
+        assert entity.native_value == 12.1
 
-    def test_native_value_local_raw_params(self):
-        """Local-only mode reads the raw percent from the parameter cache."""
+    def test_native_value_cloud_kw_int_string(self):
+        """18kPV cloud named read "16" is 16.0 kW (raw 160), not 16 %."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={"parameters": {"HOLD_FEED_IN_GRID_POWER_PERCENT": "16"}},
+        )
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 16.0
+
+    def test_native_value_local_raw_scaled(self):
+        """Local-only mode scales the raw 100 W register value (121 -> 12.1)."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 14},
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 121},
         )
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 14
+        assert entity.native_value == 12.1
 
-    def test_native_value_cloud_param_fallback(self):
-        """Cloud mode falls back to the parameter cache when the property is
-        missing (older pylxpweb without feed_in_grid_power_percent)."""
+    def test_native_value_hybrid_transport_raw(self):
+        """HYBRID with an attached transport holds raw values (160 -> 16.0),
+        mirroring the ForcedDischargePowerNumber 10x-hazard guard."""
         coordinator = _mock_coordinator(
-            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": "16"},
+            has_local=True,
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 160},
         )
-        inverter = coordinator.get_inverter_object("1234567890")
-        del inverter.feed_in_grid_power_percent
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 16
+        assert entity.native_value == 16.0
 
     def test_native_value_rejects_out_of_range(self):
-        """Garbage values outside 0-100 read as None."""
+        """Garbage raw values above 255 (25.5 kW) read as None."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 250},
+            parameters={"HOLD_FEED_IN_GRID_POWER_PERCENT": 2560},
         )
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         assert entity.native_value is None
 
     @pytest.mark.asyncio
-    async def test_write_local_named_parameter(self):
-        """Local transport writes HOLD_FEED_IN_GRID_POWER_PERCENT raw percent."""
+    async def test_write_local_named_parameter_raw(self):
+        """Local transport writes the raw 100 W value (12.1 kW -> 121)."""
         coordinator = _mock_coordinator(has_local=True)
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(50.0)
+        await entity.async_set_native_value(12.1)
 
         coordinator.write_named_parameter.assert_called_once()
         call_args = coordinator.write_named_parameter.call_args
         assert call_args[0][0] == "HOLD_FEED_IN_GRID_POWER_PERCENT"
-        assert call_args[0][1] == 50
+        assert call_args[0][1] == 121
 
     @pytest.mark.asyncio
-    async def test_write_cloud_method(self):
-        """Cloud mode calls inverter.set_feed_in_grid_power_percent(percent=...)."""
+    async def test_write_cloud_method_kw(self):
+        """Cloud mode calls inverter.set_feed_in_grid_power_kw(power_kw=...)."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_feed_in_grid_power_kw = AsyncMock(return_value=True)
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(25.0)
+        await entity.async_set_native_value(12.1)
 
+        inverter.set_feed_in_grid_power_kw.assert_called_once_with(power_kw=12.1)
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_fallback_write_parameter(self):
+        """Installed pylxpweb without set_feed_in_grid_power_kw falls back to
+        the generic named-parameter write (kW string, the website's call)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.set_feed_in_grid_power_percent.assert_called_once_with(percent=25)
+        del inverter.set_feed_in_grid_power_kw
+        result = MagicMock()
+        result.success = True
+        coordinator.client.api.control.write_parameter = AsyncMock(return_value=result)
+        entity = GridSellBackPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(12.1)
+
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_FEED_IN_GRID_POWER_PERCENT", "12.1"
+        )
 
     @pytest.mark.asyncio
     async def test_write_validation(self):
-        """Out-of-range and non-integer percent raise HomeAssistantError."""
+        """Out-of-range kW values raise HomeAssistantError."""
         coordinator = _mock_coordinator()
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
         with pytest.raises(HomeAssistantError, match="must be between"):
-            await entity.async_set_native_value(101.0)
+            await entity.async_set_native_value(25.6)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await entity.async_set_native_value(-1.0)
-        with pytest.raises(HomeAssistantError, match="must be an integer"):
-            await entity.async_set_native_value(50.5)
-
-    @pytest.mark.asyncio
-    async def test_cloud_write_guard_on_old_pylxpweb(self):
-        """Installed pylxpweb without set_feed_in_grid_power_percent raises a
-        clean error instead of AttributeError (version-coupling guard)."""
-        coordinator = _mock_coordinator(has_local=False, has_http=True)
-        inverter = coordinator.get_inverter_object("1234567890")
-        del inverter.set_feed_in_grid_power_percent
-
-        entity = GridSellBackPowerNumber(coordinator, "1234567890")
-        _prep(entity)
-
-        with pytest.raises(HomeAssistantError, match="newer pylxpweb"):
-            await entity.async_set_native_value(50.0)
 
 
 class TestStopDischargeVoltageNumber:

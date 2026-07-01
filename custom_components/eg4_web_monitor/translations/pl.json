@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Tryb wyspowy"
+      },
+      "fast_zero_export": {
+        "name": "Szybki zerowy eksport"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "Odciecie SOC"
+      },
+      "grid_sell_back_power": {
+        "name": "Moc sprzedaży do sieci"
       }
     },
     "button": {

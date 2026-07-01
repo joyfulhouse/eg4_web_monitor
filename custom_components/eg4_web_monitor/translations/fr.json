@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Mode hors reseau"
+      },
+      "fast_zero_export": {
+        "name": "Export zéro rapide"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "Coupure SOC"
+      },
+      "grid_sell_back_power": {
+        "name": "Puissance de revente au réseau"
       }
     },
     "button": {

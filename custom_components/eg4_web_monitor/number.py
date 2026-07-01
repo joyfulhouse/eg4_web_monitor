@@ -1136,75 +1136,118 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):
-    """Number entity for Grid Sell Back Power control (reg 103, %).
+    """Number entity for Grid Sell Back Power control (reg 103, kW).
 
-    Maximum export (sell-back) power as a percentage of rated output —
-    "Grid Sell Back Power" in the EG4 web UI (GH #135). Whole percent on
-    both paths: the cloud named read returns 0-100 and the raw register
-    is documented 0-100 (cloud key HOLD_FEED_IN_GRID_POWER_PERCENT,
-    live-pinned via single-register named reads on 18kPV + FlexBOSS21,
-    2026-06-12), so unlike the kW controls there is no raw-vs-scaled
-    display hazard. Only created for grid-tied families.
+    Maximum export (sell-back) power — "Grid Sell Back Power(kW)" in BOTH
+    the EG4 and Luxpower web UIs (GH #135 + #274 screenshots). The register
+    stores 100 W units, the reg-66/74/82 encoding, NOT the percent the
+    protocol PDF claims: the 2026-04-13 live local probe read raw 160 on an
+    18kPV + FlexBOSS21 while the same 18kPV's cloud named read returned
+    "16" (= 16.0 kW), and the GH #274 LXP shows 12.1 kW (raw 121) —
+    impossible as a 0-100 percent. Cloud named reads/writes are kW floats
+    (server scales); local raw needs ÷10/×10, mirroring
+    ForcedDischargePowerNumber. Only created for grid-tied families.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
-        self._attr_name = "Grid Sell Back Power"
+        self._attr_translation_key = "grid_sell_back_power"
         self._attr_unique_id = (
             f"{self._clean_model}_{serial.lower()}_grid_sell_back_power"
         )
         self._attr_native_min_value = GRID_SELL_BACK_POWER_MIN
         self._attr_native_max_value = GRID_SELL_BACK_POWER_MAX
         self._attr_native_step = GRID_SELL_BACK_POWER_STEP
-        self._attr_native_unit_of_measurement = "%"
+        self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:transmission-tower-export"
-        self._attr_native_precision = 0
+        self._attr_native_precision = 1
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
         return (GridSellBackPowerNumber,)
 
     @property
     def native_value(self) -> float | None:
-        """Return the current grid sell back power percentage."""
+        """Return the current grid sell back power in kW.
+
+        With a local transport the parameter cache holds the raw 100 W
+        register value (scaled ÷10 here). Cloud-populated caches hold the
+        server-scaled kW value ("16", "12.1") — read it as a float from the
+        parameters dict rather than through pylxpweb's legacy
+        ``feed_in_grid_power_percent`` property, whose int()+0-100 range
+        check chokes on kW floats (the GH #274 "entity never changes"
+        symptom).
+        """
+        if self._params_are_local_raw():
+            return self._read_param_value(
+                param_key=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+                value_min=GRID_SELL_BACK_POWER_MIN,
+                value_max=GRID_SELL_BACK_POWER_MAX,
+                as_float=True,
+                param_transform=lambda v: float(v) / 10.0,
+            )
         return self._read_param_value(
             param_key=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
-            value_min=0,
-            value_max=100,
-            inverter_attr="feed_in_grid_power_percent",
+            value_min=GRID_SELL_BACK_POWER_MIN,
+            value_max=GRID_SELL_BACK_POWER_MAX,
+            inverter_dict_attr="parameters",
+            inverter_dict_key=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+            as_float=True,
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the grid sell back power percentage."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
+        """Set the grid sell back power in kW."""
+        if value < GRID_SELL_BACK_POWER_MIN or value > GRID_SELL_BACK_POWER_MAX:
             raise HomeAssistantError(
-                f"Grid sell back power must be between 0-100%, got {int_value}"
+                f"Grid sell back power must be between "
+                f"{GRID_SELL_BACK_POWER_MIN}-{GRID_SELL_BACK_POWER_MAX} kW, "
+                f"got {value}"
             )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Grid sell back power must be an integer value, got {value}"
-            )
-        # Cloud setter ships with pylxpweb > 0.9.36b5 — fail with a clear
-        # message instead of an AttributeError if the installed library
-        # predates it (the manifest bump lands with the next release).
+        value = round(value, 1)
         inverter = self.coordinator.get_inverter_object(self.serial)
-        if (
-            not self.coordinator.has_local_transport(self.serial)
-            and inverter is not None
-            and not hasattr(inverter, "set_feed_in_grid_power_percent")
+        if self.coordinator.has_local_transport(self.serial) or (
+            inverter is not None and hasattr(inverter, "set_feed_in_grid_power_kw")
         ):
-            raise HomeAssistantError(
-                "Grid sell back power requires a newer pylxpweb "
-                "(set_feed_in_grid_power_percent missing) — update and reload"
+            await self._write_parameter(
+                value,
+                local_param=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+                local_value=int(round(value * 10)),
+                cloud_method="set_feed_in_grid_power_kw",
+                cloud_kwargs={"power_kw": value},
+                label=f"grid sell back power to {value:.1f} kW",
             )
-        await self._write_parameter(
-            value,
-            local_param=PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
-            cloud_method="set_feed_in_grid_power_percent",
-            cloud_kwargs={"percent": int_value},
-            label=f"grid sell back power to {int_value}%",
+            return
+        # Cloud path on a pylxpweb without set_feed_in_grid_power_kw: write
+        # the named parameter directly — the cloud takes kW strings for this
+        # register (the website's own call), so no library upgrade is
+        # required for the fix to work.
+        await self._write_cloud_named_parameter_kw(value)
+
+    async def _write_cloud_named_parameter_kw(self, value: float) -> None:
+        """Write the kW value via the generic cloud named-parameter API."""
+        client = self.coordinator.client
+        if client is None:
+            raise HomeAssistantError(
+                "No local transport or cloud API available for parameter write."
+            )
+        _LOGGER.info(
+            "Setting grid sell back power for %s to %.1f kW", self.serial, value
         )
+        self._warn_if_ineffective()
+        with optimistic_value_context(self, value):
+            result = await client.api.control.write_parameter(
+                self.serial,
+                PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
+                f"{value:g}",
+            )
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to set grid sell back power to {value:.1f} kW"
+                )
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                await inverter.refresh(force=True, include_parameters=True)
+            await self._refresh_related_entities()
 
 
 class ForcedDischargePowerNumber(EG4BaseNumberEntity):

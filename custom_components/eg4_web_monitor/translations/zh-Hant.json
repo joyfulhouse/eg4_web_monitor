@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "離網模式"
+      },
+      "fast_zero_export": {
+        "name": "快速零輸出"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOC 截止"
+      },
+      "grid_sell_back_power": {
+        "name": "併網售電功率"
       }
     },
     "button": {

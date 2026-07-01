@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Off-grid modus"
+      },
+      "fast_zero_export": {
+        "name": "Snelle nul-export"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "SOC-uitschakeling"
+      },
+      "grid_sell_back_power": {
+        "name": "Terugleververmogen"
       }
     },
     "button": {

@@ -702,6 +702,9 @@
       },
       "off_grid_mode": {
         "name": "Modalita Isolata"
+      },
+      "fast_zero_export": {
+        "name": "Esportazione zero rapida"
       }
     },
     "number": {
@@ -725,6 +728,9 @@
       },
       "soc_cutoff": {
         "name": "Soglia SOC"
+      },
+      "grid_sell_back_power": {
+        "name": "Potenza di vendita alla rete"
       }
     },
     "button": {
