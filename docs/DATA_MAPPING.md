@@ -934,6 +934,30 @@ soc=None) are skipped. This prevents creating "Unknown" entities when CAN
 communication is not established. The guard checks `batt.voltage is None and
 batt.soc is None` in both `coordinator_local.py` and `coordinator_http.py`.
 
+### Battery Device Identity (#252)
+
+The battery key is the battery **device identifier** (`(DOMAIN, battery_key)`)
+and is embedded in every battery entity unique_id
+(`{inverterSn}_{batteryKey}_{suffix}`). All three modes derive ONE canonical,
+serial-first key (helpers in `utils.py`):
+
+| Mode | Derivation | Result |
+|------|-----------|--------|
+| CLOUD | `cloud_battery_key()` — cleans the cloud `batteryKey` (`{inverterSn}_{batterySn}`) | `{inv}-{batterySn}` |
+| HYBRID | `cloud_battery_key()` on the same cloud battery objects (baseline + transport overlay) | identical to CLOUD |
+| LOCAL | `local_battery_key()` — synthesized from the CAN-reported serial | identical to CLOUD (cloud `batterySn` == CAN serial) |
+| No serial | positional fallback | `{inv}-{slot+1:02d}` |
+
+Placeholder serials (`Battery_ID_NN`, packs whose BMS reports no serial)
+collapse to `{inv}-NN` in every path via `clean_battery_display_name()`.
+
+**Migration:** pre-#252 HYBRID/LOCAL installs used positional keys
+(`{inv}-01..NN`). `battery_migration.py` renames those registry entries to the
+canonical keys once serials are known (entity_id/history preserved), removes
+positional duplicates when the canonical entity already exists (cloud→hybrid
+installs), and carries device area/name/label customizations over. Driven by
+`_register_battery_key_migrations()` from all three battery processing paths.
+
 ### Battery Register Space (Modbus)
 
 Base address: 5002, 30 registers per battery, max 5 batteries per inverter.

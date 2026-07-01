@@ -64,6 +64,7 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .utils import local_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +104,11 @@ class LocalTransportMixin(_MixinBase):
         accumulates readings keyed by battery serial so that all batteries
         eventually appear as HA entities.
 
+        Batteries are keyed by their canonical serial-based key (#252) —
+        identical to the key the CLOUD path derives for the same battery — so
+        mode migrations never duplicate battery devices.  Batteries without a
+        CAN serial keep the positional slot key.
+
         Args:
             inverter_serial: Parent inverter serial number.
             transport_batteries: List of BatteryData from current poll.
@@ -117,11 +123,12 @@ class LocalTransportMixin(_MixinBase):
             self._battery_next_index[inverter_serial] = 1
 
         cache = self._battery_rr_cache[inverter_serial]
-        key_map = self._battery_serial_to_key[inverter_serial]
+        legacy_key_map = self._battery_serial_to_key[inverter_serial]
 
         poll_serials: list[str] = []
         poll_slots_skipped = 0
         new_serials: list[str] = []
+        key_migrations: dict[str, str] = {}
 
         for batt in transport_batteries:
             # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
@@ -171,14 +178,22 @@ class LocalTransportMixin(_MixinBase):
 
             poll_serials.append(bat_serial)
 
-            # Assign a stable battery_key on first encounter
-            if bat_serial not in key_map:
+            # Canonical serial-based key — identical to the CLOUD-derived key
+            # for the same battery (#252).
+            battery_key = local_battery_key(
+                inverter_serial, bat_serial, batt.battery_index
+            )
+
+            # On first encounter, also reproduce the legacy positional key the
+            # pre-#252 code would have assigned (same first-seen order) so any
+            # existing registry entries can be renamed to the canonical key.
+            if bat_serial not in legacy_key_map:
                 idx = self._battery_next_index[inverter_serial]
-                key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
+                legacy_key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
                 self._battery_next_index[inverter_serial] = idx + 1
                 new_serials.append(bat_serial)
+                key_migrations[legacy_key_map[bat_serial]] = battery_key
 
-            battery_key = key_map[bat_serial]
             cache[battery_key] = _build_individual_battery_mapping(batt)
             _LOGGER.debug(
                 "RR [%s] slot %d: serial=%s → key=%s (V=%.1f SoC=%d%%)",
@@ -188,6 +203,11 @@ class LocalTransportMixin(_MixinBase):
                 battery_key,
                 batt.voltage or 0.0,
                 batt.soc or 0,
+            )
+
+        if key_migrations:
+            self._register_battery_key_migrations(
+                inverter_serial, key_migrations, cache.keys()
             )
 
         _LOGGER.debug(
@@ -200,7 +220,7 @@ class LocalTransportMixin(_MixinBase):
             len(new_serials),
             len(cache),
             poll_serials,
-            list(key_map.keys()),
+            list(legacy_key_map.keys()),
         )
 
         return dict(cache)

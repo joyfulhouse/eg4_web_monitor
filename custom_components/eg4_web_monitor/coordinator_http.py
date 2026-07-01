@@ -47,7 +47,7 @@ from .coordinator_mixins import (
     compute_total_inverter_power_kw,
     is_transport_link_down,
 )
-from .utils import clean_battery_display_name
+from .utils import cloud_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -869,24 +869,30 @@ class HTTPUpdateMixin(_MixinBase):
             # Transport battery slots use round-robin: firmware rotates which
             # physical batteries appear in the fixed register slots each poll.
             # Match transport → cloud by serial number (not slot index).
+            #
+            # Batteries are keyed by the canonical cloud batteryKey derivation
+            # — identical to the CLOUD-only path — so a cloud→hybrid migration
+            # never re-keys a battery (#252).
             if transport_batteries and cloud_batteries:
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
 
                 # Build lookup of cloud batteries by serial for merging
-                cloud_by_serial: dict[str, tuple[int, Any]] = {}
+                cloud_by_serial: dict[str, Any] = {}
                 for cloud_batt in cloud_batteries:
                     c_sn = getattr(cloud_batt, "battery_sn", "") or ""
-                    c_idx = getattr(cloud_batt, "battery_index", None)
-                    if c_sn and c_idx is not None:
-                        cloud_by_serial[c_sn] = (c_idx, cloud_batt)
+                    if c_sn:
+                        cloud_by_serial[c_sn] = cloud_batt
 
                 # First, populate all cloud batteries as baseline
+                key_migrations: dict[str, str] = {}
                 for cloud_batt in cloud_batteries:
                     c_idx = getattr(cloud_batt, "battery_index", None)
                     if c_idx is None:
                         continue
-                    battery_key = f"{serial}-{c_idx + 1:02d}"
+                    battery_key = cloud_battery_key(serial, cloud_batt)
+                    # Legacy positional key the pre-#252 HYBRID path used.
+                    key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(cloud_batt)
                     )
@@ -922,8 +928,8 @@ class HTTPUpdateMixin(_MixinBase):
                             last_seen,
                         )
                         continue
-                    cloud_idx, cloud_batt = cloud_by_serial[bat_serial]
-                    battery_key = f"{serial}-{cloud_idx + 1:02d}"
+                    cloud_batt = cloud_by_serial[bat_serial]
+                    battery_key = cloud_battery_key(serial, cloud_batt)
                     # Transport data overwrites cloud for real-time values
                     battery_sensors = _build_individual_battery_mapping(batt)
                     # Preserve cloud-only metadata
@@ -942,6 +948,12 @@ class HTTPUpdateMixin(_MixinBase):
                         )
                     device_data["batteries"][battery_key] = battery_sensors
                     transport_matched += 1
+
+                # Rename any pre-#252 positional registry entries to the
+                # canonical keys (one-shot; no-op when nothing matches).
+                self._register_battery_key_migrations(
+                    serial, key_migrations, device_data["batteries"].keys()
+                )
 
                 _LOGGER.debug(
                     "HYBRID: %d batteries for %s (%d with live transport data)",
@@ -986,16 +998,15 @@ class HTTPUpdateMixin(_MixinBase):
 
             _LOGGER.debug("Found %d batteries for inverter %s", len(batteries), serial)
 
+            cloud_key_migrations: dict[str, str] = {}
             for battery in batteries:
                 try:
-                    battery_key = clean_battery_display_name(
-                        getattr(
-                            battery,
-                            "battery_key",
-                            f"BAT{battery.battery_index:03d}",
-                        ),
-                        serial,  # Parent serial is known from inverter iteration
-                    )
+                    battery_key = cloud_battery_key(serial, battery)
+                    c_idx = getattr(battery, "battery_index", None)
+                    if c_idx is not None:
+                        # Legacy positional key a pre-#252 HYBRID/LOCAL install
+                        # would have used for this battery.
+                        cloud_key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
                     battery_sensors = self._extract_battery_from_object(battery)
                     battery_sensors["battery_last_polled"] = dt_util.utcnow()
                     battery_sensors["battery_last_seen"] = dt_util.utcnow()
@@ -1016,6 +1027,13 @@ class HTTPUpdateMixin(_MixinBase):
                         serial,
                         e,
                     )
+
+            if cloud_key_migrations:
+                self._register_battery_key_migrations(
+                    serial,
+                    cloud_key_migrations,
+                    device_data.get("batteries", {}).keys(),
+                )
 
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:

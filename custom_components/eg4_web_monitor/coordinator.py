@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -84,6 +84,7 @@ from .const import (
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
 )
+from .battery_migration import async_migrate_battery_keys
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -300,10 +301,16 @@ class EG4DataUpdateCoordinator(
         # appear as entities regardless of which slot they occupied.
         # Outer key = inverter serial, inner key = battery serial.
         self._battery_rr_cache: dict[str, dict[str, dict[str, Any]]] = {}
-        # Stable battery_key assignment: battery serial → "inverter-NN" key.
+        # Legacy positional key shadow: battery serial → "inverter-NN" key in
+        # first-seen order — the exact assignment the pre-#252 LOCAL path used.
+        # Kept only so existing registry entries can be migrated to the
+        # canonical serial-based keys (see battery_migration.py).
         self._battery_serial_to_key: dict[str, dict[str, str]] = {}
-        # Next available index per inverter for stable key assignment.
+        # Next available index per inverter for the legacy shadow assignment.
         self._battery_next_index: dict[str, int] = {}
+        # One-shot guard for #252 battery-identity registry migrations:
+        # (inverter serial, legacy key) pairs already migrated this session.
+        self._battery_key_migrations_done: set[tuple[str, str]] = set()
 
         # Shared-battery secondary inverters: in parallel systems the CAN bus
         # connects only to the primary.  Secondaries (role >= 2) with
@@ -608,6 +615,53 @@ class EG4DataUpdateCoordinator(
 
         setattr(self, ts_attr, now)
         return True
+
+    def _register_battery_key_migrations(
+        self,
+        inverter_serial: str,
+        pairs: dict[str, str],
+        active_keys: Collection[str],
+    ) -> None:
+        """Run the #252 legacy→canonical battery-key registry migration.
+
+        Called from the battery processing paths (LOCAL round-robin merge,
+        HYBRID cloud baseline, CLOUD fallback) once the legacy positional key
+        each battery *would* have had is known alongside its canonical
+        serial-based key.
+
+        Args:
+            inverter_serial: Parent inverter serial number.
+            pairs: Mapping of legacy positional key → canonical key.
+            active_keys: Battery keys currently in use for this inverter.  A
+                legacy key that is still an active key belongs to a live
+                battery (mixed serial/no-serial pack) and is never migrated.
+        """
+        active = set(active_keys)
+        pending: dict[str, str] = {}
+        for old_key, new_key in pairs.items():
+            if old_key == new_key:
+                continue
+            if (inverter_serial, old_key) in self._battery_key_migrations_done:
+                continue
+            if old_key in active:
+                _LOGGER.debug(
+                    "Skipping battery key migration %s -> %s for %s: "
+                    "legacy key still active (mixed serial/no-serial pack)",
+                    old_key,
+                    new_key,
+                    inverter_serial,
+                )
+                continue
+            pending[old_key] = new_key
+
+        if not pending:
+            return
+
+        for old_key in pending:
+            self._battery_key_migrations_done.add((inverter_serial, old_key))
+        async_migrate_battery_keys(
+            self.hass, self.entry.entry_id, inverter_serial, pending
+        )
 
     async def write_named_parameter(
         self,
