@@ -131,7 +131,7 @@ def find_plant_by_id(
     """Find a plant in the plants list by its ID."""
     if not plants:
         return None
-    return next((p for p in plants if p.get("plantId") == plant_id), None)
+    return next((p for p in plants if str(p.get("plantId")) == str(plant_id)), None)
 
 
 def migrate_legacy_entry(data: dict[str, Any]) -> dict[str, Any]:

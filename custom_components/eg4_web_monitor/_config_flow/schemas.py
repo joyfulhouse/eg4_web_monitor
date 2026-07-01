@@ -148,18 +148,22 @@ def build_plant_selection_schema(
     Returns:
         Voluptuous schema for plant selection step.
     """
-    plant_options = {plant["plantId"]: plant["name"] for plant in plants}
+    plant_options = {str(plant["plantId"]): plant["name"] for plant in plants}
 
     if current:
         return vol.Schema(
             {
-                vol.Required(CONF_PLANT_ID, default=current): vol.In(plant_options),
+                vol.Required(CONF_PLANT_ID, default=str(current)): vol.All(
+                    vol.Coerce(str), vol.In(plant_options)
+                ),
             }
         )
 
     return vol.Schema(
         {
-            vol.Required(CONF_PLANT_ID): vol.In(plant_options),
+            vol.Required(CONF_PLANT_ID): vol.All(
+                vol.Coerce(str), vol.In(plant_options)
+            ),
         }
     )
 
@@ -263,7 +267,7 @@ def build_serial_schema(
             CONF_SERIAL_BAUDRATE,
             default=defaults.get(CONF_SERIAL_BAUDRATE, DEFAULT_SERIAL_BAUDRATE),
         )
-    ] = vol.In(SERIAL_BAUDRATE_OPTIONS)
+    ] = vol.All(vol.Coerce(int), vol.In(SERIAL_BAUDRATE_OPTIONS))
 
     # Parity selector
     schema_fields[
@@ -279,7 +283,7 @@ def build_serial_schema(
             CONF_SERIAL_STOPBITS,
             default=defaults.get(CONF_SERIAL_STOPBITS, DEFAULT_SERIAL_STOPBITS),
         )
-    ] = vol.In(SERIAL_STOPBITS_OPTIONS)
+    ] = vol.All(vol.Coerce(int), vol.In(SERIAL_STOPBITS_OPTIONS))
 
     # Unit ID
     schema_fields[
