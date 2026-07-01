@@ -110,7 +110,7 @@ def make_transport_spec_factory():
 
 
 def create_mock_station(
-    station_id: str,
+    station_id: str | int,
     station_name: str,
     country: str = "United States of America",
     timezone: str = "GMT -8",
@@ -123,7 +123,9 @@ def create_mock_station(
     that the coordinator expects to extract for station sensors.
 
     Args:
-        station_id: Plant/station ID
+        station_id: Plant/station ID. The real API (pylxpweb ``Station.id``)
+            returns an int, so tests that mirror production should pass an
+            int (see issue #275).
         station_name: Station name
         country: Country name (defaults to "United States of America")
         timezone: Timezone string (defaults to "GMT -8")

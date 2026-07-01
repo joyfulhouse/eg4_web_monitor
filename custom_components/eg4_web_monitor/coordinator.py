@@ -145,8 +145,11 @@ class EG4DataUpdateCoordinator(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
         )
 
-        # Plant ID (only used for HTTP and Hybrid modes)
-        self.plant_id: str | None = entry.data.get(CONF_PLANT_ID)
+        # Plant ID (only used for HTTP and Hybrid modes). Entries created
+        # before the #275 fix may store it as int; normalize to str so all
+        # derived identifiers (f-string based) stay identical either way.
+        plant_id = entry.data.get(CONF_PLANT_ID)
+        self.plant_id: str | None = str(plant_id) if plant_id is not None else None
 
         # Get Home Assistant timezone as IANA timezone string for DST detection
         iana_timezone = str(hass.config.time_zone) if hass.config.time_zone else None

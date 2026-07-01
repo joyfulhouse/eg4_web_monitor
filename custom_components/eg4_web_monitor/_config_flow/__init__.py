@@ -875,7 +875,11 @@ class EG4ConfigFlow(
         self._verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         self._dst_sync = entry.data.get(CONF_DST_SYNC, True)
         # library_debug now in options flow, not loaded here
-        self._plant_id = entry.data.get(CONF_PLANT_ID)
+        # Entries created before the #275 fix may store the plant id as int
+        # (single-station auto-select path); normalize to str. The unique_id
+        # is not touched by reconfigure, so this is safe for existing installs.
+        plant_id = entry.data.get(CONF_PLANT_ID)
+        self._plant_id = str(plant_id) if plant_id is not None else None
         self._plant_name = entry.data.get(CONF_PLANT_NAME)
         self._local_transports = list(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
 
@@ -1401,8 +1405,12 @@ class EG4ConfigFlow(
             from pylxpweb.devices import Station
 
             stations = await Station.load_all(client)
+            # Normalize plant ids to str at the API boundary: pylxpweb returns
+            # Station.id as int, but the HA frontend submits form selections as
+            # str and CONF_PLANT_ID is stored as str (#275).
             self._plants = [
-                {"plantId": station.id, "name": station.name} for station in stations
+                {"plantId": str(station.id), "name": station.name}
+                for station in stations
             ]
             if not self._plants:
                 raise LuxpowerAPIError("No plants found for this account")
