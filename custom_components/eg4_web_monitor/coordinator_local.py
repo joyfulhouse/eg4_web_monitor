@@ -362,6 +362,11 @@ class LocalTransportMixin(_MixinBase):
                 # (101-102), grid sell back power percent (103, GH #135)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
+                # P_to_user start discharge/charge thresholds (116-117, GH
+                # #272). Reg 116 surfaces under pylxpweb's local name-map key
+                # (HOLD_PTOUSER_START_DISCHARGE); reg 117 has no name mapping
+                # anywhere, so read_named_parameters emits the raw "117" key.
+                (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
                 (158, 2),  # AC charge start/stop voltage (158-159)
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
@@ -2654,6 +2659,44 @@ class LocalTransportMixin(_MixinBase):
             True if CONF_LOCAL_TRANSPORTS contains an entry for the serial.
         """
         return any(c.get("serial") == serial for c in self._local_transport_configs)
+
+    def has_local_register_path(self, serial: str) -> bool:
+        """Whether ANY config-based local register path exists for this serial.
+
+        The reg-117 class of controls (no cloud parameter name — raw register
+        access only, GH #272) must be created wherever local register access
+        can be served. That is:
+
+        - local-only modes (:meth:`is_local_only`);
+        - a per-serial ``CONF_LOCAL_TRANSPORTS`` entry (modern HYBRID format);
+        - the DEPRECATED flat single-transport format (pre-v3.2 MODBUS /
+          DONGLE / HYBRID entries), whose global transport is constructed
+          directly from entry data in ``__init__`` — config-based and stable
+          from setup, exactly the property
+          :meth:`has_configured_local_transport` pins (codex P2 on PR #284:
+          that method checks only ``CONF_LOCAL_TRANSPORTS``, so flat-HYBRID
+          entries silently lost the reg-117 entity). The flat format has a
+          single inverter, so the global transport IS this serial's
+          transport — the same equivalence :meth:`get_local_transport`
+          already applies for writes.
+
+        Flat-HYBRID caveat: the legacy global transport serves WRITES (via
+        the :meth:`get_local_transport` fallback), but such entries populate
+        the parameter cache from the cloud, so raw-key reads stay unknown
+        until the entry is migrated to ``CONF_LOCAL_TRANSPORTS``.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True if a local register path (modern or legacy) exists.
+        """
+        return (
+            self.is_local_only()
+            or self.has_configured_local_transport(serial)
+            or self._modbus_transport is not None
+            or self._dongle_transport is not None
+        )
 
     def is_local_only(self) -> bool:
         """Check if using local-only connection (Modbus, Dongle, or Local multi-device).

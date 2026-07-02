@@ -23,6 +23,8 @@ from custom_components.eg4_web_monitor.number import (
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     QuickChargeDurationNumber,
+    StartChargePowerNumber,
+    StartDischargePowerNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
 )
@@ -45,6 +47,13 @@ def _mock_coordinator(
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
     coordinator.has_configured_local_transport = MagicMock(return_value=has_local)
+    # Mirrors the real predicate for the common shapes (local-only modes and
+    # per-serial configured transports). Tests for the deprecated flat
+    # single-transport format override this directly (GH #272 / codex P2 on
+    # PR #284); the real branch logic is covered in test_coordinator_local.
+    coordinator.has_local_register_path = MagicMock(
+        return_value=(has_local or local_only)
+    )
     coordinator.has_http_api = MagicMock(return_value=has_http)
     coordinator.is_local_only = MagicMock(return_value=local_only)
     coordinator.last_update_success = True
@@ -113,9 +122,12 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 20 number entities.
+        """FlexBOSS creates 21 number entities.
 
-        12 base + 6 voltage + grid sell + Quick Charge Duration (HTTP-only).
+        12 base + 6 voltage + grid sell + start discharge threshold + Quick
+        Charge Duration (HTTP-only). The reg-117 start CHARGE threshold is
+        absent: no local transport and the register has no cloud param name
+        (GH #272).
         """
         coordinator = _mock_coordinator()
         entry = MagicMock()
@@ -124,7 +136,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 20
+        assert len(entities) == 21
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         # Quick Charge Duration preference (HTTP-only, #251)
@@ -136,6 +148,10 @@ class TestNumberPlatformSetup:
         assert "ForcedDischargeSOCLimitNumber" in type_names
         # Grid sell back power cap (reg 103, GH #135)
         assert "GridSellBackPowerNumber" in type_names
+        # Start Discharge P_import threshold (reg 116, GH #272)
+        assert "StartDischargePowerNumber" in type_names
+        # Reg 117 needs a local transport (no cloud param name, GH #272)
+        assert "StartChargePowerNumber" not in type_names
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
         assert "OnGridCutoffVoltageNumber" in type_names
@@ -205,6 +221,9 @@ class TestNumberPlatformSetup:
         type_names = [type(e).__name__ for e in entities]
         # Off-grid family has no grid sell-back
         assert "GridSellBackPowerNumber" not in type_names
+        # ... and no CT grid-import thresholds either (GH #272)
+        assert "StartDischargePowerNumber" not in type_names
+        assert "StartChargePowerNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_offgrid_features_skip_grid_sell(self, hass):
@@ -223,6 +242,8 @@ class TestNumberPlatformSetup:
 
         type_names = [type(e).__name__ for e in entities]
         assert "GridSellBackPowerNumber" not in type_names
+        assert "StartDischargePowerNumber" not in type_names
+        assert "StartChargePowerNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_sna_15k_offgrid_creates_config_controls(
@@ -255,6 +276,74 @@ class TestNumberPlatformSetup:
         assert "GridSellBackPowerNumber" not in type_names
         assert "GridPeakShavingPowerNumber" not in type_names
         assert "ForcedDischargePowerNumber" not in type_names
+        assert "StartDischargePowerNumber" not in type_names
+        assert "StartChargePowerNumber" not in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_lxp_creates_start_thresholds(self, hass):
+        """LXP family with a local transport gets both P_to_user thresholds.
+
+        The reporter's LXP-LB (CT-equipped, HYBRID via dongle, GH #272): the
+        reg-116 start-discharge threshold is created for grid-tied families,
+        and the reg-117 start-charge threshold additionally requires a local
+        transport (the cloud API has no parameter name for reg 117).
+        """
+        coordinator = _mock_coordinator(model="LXP-LB-EU 12k", has_local=True)
+        serial = "1234567890"
+        coordinator.data["devices"][serial]["features"] = {"inverter_family": "LXP"}
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "StartDischargePowerNumber" in type_names
+        assert "StartChargePowerNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_local_only_creates_start_charge(self, hass):
+        """Legacy flat LOCAL mode (is_local_only) also gets the reg-117 number
+        even without a CONF_LOCAL_TRANSPORTS entry for the serial (GH #272)."""
+        coordinator = _mock_coordinator(has_http=False, local_only=True)
+        coordinator.has_configured_local_transport = MagicMock(return_value=False)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "StartDischargePowerNumber" in type_names
+        assert "StartChargePowerNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_legacy_flat_hybrid_creates_both(self, hass):
+        """Deprecated flat-format HYBRID entry creates BOTH threshold numbers.
+
+        Codex P2 on PR #284: the original gate checked only
+        CONF_LOCAL_TRANSPORTS (has_configured_local_transport), but the
+        pre-v3.2 flat single-transport HYBRID format initializes the global
+        _modbus_transport/_dongle_transport directly — those users got Start
+        Discharge but silently no Start Charge. The gate now goes through
+        has_local_register_path(), which recognizes the flat config too
+        (real branch logic covered in test_coordinator_local).
+        """
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        # Flat-format shape: no per-serial transport config, not local-only,
+        # but a legacy global transport exists -> register path available.
+        coordinator.has_configured_local_transport = MagicMock(return_value=False)
+        coordinator.is_local_only = MagicMock(return_value=False)
+        coordinator.has_local_register_path = MagicMock(return_value=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "StartDischargePowerNumber" in type_names
+        assert "StartChargePowerNumber" in type_names
 
 
 # ── _read_param_value (via ACChargeSOCLimitNumber) ───────────────────
@@ -1180,6 +1269,248 @@ class TestGridSellBackPowerNumber:
             await entity.async_set_native_value(25.6)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await entity.async_set_native_value(-1.0)
+
+
+class TestStartDischargePowerNumber:
+    """Start Discharge P_import threshold (HOLD 116, W, GH #272).
+
+    Protocol register table: ``PtoUserStartdischg``, scale **1 W** (default
+    50 W) — "device starts discharging when Ptouser higher than this value";
+    the Luxpower web UI labels it "Start Discharge P_import(W)" with a
+    ``[50, ]`` range hint. Raw register IS whole watts — NOT the 100 W
+    encoding of regs 66/74/82/103 (fleet reads: raw 100 == cloud "100" ==
+    100 W). The live cloud param is HOLD_P_TO_USER_START_DISCHG (reporter's
+    browser console + every docs/inverters scanner dump); pylxpweb's LOCAL
+    name map spells reg 116 HOLD_PTOUSER_START_DISCHARGE.
+    """
+
+    def test_entity_definition_w(self):
+        """Unit W, protocol bounds 50-10000, 1 W steps, enabled by default."""
+        coordinator = _mock_coordinator()
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_unit_of_measurement == "W"
+        assert entity.native_min_value == 50
+        assert entity.native_max_value == 10000
+        assert entity.native_step == 1
+        assert entity.unique_id.endswith("_start_discharge_power_threshold")
+        # Localizable name: translation_key, no hardcoded _attr_name
+        assert entity.translation_key == "start_discharge_power_threshold"
+        assert getattr(entity, "_attr_name", None) is None
+        # Live-verified register (reporter's LXP-LB): enabled by default
+        assert entity.entity_registry_enabled_default is True
+
+    def test_native_value_local_raw_w(self):
+        """LOCAL mode reads the raw watt value under pylxpweb's name-map key."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_PTOUSER_START_DISCHARGE": 100},
+        )
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 100
+
+    def test_native_value_hybrid_transport_raw_w(self):
+        """HYBRID with an attached transport also holds raw watts."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_PTOUSER_START_DISCHARGE": 150},
+        )
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 150
+
+    def test_native_value_cloud_named_param(self):
+        """CLOUD reads the live cloud key (watt string, e.g. '100')."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={"parameters": {"HOLD_P_TO_USER_START_DISCHG": "100"}},
+        )
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 100
+
+    def test_native_value_cloud_params_dict_fallback(self):
+        """Cloud value in the coordinator parameter cache also resolves."""
+        coordinator = _mock_coordinator(
+            parameters={"HOLD_P_TO_USER_START_DISCHG": "250"},
+            inverter_attrs={"transport": None, "parameters": {}},
+        )
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 250
+
+    def test_native_value_rejects_out_of_range(self):
+        """Garbage above 10000 W (and below the 50 W floor) reads as None."""
+        coordinator = _mock_coordinator(
+            local_only=True,
+            parameters={"HOLD_PTOUSER_START_DISCHARGE": 20000},
+        )
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    @pytest.mark.asyncio
+    async def test_write_local_named_parameter_w(self):
+        """Local transport writes the watt value under the name-map key."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(150)
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "HOLD_PTOUSER_START_DISCHARGE"
+        assert call_args[0][1] == 150
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_named_parameter(self):
+        """Cloud mode issues the website's own remoteSet call:
+        holdParam=HOLD_P_TO_USER_START_DISCHG with the watt value as text
+        (reporter-verified in the GH #272 browser console)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        result = MagicMock()
+        result.success = True
+        coordinator.client.api.control.write_parameter = AsyncMock(return_value=result)
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(150)
+
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_P_TO_USER_START_DISCHG", "150"
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_cloud_failure_raises(self):
+        """A failed cloud write surfaces as HomeAssistantError."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        result = MagicMock()
+        result.success = False
+        coordinator.client.api.control.write_parameter = AsyncMock(return_value=result)
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(150)
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Values outside 50-10000 W (and non-integers) raise."""
+        coordinator = _mock_coordinator()
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(49)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(10001)
+        with pytest.raises(HomeAssistantError, match="integer"):
+            await entity.async_set_native_value(100.5)
+
+
+class TestStartChargePowerNumber:
+    """Start Charge P_import threshold (HOLD 117, signed W, GH #272).
+
+    Protocol register table: ``PtoUserStartchg``, scale 1 W, default
+    **-50 W** (signed: start charging when P_to_user drops below the value,
+    i.e. exporting more than 50 W). The register is absent from the Luxpower
+    web UI AND from the cloud API (remoteRead names reg 117 ``<EMPTY>`` on
+    every scanned model, incl. LXP-EU), so the entity is LOCAL/HYBRID-only,
+    reads the raw "117" key read_named_parameters surfaces for unmapped
+    registers, writes the raw register (two's-complement masked), and ships
+    disabled by default (documentation-only register, GH #272 asks for it
+    for field testing).
+    """
+
+    def test_entity_definition_signed_w(self):
+        """Signed watt range, disabled by default (untested register)."""
+        coordinator = _mock_coordinator(has_local=True)
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_unit_of_measurement == "W"
+        assert entity.native_min_value == -10000
+        assert entity.native_max_value == 10000
+        assert entity.native_step == 1
+        assert entity.unique_id.endswith("_start_charge_power_threshold")
+        assert entity.translation_key == "start_charge_power_threshold"
+        assert getattr(entity, "_attr_name", None) is None
+        # Untested register: disabled by default
+        assert entity.entity_registry_enabled_default is False
+
+    def test_native_value_positive_raw(self):
+        """Positive raw watt values pass through unchanged."""
+        coordinator = _mock_coordinator(local_only=True, parameters={"117": 100})
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == 100
+
+    def test_native_value_signed_negative(self):
+        """Protocol default -50 W arrives as two's-complement 65486."""
+        coordinator = _mock_coordinator(local_only=True, parameters={"117": 65486})
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == -50
+
+    def test_native_value_hybrid_transport(self):
+        """HYBRID with an attached transport reads the same raw key."""
+        coordinator = _mock_coordinator(has_local=True, parameters={"117": 65486})
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value == -50
+
+    def test_native_value_rejects_out_of_range(self):
+        """Garbage outside ±10000 W reads as None."""
+        coordinator = _mock_coordinator(local_only=True, parameters={"117": 20000})
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    @pytest.mark.asyncio
+    async def test_write_local_raw_register_positive(self):
+        """Positive watts write the raw register value as-is."""
+        coordinator = _mock_coordinator(has_local=True)
+        coordinator.write_raw_parameter = AsyncMock(return_value=True)
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(250)
+
+        coordinator.write_raw_parameter.assert_called_once_with(
+            117, 250, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_local_raw_register_negative_masked(self):
+        """-50 W writes the two's-complement 65486 (W round-trip with the
+        signed read decode above)."""
+        coordinator = _mock_coordinator(has_local=True)
+        coordinator.write_raw_parameter = AsyncMock(return_value=True)
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(-50)
+
+        coordinator.write_raw_parameter.assert_called_once_with(
+            117, 65486, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_requires_local_transport(self):
+        """Without a local transport the write fails clearly: the cloud API
+        has no parameter name for register 117."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        coordinator.write_raw_parameter = AsyncMock(return_value=True)
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="local"):
+            await entity.async_set_native_value(-50)
+        coordinator.write_raw_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_validation(self):
+        """Values outside ±10000 W (and non-integers) raise."""
+        coordinator = _mock_coordinator(has_local=True)
+        coordinator.write_raw_parameter = AsyncMock(return_value=True)
+        entity = StartChargePowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(10001)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(-10001)
+        with pytest.raises(HomeAssistantError, match="integer"):
+            await entity.async_set_native_value(-50.5)
 
 
 class TestStopDischargeVoltageNumber:

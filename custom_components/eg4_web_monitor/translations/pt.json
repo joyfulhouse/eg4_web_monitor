@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "Potência de venda à rede"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Limite de potência para iniciar descarga"
+      },
+      "start_charge_power_threshold": {
+        "name": "Limite de potência para iniciar carga"
       }
     },
     "button": {

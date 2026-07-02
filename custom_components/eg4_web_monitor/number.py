@@ -67,10 +67,13 @@ from .const import (
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_EOD_VOLTAGE,
+    PARAM_HOLD_P_TO_USER_START_DISCHG,
+    PARAM_HOLD_PTOUSER_START_DISCHARGE,
     PARAM_HOLD_START_PV_VOLT,
     PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
+    PARAM_RAW_PTOUSER_START_CHARGE,
     PARAM_SNA_QUICK_CHARGE_MINUTE,
     PV_CHARGE_POWER_MAX,
     PV_CHARGE_POWER_MIN,
@@ -89,10 +92,17 @@ from .const import (
     AC_CHARGE_SOC_LIMIT_STEP,
     REG_OFFGRID_EOD_VOLTAGE,
     REG_ONGRID_EOD_VOLTAGE,
+    REG_PTOUSER_START_CHARGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
+    START_CHARGE_POWER_MAX,
+    START_CHARGE_POWER_MIN,
+    START_CHARGE_POWER_STEP,
+    START_DISCHARGE_POWER_MAX,
+    START_DISCHARGE_POWER_MIN,
+    START_DISCHARGE_POWER_STEP,
     STOP_DISCHARGE_VOLTAGE_MAX,
     STOP_DISCHARGE_VOLTAGE_MIN,
     STOP_DISCHARGE_VOLTAGE_STEP,
@@ -565,6 +575,21 @@ async def async_setup_entry(
                 # families only; off-grid XP units have no sell-back.
                 if supports_grid_sellback(device_data):
                     entities.append(GridSellBackPowerNumber(coordinator, serial))
+                    # P_to_user start discharge/charge thresholds (regs
+                    # 116/117, GH #272): CT-driven grid-import blending, so
+                    # the same grid-tied family gate (EG4_HYBRID, LXP) —
+                    # meaningless on EG4_OFFGRID, which has no grid-parallel
+                    # operation.
+                    entities.append(StartDischargePowerNumber(coordinator, serial))
+                    # Reg 117 has no cloud parameter name (remoteRead names
+                    # it <EMPTY> on every scanned model), so the entity only
+                    # exists where a local register path can serve it — local
+                    # modes, modern per-serial HYBRID transports, AND the
+                    # deprecated flat single-transport format, which
+                    # get_local_transport() still serves for writes (codex
+                    # P2 on PR #284).
+                    if coordinator.has_local_register_path(serial):
+                        entities.append(StartChargePowerNumber(coordinator, serial))
 
     if entities:
         _LOGGER.info("Setup complete: %d number entities created", len(entities))
@@ -1247,6 +1272,214 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
                 await inverter.refresh(force=True, include_parameters=True)
+            await self._refresh_related_entities()
+
+
+def _signed_from_register(raw: Any) -> float:
+    """Decode a signed 16-bit register value (two's complement)."""
+    value = float(raw)
+    return value - 65536.0 if value > 32767.0 else value
+
+
+class StartDischargePowerNumber(EG4BaseNumberEntity):
+    """Start Discharge P_import threshold (HOLD 116, whole watts, GH #272).
+
+    LXP-protocol ``PtoUserStartdischg``: on-grid CT installs start
+    discharging the battery once grid import (P_to_user) exceeds this
+    wattage (given SOC above the On-Grid SOC Cut-Off) — "Start Discharge
+    P_import(W)" in the Luxpower web UI, which shows a ``[50, ]`` range
+    hint. The protocol register table pins scale **1 W** (default 50 W), NOT
+    the 100 W encoding of regs 66/74/82/103: fleet scanner reads show raw
+    100 == cloud "100" == 100 W. One register, two parameter spellings:
+    pylxpweb's local name map uses HOLD_PTOUSER_START_DISCHARGE, while the
+    live cloud API uses HOLD_P_TO_USER_START_DISCHG (reporter-verified
+    remoteSet call in the GH #272 browser console + every scanner dump).
+    Watts on both paths — no scaling anywhere.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "start_discharge_power_threshold"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_start_discharge_power_threshold"
+        )
+        self._attr_native_min_value = START_DISCHARGE_POWER_MIN
+        self._attr_native_max_value = START_DISCHARGE_POWER_MAX
+        self._attr_native_step = START_DISCHARGE_POWER_STEP
+        self._attr_native_unit_of_measurement = "W"
+        self._attr_icon = "mdi:transmission-tower-import"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (StartDischargePowerNumber, StartChargePowerNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current threshold in watts.
+
+        Local register caches (LOCAL mode, HYBRID with an attached
+        transport) hold the raw watt value under pylxpweb's name-map key;
+        cloud-populated caches hold the same watt value under the live cloud
+        key. No scaling on either path.
+        """
+        if self._params_are_local_raw():
+            return self._read_param_value(
+                param_key=PARAM_HOLD_PTOUSER_START_DISCHARGE,
+                value_min=START_DISCHARGE_POWER_MIN,
+                value_max=START_DISCHARGE_POWER_MAX,
+            )
+        return self._read_param_value(
+            param_key=PARAM_HOLD_P_TO_USER_START_DISCHG,
+            value_min=START_DISCHARGE_POWER_MIN,
+            value_max=START_DISCHARGE_POWER_MAX,
+            inverter_dict_attr="parameters",
+            inverter_dict_key=PARAM_HOLD_P_TO_USER_START_DISCHG,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the start-discharge threshold in watts."""
+        int_value = int(value)
+        if (
+            int_value < START_DISCHARGE_POWER_MIN
+            or int_value > START_DISCHARGE_POWER_MAX
+        ):
+            raise HomeAssistantError(
+                f"Start discharge power threshold must be between "
+                f"{START_DISCHARGE_POWER_MIN}-{START_DISCHARGE_POWER_MAX} W, "
+                f"got {value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Start discharge power threshold must be an integer value, got {value}"
+            )
+        if self.coordinator.has_local_transport(self.serial):
+            await self._write_parameter(
+                value,
+                local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
+                local_value=int_value,
+                # Unreachable with a local transport; kept honest for the
+                # shared helper's signature (pylxpweb >= 0.9.36b18 has the
+                # named Modbus method).
+                cloud_method="set_start_discharge_power",
+                cloud_kwargs={"watts": int_value},
+                label=f"start discharge power threshold to {int_value} W",
+            )
+            return
+        await self._write_cloud_named_parameter(int_value)
+
+    async def _write_cloud_named_parameter(self, watts: int) -> None:
+        """Write the threshold via the generic cloud named-parameter API.
+
+        The website's own call (reporter-verified in the GH #272 browser
+        console): remoteSet/write with holdParam HOLD_P_TO_USER_START_DISCHG
+        and the watt value as text. pylxpweb's ``set_start_discharge_power``
+        is deliberately NOT used for cloud writes — its cloud leg writes the
+        raw register by address, and its cloud read leg looks up the wrong
+        key (the guessed HOLD_PTOUSER_START_DISCHARGE never exists on the
+        server), so the named-param call is the only website-verified path.
+        """
+        client = self.coordinator.client
+        if client is None:
+            raise HomeAssistantError(
+                "No local transport or cloud API available for parameter write."
+            )
+        _LOGGER.info(
+            "Setting start discharge power threshold for %s to %d W",
+            self.serial,
+            watts,
+        )
+        self._warn_if_ineffective()
+        with optimistic_value_context(self, float(watts)):
+            result = await client.api.control.write_parameter(
+                self.serial,
+                PARAM_HOLD_P_TO_USER_START_DISCHG,
+                str(watts),
+            )
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to set start discharge power threshold to {watts} W"
+                )
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter:
+                await inverter.refresh(force=True, include_parameters=True)
+            await self._refresh_related_entities()
+
+
+class StartChargePowerNumber(EG4BaseNumberEntity):
+    """Start Charge P_import threshold (HOLD 117, SIGNED whole watts, GH #272).
+
+    LXP-protocol ``PtoUserStartchg``: starts charging once grid import
+    (P_to_user) drops below this wattage — signed, protocol default -50 W
+    (i.e. once exporting more than 50 W). Documentation-only register the
+    GH #272 reporter asked for to enable field testing: it is absent from
+    the Luxpower web UI AND from the cloud API (remoteRead names reg 117
+    ``<EMPTY>`` on every scanned model, incl. LXP-EU), so this entity is
+    LOCAL/HYBRID-only and ships disabled by default. Reads surface as the
+    raw "117" key (read_named_parameters falls back to ``str(addr)`` for
+    unmapped registers); writes go through the raw-register transport write
+    with two's-complement masking.
+    """
+
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "start_charge_power_threshold"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_start_charge_power_threshold"
+        )
+        self._attr_native_min_value = START_CHARGE_POWER_MIN
+        self._attr_native_max_value = START_CHARGE_POWER_MAX
+        self._attr_native_step = START_CHARGE_POWER_STEP
+        self._attr_native_unit_of_measurement = "W"
+        self._attr_icon = "mdi:battery-arrow-up"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (StartDischargePowerNumber, StartChargePowerNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current threshold in watts (signed decode)."""
+        return self._read_param_value(
+            param_key=PARAM_RAW_PTOUSER_START_CHARGE,
+            value_min=START_CHARGE_POWER_MIN,
+            value_max=START_CHARGE_POWER_MAX,
+            param_transform=_signed_from_register,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the start-charge threshold in watts (raw register write)."""
+        int_value = int(value)
+        if int_value < START_CHARGE_POWER_MIN or int_value > START_CHARGE_POWER_MAX:
+            raise HomeAssistantError(
+                f"Start charge power threshold must be between "
+                f"{START_CHARGE_POWER_MIN}-{START_CHARGE_POWER_MAX} W, got {value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"Start charge power threshold must be an integer value, got {value}"
+            )
+        if not self.coordinator.has_local_transport(self.serial):
+            raise HomeAssistantError(
+                "Start charge power threshold (register 117) requires a local "
+                "Modbus/dongle connection — the cloud API has no parameter "
+                "name for this register."
+            )
+        _LOGGER.info(
+            "Setting start charge power threshold for %s to %d W",
+            self.serial,
+            int_value,
+        )
+        self._warn_if_ineffective()
+        with optimistic_value_context(self, float(int_value)):
+            # Two's-complement mask: -50 W writes 65486.
+            await self.coordinator.write_raw_parameter(
+                REG_PTOUSER_START_CHARGE, int_value & 0xFFFF, serial=self.serial
+            )
+            await asyncio.sleep(0.5)
             await self._refresh_related_entities()
 
 

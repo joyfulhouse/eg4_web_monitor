@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pylxpweb.devices import HybridInverter
 from pylxpweb.transports import ModbusSerialTransport
@@ -32,8 +33,10 @@ from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_HOST,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -140,7 +143,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 12 register ranges are read — pinned exactly so a control's
+        """All 13 register ranges are read — pinned exactly so a control's
         backing register can't silently fall out of the local poll (the
         codex r1 MEDIUM on reg 202: entity wired but range never read),
         and a removed range can't silently creep back (231-232, eg4-gfu5)."""
@@ -161,6 +164,7 @@ class TestReadModbusParameters:
             (100, 4),  # widened for grid sell back percent (reg 103, GH #135)
             (105, 2),
             (110, 1),
+            (116, 2),  # P_to_user start discharge/charge thresholds (GH #272)
             (125, 1),
             (158, 2),
             (169, 1),
@@ -171,6 +175,37 @@ class TestReadModbusParameters:
             (233, 1),
         ]
         assert "PARAM_A" in result
+
+    async def test_start_threshold_registers_read(self, hass, local_config_entry):
+        """GH #272: HOLD 116/117 are in the LOCAL poll so the Start
+        Discharge/Charge threshold numbers populate without cloud access.
+
+        Reg 116 surfaces under pylxpweb's local name-map key; reg 117 has no
+        name mapping, so read_named_parameters falls back to the raw "117"
+        string key — both must land in the coordinator parameter cache.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        async def mock_read(start: int, count: int) -> dict[str, Any]:
+            if start == 116:
+                # -50 W protocol default for reg 117 = two's-complement 65486
+                return {"HOLD_PTOUSER_START_DISCHARGE": 100, "117": 65486}
+            return {}
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
+
+        result = await coordinator._read_modbus_parameters(mock_transport)
+
+        read_registers: set[int] = set()
+        for call in mock_transport.read_named_parameters.call_args_list:
+            start, count = call.args
+            read_registers.update(range(start, start + count))
+        assert 116 in read_registers
+        assert 117 in read_registers
+        assert result["HOLD_PTOUSER_START_DISCHARGE"] == 100
+        assert result["117"] == 65486
 
     async def test_peak_shaving_registers_not_read_locally(
         self, hass, local_config_entry
@@ -217,10 +252,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 12 ranges attempted despite first failure
-        assert call_count == 12
+        # All 13 ranges attempted despite first failure
+        assert call_count == 13
         # Successful ranges contributed their params
-        assert len(result) == 11  # 12 total - 1 failed
+        assert len(result) == 12  # 13 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
@@ -245,6 +280,144 @@ class TestReadModbusParameters:
         result = await coordinator._read_modbus_parameters(mock_transport)
 
         assert result == {}
+
+
+# ── write_raw_parameter ──────────────────────────────────────────────
+
+
+class TestWriteRawParameter:
+    """coordinator.write_raw_parameter — raw register write for unmapped regs.
+
+    GH #272: HOLD 117 (PtoUserStartchg) has no pylxpweb name-map entry and no
+    cloud parameter name, so the Start Charge threshold number writes the raw
+    register address through the local transport.
+    """
+
+    async def test_writes_raw_register(self, hass, local_config_entry):
+        """The raw address/value pair goes straight to transport.write_parameters."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=True)
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            result = await coordinator.write_raw_parameter(117, 65486, serial="INV001")
+
+        assert result is True
+        mock_transport.write_parameters.assert_awaited_once_with({117: 65486})
+
+    async def test_reconnects_disconnected_transport(self, hass, local_config_entry):
+        """A disconnected transport is reconnected before the write."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=False)
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            await coordinator.write_raw_parameter(117, 250, serial="INV001")
+
+        mock_transport.connect.assert_awaited_once()
+        mock_transport.write_parameters.assert_awaited_once_with({117: 250})
+
+    async def test_no_transport_raises(self, hass, local_config_entry):
+        """No local transport -> HomeAssistantError, nothing written."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch.object(coordinator, "get_local_transport", return_value=None):
+            with pytest.raises(HomeAssistantError, match="No local transport"):
+                await coordinator.write_raw_parameter(117, 100, serial="INV001")
+
+    async def test_write_failure_raises(self, hass, local_config_entry):
+        """Transport write errors are wrapped in HomeAssistantError."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.write_parameters.side_effect = RuntimeError("bus error")
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            with pytest.raises(HomeAssistantError, match="Failed to write register"):
+                await coordinator.write_raw_parameter(117, 100, serial="INV001")
+
+
+# ── has_local_register_path ──────────────────────────────────────────
+
+
+class TestHasLocalRegisterPath:
+    """Config-based gate for raw-register controls (reg 117, GH #272).
+
+    Codex P2 on PR #284: has_configured_local_transport() checks only
+    CONF_LOCAL_TRANSPORTS, but the deprecated flat single-transport format
+    (pre-v3.2) initializes _modbus_transport/_dongle_transport directly from
+    flat entry keys — those HYBRID entries silently lost the reg-117 entity.
+    """
+
+    async def test_legacy_flat_hybrid_recognized(self, hass):
+        """Flat-format HYBRID entry (no CONF_LOCAL_TRANSPORTS) has a path.
+
+        The exact P2 shape: not local-only, no per-serial transport config,
+        but the flat CONF_MODBUS_HOST keys construct the legacy global
+        transport in __init__ — get_local_transport() serves it for writes,
+        so the register path exists.
+        """
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Legacy Flat Hybrid",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+                # DEPRECATED flat keys — deliberately no CONF_LOCAL_TRANSPORTS
+                CONF_MODBUS_HOST: "192.168.1.50",
+                CONF_INVERTER_SERIAL: "1234567890",
+            },
+            options={},
+            entry_id="legacy_flat_hybrid_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        # The P2 shape: the old gate's two branches are both False...
+        assert coordinator.is_local_only() is False
+        assert coordinator.has_configured_local_transport("1234567890") is False
+        # ...but the legacy global transport exists and serves writes.
+        assert coordinator._modbus_transport is not None
+        assert coordinator.get_local_transport("1234567890") is not None
+        assert coordinator.has_local_register_path("1234567890") is True
+
+    async def test_modern_hybrid_configured_serial(self, hass, hybrid_config_entry):
+        """Modern per-serial CONF_LOCAL_TRANSPORTS entry has a path; an
+        unconfigured serial on the same entry does not."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        assert coordinator.has_local_register_path("INV001") is True
+        # No legacy flat transport and no config for this serial -> no path
+        assert coordinator.has_local_register_path("9999999999") is False
+
+    async def test_local_only_mode(self, hass, local_config_entry):
+        """LOCAL mode always has a register path."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        assert coordinator.has_local_register_path("INV001") is True
+
+    async def test_http_only_has_no_path(self, hass, http_config_entry):
+        """Pure cloud entries have no local register path."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        assert coordinator.has_local_register_path("1234567890") is False
 
 
 # ── _build_local_device_data ─────────────────────────────────────────

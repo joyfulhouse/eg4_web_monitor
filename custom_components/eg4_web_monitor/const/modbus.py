@@ -67,6 +67,21 @@ PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT = "HOLD_FORCED_DISCHG_SOC_LIMIT"
 # FlexBOSS21, 2026-06-12); the protocol spec's "MaxBackflowPower" name for
 # reg 103 is not used by the cloud API.
 PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT = "HOLD_FEED_IN_GRID_POWER_PERCENT"
+# Power-to-User start-discharge threshold (reg 116, whole watts, GH #272):
+# "Start Discharge P_import(W)" in the Luxpower web UI. TWO keys for ONE
+# register — pylxpweb's local name map spells it HOLD_PTOUSER_START_DISCHARGE
+# (read_named_parameters/write_named_parameters), while the live cloud API
+# uses HOLD_P_TO_USER_START_DISCHG (reporter-verified remoteSet call in the
+# GH #272 browser console + every docs/inverters scanner dump; pylxpweb's
+# guessed api_param_key does not exist on the server). Watts on both paths.
+PARAM_HOLD_PTOUSER_START_DISCHARGE = "HOLD_PTOUSER_START_DISCHARGE"
+PARAM_HOLD_P_TO_USER_START_DISCHG = "HOLD_P_TO_USER_START_DISCHG"
+# Power-to-User start-charge threshold (reg 117, SIGNED whole watts, GH
+# #272): unmapped in pylxpweb and unnamed in the cloud API (remoteRead names
+# reg 117 <EMPTY> on every scanned model) — local reads surface it under the
+# raw "117" string key read_named_parameters emits for unmapped registers,
+# and writes must go through the raw register address. LOCAL/HYBRID only.
+PARAM_RAW_PTOUSER_START_CHARGE = "117"
 PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"
 PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
@@ -116,3 +131,5 @@ REG_ONGRID_EOD_VOLTAGE = 169
 REG_OFFGRID_EOD_VOLTAGE = 100
 REG_AC_CHARGE_START_VOLTAGE = 158
 REG_AC_CHARGE_END_VOLTAGE = 159
+# Start-charge threshold (GH #272): no name anywhere, LOCAL raw writes only.
+REG_PTOUSER_START_CHARGE = 117

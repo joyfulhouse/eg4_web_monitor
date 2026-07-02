@@ -467,6 +467,8 @@ if reg1 & 0x100:
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
 | 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
+| 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
+| 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
@@ -491,6 +493,32 @@ if reg1 & 0x100:
 > power control and is currently unmapped to any entity. The local path
 > previously mis-targeted reg 64 with a lossy kW↔% conversion (the "set 1 →
 > reads 0" bounce); see issue history.
+
+> **`start_discharge_power_threshold` (reg 116, `PtoUserStartdischg`)** starts
+> battery discharge once grid import (P_to_user) exceeds the value — the
+> Luxpower web UI's "Start Discharge P_import(W)", range hint `[50, ]`
+> ([#272](https://github.com/joyfulhouse/eg4_web_monitor/issues/272)). Raw
+> register IS **whole watts** (protocol register table scale "1W", default
+> 50 W) — NOT the 100 W encoding of regs 66/74/82/103: fleet scanner reads
+> show raw 100 == cloud "100" == 100 W. TWO parameter keys for the one
+> register: pylxpweb's local name map uses `HOLD_PTOUSER_START_DISCHARGE`
+> (LOCAL/HYBRID reads + local name-map writes), while the live cloud API uses
+> `HOLD_P_TO_USER_START_DISCHG` (#272 reporter's browser console + every
+> `docs/inverters` scanner dump; pylxpweb's guessed `api_param_key` does not
+> exist on the server, so its cloud read leg returns 0). Cloud writes go
+> through the generic named-parameter API with the live key. Grid-tied
+> families only (EG4_HYBRID, LXP); CT required for the feature to act.
+>
+> **`start_charge_power_threshold` (reg 117, `PtoUserStartchg`)** starts
+> charging once P_to_user drops below the value — **signed** watts, protocol
+> default **-50 W** (= start charging once exporting more than 50 W). The
+> register is absent from the Luxpower web UI and has **no cloud parameter
+> name** (remoteRead names reg 117 `<EMPTY>` on every scanned model, incl.
+> LXP-EU), so the entity is **LOCAL/HYBRID-only** and disabled by default
+> (untested register, added for #272 field testing). Local reads surface it
+> under the raw `"117"` key (`read_named_parameters` falls back to
+> `str(addr)` for unmapped registers); writes use the raw register address
+> with two's-complement masking (-50 → 65486).
 
 ### Battery Control Registers
 

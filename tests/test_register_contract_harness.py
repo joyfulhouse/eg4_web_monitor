@@ -113,16 +113,20 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
     PARAM_HOLD_ONGRID_EOD_VOLTAGE,
+    PARAM_HOLD_P_TO_USER_START_DISCHG,
+    PARAM_HOLD_PTOUSER_START_DISCHARGE,
     PARAM_HOLD_PV_INPUT_MODE,
     PARAM_HOLD_START_PV_VOLT,
     PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
+    PARAM_RAW_PTOUSER_START_CHARGE,
     PARAM_SNA_QUICK_CHARGE_MINUTE,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     REG_OFFGRID_EOD_VOLTAGE,
     REG_ONGRID_EOD_VOLTAGE,
+    REG_PTOUSER_START_CHARGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
 )
 from custom_components.eg4_web_monitor.coordinator_mappings import (
@@ -1320,6 +1324,12 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_CHARGE_CURRENT: (101, None),
     PARAM_HOLD_DISCHARGE_CURRENT: (102, None),
     PARAM_HOLD_ONGRID_DISCHG_SOC: (105, None),
+    # Start Discharge P_import threshold (GH #272): reg 116, WHOLE WATTS
+    # (protocol register table scale "1W", default 50 W) — NOT the 100 W
+    # encoding of regs 66/74/82/103. This is pylxpweb's LOCAL name-map
+    # spelling; the live cloud API spells the same register
+    # HOLD_P_TO_USER_START_DISCHG (see _CLOUD_ONLY_FUNCTION_PARAMS).
+    PARAM_HOLD_PTOUSER_START_DISCHARGE: (116, None),
     # Canonical + live-verified: reg 125 (CLAUDE.md's overview table is stale
     # at 106).
     PARAM_HOLD_OFFGRID_DISCHG_SOC: (125, None),
@@ -1398,12 +1408,22 @@ def test_control_params_resolve_to_documented_registers() -> None:
 # test below fails as STALE when an entry becomes locally resolvable, at
 # which point it moves into _CONTROL_REGISTER_CONTRACT with its (addr, bit).
 _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
-    # Currently empty.  FUNC_PV_SELL_TO_GRID_EN graduated 2026-06-12: its
-    # reg-179 bit 3 was pinned by authorized live cloud toggles raw-verified
-    # on both a FlexBOSS21 (52842P0581) and an 18kPV (4512670118) — raw
-    # 0x104c <-> 0x1044, single bit 3 — and the control moved into
+    # FUNC_PV_SELL_TO_GRID_EN graduated 2026-06-12: its reg-179 bit 3 was
+    # pinned by authorized live cloud toggles raw-verified on both a
+    # FlexBOSS21 (52842P0581) and an 18kPV (4512670118) — raw 0x104c <->
+    # 0x1044, single bit 3 — and the control moved into
     # _CONTROL_REGISTER_CONTRACT above, exactly the promotion path this
     # allowlist's honesty test was designed to force.
+    PARAM_HOLD_P_TO_USER_START_DISCHG: (
+        "Cloud spelling of reg 116 (GH #272): the live cloud API names the "
+        "register HOLD_P_TO_USER_START_DISCHG (reporter-verified remoteSet "
+        "call + every docs/inverters scanner dump), while pylxpweb's local "
+        "tables only know HOLD_PTOUSER_START_DISCHARGE (pinned above). This "
+        "spelling is used exclusively for cloud named reads/writes — never "
+        "for local register writes. If pylxpweb ever adopts the live cloud "
+        "key in its tables, this entry goes STALE and the spellings should "
+        "be unified."
+    ),
 }
 
 
@@ -1427,6 +1447,7 @@ def test_control_params_cover_all_integration_constants() -> None:
         integration_params
         - set(_CONTROL_REGISTER_CONTRACT)
         - set(_CLOUD_ONLY_FUNCTION_PARAMS)
+        - set(_RAW_REGISTER_PARAMS)
     )
     assert not missing, (
         "Control parameters without a register contract entry (add them to "
@@ -1461,6 +1482,62 @@ def test_cloud_only_controls_stay_unpinned_and_unwired() -> None:
                 f"an unproven register"
             )
     assert not offenders, "Cloud-only control allowlist violations:\n  " + "\n  ".join(
+        offenders
+    )
+
+
+# Raw-register controls: parameters the integration addresses by RAW register
+# address because the register has no name in EITHER pylxpweb table and no
+# cloud parameter name at all (GH #272 scanner evidence: remoteRead names
+# reg 117 <EMPTY> on every scanned model, incl. LXP-EU).  Reads surface
+# under the str(addr) fallback key read_named_parameters emits for unmapped
+# registers; writes use coordinator.write_raw_parameter.  LOCAL/HYBRID only.
+# param key (str(addr)) -> register address
+_RAW_REGISTER_PARAMS: dict[str, int] = {
+    # Start Charge P_import threshold, PtoUserStartchg (GH #272): SIGNED
+    # whole watts, protocol default -50 W.
+    PARAM_RAW_PTOUSER_START_CHARGE: REG_PTOUSER_START_CHARGE,
+}
+
+
+def test_raw_register_params_stay_unnamed() -> None:
+    """Raw-register allowlist entries must stay honest.
+
+    Each entry must (a) key by exactly str(address) — the fallback key
+    read_named_parameters emits for unmapped registers, i.e. the key the
+    entity read path looks up — and (b) remain unnamed in BOTH pylxpweb
+    local tables: the moment pylxpweb learns a name for the register,
+    read_named_parameters emits that name instead of the raw key, the
+    entity read path silently goes unknown, and this entry is STALE — the
+    control must migrate to the named path (_CONTROL_REGISTER_CONTRACT).
+    """
+    offenders: list[str] = []
+    for key, address in _RAW_REGISTER_PARAMS.items():
+        if key != str(address):
+            offenders.append(
+                f"{key!r}: raw param key must be str({address}) — it is the "
+                f"literal dict key read_named_parameters emits for the "
+                f"unmapped register"
+            )
+        if address in REGISTER_TO_PARAM_KEYS:
+            offenders.append(
+                f"reg {address}: now named in the transport table "
+                f"({REGISTER_TO_PARAM_KEYS[address]}) — STALE: the raw "
+                f"{key!r} read key no longer exists; migrate the control to "
+                f"the named path"
+            )
+        canonical_names = [
+            reg.api_param_key
+            for reg in HOLDING_BY_API_KEY.values()
+            if reg.address == address
+        ]
+        if canonical_names:
+            offenders.append(
+                f"reg {address}: now in pylxpweb's canonical holding table "
+                f"({canonical_names}) — STALE: pin it in "
+                f"_CONTROL_REGISTER_CONTRACT and drop the raw path"
+            )
+    assert not offenders, "Raw-register allowlist violations:\n  " + "\n  ".join(
         offenders
     )
 

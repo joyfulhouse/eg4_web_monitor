@@ -811,6 +811,56 @@ class EG4DataUpdateCoordinator(
                 f"Failed to write parameter {parameter}: {err}"
             ) from err
 
+    async def write_raw_parameter(
+        self,
+        address: int,
+        value: int,
+        serial: str | None = None,
+    ) -> bool:
+        """Write a single holding register by raw address via the local transport.
+
+        For registers with no pylxpweb name-map entry AND no cloud parameter
+        name — e.g. HOLD 117 (PtoUserStartchg, GH #272), which the cloud
+        remoteRead names ``<EMPTY>`` on every scanned model. Named writes
+        (:meth:`write_named_parameter`) remain the path for any register
+        pylxpweb knows; raw writes bypass the name map entirely, so callers
+        must pass the exact unsigned 16-bit register value (mask signed
+        values with ``& 0xFFFF``).
+
+        Args:
+            address: Holding register address.
+            value: Unsigned 16-bit register value to write.
+            serial: Device serial for LOCAL mode with multiple devices.
+
+        Returns:
+            True if write succeeded.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError("No local transport available for parameter write")
+
+        try:
+            if not transport.is_connected:
+                _LOGGER.debug(
+                    "Reconnecting transport for %s before writing register %d",
+                    serial,
+                    address,
+                )
+                await transport.connect()
+
+            await transport.write_parameters({address: value})
+            _LOGGER.debug("Wrote raw register %d = %s", address, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", address, err)
+            raise HomeAssistantError(
+                f"Failed to write register {address}: {err}"
+            ) from err
+
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 
     def get_configured_control_modes(self) -> tuple[str, str]:
