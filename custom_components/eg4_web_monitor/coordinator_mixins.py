@@ -62,6 +62,13 @@ from .utils import clean_battery_display_name
 
 _LOGGER = logging.getLogger(__name__)
 
+# Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
+# parameter read no longer stamps _last_parameter_refresh, so the refresh
+# re-arms early instead of serving a degraded snapshot for the whole
+# parameter interval — but retries are floored at this spacing so a long
+# dongle outage doesn't add a full parameter read to every ~20-30 s poll.
+_PARAMETER_RETRY_INTERVAL = timedelta(minutes=2)
+
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
@@ -474,6 +481,12 @@ if TYPE_CHECKING:
         _include_params_this_cycle: bool
         _last_available_state: bool
         _last_parameter_refresh: datetime | None
+        _last_parameter_attempt: datetime | None
+        _last_param_read_complete: bool
+        _param_retry_pending: set[str]
+        _param_retry_due: bool
+        _param_completed_this_cycle: set[str]
+        _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
@@ -2408,15 +2421,66 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Error during missing parameter refresh: %s", e)
 
     async def _hourly_parameter_refresh(self) -> None:
-        """Perform hourly parameter refresh for all inverters."""
+        """Perform hourly parameter refresh for all inverters.
+
+        The throttle timestamp is stamped only when every inverter's last
+        parameter fetch was COMPLETE (#282): a misrouted dongle response used
+        to fail one register range, publish a partial parameter snapshot, and
+        still arm the 60-minute throttle — leaving parameter-backed entities
+        (e.g. System Charge SOC Limit, reg 227) degraded for up to an hour.
+        An incomplete fetch now re-arms an early retry instead (rate-floored
+        by ``_PARAMETER_RETRY_INTERVAL`` via ``_should_refresh_parameters``).
+        """
+        # Stamp the attempt at task START (#282 review P2): this runs as a
+        # background task while update cycles continue every ~20-30 s, so a
+        # slow in-flight refresh could otherwise be spawned a second time.
+        # The attempt floor in _should_refresh_parameters blocks re-spawning
+        # while this one runs (and after a crash, until the floor elapses).
+        self._last_parameter_attempt = dt_util.utcnow()
         try:
             await self.refresh_all_device_parameters()
-            self._last_parameter_refresh = dt_util.utcnow()
+            self._last_parameter_attempt = dt_util.utcnow()
+            if self._all_parameter_fetches_complete():
+                self._last_parameter_refresh = dt_util.utcnow()
+            else:
+                _LOGGER.info(
+                    "Parameter refresh incomplete for at least one inverter; "
+                    "serving last-known values and retrying in ~%d minutes "
+                    "instead of waiting the full parameter interval",
+                    int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
+                )
         except Exception as e:
             _LOGGER.error("Error during hourly parameter refresh: %s", e)
 
+    def _all_parameter_fetches_complete(self) -> bool:
+        """True when every inverter's last parameter fetch read all ranges.
+
+        Uses pylxpweb's ``parameters_complete`` flag; a pylxpweb without it
+        (pre-#282) defaults to True, keeping the previous stamping behavior.
+        """
+        if not self.data or "devices" not in self.data:
+            return True
+        for serial, device_data in self.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            inverter = self.get_inverter_object(serial)
+            if inverter is not None and not getattr(
+                inverter, "parameters_complete", True
+            ):
+                return False
+        return True
+
     def _should_refresh_parameters(self) -> bool:
-        """Check if hourly parameter refresh is due."""
+        """Check if the parameter refresh — or a post-failure retry — is due."""
+        attempt = getattr(self, "_last_parameter_attempt", None)
+        if (
+            attempt is not None
+            and dt_util.utcnow() - attempt < _PARAMETER_RETRY_INTERVAL
+        ):
+            # Rate floor between attempts: a failed read re-arms an early
+            # retry (the refresh timestamp was not stamped), but never
+            # tighter than this (#282).
+            return False
         if self._last_parameter_refresh is None:
             return True
 
