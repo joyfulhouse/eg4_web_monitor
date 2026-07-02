@@ -880,7 +880,9 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo | None:
         """Return device information."""
-        return self.coordinator.get_station_device_info()
+        # Typed local: the mixin call resolves Any-typed under HA 2026.1.
+        info: DeviceInfo | None = self.coordinator.get_station_device_info()
+        return info
 
     @property
     def is_on(self) -> bool:

@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.recorder import get_instance  # type: ignore[attr-defined]
+from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     statistics_during_period,

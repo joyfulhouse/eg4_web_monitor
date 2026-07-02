@@ -59,7 +59,9 @@ def timezone_observes_dst(timezone_name: str | None) -> bool:
 
 def get_ha_timezone(hass: HomeAssistant) -> str | None:
     """Get the Home Assistant timezone name."""
-    return hass.config.time_zone
+    # Typed local: hass.config.time_zone became Any-typed in HA 2026.1.
+    time_zone: str | None = hass.config.time_zone
+    return time_zone
 
 
 def format_entry_title(_mode: str, name: str) -> str:
