@@ -483,7 +483,10 @@ if TYPE_CHECKING:
         _last_parameter_refresh: datetime | None
         _last_parameter_attempt: datetime | None
         _last_param_read_complete: bool
-        _params_incomplete_this_cycle: bool
+        _param_retry_pending: set[str]
+        _param_retry_due: bool
+        _param_completed_this_cycle: set[str]
+        _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
@@ -2428,6 +2431,12 @@ class ParameterManagementMixin(_MixinBase):
         An incomplete fetch now re-arms an early retry instead (rate-floored
         by ``_PARAMETER_RETRY_INTERVAL`` via ``_should_refresh_parameters``).
         """
+        # Stamp the attempt at task START (#282 review P2): this runs as a
+        # background task while update cycles continue every ~20-30 s, so a
+        # slow in-flight refresh could otherwise be spawned a second time.
+        # The attempt floor in _should_refresh_parameters blocks re-spawning
+        # while this one runs (and after a crash, until the floor elapses).
+        self._last_parameter_attempt = dt_util.utcnow()
         try:
             await self.refresh_all_device_parameters()
             self._last_parameter_attempt = dt_util.utcnow()

@@ -39,6 +39,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator_mixins import (
+    _PARAMETER_RETRY_INTERVAL,
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
@@ -1211,28 +1212,45 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
-                if include_params:
-                    transport = inverter.transport
-                    if transport:
-                        param_data = await self._read_modbus_parameters(transport)
-                        if not self._last_param_read_complete:
-                            # Sticky carry-forward (#282): a partial read must
-                            # not blank previously-known values — one misrouted
-                            # dongle response used to wipe every parameter in
-                            # the failed range (e.g. reg-227 System Charge SOC
-                            # Limit) until the next hourly refresh.  Merge the
-                            # fresh partial read OVER the carried-forward dict
-                            # so only successfully re-read ranges change; a
-                            # COMPLETE read below stays authoritative.
-                            previous = processed["parameters"].get(serial) or {}
-                            param_data = {**previous, **param_data}
-                            self._params_incomplete_this_cycle = True
+                # Entity-parameter read: due on the hourly cycle for everyone,
+                # and on floored retry cycles for devices still pending
+                # (#282 P1-A: a device skipped by transport-interval gating or
+                # failing before this point must not starve until the next
+                # hourly window just because a sibling's success stamped the
+                # shared throttle — the cc8d4e2 shared-timestamp bug class).
+                # getattr: the deprecated single-device path calls this method
+                # without _async_update_local_data's per-cycle pre-compute.
+                read_entity_params = getattr(
+                    self, "_include_params_this_cycle", False
+                ) or (
+                    getattr(self, "_param_retry_due", False)
+                    and serial in self._param_retry_pending
+                )
+                param_transport = inverter.transport
+                if read_entity_params and param_transport:
+                    self._param_attempted_this_cycle = True
+                    param_data = await self._read_modbus_parameters(param_transport)
+                    if self._last_param_read_complete:
+                        self._param_completed_this_cycle.add(serial)
+                        self._param_retry_pending.discard(serial)
                     else:
-                        param_data = {}
+                        # Sticky carry-forward (#282): a partial read must
+                        # not blank previously-known values — one misrouted
+                        # dongle response used to wipe every parameter in
+                        # the failed range (e.g. reg-227 System Charge SOC
+                        # Limit) until the next hourly refresh.  Merge the
+                        # fresh partial read OVER the carried-forward dict
+                        # so only successfully re-read ranges change; a
+                        # COMPLETE read stays authoritative.  The device
+                        # stays queued for a floored retry.
+                        previous = processed["parameters"].get(serial) or {}
+                        param_data = {**previous, **param_data}
+                        self._param_retry_pending.add(serial)
                     processed["parameters"][serial] = param_data
                 elif serial not in processed["parameters"]:
-                    # No param read this cycle — preserve existing data or
-                    # defer on first refresh (empty dict is safe — switch/number
+                    # No param read this cycle (not due, still pending with no
+                    # usable transport, or first refresh) — preserve existing
+                    # data or defer (empty dict is safe — switch/number
                     # entities show unknown until background load completes).
                     processed["parameters"][serial] = {}
 
@@ -1621,11 +1639,26 @@ class LocalTransportMixin(_MixinBase):
         self._include_params_this_cycle = (
             self._local_parameters_loaded and self._should_refresh_parameters()
         )
-        # Aggregated per-cycle completeness for the throttle stamp (#282):
-        # any device's partial parameter read keeps the throttle un-armed so
-        # the next cycles retry (rate-floored) instead of serving a degraded
-        # snapshot for the whole parameter interval.
-        self._params_incomplete_this_cycle = False
+        # Per-device parameter retry (#282 P1-A): on a param-due cycle every
+        # inverter must either COMPLETE its targeted param read or land in
+        # _param_retry_pending (transport-interval skips, pre-param failures,
+        # and partial reads all qualify).  Pending devices retry on later
+        # cycles — gated by the 2-minute attempt floor — without re-reading
+        # healthy siblings, and drain individually on their own success.
+        # This closes the shared-timestamp hole (cc8d4e2 bug class): a device
+        # whose transport was not due on the stamp cycle no longer starves
+        # until the next hourly window.
+        attempt = self._last_parameter_attempt
+        self._param_retry_due = (
+            self._local_parameters_loaded
+            and bool(self._param_retry_pending)
+            and (
+                attempt is None
+                or dt_util.utcnow() - attempt >= _PARAMETER_RETRY_INTERVAL
+            )
+        )
+        self._param_completed_this_cycle = set()
+        self._param_attempted_this_cycle = False
 
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
@@ -1741,20 +1774,42 @@ class LocalTransportMixin(_MixinBase):
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
 
-        # Stamp parameter refresh timestamp if params were read this cycle.
-        # A cycle with any PARTIAL parameter read stamps only the attempt
-        # (rate-flooring retries) and leaves the throttle un-armed so the
-        # next cycles retry until a fully successful read (#282).
+        # Parameter throttle bookkeeping (#282 P1-A).  A DUE cycle stamps the
+        # hourly throttle REGARDLESS of per-device outcomes — healthy devices
+        # stay on the hourly cadence — and every inverter that did not
+        # complete its targeted read this cycle (transport-interval skip,
+        # pre-param failure, or partial read) is queued in
+        # _param_retry_pending for floored per-device retries that do not
+        # re-read healthy siblings.
         if self._include_params_this_cycle and successful_devices > 0:
             self._last_parameter_attempt = dt_util.utcnow()
-            if getattr(self, "_params_incomplete_this_cycle", False):
+            self._last_parameter_refresh = dt_util.utcnow()
+            expected_param_serials = {
+                cfg["serial"]
+                for cfg in self._local_transport_configs
+                if cfg.get("serial")
+                and not cfg.get("is_gridboss", False)
+                and cfg.get("serial") not in self._mid_device_cache
+            }
+            missed = expected_param_serials - self._param_completed_this_cycle
+            self._param_retry_pending |= missed
+            if missed:
                 _LOGGER.info(
-                    "Parameter read incomplete this cycle; keeping last-known "
-                    "values and retrying early instead of waiting the full "
-                    "parameter interval"
+                    "Parameter read pending for %s this cycle; keeping "
+                    "last-known values and retrying within ~%d minutes",
+                    sorted(missed),
+                    int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
                 )
-            else:
-                self._last_parameter_refresh = dt_util.utcnow()
+        elif self._param_retry_due and self._param_attempted_this_cycle:
+            # A retry cycle that actually attempted reads re-arms the floor;
+            # cycles where the pending device's transport was not pollable
+            # leave the floor untouched so the next pollable cycle retries.
+            self._last_parameter_attempt = dt_util.utcnow()
+            if not self._param_retry_pending:
+                _LOGGER.info(
+                    "Parameter retries complete; all devices back on the "
+                    "hourly schedule"
+                )
 
         # On first successful refresh, schedule background parameter +
         # feature detection load so that switch/number entities and

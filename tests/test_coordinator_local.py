@@ -376,7 +376,7 @@ class TestStickyParameterCarryForward:
         }
         return coordinator
 
-    async def test_partial_read_carries_forward_and_skips_throttle_stamp(
+    async def test_partial_read_carries_forward_and_queues_retry(
         self, hass, local_config_entry
     ):
         coordinator = self._seed_coordinator(hass, local_config_entry)
@@ -400,10 +400,12 @@ class TestStickyParameterCarryForward:
             "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,  # carried forward, NOT blanked
             "HOLD_CHG_POWER_PERCENT_CMD": 60,  # fresh value from the healthy range
         }
-        # The throttle is NOT stamped: the next cycles retry (rate-floored)
-        # instead of serving a degraded snapshot for the full interval.
-        assert coordinator._last_parameter_refresh is None
+        # The DUE cycle stamps the hourly cadence regardless (P1-A design);
+        # the incomplete device is queued for a floored per-device retry
+        # rather than holding the shared throttle hostage.
+        assert coordinator._last_parameter_refresh is not None
         assert coordinator._last_parameter_attempt is not None
+        assert "INV001" in coordinator._param_retry_pending
 
     async def test_complete_read_replaces_and_stamps_throttle(
         self, hass, local_config_entry
@@ -426,6 +428,158 @@ class TestStickyParameterCarryForward:
         # A clean read is authoritative: stale keys are pruned.
         assert result["parameters"]["INV001"] == {"HOLD_CHG_POWER_PERCENT_CMD": 60}
         assert coordinator._last_parameter_refresh is not None
+        assert coordinator._param_retry_pending == set()
+
+
+class TestPerDeviceParamRetry:
+    """#282 P1-A: the shared throttle must not starve interval-skipped devices.
+
+    ``_param_retry_pending`` closes the cc8d4e2 shared-timestamp bug class
+    inside the parameter contract: on a param-due cycle a device whose
+    transport was not due (or that failed before its param read) used to be
+    silently covered by a sibling's success stamping the shared hourly
+    throttle — no parameters until the next hourly window, repeatedly if
+    intervals align (e.g. 5 s modbus + 60 s dongle).
+    """
+
+    SERIAL_A = "1111111111"  # modbus_tcp
+    SERIAL_B = "2222222222"  # wifi_dongle
+
+    @pytest.fixture
+    def two_device_entry(self):
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Multi Local",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": self.SERIAL_A,
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": self.SERIAL_B,
+                        "host": "192.168.1.101",
+                        "port": 8000,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            options={},
+            entry_id="two_device_param_retry",
+        )
+
+    def _seed(self, hass, two_device_entry) -> tuple[EG4DataUpdateCoordinator, dict]:
+        two_device_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, two_device_entry)
+        coordinator._local_parameters_loaded = True
+        coordinator._local_static_phase_done = True
+
+        transports: dict[str, Any] = {}
+        for serial in (self.SERIAL_A, self.SERIAL_B):
+            runtime = InverterRuntimeData(
+                pv_total_power=0,
+                battery_soc=50,
+                rectifier_power=0,
+                parallel_number=0,
+                parallel_master_slave=0,
+                parallel_phase=0,
+            )
+            inv = make_real_inverter(serial, "FlexBOSS21", runtime=runtime)
+            inv.refresh = AsyncMock()
+            inv.detect_features = AsyncMock()
+            inv._transport = make_transport_spec(is_connected=True)
+            inv._transport_energy = None
+            inv._transport_battery = None
+            coordinator._inverter_cache[serial] = inv
+            coordinator._firmware_cache[serial] = "TEST-FW"
+            transports[serial] = inv._transport
+        coordinator.data = {"devices": {}, "parameters": {}}
+        return coordinator, transports
+
+    async def _run_cycle(self, coordinator, poll_gate, read_side_effect):
+        with (
+            patch.object(coordinator, "_should_poll_transport", side_effect=poll_gate),
+            patch.object(
+                coordinator, "_read_modbus_parameters", side_effect=read_side_effect
+            ),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            return await coordinator._async_update_local_data()
+
+    async def test_interval_skipped_device_retries_within_floor(
+        self, hass, two_device_entry
+    ):
+        """Codex's exact scenario: B's transport not due on the stamp cycle.
+
+        B must get its parameters within ~the retry floor — not an hour — and
+        the retry must NOT re-read healthy A.
+        """
+        coordinator, transports = self._seed(hass, two_device_entry)
+        read_calls: list[Any] = []
+
+        async def complete_read(transport: Any) -> dict[str, Any]:
+            read_calls.append(transport)
+            coordinator._last_param_read_complete = True
+            return {"PARAM": 1}
+
+        # Cycle 1 (param-due): only modbus polls; dongle-B is interval-skipped.
+        await self._run_cycle(coordinator, lambda tt: tt == "modbus_tcp", complete_read)
+        assert read_calls == [transports[self.SERIAL_A]]
+        assert coordinator._last_parameter_refresh is not None  # hourly cadence
+        assert coordinator._param_retry_pending == {self.SERIAL_B}
+
+        # Cycle 2 (retry, floor elapsed): both transports pollable.
+        coordinator._last_parameter_attempt = dt_util.utcnow() - timedelta(minutes=3)
+        result = await self._run_cycle(coordinator, lambda tt: True, complete_read)
+
+        # B was read; healthy A was NOT re-read (no-hammer).
+        assert read_calls == [
+            transports[self.SERIAL_A],
+            transports[self.SERIAL_B],
+        ]
+        assert coordinator._param_retry_pending == set()
+        assert result["parameters"][self.SERIAL_B] == {"PARAM": 1}
+
+    async def test_permanently_failing_device_floored_without_dragging_sibling(
+        self, hass, two_device_entry
+    ):
+        """A device whose read stays partial retries at the floor, alone."""
+        coordinator, transports = self._seed(hass, two_device_entry)
+        read_calls: list[Any] = []
+
+        async def read_by_device(transport: Any) -> dict[str, Any]:
+            read_calls.append(transport)
+            # B's read is permanently partial; A's is complete.
+            coordinator._last_param_read_complete = (
+                transport is transports[self.SERIAL_A]
+            )
+            return {"PARAM": 1}
+
+        # Cycle 1 (param-due, both pollable): A completes, B partial.
+        await self._run_cycle(coordinator, lambda tt: True, read_by_device)
+        assert coordinator._param_retry_pending == {self.SERIAL_B}
+        calls_after_cycle1 = len(read_calls)
+
+        # Cycle 2 (immediately, within the floor): nobody is re-read.
+        await self._run_cycle(coordinator, lambda tt: True, read_by_device)
+        assert len(read_calls) == calls_after_cycle1
+
+        # Cycle 3 (floor elapsed): only failing B is retried; A untouched.
+        coordinator._last_parameter_attempt = dt_util.utcnow() - timedelta(minutes=3)
+        await self._run_cycle(coordinator, lambda tt: True, read_by_device)
+        assert read_calls[calls_after_cycle1:] == [transports[self.SERIAL_B]]
+        assert coordinator._param_retry_pending == {self.SERIAL_B}  # still queued
 
 
 class TestParameterRetryFloor:
