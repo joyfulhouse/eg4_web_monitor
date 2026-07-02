@@ -5,7 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0-beta.18] - 2026-07-02
+
+> Requires [pylxpweb 0.9.36b20](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b20)
+> (installed automatically; the manifest requirement is bumped). The #282 HYBRID
+> early-retry gating and the #254 Fast block-size mode are inert on older
+> pylxpweb versions.
 
 ### Added
 
@@ -15,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fast Zero Export switch** ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)): the Grid Sell tab's "Fast Zero Export" toggle from the EG4/Luxpower web UIs is now a switch on grid-tied inverters (EG4_HYBRID and LXP families; off-grid XP units have no export to suppress). It speeds up the inverter's zero-export control loop (import control slows down) and the vendors advise selecting it as the opposite of Grid Sell Back. The bit is HOLD register 110 bit 1 (`FunctionEn1.ubFastZeroExport` in the LXP protocol PDF); the cloud path writes the same `FUNC_RUN_WITHOUT_GRID` function-control parameter the websites use, and the local path read-modify-writes the register bit — state follows parameter polling in all connection modes. Requested by @ivanfmartinez for an LXP-LB; EG4 hybrids expose the same web toggle (first pictured in [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)).
 
 ### Fixed
+
+- **Multi-station cloud accounts can be added again** ([#275](https://github.com/joyfulhouse/eg4_web_monitor/issues/275)): the EG4 cloud returns station ids as **integers**, the station-selection dropdown was keyed by those ints, and the Home Assistant frontend submits the selection as a **string** — so validation rejected every choice with "value must be one of [ids]" on any account with more than one station (single-station accounts skip the form, which is why they worked). The selector is now string-keyed with tolerant coercion, the auto-select and reconfigure paths store string ids too, and entries created before the fix are normalized on load — entity and unique IDs are unchanged. Reported by @SimmerV, incorporating their #276.
+
+- **Battery firmware version no longer flaps between "1.3" and "1.03" in HYBRID** ([#287](https://github.com/joyfulhouse/eg4_web_monitor/issues/287)): the local register decode dropped the zero-padding the cloud's `fwVersionText` uses, so the entity alternated between two spellings of the same version depending on which source last supplied it. Fixed in the required pylxpweb ([pylxpweb#199](https://github.com/joyfulhouse/pylxpweb/pull/199)) — the local decode now renders `1.03`. Reported by @ivanfmartinez.
 
 - **Parameter-backed controls no longer go *unknown* for an hour after one bad read** ([#282](https://github.com/joyfulhouse/eg4_web_monitor/issues/282)): a WiFi-dongle misroute storm can fail one of the holding-register range reads behind the hourly parameter refresh (`Failed to read registers 125-250`). The partial result then **replaced** the full parameter set — every control backed by the failed range (e.g. **System Charge SOC Limit**, register 227) flipped to *unknown* within seconds — and the 60-minute refresh throttle was armed anyway, so the blank state persisted until the next hourly pass. This is long-standing behavior (identical in beta.16 and earlier), not a beta.17 regression — dongle misroute storms just make it frequent. Now, following the #261 sticky precedent: a partial read **carries forward last-known values** for the failed range(s) (only successfully re-read ranges change; a fully successful read remains authoritative and prunes stale keys), the throttle is **not** armed by a failed/partial read — the refresh retries early (rate-floored at ~2 minutes) until a clean read, then the hourly cadence resumes — and one INFO line summarizes the failed range(s) instead of silent blanking. Applies to LOCAL and HYBRID local reads and the cloud parameter path alike; the pylxpweb side ships the same carry-forward in its parameter fetch plus a `parameters_complete` flag the throttle now consults ([pylxpweb#198](https://github.com/joyfulhouse/pylxpweb/pull/198)). Reported by @ivanfmartinez.
 
