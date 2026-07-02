@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "매개변수 새로 고침 간격 (분)",
           "library_debug": "라이브러리 디버그 로깅",
           "data_validation": "레지스터 데이터 검증",
+          "modbus_block_size": "Modbus 읽기 블록 크기",
           "include_ac_couple_pv": "AC 결합 PV를 합계에 포함",
           "charge_control_mode": "배터리 충전 제어",
           "discharge_control_mode": "배터리 방전 제어"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "SOC 제한 및 충전 설정과 같은 인버터 매개변수를 새로 고치는 빈도 ({min_param_interval}-{max_param_interval}분).",
           "library_debug": "pylxpweb 라이브러리의 DEBUG 로깅 활성화 (API 요청, 응답 및 내부 라이브러리 작업 표시)",
           "data_validation": "로컬 레지스터 읽기에 대한 손상 감지를 활성화합니다. 물리적 한계(SoC, 주파수, 스마트 포트 상태) 및 에너지 단조성을 검증합니다. 불안정한 레지스터 읽기(고스트 엔티티, 에너지 스파이크, 잘못된 값)가 발생하는 경우에만 활성화하세요.",
+          "modbus_block_size": "로컬 폴링 시 Modbus 요청당 읽을 레지스터 수입니다. 보수적은 모든 동글과 펌웨어가 지원하는 작은 그룹 읽기를 사용합니다. 빠름은 한 번에 최대 120개 레지스터를 읽어 폴링 속도를 높이지만, 오래된 동글 펌웨어는 약 40개 레지스터 읽기만 지원합니다. 큰 읽기가 실패하면 다음 재로드까지 자동으로 보수적으로 대체됩니다(경고 표시).",
           "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가",
           "charge_control_mode": "배터리가 충전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 한도 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다.",
           "discharge_control_mode": "배터리가 방전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 차단 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "정상",
         "standby": "대기"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "보수적 (모든 펌웨어와 호환)",
+        "fast": "빠름 (120 레지스터, 최신 동글 펌웨어 필요)"
       }
     }
   },

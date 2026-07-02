@@ -470,6 +470,7 @@ if TYPE_CHECKING:
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
         _data_validation_enabled: bool
+        _max_input_block_size: int
         _include_params_this_cycle: bool
         _last_available_state: bool
         _last_parameter_refresh: datetime | None

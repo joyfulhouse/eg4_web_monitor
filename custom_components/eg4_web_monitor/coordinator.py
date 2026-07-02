@@ -34,15 +34,18 @@ from pylxpweb import LuxpowerClient
 from pylxpweb.devices import Battery, Station
 from pylxpweb.devices.inverters.base import BaseInverter
 from .const import (
+    BLOCK_SIZE_PRESET_REGISTERS,
     CONF_BASE_URL,
     CONF_CHARGE_CONTROL_MODE,
     CONF_CONNECTION_TYPE,
     CONF_DATA_VALIDATION,
     CONF_DISCHARGE_CONTROL_MODE,
     CONF_DONGLE_HOST,
+    CONF_MODBUS_BLOCK_SIZE,
     CONTROL_MODE_SOC,
     CONTROL_MODE_VOLTAGE,
     DEFAULT_CONTROL_MODE,
+    DEFAULT_MODBUS_BLOCK_SIZE,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     CONF_DONGLE_PORT,
@@ -88,6 +91,7 @@ from .battery_migration import async_migrate_battery_keys
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
+    input_block_size_kwargs,
 )
 from .coordinator_http import HTTPUpdateMixin
 from .coordinator_local import LocalTransportMixin
@@ -169,6 +173,17 @@ class EG4DataUpdateCoordinator(
                 iana_timezone=iana_timezone,
             )
 
+        # Modbus input-register read block size (#254): preset option mapped
+        # to pylxpweb's max registers per coalesced read. Conservative (40)
+        # keeps the plain grouped reads; Fast (120) consolidates them on
+        # hardware that supports large reads. Passed to every local transport
+        # via input_block_size_kwargs() (feature-detected, so released
+        # pylxpweb without the parameter stays silently conservative).
+        self._max_input_block_size: int = BLOCK_SIZE_PRESET_REGISTERS.get(
+            entry.options.get(CONF_MODBUS_BLOCK_SIZE, DEFAULT_MODBUS_BLOCK_SIZE),
+            BLOCK_SIZE_PRESET_REGISTERS[DEFAULT_MODBUS_BLOCK_SIZE],
+        )
+
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
         self._modbus_transport: ModbusTransport | ModbusSerialTransport | None = None
@@ -206,6 +221,7 @@ class EG4DataUpdateCoordinator(
                     unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
                     timeout=DEFAULT_MODBUS_TIMEOUT,
                     inverter_family=_parse_inverter_family(family_str),
+                    **input_block_size_kwargs(self._max_input_block_size),
                 )
                 self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
                 self._modbus_model = _derive_model_from_family(
@@ -230,6 +246,7 @@ class EG4DataUpdateCoordinator(
                     port=entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
                     timeout=DEFAULT_DONGLE_TIMEOUT,
                     inverter_family=_parse_inverter_family(family_str),
+                    **input_block_size_kwargs(self._max_input_block_size),
                 )
                 self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
                 self._dongle_model = _derive_model_from_family(

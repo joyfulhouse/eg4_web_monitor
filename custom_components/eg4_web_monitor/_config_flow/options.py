@@ -19,13 +19,17 @@ from homeassistant.helpers.selector import (
 )
 
 from ..const import (
+    BLOCK_SIZE_CONSERVATIVE,
+    BLOCK_SIZE_FAST,
     BRAND_NAME,
     CONF_CHARGE_CONTROL_MODE,
     CONF_CONNECTION_TYPE,
     CONF_DATA_VALIDATION,
     CONF_DISCHARGE_CONTROL_MODE,
+    CONF_MODBUS_BLOCK_SIZE,
     CONTROL_MODE_SOC,
     CONTROL_MODE_VOLTAGE,
+    DEFAULT_MODBUS_BLOCK_SIZE,
     DEVICE_TYPE_INVERTER,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
@@ -277,6 +281,26 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             schema_fields[
                 vol.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
             ] = bool
+
+            # Modbus read block size (#254): Conservative = the plain grouped
+            # register reads every dongle/firmware handles; Fast = coalesced
+            # reads up to 120 registers (fewer round-trips -> faster polls) on
+            # hardware that supports large reads. Older dongle firmware caps
+            # reads at ~40 registers — on those, Fast fails its first large
+            # read and pylxpweb falls back to the conservative reads with a
+            # warning (see the field description in strings.json).
+            current_block_size = self.config_entry.options.get(
+                CONF_MODBUS_BLOCK_SIZE, DEFAULT_MODBUS_BLOCK_SIZE
+            )
+            schema_fields[
+                vol.Required(CONF_MODBUS_BLOCK_SIZE, default=current_block_size)
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[BLOCK_SIZE_CONSERVATIVE, BLOCK_SIZE_FAST],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="modbus_block_size",
+                )
+            )
 
         # Battery control mode (SOC vs Voltage) — always shown. Pre-filled from
         # the inverter's live regime so the user sees their actual setting.

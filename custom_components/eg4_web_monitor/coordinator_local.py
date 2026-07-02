@@ -63,6 +63,7 @@ from .coordinator_mappings import (
     alias_common_voltage_sensors,
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
+    input_block_size_kwargs,
 )
 from .utils import local_battery_key
 
@@ -792,6 +793,9 @@ class LocalTransportMixin(_MixinBase):
             )
 
             if needs_creation:
+                # Modbus read block size (#254): feature-detected, {} on
+                # released pylxpweb without the parameter (stays conservative).
+                block_size_kwargs = input_block_size_kwargs(self._max_input_block_size)
                 transport: Any = None
                 if transport_type == "modbus_tcp":
                     transport = create_transport(
@@ -802,6 +806,7 @@ class LocalTransportMixin(_MixinBase):
                         unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
                         timeout=DEFAULT_MODBUS_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 elif transport_type == "wifi_dongle":
                     transport = create_transport(
@@ -812,6 +817,7 @@ class LocalTransportMixin(_MixinBase):
                         port=port,
                         timeout=DEFAULT_DONGLE_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 elif transport_type == "modbus_serial":
                     transport = create_transport(
@@ -824,6 +830,7 @@ class LocalTransportMixin(_MixinBase):
                         unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
                         timeout=DEFAULT_MODBUS_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 else:
                     _LOGGER.error(
@@ -2059,7 +2066,9 @@ class LocalTransportMixin(_MixinBase):
         )
 
         # Convert stored config dicts to TransportConfig objects
-        configs = _build_transport_configs(self._local_transport_configs)
+        configs = _build_transport_configs(
+            self._local_transport_configs, self._max_input_block_size
+        )
         if not configs:
             _LOGGER.warning("No valid transport configs to attach")
             return
@@ -2226,7 +2235,7 @@ class LocalTransportMixin(_MixinBase):
             for c in self._local_transport_configs
             if str(c.get("serial")) in self._failed_attach_serials
         ]
-        configs = _build_transport_configs(retry_dicts)
+        configs = _build_transport_configs(retry_dicts, self._max_input_block_size)
         if not configs:
             self._failed_attach_serials = set()
             return
@@ -2496,6 +2505,7 @@ class LocalTransportMixin(_MixinBase):
                     unit_id=config.unit_id,
                     timeout=DEFAULT_MODBUS_TIMEOUT,
                     inverter_family=config.inverter_family,
+                    **input_block_size_kwargs(self._max_input_block_size),
                 )
                 await transport.connect()
                 device._transport = transport

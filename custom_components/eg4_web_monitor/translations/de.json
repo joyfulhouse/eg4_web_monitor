@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Parameter-Aktualisierungsintervall (Minuten)",
           "library_debug": "Bibliothek-Debug-Protokollierung",
           "data_validation": "Registerdaten-Validierung",
+          "modbus_block_size": "Modbus-Leseblockgröße",
           "include_ac_couple_pv": "AC-gekoppelte PV in Gesamtwerte einbeziehen",
           "charge_control_mode": "Batterie-Ladesteuerung",
           "discharge_control_mode": "Batterie-Entladesteuerung"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Wie oft Wechselrichterparameter wie SOC-Grenzwerte und Ladeeinstellungen aktualisiert werden ({min_param_interval}-{max_param_interval} Minuten).",
           "library_debug": "DEBUG-Protokollierung für die pylxpweb-Bibliothek aktivieren (zeigt API-Anfragen, Antworten und interne Bibliotheksoperationen)",
           "data_validation": "Korruptionserkennung für lokale Registerlesevorgänge aktivieren. Prüft physikalische Grenzen (SoC, Frequenz, Smart-Port-Status) und Energie-Monotonie. Nur aktivieren bei instabilen Registerlesevorgängen (Geister-Entitäten, Energiespitzen, ungültige Werte).",
+          "modbus_block_size": "Wie viele Register pro Modbus-Anfrage beim lokalen Abruf gelesen werden. Konservativ verwendet kleine Gruppenlesungen, die jeder Dongle und jede Firmware unterstützt. Schnell liest bis zu 120 Register auf einmal für schnellere Abfragen, aber ältere Dongle-Firmware unterstützt nur Lesungen von ~40 Registern — schlägt eine große Lesung fehl, fällt die Integration automatisch (mit einer Warnung) auf Konservativ zurück, bis zum nächsten Neuladen.",
           "include_ac_couple_pv": "AC-gekoppelte Solar-Wechselrichterleistung (von GridBOSS Smart Ports) zu den PV-Gesamtwerten der Parallelgruppe hinzufügen",
           "charge_control_mode": "Wie Ihre Batterie entscheidet, wann das Laden GESTOPPT wird: SOC (geschlossener Regelkreis, BMS-Lithium) oder Spannung (offener Regelkreis, Blei-Säure / ohne BMS). Die nicht ausgewählten Grenzwert-Steuerelemente sind standardmäßig ausgeblendet. ⚠️ Eine Änderung konfiguriert auch Ihren Wechselrichter um.",
           "discharge_control_mode": "Wie Ihre Batterie entscheidet, wann das Entladen GESTOPPT wird: SOC (geschlossener Regelkreis, BMS-Lithium) oder Spannung (offener Regelkreis, Blei-Säure / ohne BMS). Die nicht ausgewählten Abschalt-Steuerelemente sind standardmäßig ausgeblendet. ⚠️ Eine Änderung konfiguriert auch Ihren Wechselrichter um."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normal",
         "standby": "Standby"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Konservativ (mit jeder Firmware kompatibel)",
+        "fast": "Schnell (120 Register, erfordert neuere Dongle-Firmware)"
       }
     }
   },

@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
           "library_debug": "程式庫偵錯日誌",
           "data_validation": "暫存器資料驗證",
+          "modbus_block_size": "Modbus 讀取區塊大小",
           "include_ac_couple_pv": "將交流耦合光伏納入總量",
           "charge_control_mode": "電池充電控制",
           "discharge_control_mode": "電池放電控制"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
           "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
           "data_validation": "啟用本地暫存器讀取的損壞偵測。驗證物理邊界（SoC、頻率、智慧埠狀態）和能量單調性。僅在出現不穩定的暫存器讀取時啟用（幽靈實體、能量尖峰、無效值）。",
+          "modbus_block_size": "本地輪詢時每個 Modbus 請求讀取的暫存器數量。保守模式使用所有採集棒和韌體都支援的小分組讀取。快速模式一次讀取最多 120 個暫存器以加快輪詢，但舊版採集棒韌體僅支援約 40 個暫存器的讀取——如果大區塊讀取失敗，整合會自動回退到保守模式（並發出警告），直到下次重新載入。",
           "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中",
           "charge_control_mode": "電池如何決定何時停止充電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的限制控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。",
           "discharge_control_mode": "電池如何決定何時停止放電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的截止控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。"
@@ -401,6 +403,12 @@
       "options": {
         "normal": "正常",
         "standby": "待機"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "保守（相容所有韌體）",
+        "fast": "快速（120 個暫存器，需要較新的採集棒韌體）"
       }
     }
   },

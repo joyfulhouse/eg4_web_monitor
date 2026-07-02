@@ -47,6 +47,23 @@ CONF_INCLUDE_AC_COUPLE_PV = "include_ac_couple_pv"  # Add AC couple power to PV 
 CONF_MODBUS_UPDATE_INTERVAL = "modbus_update_interval"
 CONF_DONGLE_UPDATE_INTERVAL = "dongle_update_interval"
 
+# Modbus input-register read block size preset (#254). Conservative keeps the
+# plain per-group reads every dongle/firmware handles; Fast coalesces adjacent
+# register groups into up to 120-register reads (fewer round-trips -> faster
+# polls) on hardware that supports large reads. pylxpweb latches back to the
+# conservative reads automatically if a large read fails.
+CONF_MODBUS_BLOCK_SIZE = "modbus_block_size"
+BLOCK_SIZE_CONSERVATIVE = "conservative"
+BLOCK_SIZE_FAST = "fast"
+DEFAULT_MODBUS_BLOCK_SIZE = BLOCK_SIZE_CONSERVATIVE
+# Preset -> max registers per coalesced read (pylxpweb max_input_block_size).
+# 40 = the documented cap of the oldest dongle firmware (no coalescing);
+# 120 = the field-proven fast setting (DG dongle fw 2.04-2.09, 40-multiple).
+BLOCK_SIZE_PRESET_REGISTERS: dict[str, int] = {
+    BLOCK_SIZE_CONSERVATIVE: 40,
+    BLOCK_SIZE_FAST: 120,
+}
+
 # Connection type configuration
 CONF_CONNECTION_TYPE = "connection_type"
 
