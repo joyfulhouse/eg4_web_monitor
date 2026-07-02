@@ -600,3 +600,241 @@ class TestWritePaths:
         coordinator.write_register.assert_awaited_once_with(
             68, (30 << 8) | 6, serial="1234567890"
         )
+
+
+# ── Failure convergence (PR #283 review P1/P2) ───────────────────────
+
+
+class TestWriteFailureConvergence:
+    """Partial cloud writes and failed refreshes must not hide device state."""
+
+    @pytest.mark.asyncio
+    async def test_cloud_partial_failure_refreshes_and_shows_device_state(self):
+        """P1: hour write succeeds, minute write fails.
+
+        The device now holds hour=new/minute=old. A best-effort parameter
+        refresh must run BEFORE the error propagates, and the entity must
+        reflect the refreshed (mixed) value — not the stale pre-write value
+        and not the optimistic target.
+        """
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            has_local=False,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            },
+        )
+
+        ok = MagicMock()
+        ok.success = True
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            side_effect=[ok, failed]
+        )
+
+        async def _refresh_mixed(*args, **kwargs):
+            # Device truth after the partial write: hour landed, minute not.
+            coordinator.data["parameters"][serial] = {
+                "HOLD_AC_CHARGE_START_HOUR": "20",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            }
+
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=_refresh_mixed
+        )
+
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await entity.async_set_value(time(20, 30))
+
+        coordinator.refresh_all_device_parameters.assert_awaited()
+        # Optimistic dropped; entity shows the re-read (mixed) device state.
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(20, 0)
+
+    @pytest.mark.asyncio
+    async def test_cloud_partial_failure_on_exception_refreshes(self):
+        """P1: a raised exception on the minute write converges the same way."""
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            has_local=False,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            },
+        )
+
+        ok = MagicMock()
+        ok.success = True
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            side_effect=[ok, ConnectionError("boom")]
+        )
+
+        async def _refresh_mixed(*args, **kwargs):
+            coordinator.data["parameters"][serial] = {
+                "HOLD_AC_CHARGE_START_HOUR": "20",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            }
+
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=_refresh_mixed
+        )
+
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await entity.async_set_value(time(20, 30))
+
+        coordinator.refresh_all_device_parameters.assert_awaited()
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(20, 0)
+
+    @pytest.mark.asyncio
+    async def test_cloud_first_write_failure_does_not_refresh(self):
+        """A failed FIRST write changed nothing on the device: no refresh,
+        no "partially applied" wording, entity keeps the cached value."""
+        coordinator = _mock_coordinator(
+            has_local=False,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            },
+        )
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client.api.control.write_parameter = AsyncMock(return_value=failed)
+
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError) as excinfo:
+            await entity.async_set_value(time(20, 30))
+
+        assert "partially applied" not in str(excinfo.value)
+        coordinator.refresh_all_device_parameters.assert_not_awaited()
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(8, 0)
+
+    @pytest.mark.asyncio
+    async def test_write_success_refresh_failure_retains_optimistic(self):
+        """P2: the write landed on the device but the follow-up refresh died.
+
+        Clearing the optimistic value would make the UI "revert" to the stale
+        cached time even though hardware changed — keep the optimistic value.
+        """
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=Exception("refresh died")
+        )
+
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        # Write succeeds; refresh failure is logged, not raised.
+        await entity.async_set_value(time(7, 15))
+
+        coordinator.write_register.assert_awaited_once()
+        assert entity._optimistic_value == time(7, 15)
+        assert entity.native_value == time(7, 15)
+        assert entity.available is True
+
+    @pytest.mark.asyncio
+    async def test_retained_optimistic_clears_when_cache_converges(self):
+        """Retained optimistic value clears once fresh data shows the write."""
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=Exception("refresh died")
+        )
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(7, 15))
+        assert entity._optimistic_value == time(7, 15)
+
+        # A later successful parameter poll delivers the written value.
+        coordinator.data["parameters"][serial] = {
+            "HOLD_AC_CHARGE_START_HOUR_1": _pack(7, 15)
+        }
+        entity._handle_coordinator_update()
+
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(7, 15)
+
+    @pytest.mark.asyncio
+    async def test_retained_optimistic_clears_on_other_fresh_value(self):
+        """Fresh data with a DIFFERENT time (portal change) also clears it."""
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=Exception("refresh died")
+        )
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(7, 15))
+
+        coordinator.data["parameters"][serial] = {
+            "HOLD_AC_CHARGE_START_HOUR_1": _pack(21, 45)
+        }
+        entity._handle_coordinator_update()
+
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(21, 45)
+
+    @pytest.mark.asyncio
+    async def test_retained_optimistic_survives_stale_coordinator_ticks(self):
+        """Coordinator updates that still carry the stale pre-write value
+        must NOT clear the retained optimistic value (that would be the
+        P2 revert, just delayed one poll tick)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=Exception("refresh died")
+        )
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(7, 15))
+
+        # Params cache unchanged (stale) — optimistic must survive the tick.
+        entity._handle_coordinator_update()
+
+        assert entity._optimistic_value == time(7, 15)
+        assert entity.native_value == time(7, 15)
+
+    @pytest.mark.asyncio
+    async def test_local_write_failure_clears_optimistic(self):
+        """A failed LOCAL write (single register, no partial state) drops the
+        optimistic value and keeps the cached time."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.write_register = AsyncMock(
+            side_effect=HomeAssistantError("write failed")
+        )
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_value(time(7, 15))
+
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(8, 0)

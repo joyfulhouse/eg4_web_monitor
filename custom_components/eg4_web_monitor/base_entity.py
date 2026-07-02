@@ -808,32 +808,10 @@ class EG4BaseNumber(CoordinatorEntity):
 
 
 # ========== Time Base Classes ==========
-
-
-@contextmanager
-def optimistic_time_context(
-    entity: "EG4BaseTime", target_value: dt_time
-) -> Generator[None, None, None]:
-    """Context manager for optimistic value handling in time entities.
-
-    Sets the optimistic value before yielding and clears it afterward,
-    ensuring proper cleanup even if an exception occurs (the time-typed
-    sibling of :func:`optimistic_value_context`).
-
-    Args:
-        entity: The time entity to manage optimistic value for.
-        target_value: The optimistic value to set.
-
-    Yields:
-        None - allows the caller to perform the actual write operation.
-    """
-    entity._optimistic_value = target_value
-    entity.async_write_ha_state()
-    try:
-        yield
-    finally:
-        entity._optimistic_value = None
-        entity.async_write_ha_state()
+# NOTE: time entities manage their optimistic value explicitly instead of a
+# finally-always-clears context manager: a successful write whose follow-up
+# refresh fails RETAINS the optimistic value (PR #283 review P2 — clearing
+# would look like a silent revert to the stale cached time).
 
 
 class EG4BaseTime(CoordinatorEntity):
