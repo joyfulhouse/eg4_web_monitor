@@ -47,6 +47,13 @@ def _mock_coordinator(
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
     coordinator.has_configured_local_transport = MagicMock(return_value=has_local)
+    # Mirrors the real predicate for the common shapes (local-only modes and
+    # per-serial configured transports). Tests for the deprecated flat
+    # single-transport format override this directly (GH #272 / codex P2 on
+    # PR #284); the real branch logic is covered in test_coordinator_local.
+    coordinator.has_local_register_path = MagicMock(
+        return_value=(has_local or local_only)
+    )
     coordinator.has_http_api = MagicMock(return_value=has_http)
     coordinator.is_local_only = MagicMock(return_value=local_only)
     coordinator.last_update_success = True
@@ -300,6 +307,34 @@ class TestNumberPlatformSetup:
         even without a CONF_LOCAL_TRANSPORTS entry for the serial (GH #272)."""
         coordinator = _mock_coordinator(has_http=False, local_only=True)
         coordinator.has_configured_local_transport = MagicMock(return_value=False)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "StartDischargePowerNumber" in type_names
+        assert "StartChargePowerNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_legacy_flat_hybrid_creates_both(self, hass):
+        """Deprecated flat-format HYBRID entry creates BOTH threshold numbers.
+
+        Codex P2 on PR #284: the original gate checked only
+        CONF_LOCAL_TRANSPORTS (has_configured_local_transport), but the
+        pre-v3.2 flat single-transport HYBRID format initializes the global
+        _modbus_transport/_dongle_transport directly — those users got Start
+        Discharge but silently no Start Charge. The gate now goes through
+        has_local_register_path(), which recognizes the flat config too
+        (real branch logic covered in test_coordinator_local).
+        """
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        # Flat-format shape: no per-serial transport config, not local-only,
+        # but a legacy global transport exists -> register path available.
+        coordinator.has_configured_local_transport = MagicMock(return_value=False)
+        coordinator.is_local_only = MagicMock(return_value=False)
+        coordinator.has_local_register_path = MagicMock(return_value=True)
         entry = MagicMock()
         entry.runtime_data = coordinator
 

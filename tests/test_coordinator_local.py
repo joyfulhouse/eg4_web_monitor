@@ -33,8 +33,10 @@ from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_HOST,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -340,6 +342,82 @@ class TestWriteRawParameter:
         ):
             with pytest.raises(HomeAssistantError, match="Failed to write register"):
                 await coordinator.write_raw_parameter(117, 100, serial="INV001")
+
+
+# ── has_local_register_path ──────────────────────────────────────────
+
+
+class TestHasLocalRegisterPath:
+    """Config-based gate for raw-register controls (reg 117, GH #272).
+
+    Codex P2 on PR #284: has_configured_local_transport() checks only
+    CONF_LOCAL_TRANSPORTS, but the deprecated flat single-transport format
+    (pre-v3.2) initializes _modbus_transport/_dongle_transport directly from
+    flat entry keys — those HYBRID entries silently lost the reg-117 entity.
+    """
+
+    async def test_legacy_flat_hybrid_recognized(self, hass):
+        """Flat-format HYBRID entry (no CONF_LOCAL_TRANSPORTS) has a path.
+
+        The exact P2 shape: not local-only, no per-serial transport config,
+        but the flat CONF_MODBUS_HOST keys construct the legacy global
+        transport in __init__ — get_local_transport() serves it for writes,
+        so the register path exists.
+        """
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Legacy Flat Hybrid",
+            data={
+                CONF_USERNAME: "test",
+                CONF_PASSWORD: "test",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test",
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
+                # DEPRECATED flat keys — deliberately no CONF_LOCAL_TRANSPORTS
+                CONF_MODBUS_HOST: "192.168.1.50",
+                CONF_INVERTER_SERIAL: "1234567890",
+            },
+            options={},
+            entry_id="legacy_flat_hybrid_test",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        # The P2 shape: the old gate's two branches are both False...
+        assert coordinator.is_local_only() is False
+        assert coordinator.has_configured_local_transport("1234567890") is False
+        # ...but the legacy global transport exists and serves writes.
+        assert coordinator._modbus_transport is not None
+        assert coordinator.get_local_transport("1234567890") is not None
+        assert coordinator.has_local_register_path("1234567890") is True
+
+    async def test_modern_hybrid_configured_serial(self, hass, hybrid_config_entry):
+        """Modern per-serial CONF_LOCAL_TRANSPORTS entry has a path; an
+        unconfigured serial on the same entry does not."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+
+        assert coordinator.has_local_register_path("INV001") is True
+        # No legacy flat transport and no config for this serial -> no path
+        assert coordinator.has_local_register_path("9999999999") is False
+
+    async def test_local_only_mode(self, hass, local_config_entry):
+        """LOCAL mode always has a register path."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        assert coordinator.has_local_register_path("INV001") is True
+
+    async def test_http_only_has_no_path(self, hass, http_config_entry):
+        """Pure cloud entries have no local register path."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+
+        assert coordinator.has_local_register_path("1234567890") is False
 
 
 # ── _build_local_device_data ─────────────────────────────────────────

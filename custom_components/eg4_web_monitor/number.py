@@ -583,10 +583,12 @@ async def async_setup_entry(
                     entities.append(StartDischargePowerNumber(coordinator, serial))
                     # Reg 117 has no cloud parameter name (remoteRead names
                     # it <EMPTY> on every scanned model), so the entity only
-                    # exists where a local register path can serve it.
-                    if coordinator.is_local_only() or (
-                        coordinator.has_configured_local_transport(serial)
-                    ):
+                    # exists where a local register path can serve it — local
+                    # modes, modern per-serial HYBRID transports, AND the
+                    # deprecated flat single-transport format, which
+                    # get_local_transport() still serves for writes (codex
+                    # P2 on PR #284).
+                    if coordinator.has_local_register_path(serial):
                         entities.append(StartChargePowerNumber(coordinator, serial))
 
     if entities:
