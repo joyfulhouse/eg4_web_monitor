@@ -287,6 +287,16 @@ class EG4DataUpdateCoordinator(
             CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
         self._parameter_refresh_interval = timedelta(minutes=param_refresh_minutes)
+        # Sticky-parameter retry tracking (#282): ``_last_parameter_refresh``
+        # is only stamped by a FULLY successful read; ``_last_parameter_attempt``
+        # rate-floors the early retries a failed/partial read re-arms.
+        self._last_parameter_attempt: datetime | None = None
+        # Whether the most recent _read_modbus_parameters() call read every
+        # register range (LOCAL/HYBRID targeted entity-parameter reads).
+        self._last_param_read_complete: bool = True
+        # Aggregated per-cycle flag: any device's targeted parameter read was
+        # partial this cycle (throttle must not arm).
+        self._params_incomplete_this_cycle: bool = False
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None

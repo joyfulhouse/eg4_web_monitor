@@ -342,6 +342,11 @@ class LocalTransportMixin(_MixinBase):
             Dictionary of parameter keys to values matching HTTP API format
         """
         params: dict[str, Any] = {}
+        failed_ranges: list[str] = []
+        # Completeness flag for the caller's sticky carry-forward + throttle
+        # re-arm (#282): a partial read must not blank known parameter values
+        # or arm the refresh throttle.
+        self._last_param_read_complete = True
 
         try:
             # Read all parameter ranges using library's register-to-name mapping
@@ -392,12 +397,22 @@ class LocalTransportMixin(_MixinBase):
                     named_params = await transport.read_named_parameters(start, count)
                     params.update(named_params)
                 except Exception as range_err:
-                    _LOGGER.warning(
+                    failed_ranges.append(f"{start}-{start + count - 1}")
+                    _LOGGER.debug(
                         "Failed to read param registers %d-%d: %s",
                         start,
                         start + count - 1,
                         range_err,
                     )
+
+            if failed_ranges:
+                self._last_param_read_complete = False
+                _LOGGER.info(
+                    "Parameter read incomplete (register range(s) %s failed); "
+                    "keeping last-known values for those parameters and "
+                    "retrying early (#282)",
+                    ", ".join(failed_ranges),
+                )
 
             _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
             # Debug: log key number entity parameters
@@ -421,6 +436,7 @@ class LocalTransportMixin(_MixinBase):
                 _LOGGER.debug("Number entity params: %s", key_params)
 
         except Exception as err:
+            self._last_param_read_complete = False
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
         return params
@@ -603,6 +619,11 @@ class LocalTransportMixin(_MixinBase):
 
             if include_params:
                 param_data = await self._read_modbus_parameters(transport)
+                if not self._last_param_read_complete:
+                    # Sticky carry-forward (#282): keep last-known values for
+                    # the failed range(s); only re-read ranges change.
+                    previous = (self.data or {}).get("parameters", {}).get(serial) or {}
+                    param_data = {**previous, **param_data}
             else:
                 param_data = {}
             processed["parameters"] = {serial: param_data}
@@ -1194,6 +1215,18 @@ class LocalTransportMixin(_MixinBase):
                     transport = inverter.transport
                     if transport:
                         param_data = await self._read_modbus_parameters(transport)
+                        if not self._last_param_read_complete:
+                            # Sticky carry-forward (#282): a partial read must
+                            # not blank previously-known values — one misrouted
+                            # dongle response used to wipe every parameter in
+                            # the failed range (e.g. reg-227 System Charge SOC
+                            # Limit) until the next hourly refresh.  Merge the
+                            # fresh partial read OVER the carried-forward dict
+                            # so only successfully re-read ranges change; a
+                            # COMPLETE read below stays authoritative.
+                            previous = processed["parameters"].get(serial) or {}
+                            param_data = {**previous, **param_data}
+                            self._params_incomplete_this_cycle = True
                     else:
                         param_data = {}
                     processed["parameters"][serial] = param_data
@@ -1588,6 +1621,11 @@ class LocalTransportMixin(_MixinBase):
         self._include_params_this_cycle = (
             self._local_parameters_loaded and self._should_refresh_parameters()
         )
+        # Aggregated per-cycle completeness for the throttle stamp (#282):
+        # any device's partial parameter read keeps the throttle un-armed so
+        # the next cycles retry (rate-floored) instead of serving a degraded
+        # snapshot for the whole parameter interval.
+        self._params_incomplete_this_cycle = False
 
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
@@ -1704,8 +1742,19 @@ class LocalTransportMixin(_MixinBase):
         await self._process_local_parallel_groups(processed)
 
         # Stamp parameter refresh timestamp if params were read this cycle.
+        # A cycle with any PARTIAL parameter read stamps only the attempt
+        # (rate-flooring retries) and leaves the throttle un-armed so the
+        # next cycles retry until a fully successful read (#282).
         if self._include_params_this_cycle and successful_devices > 0:
-            self._last_parameter_refresh = dt_util.utcnow()
+            self._last_parameter_attempt = dt_util.utcnow()
+            if getattr(self, "_params_incomplete_this_cycle", False):
+                _LOGGER.info(
+                    "Parameter read incomplete this cycle; keeping last-known "
+                    "values and retrying early instead of waiting the full "
+                    "parameter interval"
+                )
+            else:
+                self._last_parameter_refresh = dt_util.utcnow()
 
         # On first successful refresh, schedule background parameter +
         # feature detection load so that switch/number entities and

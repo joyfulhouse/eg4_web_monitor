@@ -8,6 +8,7 @@ Covers methods not already tested in test_coordinator.py:
 - _log_transport_error
 """
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
@@ -15,6 +16,7 @@ import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 from pylxpweb.devices import HybridInverter
 from pylxpweb.transports import ModbusSerialTransport
 from pylxpweb.transports.config import AttachResult, TransportType
@@ -280,6 +282,183 @@ class TestReadModbusParameters:
         result = await coordinator._read_modbus_parameters(mock_transport)
 
         assert result == {}
+
+    async def test_partial_failure_marks_read_incomplete(
+        self, hass, local_config_entry
+    ):
+        """A failed range flags the read incomplete (#282 sticky parameters)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        async def mock_read(start: int, count: int) -> dict[str, Any]:
+            if start == 227:  # the #282 range: System Charge SOC Limit
+                raise RuntimeError(
+                    "Response function mismatch: expected 0x03, got 0x04"
+                )
+            return {f"param_{start}": start}
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
+
+        result = await coordinator._read_modbus_parameters(mock_transport)
+
+        assert coordinator._last_param_read_complete is False
+        assert "param_20" in result  # healthy ranges still contribute
+
+    async def test_full_success_marks_read_complete(self, hass, local_config_entry):
+        """A clean read flags the read complete."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
+
+        await coordinator._read_modbus_parameters(mock_transport)
+
+        assert coordinator._last_param_read_complete is True
+
+    async def test_outer_exception_marks_read_incomplete(
+        self, hass, local_config_entry
+    ):
+        """An outer failure (no reads at all) also flags incompleteness."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = MagicMock(spec=[])
+
+        await coordinator._read_modbus_parameters(mock_transport)
+
+        assert coordinator._last_param_read_complete is False
+
+
+# ── #282 sticky parameters: carry-forward + throttle re-arm ─────────
+
+
+class TestStickyParameterCarryForward:
+    """A partial parameter read must not blank known values or arm the throttle.
+
+    Regression for #282: a WiFi-dongle misroute storm failed the reg 125-249
+    read; the partial dict replaced the full one (System Charge SOC Limit,
+    reg 227, went *unknown*) and the 60-minute throttle was stamped anyway, so
+    the blank state persisted for up to an hour.
+    """
+
+    def _seed_coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._local_parameters_loaded = True
+        coordinator._local_static_phase_done = True  # skip the static first refresh
+
+        runtime = InverterRuntimeData(
+            pv_total_power=0,
+            battery_soc=50,
+            rectifier_power=0,
+            parallel_number=0,
+            parallel_master_slave=0,
+            parallel_phase=0,
+        )
+        inv = make_real_inverter("INV001", "FlexBOSS21", runtime=runtime)
+        inv.refresh = AsyncMock()
+        inv.detect_features = AsyncMock()
+        inv._transport = make_transport_spec(is_connected=True)
+        inv._transport_energy = None
+        inv._transport_battery = None
+        coordinator._inverter_cache["INV001"] = inv
+        coordinator._firmware_cache["INV001"] = "TEST-FW"
+        coordinator.data = {
+            "devices": {},
+            "parameters": {
+                "INV001": {
+                    "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,
+                    "HOLD_CHG_POWER_PERCENT_CMD": 80,
+                }
+            },
+        }
+        return coordinator
+
+    async def test_partial_read_carries_forward_and_skips_throttle_stamp(
+        self, hass, local_config_entry
+    ):
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+
+        async def partial_read(transport: Any) -> dict[str, Any]:
+            coordinator._last_param_read_complete = False
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_read_modbus_parameters", side_effect=partial_read
+            ),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            result = await coordinator._async_update_local_data()
+
+        assert result["parameters"]["INV001"] == {
+            "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,  # carried forward, NOT blanked
+            "HOLD_CHG_POWER_PERCENT_CMD": 60,  # fresh value from the healthy range
+        }
+        # The throttle is NOT stamped: the next cycles retry (rate-floored)
+        # instead of serving a degraded snapshot for the full interval.
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._last_parameter_attempt is not None
+
+    async def test_complete_read_replaces_and_stamps_throttle(
+        self, hass, local_config_entry
+    ):
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+
+        async def full_read(transport: Any) -> dict[str, Any]:
+            coordinator._last_param_read_complete = True
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(coordinator, "_read_modbus_parameters", side_effect=full_read),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            result = await coordinator._async_update_local_data()
+
+        # A clean read is authoritative: stale keys are pruned.
+        assert result["parameters"]["INV001"] == {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+        assert coordinator._last_parameter_refresh is not None
+
+
+class TestParameterRetryFloor:
+    """A failed parameter read re-arms an early retry, rate-floored at ~2 min."""
+
+    async def test_failed_attempt_retries_early_but_rate_floored(
+        self, hass, local_config_entry
+    ):
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        # Never fully succeeded, but an attempt JUST happened -> floored.
+        coordinator._last_parameter_refresh = None
+        coordinator._last_parameter_attempt = dt_util.utcnow()
+        assert coordinator._should_refresh_parameters() is False
+
+        # Attempt older than the floor -> retry well before the 60-min interval.
+        coordinator._last_parameter_attempt = dt_util.utcnow() - timedelta(minutes=3)
+        assert coordinator._should_refresh_parameters() is True
+
+    async def test_successful_refresh_keeps_hourly_interval(
+        self, hass, local_config_entry
+    ):
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        coordinator._last_parameter_refresh = dt_util.utcnow() - timedelta(minutes=10)
+        coordinator._last_parameter_attempt = coordinator._last_parameter_refresh
+        assert coordinator._should_refresh_parameters() is False
+
+        coordinator._last_parameter_refresh = dt_util.utcnow() - timedelta(minutes=61)
+        coordinator._last_parameter_attempt = coordinator._last_parameter_refresh
+        assert coordinator._should_refresh_parameters() is True
 
 
 # ── write_raw_parameter ──────────────────────────────────────────────

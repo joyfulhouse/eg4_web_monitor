@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1659,3 +1660,81 @@ class TestMidboxVoltageCanary:
 
         data = MidboxRuntimeData(grid_l1_voltage=None, grid_l2_voltage=None)
         assert data.is_corrupt() is False
+
+
+# ── #282 sticky parameters: hourly refresh retry gating ─────────────
+
+
+class TestHybridParameterRetry:
+    """The hourly parameter throttle must not arm on an incomplete fetch (#282).
+
+    In the incident, one misrouted dongle response failed the reg 125-249
+    read; pylxpweb published a partial parameter dict and the integration
+    stamped the 60-minute throttle anyway, so the degraded snapshot (System
+    Charge SOC Limit unknown) persisted for up to an hour. The stamp is now
+    gated on every inverter's ``parameters_complete`` (new in pylxpweb); a
+    failed fetch re-arms an early retry via ``_last_parameter_attempt``.
+    """
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hourly_refresh_skips_stamp_when_fetch_incomplete(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.data = {"devices": {"INV001": {"type": "inverter"}}}
+
+        inv = MagicMock()
+        inv.parameters_complete = False  # last fetch dropped a range
+        coordinator._inverter_cache = {"INV001": inv}
+
+        with patch.object(
+            coordinator, "refresh_all_device_parameters", new_callable=AsyncMock
+        ):
+            await coordinator._hourly_parameter_refresh()
+
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._last_parameter_attempt is not None
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hourly_refresh_stamps_when_fetch_complete(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.data = {"devices": {"INV001": {"type": "inverter"}}}
+
+        inv = MagicMock()
+        inv.parameters_complete = True
+        coordinator._inverter_cache = {"INV001": inv}
+
+        with patch.object(
+            coordinator, "refresh_all_device_parameters", new_callable=AsyncMock
+        ):
+            await coordinator._hourly_parameter_refresh()
+
+        assert coordinator._last_parameter_refresh is not None
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hourly_refresh_stamps_on_old_pylxpweb(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """A pylxpweb without ``parameters_complete`` keeps today's behavior."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.data = {"devices": {"INV001": {"type": "inverter"}}}
+
+        # No parameters_complete attribute (transport=None keeps the HA
+        # shutdown hook's _disconnect_all_transports happy at teardown).
+        inv = SimpleNamespace(transport=None)
+        coordinator._inverter_cache = {"INV001": inv}
+
+        with patch.object(
+            coordinator, "refresh_all_device_parameters", new_callable=AsyncMock
+        ):
+            await coordinator._hourly_parameter_refresh()
+
+        assert coordinator._last_parameter_refresh is not None
