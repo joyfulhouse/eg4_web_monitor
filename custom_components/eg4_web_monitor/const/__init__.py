@@ -55,6 +55,7 @@ from .config_keys import (
     CONF_INVERTER_SERIAL,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_BLOCK_SIZE,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
@@ -68,6 +69,11 @@ from .config_keys import (
     CONF_SERIAL_PORT,
     CONF_SERIAL_STOPBITS,
     CONF_VERIFY_SSL,
+    # Modbus input-register block size presets (#254)
+    BLOCK_SIZE_CONSERVATIVE,
+    BLOCK_SIZE_FAST,
+    BLOCK_SIZE_PRESET_REGISTERS,
+    DEFAULT_MODBUS_BLOCK_SIZE,
     # Battery control regime
     CONTROL_MODE_SOC,
     CONTROL_MODE_VOLTAGE,
@@ -318,6 +324,7 @@ __all__ = [
     "CONF_INVERTER_SERIAL",
     "CONF_LIBRARY_DEBUG",
     "CONF_LOCAL_TRANSPORTS",
+    "CONF_MODBUS_BLOCK_SIZE",
     "CONF_MODBUS_HOST",
     "CONF_MODBUS_PORT",
     "CONF_MODBUS_UNIT_ID",
@@ -461,6 +468,11 @@ __all__ = [
     "SYSTEM_CHARGE_SOC_LIMIT_MAX",
     "SYSTEM_CHARGE_SOC_LIMIT_MIN",
     "SYSTEM_CHARGE_SOC_LIMIT_STEP",
+    # Modbus input-register block size presets (#254)
+    "BLOCK_SIZE_CONSERVATIVE",
+    "BLOCK_SIZE_FAST",
+    "BLOCK_SIZE_PRESET_REGISTERS",
+    "DEFAULT_MODBUS_BLOCK_SIZE",
     # Battery control regime (SOC vs Voltage)
     "CONF_CHARGE_CONTROL_MODE",
     "CONF_DISCHARGE_CONTROL_MODE",

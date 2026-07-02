@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
           "library_debug": "Library Debug Logging",
           "data_validation": "Register Data Validation",
+          "modbus_block_size": "Modbus Read Block Size",
           "include_ac_couple_pv": "Include AC-Coupled PV in Totals",
           "charge_control_mode": "Battery Charge Control",
           "discharge_control_mode": "Battery Discharge Control"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)",
           "data_validation": "Enable corruption detection for local register reads. Validates physical bounds (SoC, frequency, smart port status) and energy monotonicity. Only enable if you experience unstable register reads (ghost entities, energy spikes, invalid values).",
+          "modbus_block_size": "How many registers to read per Modbus request when polling locally. Conservative uses small grouped reads that every dongle and firmware supports. Fast reads up to 120 registers at once for faster polling, but older dongle firmware only supports ~40-register reads — if a large read fails, the integration automatically falls back to Conservative (with a warning) until the next reload.",
           "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals",
           "charge_control_mode": "How your battery decides when to STOP charging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected limit controls are hidden by default. ⚠️ Changing this also reconfigures your inverter.",
           "discharge_control_mode": "How your battery decides when to STOP discharging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected cutoff controls are hidden by default. ⚠️ Changing this also reconfigures your inverter."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normal",
         "standby": "Standby"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservative (compatible with all firmware)",
+        "fast": "Fast (120 registers, requires newer dongle firmware)"
       }
     }
   },

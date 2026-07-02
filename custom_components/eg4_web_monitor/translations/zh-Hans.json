@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "参数刷新间隔（分钟）",
           "library_debug": "库调试日志",
           "data_validation": "寄存器数据验证",
+          "modbus_block_size": "Modbus 读取块大小",
           "include_ac_couple_pv": "将交流耦合光伏纳入总量",
           "charge_control_mode": "电池充电控制",
           "discharge_control_mode": "电池放电控制"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "刷新逆变器参数（如 SOC 限制和充电设置）的频率（{min_param_interval}-{max_param_interval} 分钟）。",
           "library_debug": "启用 pylxpweb 库的 DEBUG 日志（显示 API 请求、响应和内部库操作）",
           "data_validation": "启用本地寄存器读取的损坏检测。验证物理边界（SoC、频率、智能端口状态）和能量单调性。仅在出现不稳定的寄存器读取时启用（幽灵实体、能量尖峰、无效值）。",
+          "modbus_block_size": "本地轮询时每个 Modbus 请求读取的寄存器数量。保守模式使用所有采集棒和固件都支持的小分组读取。快速模式一次读取最多 120 个寄存器以加快轮询，但旧版采集棒固件仅支持约 40 个寄存器的读取——如果大块读取失败，集成会自动回退到保守模式（并发出警告），直到下次重新加载。",
           "include_ac_couple_pv": "将GridBOSS智能端口的交流耦合太阳能逆变器功率添加到并联组光伏总量中",
           "charge_control_mode": "电池如何决定何时停止充电：SOC（闭环，带 BMS 的锂电池）或电压（开环，铅酸/无 BMS）。未选中的限值控件默认隐藏。⚠️ 更改此项也会重新配置逆变器。",
           "discharge_control_mode": "电池如何决定何时停止放电：SOC（闭环，带 BMS 的锂电池）或电压（开环，铅酸/无 BMS）。未选中的截止控件默认隐藏。⚠️ 更改此项也会重新配置逆变器。"
@@ -401,6 +403,12 @@
       "options": {
         "normal": "正常",
         "standby": "待机"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "保守（兼容所有固件）",
+        "fast": "快速（120 个寄存器，需要较新的采集棒固件）"
       }
     }
   },

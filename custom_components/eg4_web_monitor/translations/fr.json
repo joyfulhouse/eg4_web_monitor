@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Intervalle d'actualisation des parametres (minutes)",
           "library_debug": "Journalisation de debogage de la bibliotheque",
           "data_validation": "Validation des Données de Registre",
+          "modbus_block_size": "Taille de bloc de lecture Modbus",
           "include_ac_couple_pv": "Inclure le PV couplé CA dans les totaux",
           "charge_control_mode": "Contrôle de charge de la batterie",
           "discharge_control_mode": "Contrôle de décharge de la batterie"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Frequence d'actualisation des parametres de l'onduleur comme les limites SOC et les parametres de charge ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Activer la journalisation DEBUG pour la bibliotheque pylxpweb (affiche les requetes API, les reponses et les operations internes de la bibliotheque)",
           "data_validation": "Activer la détection de corruption pour les lectures de registres locaux. Valide les limites physiques (SoC, fréquence, état des ports intelligents) et la monotonie énergétique. À activer uniquement en cas de lectures instables (entités fantômes, pics d'énergie, valeurs invalides).",
+          "modbus_block_size": "Nombre de registres lus par requête Modbus lors de l'interrogation locale. Conservateur utilise de petites lectures groupées prises en charge par tous les dongles et firmwares. Rapide lit jusqu'à 120 registres à la fois pour une interrogation plus rapide, mais les anciens firmwares de dongle ne prennent en charge que des lectures d'environ 40 registres — si une grande lecture échoue, l'intégration revient automatiquement à Conservateur (avec un avertissement) jusqu'au prochain rechargement.",
           "include_ac_couple_pv": "Ajouter la puissance de l'onduleur solaire couplé CA (depuis les Smart Ports du GridBOSS) aux totaux PV du groupe parallèle",
           "charge_control_mode": "Comment votre batterie décide d'ARRÊTER la charge : SOC (boucle fermée, lithium avec BMS) ou Tension (boucle ouverte, plomb-acide / sans BMS). Les commandes de limite non sélectionnées sont masquées par défaut. ⚠️ Modifier ce réglage reconfigure aussi votre onduleur.",
           "discharge_control_mode": "Comment votre batterie décide d'ARRÊTER la décharge : SOC (boucle fermée, lithium avec BMS) ou Tension (boucle ouverte, plomb-acide / sans BMS). Les commandes de coupure non sélectionnées sont masquées par défaut. ⚠️ Modifier ce réglage reconfigure aussi votre onduleur."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normal",
         "standby": "Veille"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservateur (compatible avec tous les firmwares)",
+        "fast": "Rapide (120 registres, nécessite un firmware de dongle récent)"
       }
     }
   },

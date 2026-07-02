@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Interwal odswiezania parametrow (minuty)",
           "library_debug": "Logowanie debugowania biblioteki",
           "data_validation": "Walidacja Danych Rejestru",
+          "modbus_block_size": "Rozmiar bloku odczytu Modbus",
           "include_ac_couple_pv": "Uwzględnij PV sprzężone AC w sumach",
           "charge_control_mode": "Sterowanie ładowaniem baterii",
           "discharge_control_mode": "Sterowanie rozładowaniem baterii"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Jak czesto odswiezac parametry falownika, takie jak limity SOC i ustawienia ladowania ({min_param_interval}-{max_param_interval} minut).",
           "library_debug": "Wlacz logowanie DEBUG dla biblioteki pylxpweb (pokazuje zadania API, odpowiedzi i wewnetrzne operacje biblioteki)",
           "data_validation": "Włącz wykrywanie uszkodzeń dla lokalnych odczytów rejestrów. Sprawdza granice fizyczne (SoC, częstotliwość, status portów inteligentnych) i monotoniczność energii. Włącz tylko w przypadku niestabilnych odczytów (encje-duchy, skoki energii, nieprawidłowe wartości).",
+          "modbus_block_size": "Ile rejestrów odczytywać na jedno żądanie Modbus podczas lokalnego odpytywania. Konserwatywny używa małych, grupowanych odczytów obsługiwanych przez każdy dongle i firmware. Szybki odczytuje do 120 rejestrów naraz, przyspieszając odpytywanie, ale starsze firmware dongle obsługuje tylko odczyty ~40 rejestrów — jeśli duży odczyt się nie powiedzie, integracja automatycznie wraca do trybu konserwatywnego (z ostrzeżeniem) do następnego przeładowania.",
           "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej",
           "charge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ ładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki limitów są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik.",
           "discharge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ rozładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki odcięcia są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normalny",
         "standby": "Czuwanie"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Konserwatywny (zgodny z każdym firmware)",
+        "fast": "Szybki (120 rejestrów, wymaga nowszego firmware dongle)"
       }
     }
   },

@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Intervalo de Atualização de Parâmetros (minutos)",
           "library_debug": "Log de Depuração da Biblioteca",
           "data_validation": "Validação de Dados de Registro",
+          "modbus_block_size": "Tamanho do bloco de leitura Modbus",
           "include_ac_couple_pv": "Incluir PV acoplado em CA nos totais",
           "charge_control_mode": "Controlo de carga da bateria",
           "discharge_control_mode": "Controlo de descarga da bateria"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Com que frequência atualizar parâmetros do inversor como limites de SOC e configurações de carga ({min_param_interval}-{max_param_interval} minutos).",
           "library_debug": "Habilitar log de depuração (DEBUG) para a biblioteca pylxpweb (mostra requisições da API, respostas e operações internas da biblioteca)",
           "data_validation": "Ativar detecção de corrupção para leituras de registros locais. Valida limites físicos (SoC, frequência, estado das portas inteligentes) e monotonicidade de energia. Ativar apenas se houver leituras instáveis (entidades fantasma, picos de energia, valores inválidos).",
+          "modbus_block_size": "Quantos registros ler por solicitação Modbus na sondagem local. Conservador usa pequenas leituras agrupadas compatíveis com todos os dongles e firmwares. Rápido lê até 120 registros de uma vez para sondagem mais rápida, mas firmwares antigos de dongle só suportam leituras de ~40 registros — se uma leitura grande falhar, a integração volta automaticamente para Conservador (com um aviso) até a próxima recarga.",
           "include_ac_couple_pv": "Adicionar potência do inversor solar acoplado em CA (das Smart Ports do GridBOSS) aos totais de PV do grupo paralelo",
           "charge_control_mode": "Como a bateria decide quando PARAR de carregar: SOC (malha fechada, lítio com BMS) ou Tensão (malha aberta, chumbo-ácido / sem BMS). Os controlos de limite não selecionados ficam ocultos por predefinição. ⚠️ Alterar isto também reconfigura o inversor.",
           "discharge_control_mode": "Como a bateria decide quando PARAR de descarregar: SOC (malha fechada, lítio com BMS) ou Tensão (malha aberta, chumbo-ácido / sem BMS). Os controlos de corte não selecionados ficam ocultos por predefinição. ⚠️ Alterar isto também reconfigura o inversor."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normal",
         "standby": "Espera"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservador (compatível com todos os firmwares)",
+        "fast": "Rápido (120 registros, requer firmware de dongle mais recente)"
       }
     }
   },

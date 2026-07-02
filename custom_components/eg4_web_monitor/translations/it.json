@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Intervallo Aggiornamento Parametri (minuti)",
           "library_debug": "Log di Debug Libreria",
           "data_validation": "Validazione Dati Registro",
+          "modbus_block_size": "Dimensione del blocco di lettura Modbus",
           "include_ac_couple_pv": "Includi PV accoppiato CA nei totali",
           "charge_control_mode": "Controllo carica batteria",
           "discharge_control_mode": "Controllo scarica batteria"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Quanto spesso aggiornare i parametri dell'inverter come limiti SOC e impostazioni di carica ({min_param_interval}-{max_param_interval} minuti).",
           "library_debug": "Abilita il logging DEBUG per la libreria pylxpweb (mostra richieste API, risposte e operazioni interne della libreria)",
           "data_validation": "Abilita il rilevamento della corruzione per le letture dei registri locali. Valida i limiti fisici (SoC, frequenza, stato porte smart) e la monotonia energetica. Abilitare solo in caso di letture instabili (entità fantasma, picchi di energia, valori non validi).",
+          "modbus_block_size": "Quanti registri leggere per richiesta Modbus durante il polling locale. Conservativa usa piccole letture raggruppate supportate da ogni dongle e firmware. Veloce legge fino a 120 registri alla volta per un polling più rapido, ma i firmware dei dongle più vecchi supportano solo letture di ~40 registri: se una lettura grande fallisce, l'integrazione torna automaticamente a Conservativa (con un avviso) fino al prossimo ricaricamento.",
           "include_ac_couple_pv": "Aggiungere la potenza dell'inverter solare accoppiato CA (dalle Smart Port del GridBOSS) ai totali PV del gruppo parallelo",
           "charge_control_mode": "Come la batteria decide quando FERMARE la carica: SOC (anello chiuso, litio con BMS) o Tensione (anello aperto, piombo-acido / senza BMS). I controlli di limite non selezionati sono nascosti per impostazione predefinita. ⚠️ La modifica riconfigura anche l'inverter.",
           "discharge_control_mode": "Come la batteria decide quando FERMARE la scarica: SOC (anello chiuso, litio con BMS) o Tensione (anello aperto, piombo-acido / senza BMS). I controlli di stacco non selezionati sono nascosti per impostazione predefinita. ⚠️ La modifica riconfigura anche l'inverter."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normale",
         "standby": "Standby"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservativa (compatibile con tutti i firmware)",
+        "fast": "Veloce (120 registri, richiede firmware del dongle recente)"
       }
     }
   },

@@ -374,6 +374,7 @@
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
           "data_validation": "Registerdata Validatie",
+          "modbus_block_size": "Modbus-leesblokgrootte",
           "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen",
           "charge_control_mode": "Batterijlaadbesturing",
           "discharge_control_mode": "Batterijontlaadbesturing"
@@ -386,6 +387,7 @@
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
           "data_validation": "Corruptiedetectie voor lokale registerlezingen inschakelen. Valideert fysieke grenzen (SoC, frequentie, smartpoortstatus) en energiemonotoniteit. Alleen inschakelen bij instabiele registerlezingen (spookentiteiten, energiepieken, ongeldige waarden).",
+          "modbus_block_size": "Hoeveel registers per Modbus-verzoek worden gelezen bij lokale polling. Conservatief gebruikt kleine gegroepeerde uitlezingen die elke dongle en firmware ondersteunt. Snel leest tot 120 registers tegelijk voor snellere polling, maar oudere dongle-firmware ondersteunt alleen uitlezingen van ~40 registers — mislukt een grote uitlezing, dan valt de integratie automatisch (met een waarschuwing) terug op Conservatief tot de volgende herlaadbeurt.",
           "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep",
           "charge_control_mode": "Hoe uw batterij bepaalt wanneer het laden STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde limietbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer.",
           "discharge_control_mode": "Hoe uw batterij bepaalt wanneer het ontladen STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde afschakelbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer."
@@ -401,6 +403,12 @@
       "options": {
         "normal": "Normaal",
         "standby": "Stand-by"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservatief (compatibel met alle firmware)",
+        "fast": "Snel (120 registers, vereist nieuwere dongle-firmware)"
       }
     }
   },

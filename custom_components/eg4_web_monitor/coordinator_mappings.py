@@ -5,13 +5,18 @@ maintainability. These map pylxpweb transport/device objects to sensor
 key dictionaries used by Home Assistant entities.
 """
 
+import dataclasses
+import inspect
 import logging
 from collections.abc import Callable
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BLOCK_SIZE_CONSERVATIVE,
+    BLOCK_SIZE_PRESET_REGISTERS,
     DEFAULT_MODBUS_UNIT_ID,
     GRID_TYPE_SINGLE_PHASE,
     GRID_TYPE_SPLIT_PHASE,
@@ -1791,8 +1796,73 @@ def _derive_model_from_family(
     return INVERTER_FAMILY_DEFAULT_MODELS.get(family_str, fallback)
 
 
+# ---------------------------------------------------------------------------
+# Modbus input-register block size (#254)
+# ---------------------------------------------------------------------------
+
+# The conservative register count — anything at or below this means "plain
+# grouped reads", which needs no transport parameter at all.
+_CONSERVATIVE_BLOCK_REGISTERS = BLOCK_SIZE_PRESET_REGISTERS[BLOCK_SIZE_CONSERVATIVE]
+
+
+@lru_cache(maxsize=1)
+def _warn_block_size_unsupported() -> bool:
+    """Warn once per HA run that the installed pylxpweb lacks the parameter."""
+    _LOGGER.warning(
+        "Modbus read block size is set to Fast, but the installed pylxpweb "
+        "does not support max_input_block_size yet — using the conservative "
+        "grouped reads. Update pylxpweb to enable faster polling."
+    )
+    return True
+
+
+def input_block_size_kwargs(max_input_block_size: int) -> dict[str, Any]:
+    """Feature-detected transport kwargs for the configured read block size.
+
+    Returns ``{"max_input_block_size": N}`` when a non-conservative size is
+    configured AND the installed pylxpweb transports accept the parameter
+    (added after 0.9.36b19); otherwise ``{}``, so transport construction
+    stays silently conservative on released library versions (#254, same
+    fallback approach as #281).
+
+    Detection uses ``ModbusTransport`` as the representative signature — the
+    parameter ships on all local transports in the same pylxpweb release.
+    """
+    if max_input_block_size <= _CONSERVATIVE_BLOCK_REGISTERS:
+        return {}
+    from pylxpweb.transports import ModbusTransport
+
+    if (
+        "max_input_block_size"
+        not in inspect.signature(ModbusTransport.__init__).parameters
+    ):
+        _warn_block_size_unsupported()
+        return {}
+    return {"max_input_block_size": max_input_block_size}
+
+
+def transport_config_block_size_kwargs(max_input_block_size: int) -> dict[str, Any]:
+    """Feature-detected ``TransportConfig`` kwargs for the read block size.
+
+    ``TransportConfig`` is a dataclass — passing an unknown field raises
+    TypeError on released pylxpweb (0.9.36b19), so the field is included
+    only when the installed library defines it (#254).
+    """
+    if max_input_block_size <= _CONSERVATIVE_BLOCK_REGISTERS:
+        return {}
+    from pylxpweb.transports.config import TransportConfig
+
+    if not any(
+        f.name == "max_input_block_size" for f in dataclasses.fields(TransportConfig)
+    ):
+        _warn_block_size_unsupported()
+        return {}
+    return {"max_input_block_size": max_input_block_size}
+
+
 def _build_transport_configs(
     config_list: list[dict[str, Any]],
+    max_input_block_size: int | None = None,
 ) -> list[Any]:
     """Convert stored config dicts to TransportConfig objects.
 
@@ -1800,11 +1870,20 @@ def _build_transport_configs(
         config_list: List of transport config dicts from CONF_LOCAL_TRANSPORTS.
             Each dict should have: serial, transport_type, host, port, and
             type-specific fields (unit_id for modbus, dongle_serial for dongle).
+        max_input_block_size: Configured Modbus read block size in registers
+            (#254). Included in the configs only when non-conservative AND the
+            installed pylxpweb supports it; None means "not configured".
 
     Returns:
         List of TransportConfig objects ready for Station.attach_local_transports().
     """
     from pylxpweb.transports.config import TransportConfig, TransportType
+
+    block_size_kwargs = (
+        transport_config_block_size_kwargs(max_input_block_size)
+        if max_input_block_size is not None
+        else {}
+    )
 
     configs = []
     for item in config_list:
@@ -1815,7 +1894,7 @@ def _build_transport_configs(
             inverter_family = _parse_inverter_family(item.get("inverter_family"))
 
             # Build type-specific kwargs
-            extra_kwargs: dict[str, Any] = {}
+            extra_kwargs: dict[str, Any] = dict(block_size_kwargs)
             if transport_type == TransportType.MODBUS_TCP:
                 extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
             elif transport_type == TransportType.WIFI_DONGLE:
