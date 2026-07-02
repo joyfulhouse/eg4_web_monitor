@@ -358,6 +358,16 @@ class EG4DataUpdateCoordinator(
         # duplicate/misreported battery serial).  Sticky until restart;
         # positional registry rows are left untouched as orphans.
         self._battery_migration_suppressed: set[str] = set()
+        # Last published battery mapping per inverter (#258 beta.18): battery
+        # entity availability is key-presence in device_data["batteries"], and
+        # the HYBRID/CLOUD paths rebuild that dict from the cloud payload as
+        # the BASELINE every cycle — a battery the cloud momentarily omits
+        # (rotating >4 packs feed the cloud through the same firmware page
+        # rotation) vanished and its entities flipped unavailable.  A battery
+        # once published is carried forward with its last-known data instead;
+        # staleness stays visible via battery_last_seen, never via
+        # availability flapping.  Outer key = inverter serial.
+        self._battery_carry_forward: dict[str, dict[str, dict[str, Any]]] = {}
 
         # Shared-battery secondary inverters: in parallel systems the CAN bus
         # connects only to the primary.  Secondaries (role >= 2) with

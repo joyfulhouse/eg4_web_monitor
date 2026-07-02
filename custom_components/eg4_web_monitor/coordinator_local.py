@@ -1136,20 +1136,25 @@ class LocalTransportMixin(_MixinBase):
                                 len(battery_data.batteries),
                                 len(self._battery_rr_cache.get(serial, {})),
                             )
-                        elif serial in self._battery_rr_cache:
-                            # Individual battery registers unavailable this poll
-                            # (e.g. transient read failure).  Serve cached data
-                            # so entities stay available rather than going
-                            # unavailable until the next successful read.
-                            device_data["batteries"] = dict(
-                                self._battery_rr_cache[serial]
-                            )
-                            _LOGGER.debug(
-                                "LOCAL: %s serving %d individual batteries "
-                                "from cache (no battery data this poll)",
-                                serial,
-                                len(device_data["batteries"]),
-                            )
+                if not device_data["batteries"] and (
+                    cached_batteries := self._battery_rr_cache.get(serial)
+                ):
+                    # Individual batteries unavailable this poll — transient
+                    # read failure, a cleared transport battery cache, or a
+                    # momentary reg 96 = 0 under-report (#258; reg 96 is
+                    # unreliable on parallel/rotating systems).  Serve the
+                    # round-robin cache so entities stay available rather
+                    # than flipping unavailable until the next good read.
+                    # A genuine shared-battery secondary never populates the
+                    # cache, so this can only re-serve batteries this
+                    # inverter itself reported earlier.
+                    device_data["batteries"] = dict(cached_batteries)
+                    _LOGGER.debug(
+                        "LOCAL: %s serving %d individual batteries "
+                        "from cache (no battery data this poll)",
+                        serial,
+                        len(device_data["batteries"]),
+                    )
 
                 device_data["sensors"]["firmware_version"] = firmware_version
                 device_data["sensors"]["connection_transport"] = _get_transport_label(

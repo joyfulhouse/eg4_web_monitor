@@ -1351,6 +1351,198 @@ class TestBatteryExtraction:
         assert batteries["INV001-BAT002"]["battery_soc"] == 82
 
 
+# ── Battery carry-forward across transient merge-set shrinkage ───────
+
+
+def _cloud_battery(key: str, sn: str | None, index: int, soc: int) -> MagicMock:
+    """Cloud battery metadata stand-in matching the pylxpweb Battery shape."""
+    return MagicMock(
+        battery_key=key,
+        battery_sn=sn,
+        battery_index=index,
+        soc=soc,
+        model=None,
+        bms_model=None,
+        battery_type_text=None,
+    )
+
+
+def _carry_forward_fake_map(b: Any) -> dict[str, Any]:
+    """Battery mapping stub carrying identity + staleness like the real one."""
+    sn = getattr(b, "battery_sn", None) or getattr(b, "serial_number", None)
+    return {
+        "battery_soc": b.soc,
+        "battery_serial_number": sn if isinstance(sn, str) else None,
+        "battery_last_seen": dt_util.utcnow(),
+    }
+
+
+class TestBatteryCarryForward:
+    """#258 beta.18 regression: batteries flip unavailable on merge-set shrink.
+
+    Reporter's HYBRID rig (2× LXP, 8 rotating batteries, WiFi dongles): the
+    local accumulator held all 8 batteries through both drop windows, yet
+    SUBSETS of battery entities flipped unavailable (01-04 at 16:06:45,
+    05+ at 17:58:27) seconds after a fresh cloud getBatteryInfo. The HYBRID
+    merge uses the cloud payload as the BASELINE, so any battery the cloud
+    momentarily omits (or re-keys) vanishes from the merged dict — and
+    availability is literally key-presence. A battery once published must
+    stay published: carry the last-known mapping forward, staleness stays
+    visible via battery_last_seen.
+    """
+
+    def _make_coordinator(self, hass, http_config_entry):
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        inv = make_real_inverter(serial_number="INV001")
+        # Hybrid identity: transport attached, no live battery page this
+        # cycle (matches the reporter's firmware-pinned all-empty pages).
+        inv._transport = MagicMock()
+        inv._transport_battery = BatteryBankData(batteries=[])
+        coordinator.station = _mock_station([inv])
+        coordinator._inverter_cache = {"INV001": inv}
+        coordinator.data = {"parameters": {"INV001": {}}}
+        return coordinator, inv
+
+    async def _run_cycle(self, coordinator) -> dict[str, Any]:
+        def _fresh_device_data(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {
+                "type": "inverter",
+                "model": "FlexBOSS21",
+                "sensors": {},
+                "batteries": {},
+            }
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_inverter_object",
+                new=AsyncMock(side_effect=_fresh_device_data),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._build_individual_battery_mapping",
+                side_effect=_carry_forward_fake_map,
+            ),
+        ):
+            result = await coordinator._process_station_data()
+        batteries: dict[str, Any] = result["devices"]["INV001"]["batteries"]
+        return batteries
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_cloud_payload_shrink_carries_forward_missing_batteries(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Batteries the cloud momentarily omits keep their last-known data."""
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+
+        bank = MagicMock()
+        bank.batteries = [
+            _cloud_battery("INV001_BAT001", "BAT001", 0, 85),
+            _cloud_battery("INV001_BAT002", "BAT002", 1, 82),
+            _cloud_battery("INV001_BAT003", "BAT003", 2, 79),
+        ]
+        inv._battery_bank = bank
+
+        first = await self._run_cycle(coordinator)
+        assert set(first) == {"INV001-BAT001", "INV001-BAT002", "INV001-BAT003"}
+        first_seen_bat2 = first["INV001-BAT002"]["battery_last_seen"]
+
+        # Cycle 2: the fresh cloud payload carries only BAT001 (the exact
+        # beta.18 drop shape — subsets vanish, grouped by firmware page).
+        bank.batteries = [_cloud_battery("INV001_BAT001", "BAT001", 0, 86)]
+
+        second = await self._run_cycle(coordinator)
+        # Present battery refreshed; missing ones carried forward, not dropped.
+        assert second["INV001-BAT001"]["battery_soc"] == 86
+        assert second["INV001-BAT002"]["battery_soc"] == 82
+        assert second["INV001-BAT003"]["battery_soc"] == 79
+        # Carried entries keep their original staleness stamp (never re-stamped).
+        assert second["INV001-BAT002"]["battery_last_seen"] == first_seen_bat2
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_cloud_bank_gone_carries_forward_all_batteries(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """A cycle with no cloud bank and no transport keeps every battery."""
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+
+        bank = MagicMock()
+        bank.batteries = [
+            _cloud_battery("INV001_BAT001", "BAT001", 0, 85),
+            _cloud_battery("INV001_BAT002", "BAT002", 1, 82),
+        ]
+        inv._battery_bank = bank
+
+        first = await self._run_cycle(coordinator)
+        assert len(first) == 2
+
+        # Cycle 2: cloud bank lost entirely, transport cache cleared — the
+        # cycle falls through every battery branch.
+        inv._battery_bank = None
+        inv._transport = None
+        inv._transport_battery = None
+
+        second = await self._run_cycle(coordinator)
+        assert second["INV001-BAT001"]["battery_soc"] == 85
+        assert second["INV001-BAT002"]["battery_soc"] == 82
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_carry_forward_skips_identity_republished_under_new_key(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """A battery re-keyed by the cloud must not linger under its old key.
+
+        Carrying the old key alongside the new one would publish the same
+        physical pack twice (one frozen), and a lingering legacy positional
+        key would permanently block the #252 registry migration ("legacy key
+        still active").
+        """
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+
+        bank = MagicMock()
+        # Placeholder batteryKey, no serial → positional canonical key.
+        bank.batteries = [_cloud_battery("INV001_Battery_ID_01", None, 0, 70)]
+        inv._battery_bank = bank
+
+        first = await self._run_cycle(coordinator)
+        assert set(first) == {"INV001-01"}
+
+        # Cycle 2: the cloud now reports the real serial for the same pack —
+        # the canonical key changes and INV001-01 becomes its legacy alias.
+        bank.batteries = [_cloud_battery("INV001_BAT001", "BAT001", 0, 71)]
+
+        second = await self._run_cycle(coordinator)
+        assert second["INV001-BAT001"]["battery_soc"] == 71
+        assert "INV001-01" not in second
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_carry_forward_skips_serial_present_under_different_key(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Same serial under a changed cloud batteryKey is superseded, not doubled."""
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+
+        bank = MagicMock()
+        bank.batteries = [_cloud_battery("INV001_BAT001", "BAT001", 0, 85)]
+        inv._battery_bank = bank
+
+        first = await self._run_cycle(coordinator)
+        assert set(first) == {"INV001-BAT001"}
+
+        # Cycle 2: the cloud batteryKey format changes for the SAME serial.
+        bank.batteries = [_cloud_battery("BAT001", "BAT001", 0, 87)]
+
+        second = await self._run_cycle(coordinator)
+        assert second["BAT001"]["battery_soc"] == 87
+        # The old key is not carried — its serial is already published.
+        assert "INV001-BAT001" not in second
+        assert len(second) == 1
+
+
 # ── _refresh_station_devices (serialized dongle access) ──────────────
 
 

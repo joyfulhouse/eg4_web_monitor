@@ -2553,6 +2553,82 @@ class TestBatteryRRCacheFallback:
         # No fallback possible — batteries stays empty
         assert device["batteries"] == {}
 
+    async def test_cache_fallback_when_reg96_reads_zero(self, hass: Any) -> None:
+        """A transient reg 96 = 0 must not drop accumulated batteries (#258).
+
+        reg 96 under-reports on parallel/rotating systems.  A genuine
+        shared-battery secondary never populates the round-robin cache, so
+        serving a non-empty cache here can only ever re-serve batteries this
+        inverter itself reported earlier.
+        """
+        serial = "DONGLE001"
+        entry = self._make_config_entry(hass, serial)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+
+        coordinator._battery_rr_cache[serial] = {
+            f"{serial}-01": {"soc": 80, "voltage": 52.8},
+            f"{serial}-02": {"soc": 79, "voltage": 52.7},
+        }
+
+        # This poll: reg 96 reads 0 (bank gate) with an empty page.
+        mock_inverter = self._make_mock_inverter(battery_count=0, batteries=[])
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+            return_value={"state_of_charge": 79},
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability={},
+            )
+
+        device = processed["devices"][serial]
+        assert len(device["batteries"]) == 2
+        assert f"{serial}-01" in device["batteries"]
+
+    async def test_cache_fallback_when_transport_battery_none(self, hass: Any) -> None:
+        """A cleared transport battery cache must not drop accumulated batteries."""
+        serial = "DONGLE001"
+        entry = self._make_config_entry(hass, serial)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+
+        coordinator._battery_rr_cache[serial] = {
+            f"{serial}-01": {"soc": 80, "voltage": 52.8},
+        }
+
+        mock_inverter = self._make_mock_inverter(battery_count=4, batteries=[])
+        mock_inverter._transport_battery = None
+        coordinator._inverter_cache[serial] = mock_inverter
+        coordinator._firmware_cache[serial] = "FAAB-2525"
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+            return_value={"state_of_charge": 79},
+        ):
+            processed: dict[str, Any] = {
+                "devices": {},
+                "parallel_groups": {},
+                "parameters": {},
+            }
+            await coordinator._process_single_local_device(
+                config=entry.data[CONF_LOCAL_TRANSPORTS][0],
+                processed=processed,
+                device_availability={},
+            )
+
+        device = processed["devices"][serial]
+        assert f"{serial}-01" in device["batteries"]
+
 
 class TestBatteryControlModeMethods:
     """Coordinator helpers for the battery control regime (SOC vs Voltage)."""
