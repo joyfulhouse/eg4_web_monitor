@@ -1357,7 +1357,7 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
                 local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
                 local_value=int_value,
                 # Unreachable with a local transport; kept honest for the
-                # shared helper's signature (pylxpweb >= 0.9.36b19 has the
+                # shared helper's signature (pylxpweb >= 0.9.36b18 has the
                 # named Modbus method).
                 cloud_method="set_start_discharge_power",
                 cloud_kwargs={"watts": int_value},
