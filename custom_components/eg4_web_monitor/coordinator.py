@@ -861,6 +861,60 @@ class EG4DataUpdateCoordinator(
                 f"Failed to write register {address}: {err}"
             ) from err
 
+    async def write_register(
+        self,
+        register: int,
+        value: int,
+        serial: str | None = None,
+    ) -> bool:
+        """Write a raw holding register through the local transport.
+
+        The raw-register sibling of :meth:`write_named_parameter`, for
+        registers whose local name mapping is absent or wrong (e.g. the
+        packed AC-charge schedule registers 68-73, issue #277 — their
+        pylxpweb names misdescribe the packed hour|minute layout). A single
+        register is written per call, which the transports send as a Modbus
+        FC06 single-register write — schedule registers reject FC16
+        multi-register writes.
+
+        NOTE: functionally overlaps :meth:`write_raw_parameter` (GH #272);
+        consolidating the two is a documented deferred cleanup — do not
+        merge them piecemeal.
+
+        Args:
+            register: Holding register address.
+            value: Raw 16-bit register value to write.
+            serial: Device serial for LOCAL mode with multiple devices.
+
+        Returns:
+            True if write succeeded.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError("No local transport available for register write")
+
+        try:
+            if not transport.is_connected:
+                _LOGGER.debug(
+                    "Reconnecting transport for %s before writing register %d",
+                    serial,
+                    register,
+                )
+                await transport.connect()
+
+            await transport.write_parameters({register: value})
+            _LOGGER.debug("Wrote register %d = %s", register, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", register, err)
+            raise HomeAssistantError(
+                f"Failed to write register {register}: {err}"
+            ) from err
+
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 
     def get_configured_control_modes(self) -> tuple[str, str]:

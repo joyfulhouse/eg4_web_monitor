@@ -520,6 +520,49 @@ if reg1 & 0x100:
 > `str(addr)` for unmapped registers); writes use the raw register address
 > with two's-complement masking (-50 → 65486).
 
+### AC Charge Time Schedule Registers (68-73, [#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277))
+
+Three daily windows × (start, end). Each 16-bit register **packs both time
+fields**: hour in the **low byte**, minute in the **high byte**
+(`value = hour | (minute << 8)`, pylxpweb `pack_time()`/`unpack_time()`;
+e.g. 23:30 → `7703`).
+
+| Reg | Window boundary | HA Entity Key | Entity Type | Cloud params (from this one register) |
+|-----|-----------------|---------------|-------------|----------------------------------------|
+| 68 | Window 1 start | `ac_charge_start_time_1` | time (enabled) | `HOLD_AC_CHARGE_START_HOUR` + `HOLD_AC_CHARGE_START_MINUTE` |
+| 69 | Window 1 end | `ac_charge_end_time_1` | time (enabled) | `HOLD_AC_CHARGE_END_HOUR` + `HOLD_AC_CHARGE_END_MINUTE` |
+| 70 | Window 2 start | `ac_charge_start_time_2` | time (disabled) | `HOLD_AC_CHARGE_START_HOUR_1` + `HOLD_AC_CHARGE_START_MINUTE_1` |
+| 71 | Window 2 end | `ac_charge_end_time_2` | time (disabled) | `HOLD_AC_CHARGE_END_HOUR_1` + `HOLD_AC_CHARGE_END_MINUTE_1` |
+| 72 | Window 3 start | `ac_charge_start_time_3` | time (disabled) | `HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2` |
+| 73 | Window 3 end | `ac_charge_end_time_3` | time (disabled) | `HOLD_AC_CHARGE_END_HOUR_2` + `HOLD_AC_CHARGE_END_MINUTE_2` |
+
+> **Evidence for the packed layout and cloud naming**: the live cloud register
+> probe (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json`) reads each
+> register individually and gets **two** named params back per register —
+> the hour *and* the minute — with window 1 unsuffixed and windows 2/3
+> suffixed `_1`/`_2`. This matches pylxpweb's `SCHEDULE_CONFIGS` (base
+> register 68) and its Modbus schedule helpers, which write
+> `pack_time(hour, minute)` per register.
+>
+> **LOCAL parameter-cache naming caveat**: pylxpweb's
+> `REGISTER_TO_PARAM_KEYS` still carries a stale pre-probe interpretation of
+> 68-73 (one field per register: `HOLD_AC_CHARGE_START_HOUR_1` @ 68, …,
+> `HOLD_AC_CHARGE_ENABLE_1`/`_2` @ 72/73). Local `read_named_parameters()`
+> therefore surfaces the **raw packed values under those misleading names**;
+> the integration's `LOCAL_AC_CHARGE_TIME_PARAM_KEYS` (const/modbus.py) maps
+> each register to its alias chain and the time entities unpack the value
+> themselves. Do **not** treat those cache keys as separated hour/minute
+> values on the local path.
+>
+> **Write paths**: LOCAL/HYBRID-with-transport writes the single packed
+> register (FC06 — the firmware rejects FC16 multi-writes on schedule
+> registers) via `coordinator.write_register()`; CLOUD writes the portal's
+> named hour + minute params via `control.write_parameter()`. Overnight
+> windows (end < start, e.g. 20:00 → 08:00) are firmware-legal and are not
+> cross-validated. Whether a window is *active* is governed by the separate
+> AC Charge enable (reg 21 bit 7) and AC charge type (reg 120 bits 1-3)
+> controls — the time entities manage only the schedule.
+
 ### Battery Control Registers
 
 | Reg | HA Entity Key | Entity Type | Unit | Range |

@@ -773,6 +773,26 @@
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
       }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "Czas rozpoczęcia ładowania AC 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "Czas zakończenia ładowania AC 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "Czas rozpoczęcia ładowania AC 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "Czas zakończenia ładowania AC 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "Czas rozpoczęcia ładowania AC 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "Czas zakończenia ładowania AC 3"
+      }
     }
   },
   "services": {

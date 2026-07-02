@@ -6,6 +6,7 @@ All entity classes should inherit from these bases to ensure consistent behavior
 
 import asyncio
 from contextlib import contextmanager
+from datetime import time as dt_time
 import logging
 from typing import TYPE_CHECKING, Any, Generator, cast
 
@@ -790,6 +791,92 @@ class EG4BaseNumber(CoordinatorEntity):
         if not inverter:
             raise HomeAssistantError(f"Inverter {self.serial} not found")
         return inverter
+
+    @property
+    def _parameter_data(self) -> dict[str, Any]:
+        """Get parameter data for this device from coordinator.
+
+        Returns:
+            Parameter data dictionary or empty dict if not available.
+        """
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            params: dict[str, Any] = self.coordinator.data["parameters"].get(
+                self.serial, {}
+            )
+            return params
+        return {}
+
+
+# ========== Time Base Classes ==========
+
+
+@contextmanager
+def optimistic_time_context(
+    entity: "EG4BaseTime", target_value: dt_time
+) -> Generator[None, None, None]:
+    """Context manager for optimistic value handling in time entities.
+
+    Sets the optimistic value before yielding and clears it afterward,
+    ensuring proper cleanup even if an exception occurs (the time-typed
+    sibling of :func:`optimistic_value_context`).
+
+    Args:
+        entity: The time entity to manage optimistic value for.
+        target_value: The optimistic value to set.
+
+    Yields:
+        None - allows the caller to perform the actual write operation.
+    """
+    entity._optimistic_value = target_value
+    entity.async_write_ha_state()
+    try:
+        yield
+    finally:
+        entity._optimistic_value = None
+        entity.async_write_ha_state()
+
+
+class EG4BaseTime(CoordinatorEntity):
+    """Base class for all EG4 time entities.
+
+    The time-typed mirror of :class:`EG4BaseNumber`: coordinator integration
+    with device data access, optimistic value management for UI
+    responsiveness, device information lookup, availability checking, and
+    parameter data access.
+
+    Attributes:
+        coordinator: The data update coordinator managing device data.
+        serial: The device serial number.
+        _model: The device model name.
+        _clean_model: Cleaned model name for unique IDs.
+        _optimistic_value: Temporary value for immediate UI feedback.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the base time entity.
+
+        Args:
+            coordinator: The data update coordinator.
+            serial: The device serial number.
+        """
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        self.serial = serial
+        self._optimistic_value: dt_time | None = None
+
+        # Get device info for subclasses
+        self._model = _get_model_from_coordinator(coordinator, serial)
+        self._clean_model = clean_model_name(self._model, use_underscores=True)
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
 
     @property
     def _parameter_data(self) -> dict[str, Any]:
