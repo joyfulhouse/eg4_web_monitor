@@ -133,3 +133,37 @@ REG_AC_CHARGE_START_VOLTAGE = 158
 REG_AC_CHARGE_END_VOLTAGE = 159
 # Start-charge threshold (GH #272): no name anywhere, LOCAL raw writes only.
 REG_PTOUSER_START_CHARGE = 117
+
+# =============================================================================
+# AC charge time schedule (registers 68-73, issue #277)
+# =============================================================================
+# Three daily windows × (start, end) = six registers from base 68:
+#   reg 68/69 = window 1 start/end, 70/71 = window 2, 72/73 = window 3.
+# Each 16-bit register PACKS both fields: hour in the LOW byte, minute in the
+# HIGH byte (pylxpweb pack_time()/unpack_time(); EG4-18KPV-12LV Modbus spec).
+# Live cloud probe evidence (pylxpweb docs/inverters/FlexBOSS21_52XXXXXX78.json):
+# reading ONE register returns BOTH cloud params — e.g. reg 68 →
+# HOLD_AC_CHARGE_START_HOUR + HOLD_AC_CHARGE_START_MINUTE (window 1,
+# unsuffixed) and reg 72 → HOLD_AC_CHARGE_START_HOUR_2 + ..._MINUTE_2
+# (window 3, suffix _2) — proving the packed layout and the cloud naming
+# (window N uses suffix "" / "_1" / "_2" for N = 1 / 2 / 3).
+AC_CHARGE_SCHEDULE_BASE_REGISTER = 68
+
+# Parameter-cache keys under which pylxpweb's LOCAL read_named_parameters()
+# surfaces the RAW PACKED values of registers 68-73. The primary names are
+# pre-live-probe artifacts still in pylxpweb's REGISTER_TO_PARAM_KEYS that
+# MISDESCRIBE the registers (e.g. reg 69 — window 1 END — surfaces as
+# "HOLD_AC_CHARGE_START_MINUTE_1", and reg 72 — window 3 START — as
+# "HOLD_AC_CHARGE_ENABLE_1"); the value under each key is nonetheless the
+# packed register, which the integration unpacks itself. Each chain lists
+# fallbacks for a future pylxpweb that renames the registers to their
+# canonical packed names or drops the mapping (unmapped registers surface as
+# the plain address string). First present key wins.
+LOCAL_AC_CHARGE_TIME_PARAM_KEYS: dict[int, tuple[str, ...]] = {
+    68: ("HOLD_AC_CHARGE_START_HOUR_1", "HOLD_AC_CHARGE_TIME_0_START", "68"),
+    69: ("HOLD_AC_CHARGE_START_MINUTE_1", "HOLD_AC_CHARGE_TIME_0_END", "69"),
+    70: ("HOLD_AC_CHARGE_END_HOUR_1", "HOLD_AC_CHARGE_TIME_1_START", "70"),
+    71: ("HOLD_AC_CHARGE_END_MINUTE_1", "HOLD_AC_CHARGE_TIME_1_END", "71"),
+    72: ("HOLD_AC_CHARGE_ENABLE_1", "HOLD_AC_CHARGE_TIME_2_START", "72"),
+    73: ("HOLD_AC_CHARGE_ENABLE_2", "HOLD_AC_CHARGE_TIME_2_END", "73"),
+}

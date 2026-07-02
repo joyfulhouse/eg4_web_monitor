@@ -60,6 +60,7 @@ OTHER_PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.TIME,
     Platform.UPDATE,
 ]
 PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS

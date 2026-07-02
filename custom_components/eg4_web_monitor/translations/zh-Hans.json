@@ -773,6 +773,26 @@
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
       }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "交流充电开始时间 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "交流充电结束时间 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "交流充电开始时间 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "交流充电结束时间 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "交流充电开始时间 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "交流充电结束时间 3"
+      }
     }
   },
   "services": {
