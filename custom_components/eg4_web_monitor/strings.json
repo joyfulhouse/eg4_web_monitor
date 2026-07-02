@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "Grid Sell Back Power"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Start Discharge Power Threshold"
+      },
+      "start_charge_power_threshold": {
+        "name": "Start Charge Power Threshold"
       }
     },
     "button": {

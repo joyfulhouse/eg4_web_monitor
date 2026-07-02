@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "Мощность продажи в сеть"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Порог мощности начала разряда"
+      },
+      "start_charge_power_threshold": {
+        "name": "Порог мощности начала заряда"
       }
     },
     "button": {

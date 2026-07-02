@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "Puissance de revente au réseau"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Seuil de puissance de début de décharge"
+      },
+      "start_charge_power_threshold": {
+        "name": "Seuil de puissance de début de charge"
       }
     },
     "button": {

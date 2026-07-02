@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "계통 판매 전력"
+      },
+      "start_discharge_power_threshold": {
+        "name": "방전 시작 전력 임계값"
+      },
+      "start_charge_power_threshold": {
+        "name": "충전 시작 전력 임계값"
       }
     },
     "button": {

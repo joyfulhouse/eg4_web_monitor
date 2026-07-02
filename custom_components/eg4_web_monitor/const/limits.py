@@ -94,6 +94,26 @@ GRID_SELL_BACK_POWER_MAX = 25.5
 GRID_SELL_BACK_POWER_STEP = 0.1
 
 # =============================================================================
+# Power-to-User Start Discharge / Charge thresholds (regs 116/117, GH #272)
+# Raw register IS whole watts — the protocol register table pins scale "1W"
+# for both, NOT the 100 W encoding of regs 66/74/82/103 (fleet scanner
+# reads: reg 116 raw 100 == cloud "100" == 100 W in the Luxpower UI).
+# Reg 116 (PtoUserStartdischg) defaults to 50 W and the Luxpower web UI
+# shows a "[50, ]" range hint; the 10000 W ceiling comes from pylxpweb's
+# holding-register table. Reg 117 (PtoUserStartchg) is SIGNED — protocol
+# default -50 W means "start charging once exporting more than 50 W" —
+# hence the symmetric range.
+# =============================================================================
+
+START_DISCHARGE_POWER_MIN = 50
+START_DISCHARGE_POWER_MAX = 10000
+START_DISCHARGE_POWER_STEP = 1
+
+START_CHARGE_POWER_MIN = -10000
+START_CHARGE_POWER_MAX = 10000
+START_CHARGE_POWER_STEP = 1
+
+# =============================================================================
 # System Charge SOC Limit (%)
 # =============================================================================
 

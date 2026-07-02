@@ -362,6 +362,11 @@ class LocalTransportMixin(_MixinBase):
                 # (101-102), grid sell back power percent (103, GH #135)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
+                # P_to_user start discharge/charge thresholds (116-117, GH
+                # #272). Reg 116 surfaces under pylxpweb's local name-map key
+                # (HOLD_PTOUSER_START_DISCHARGE); reg 117 has no name mapping
+                # anywhere, so read_named_parameters emits the raw "117" key.
+                (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
                 (158, 2),  # AC charge start/stop voltage (158-159)
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)

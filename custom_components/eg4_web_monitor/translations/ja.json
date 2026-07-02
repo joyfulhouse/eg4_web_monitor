@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "売電電力"
+      },
+      "start_discharge_power_threshold": {
+        "name": "放電開始電力しきい値"
+      },
+      "start_charge_power_threshold": {
+        "name": "充電開始電力しきい値"
       }
     },
     "button": {

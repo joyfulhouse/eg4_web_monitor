@@ -739,6 +739,12 @@
       },
       "grid_sell_back_power": {
         "name": "併網售電功率"
+      },
+      "start_discharge_power_threshold": {
+        "name": "啟動放電功率閾值"
+      },
+      "start_charge_power_threshold": {
+        "name": "啟動充電功率閾值"
       }
     },
     "button": {

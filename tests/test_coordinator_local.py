@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pylxpweb.devices import HybridInverter
 from pylxpweb.transports import ModbusSerialTransport
@@ -140,7 +141,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 12 register ranges are read — pinned exactly so a control's
+        """All 13 register ranges are read — pinned exactly so a control's
         backing register can't silently fall out of the local poll (the
         codex r1 MEDIUM on reg 202: entity wired but range never read),
         and a removed range can't silently creep back (231-232, eg4-gfu5)."""
@@ -161,6 +162,7 @@ class TestReadModbusParameters:
             (100, 4),  # widened for grid sell back percent (reg 103, GH #135)
             (105, 2),
             (110, 1),
+            (116, 2),  # P_to_user start discharge/charge thresholds (GH #272)
             (125, 1),
             (158, 2),
             (169, 1),
@@ -171,6 +173,37 @@ class TestReadModbusParameters:
             (233, 1),
         ]
         assert "PARAM_A" in result
+
+    async def test_start_threshold_registers_read(self, hass, local_config_entry):
+        """GH #272: HOLD 116/117 are in the LOCAL poll so the Start
+        Discharge/Charge threshold numbers populate without cloud access.
+
+        Reg 116 surfaces under pylxpweb's local name-map key; reg 117 has no
+        name mapping, so read_named_parameters falls back to the raw "117"
+        string key — both must land in the coordinator parameter cache.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        async def mock_read(start: int, count: int) -> dict[str, Any]:
+            if start == 116:
+                # -50 W protocol default for reg 117 = two's-complement 65486
+                return {"HOLD_PTOUSER_START_DISCHARGE": 100, "117": 65486}
+            return {}
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
+
+        result = await coordinator._read_modbus_parameters(mock_transport)
+
+        read_registers: set[int] = set()
+        for call in mock_transport.read_named_parameters.call_args_list:
+            start, count = call.args
+            read_registers.update(range(start, start + count))
+        assert 116 in read_registers
+        assert 117 in read_registers
+        assert result["HOLD_PTOUSER_START_DISCHARGE"] == 100
+        assert result["117"] == 65486
 
     async def test_peak_shaving_registers_not_read_locally(
         self, hass, local_config_entry
@@ -217,10 +250,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 12 ranges attempted despite first failure
-        assert call_count == 12
+        # All 13 ranges attempted despite first failure
+        assert call_count == 13
         # Successful ranges contributed their params
-        assert len(result) == 11  # 12 total - 1 failed
+        assert len(result) == 12  # 13 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
@@ -245,6 +278,68 @@ class TestReadModbusParameters:
         result = await coordinator._read_modbus_parameters(mock_transport)
 
         assert result == {}
+
+
+# ── write_raw_parameter ──────────────────────────────────────────────
+
+
+class TestWriteRawParameter:
+    """coordinator.write_raw_parameter — raw register write for unmapped regs.
+
+    GH #272: HOLD 117 (PtoUserStartchg) has no pylxpweb name-map entry and no
+    cloud parameter name, so the Start Charge threshold number writes the raw
+    register address through the local transport.
+    """
+
+    async def test_writes_raw_register(self, hass, local_config_entry):
+        """The raw address/value pair goes straight to transport.write_parameters."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=True)
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            result = await coordinator.write_raw_parameter(117, 65486, serial="INV001")
+
+        assert result is True
+        mock_transport.write_parameters.assert_awaited_once_with({117: 65486})
+
+    async def test_reconnects_disconnected_transport(self, hass, local_config_entry):
+        """A disconnected transport is reconnected before the write."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=False)
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            await coordinator.write_raw_parameter(117, 250, serial="INV001")
+
+        mock_transport.connect.assert_awaited_once()
+        mock_transport.write_parameters.assert_awaited_once_with({117: 250})
+
+    async def test_no_transport_raises(self, hass, local_config_entry):
+        """No local transport -> HomeAssistantError, nothing written."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        with patch.object(coordinator, "get_local_transport", return_value=None):
+            with pytest.raises(HomeAssistantError, match="No local transport"):
+                await coordinator.write_raw_parameter(117, 100, serial="INV001")
+
+    async def test_write_failure_raises(self, hass, local_config_entry):
+        """Transport write errors are wrapped in HomeAssistantError."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec(is_connected=True)
+        mock_transport.write_parameters.side_effect = RuntimeError("bus error")
+        with patch.object(
+            coordinator, "get_local_transport", return_value=mock_transport
+        ):
+            with pytest.raises(HomeAssistantError, match="Failed to write register"):
+                await coordinator.write_raw_parameter(117, 100, serial="INV001")
 
 
 # ── _build_local_device_data ─────────────────────────────────────────
