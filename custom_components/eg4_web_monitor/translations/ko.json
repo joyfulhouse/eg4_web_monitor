@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "AC 충전 종료 시간 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "AC 퍼스트 시작 시간 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "AC 퍼스트 종료 시간 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "AC 퍼스트 시작 시간 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "AC 퍼스트 종료 시간 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "AC 퍼스트 시작 시간 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "AC 퍼스트 종료 시간 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "강제 충전 시작 시간 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "강제 충전 종료 시간 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "강제 충전 시작 시간 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "강제 충전 종료 시간 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "강제 충전 시작 시간 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "강제 충전 종료 시간 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "강제 방전 시작 시간 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "강제 방전 종료 시간 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "강제 방전 시작 시간 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "강제 방전 종료 시간 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "강제 방전 시작 시간 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "강제 방전 종료 시간 3"
       }
     }
   },

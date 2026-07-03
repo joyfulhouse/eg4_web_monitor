@@ -520,39 +520,55 @@ if reg1 & 0x100:
 > `str(addr)` for unmapped registers); writes use the raw register address
 > with two's-complement masking (-50 → 65486).
 
-### AC Charge Time Schedule Registers (68-73, [#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277))
+### Schedule Time Window Registers ([#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277) + [#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295))
 
-Three daily windows × (start, end). Each 16-bit register **packs both time
-fields**: hour in the **low byte**, minute in the **high byte**
-(`value = hour | (minute << 8)`, pylxpweb `pack_time()`/`unpack_time()`;
-e.g. 23:30 → `7703`).
+Four schedule types share one packed-time layout, declared once in the
+`SCHEDULE_TIME_TYPES` table (const/modbus.py, mirroring pylxpweb's
+`SCHEDULE_CONFIGS`) and consumed by a single `time` entity class
+(`EG4ScheduleTimeEntity`). Per type: three daily windows × (start, end) =
+six consecutive holding registers from the base. Each 16-bit register
+**packs both time fields**: hour in the **low byte**, minute in the **high
+byte** (`value = hour | (minute << 8)`, pylxpweb
+`pack_time()`/`unpack_time()`; e.g. 23:30 → `7703`).
 
-| Reg | Window boundary | HA Entity Key | Entity Type | Cloud params (from this one register) |
-|-----|-----------------|---------------|-------------|----------------------------------------|
-| 68 | Window 1 start | `ac_charge_start_time_1` | time (enabled) | `HOLD_AC_CHARGE_START_HOUR` + `HOLD_AC_CHARGE_START_MINUTE` |
-| 69 | Window 1 end | `ac_charge_end_time_1` | time (enabled) | `HOLD_AC_CHARGE_END_HOUR` + `HOLD_AC_CHARGE_END_MINUTE` |
-| 70 | Window 2 start | `ac_charge_start_time_2` | time (disabled) | `HOLD_AC_CHARGE_START_HOUR_1` + `HOLD_AC_CHARGE_START_MINUTE_1` |
-| 71 | Window 2 end | `ac_charge_end_time_2` | time (disabled) | `HOLD_AC_CHARGE_END_HOUR_1` + `HOLD_AC_CHARGE_END_MINUTE_1` |
-| 72 | Window 3 start | `ac_charge_start_time_3` | time (disabled) | `HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2` |
-| 73 | Window 3 end | `ac_charge_end_time_3` | time (disabled) | `HOLD_AC_CHARGE_END_HOUR_2` + `HOLD_AC_CHARGE_END_MINUTE_2` |
+| Schedule | Regs | Cloud param prefix | Entities (gating) |
+|----------|------|--------------------|-------------------|
+| AC Charge | 68-73 | `HOLD_AC_CHARGE` | all control-capable families (#277) |
+| AC First | 152-157 | `HOLD_AC_FIRST` | **EG4_OFFGRID (SNA) only** — the portal shows the AC First section only on the SNA working-mode page (`/WManage/web/maintain/workingMode/sna`) |
+| Forced Charge | 76-81 | `HOLD_FORCED_CHARGE` | all control-capable families |
+| Forced Discharge | 84-89 | `HOLD_FORCED_DISCHARGE` | control-capable **grid-tied** families — suppressed on EG4_OFFGRID like the forced discharge power/SOC numbers (PR #220 / #197) |
 
-> **Evidence for the packed layout and cloud naming**: the live cloud register
-> probe (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json`) reads each
-> register individually and gets **two** named params back per register —
+Within each block: reg base+0/1 = window 1 start/end, +2/3 = window 2,
++4/5 = window 3. HA entity keys are `{schedule}_{start|end}_time_{1|2|3}`
+(e.g. `ac_first_start_time_1`); window 1 is enabled by default, windows 2/3
+are created registry-disabled. Cloud param names take the window suffix
+`""`/`_1`/`_2`: e.g. reg 72 (AC charge window 3 start) ↔
+`HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2`.
+
+> **Evidence for the packed layout and cloud naming**: the live cloud
+> register probes (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json` for
+> 68-73, `SNA12KUS_52XXXXXX68.json` blocks 106-111 for 152-157) read each
+> register individually and get **two** named params back per register —
 > the hour *and* the minute — with window 1 unsuffixed and windows 2/3
-> suffixed `_1`/`_2`. This matches pylxpweb's `SCHEDULE_CONFIGS` (base
-> register 68) and its Modbus schedule helpers, which write
-> `pack_time(hour, minute)` per register.
+> suffixed `_1`/`_2`. This matches pylxpweb's `SCHEDULE_CONFIGS` (bases
+> 68/76/84/152) and its Modbus schedule helpers, which write
+> `pack_time(hour, minute)` per register. All probed families (12kPV,
+> FlexBOSS18/21, LXP-US, SNA12K-US) report the named cloud params for all
+> four schedules; the family gates above reflect the portal UI (which page
+> shows the section) and the #197 off-grid adjudication, not param absence.
 >
-> **LOCAL parameter-cache naming caveat**: pylxpweb's
+> **LOCAL parameter-cache naming caveat (AC charge only)**: pylxpweb's
 > `REGISTER_TO_PARAM_KEYS` still carries a stale pre-probe interpretation of
 > 68-73 (one field per register: `HOLD_AC_CHARGE_START_HOUR_1` @ 68, …,
 > `HOLD_AC_CHARGE_ENABLE_1`/`_2` @ 72/73). Local `read_named_parameters()`
 > therefore surfaces the **raw packed values under those misleading names**;
-> the integration's `LOCAL_AC_CHARGE_TIME_PARAM_KEYS` (const/modbus.py) maps
-> each register to its alias chain and the time entities unpack the value
+> each spec's `local_param_keys` alias chain (const/modbus.py) maps the
+> register to its cache keys and the time entities unpack the value
 > themselves. Do **not** treat those cache keys as separated hour/minute
-> values on the local path.
+> values on the local path. The other schedules use pylxpweb's canonical
+> packed names (`HOLD_FORCED_CHARGE_TIME_0_START`, …; 84-89 and 152-157
+> named in pylxpweb > 0.9.36b21) with the raw `"84"`/`"152"`-style address
+> keys as fallback on older releases.
 >
 > **Write paths**: LOCAL/HYBRID-with-transport writes the single packed
 > register (FC06 — the firmware rejects FC16 multi-writes on schedule
@@ -560,8 +576,9 @@ e.g. 23:30 → `7703`).
 > named hour + minute params via `control.write_parameter()`. Overnight
 > windows (end < start, e.g. 20:00 → 08:00) are firmware-legal and are not
 > cross-validated. Whether a window is *active* is governed by the separate
-> AC Charge enable (reg 21 bit 7) and AC charge type (reg 120 bits 1-3)
-> controls — the time entities manage only the schedule.
+> enable bits (e.g. AC Charge reg 21 bit 7, Forced Charge/Discharge reg 21
+> bits 11/10) and the AC charge type (reg 120 bits 1-3) controls — the time
+> entities manage only the schedule.
 
 ### Battery Control Registers
 

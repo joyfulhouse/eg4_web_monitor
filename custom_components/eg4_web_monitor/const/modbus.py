@@ -8,6 +8,9 @@ Source: EG4-18KPV Modbus Protocol specification
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 # =============================================================================
 # HTTP API Parameter Names
 # =============================================================================
@@ -167,3 +170,110 @@ LOCAL_AC_CHARGE_TIME_PARAM_KEYS: dict[int, tuple[str, ...]] = {
     72: ("HOLD_AC_CHARGE_ENABLE_1", "HOLD_AC_CHARGE_TIME_2_START", "72"),
     73: ("HOLD_AC_CHARGE_ENABLE_2", "HOLD_AC_CHARGE_TIME_2_END", "73"),
 }
+
+
+# =============================================================================
+# Schedule time-window types (issues #277 + #295)
+# =============================================================================
+# Four schedule types share one packed-time layout: 6 consecutive holding
+# registers = 3 daily windows × (start, end), each 16-bit register packing
+# hour (low byte) | minute (high byte). The cloud API addresses the same
+# data as separated named params {cloud_prefix}_{START|END}_{HOUR|MINUTE}
+# with window suffixes ""/"_1"/"_2" (portal holdParam convention, verified
+# by the live register probes in pylxpweb docs/inverters/).
+#
+# This table is the single source of truth consumed by the time platform
+# (time.py); it mirrors pylxpweb's SCHEDULE_CONFIGS (constants/registers.py)
+# and a drift-guard test asserts the two stay in agreement.
+
+
+@dataclass(frozen=True)
+class ScheduleTimeSpec:
+    """Declarative description of one packed-time schedule type.
+
+    Attributes:
+        key: Stable identifier — the translation-key/unique-id prefix and
+            the value of the matching pylxpweb ``ScheduleType`` member.
+        cloud_prefix: Cloud named-parameter prefix (e.g. ``HOLD_AC_CHARGE``).
+        base_register: First packed register; the schedule occupies
+            ``base_register .. base_register + 5``.
+        gate: Which devices get the entities —
+            ``control``: every control-capable family (model substring or
+            family backstop, #259);
+            ``control_grid_tied``: control-capable but suppressed on
+            positively-identified EG4_OFFGRID hardware (forced discharge is
+            inert on the SNA platform, PR #220 / issue #197 adjudication);
+            ``offgrid``: only positively-identified EG4_OFFGRID hardware
+            (the portal shows the AC First section only on the SNA
+            working-mode page, issue #295).
+        local_param_keys: Per-register alias chains under which the LOCAL
+            parameter cache (pylxpweb ``read_named_parameters``) surfaces the
+            raw packed value; the last entry is always the plain
+            register-address fallback for unmapped registers.
+    """
+
+    key: str
+    cloud_prefix: str
+    base_register: int
+    gate: Literal["control", "control_grid_tied", "offgrid"]
+    local_param_keys: dict[int, tuple[str, ...]]
+
+
+def _canonical_time_param_keys(
+    cloud_prefix: str, base_register: int
+) -> dict[int, tuple[str, ...]]:
+    """Alias chains for schedule registers named canonically in pylxpweb.
+
+    pylxpweb (> 0.9.36b21) maps these registers to the canonical packed-time
+    names ``{cloud_prefix}_TIME_{period}_{START|END}``; older releases leave
+    them unmapped, so ``read_named_parameters`` falls back to the plain
+    register-address string key (the #272 reg-117 precedent).
+    """
+    return {
+        base_register + period * 2 + offset: (
+            f"{cloud_prefix}_TIME_{period}_{'END' if offset else 'START'}",
+            str(base_register + period * 2 + offset),
+        )
+        for period in range(3)
+        for offset in (0, 1)
+    }
+
+
+SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
+    # AC Charge (#277): regs 68-73, probe FlexBOSS21_52XXXXXX78.json. Keeps
+    # the stale pylxpweb alias chains above — and the shipped unique_ids.
+    ScheduleTimeSpec(
+        key="ac_charge",
+        cloud_prefix="HOLD_AC_CHARGE",
+        base_register=AC_CHARGE_SCHEDULE_BASE_REGISTER,
+        gate="control",
+        local_param_keys=LOCAL_AC_CHARGE_TIME_PARAM_KEYS,
+    ),
+    # AC First (#295): regs 152-157, probe SNA12KUS_52XXXXXX68.json blocks
+    # 106-111 + the portal's SNA working-mode page holdParams. SNA-only UI.
+    ScheduleTimeSpec(
+        key="ac_first",
+        cloud_prefix="HOLD_AC_FIRST",
+        base_register=152,
+        gate="offgrid",
+        local_param_keys=_canonical_time_param_keys("HOLD_AC_FIRST", 152),
+    ),
+    # Forced Charge (PV charge priority, #295): regs 76-81 (EG4-18KPV spec,
+    # pylxpweb SCHEDULE_CONFIGS); cloud params present on every probed family.
+    ScheduleTimeSpec(
+        key="forced_charge",
+        cloud_prefix="HOLD_FORCED_CHARGE",
+        base_register=76,
+        gate="control",
+        local_param_keys=_canonical_time_param_keys("HOLD_FORCED_CHARGE", 76),
+    ),
+    # Forced Discharge (#295): regs 84-89; suppressed on EG4_OFFGRID like the
+    # forced discharge power/SOC numbers (PR #220 / issue #197).
+    ScheduleTimeSpec(
+        key="forced_discharge",
+        cloud_prefix="HOLD_FORCED_DISCHARGE",
+        base_register=84,
+        gate="control_grid_tied",
+        local_param_keys=_canonical_time_param_keys("HOLD_FORCED_DISCHARGE", 84),
+    ),
+)

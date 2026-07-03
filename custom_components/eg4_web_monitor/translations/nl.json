@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "Eindtijd AC-laden 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Starttijd AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Eindtijd AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Starttijd AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Eindtijd AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Starttijd AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Eindtijd AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Starttijd geforceerd laden 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Eindtijd geforceerd laden 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Starttijd geforceerd laden 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Eindtijd geforceerd laden 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Starttijd geforceerd laden 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Eindtijd geforceerd laden 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Starttijd geforceerd ontladen 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Eindtijd geforceerd ontladen 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Starttijd geforceerd ontladen 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Eindtijd geforceerd ontladen 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Starttijd geforceerd ontladen 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Eindtijd geforceerd ontladen 3"
       }
     }
   },

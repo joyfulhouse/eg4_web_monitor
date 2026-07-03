@@ -169,6 +169,8 @@ from .modbus import (
     REG_ONGRID_EOD_VOLTAGE,
     REG_PTOUSER_START_CHARGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
+    SCHEDULE_TIME_TYPES,
+    ScheduleTimeSpec,
 )
 
 # Device types and inverter families - extracted to device_types.py
@@ -523,6 +525,8 @@ __all__ = [
     "REG_AC_CHARGE_END_VOLTAGE",
     "AC_CHARGE_SCHEDULE_BASE_REGISTER",
     "LOCAL_AC_CHARGE_TIME_PARAM_KEYS",
+    "SCHEDULE_TIME_TYPES",
+    "ScheduleTimeSpec",
     "SYSTEM_CHARGE_VOLT_LIMIT_MIN",
     "SYSTEM_CHARGE_VOLT_LIMIT_MAX",
     "SYSTEM_CHARGE_VOLT_LIMIT_STEP",

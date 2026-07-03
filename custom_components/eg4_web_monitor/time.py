@@ -1,22 +1,28 @@
 """Time platform for EG4 Web Monitor integration.
 
-Exposes the inverter's AC charge schedule (issue #277) as native Home
-Assistant ``time`` entities: three daily windows × (start, end), backed by
-holding registers 68-73. Each 16-bit register packs hour (low byte) and
-minute (high byte) — verified by the live cloud register probe in pylxpweb
-``docs/inverters/FlexBOSS21_52XXXXXX78.json``, where reading one register
-returns BOTH the ``*_HOUR`` and ``*_MINUTE`` cloud parameters (window 1
-unsuffixed, windows 2/3 suffixed ``_1``/``_2``).
+Exposes the inverter's packed-time schedules (issues #277 + #295) as native
+Home Assistant ``time`` entities: per schedule type, three daily windows ×
+(start, end). Each schedule occupies six consecutive holding registers and
+each 16-bit register packs hour (low byte) and minute (high byte) — verified
+by the live cloud register probes in pylxpweb ``docs/inverters/`` (FlexBOSS21
+for AC charge 68-73, SNA12K-US blocks 106-111 for AC First 152-157), where
+reading one register returns BOTH the ``*_HOUR`` and ``*_MINUTE`` cloud
+parameters (window 1 unsuffixed, windows 2/3 suffixed ``_1``/``_2``).
+
+The schedule types, their registers, cloud parameter prefixes and family
+gates all come from the declarative ``SCHEDULE_TIME_TYPES`` table in
+const/modbus.py (mirroring pylxpweb's ``SCHEDULE_CONFIGS``).
 
 Write paths:
 - LOCAL / HYBRID with an attached transport: one packed register write
   (FC06) via :meth:`EG4DataUpdateCoordinator.write_register`.
-- CLOUD: the portal's own named-parameter writes (``HOLD_AC_CHARGE_
-  {START|END}_{HOUR|MINUTE}{suffix}``), one hour + one minute write.
+- CLOUD: the portal's own named-parameter writes
+  (``{prefix}_{START|END}_{HOUR|MINUTE}{suffix}``), one hour + one minute
+  write.
 
 Read path: the coordinator's parameter poll. Locally the packed raw values
-surface under pylxpweb's legacy aliases (see
-``LOCAL_AC_CHARGE_TIME_PARAM_KEYS``); the cloud returns the separated
+surface under pylxpweb's parameter-cache keys (see each spec's
+``local_param_keys`` alias chains); the cloud returns the separated
 hour/minute values.
 """
 
@@ -40,19 +46,35 @@ from pylxpweb.constants import pack_time, unpack_time
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseTime
-from .const import (
-    AC_CHARGE_SCHEDULE_BASE_REGISTER,
-    LOCAL_AC_CHARGE_TIME_PARAM_KEYS,
-)
+from .const import SCHEDULE_TIME_TYPES, ScheduleTimeSpec
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import is_supported_control_model
+from .utils import is_offgrid_family, is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
 
-AC_CHARGE_SCHEDULE_WINDOWS = (1, 2, 3)
+SCHEDULE_WINDOWS = (1, 2, 3)
+
+
+def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> bool:
+    """Whether a device should get a schedule type's entities.
+
+    Gates (see the ``ScheduleTimeSpec.gate`` docs in const/modbus.py):
+    - ``offgrid``: only positively-identified EG4_OFFGRID (SNA) hardware —
+      the portal shows the AC First section only on the SNA working-mode
+      page (#295). Fails closed when the family is unknown.
+    - ``control`` / ``control_grid_tied``: the family-aware control gate
+      (#259/#281); ``control_grid_tied`` additionally suppresses the
+      entities on positively-identified EG4_OFFGRID hardware, matching the
+      forced discharge number controls (PR #220 / issue #197).
+    """
+    if spec.gate == "offgrid":
+        return is_offgrid_family(device_data)
+    if not is_supported_control_model(device_data):
+        return False
+    return not (spec.gate == "control_grid_tied" and is_offgrid_family(device_data))
 
 
 async def async_setup_entry(
@@ -68,34 +90,26 @@ async def async_setup_entry(
         if device_data.get("type") != "inverter":
             continue
 
-        # Family-aware control gate (#259/#281): matches by model-name
-        # substring or, for cloud deviceTypeText variants the substrings
-        # miss (e.g. "SNA-US 15K" — the reporter's 12000XP), by the
-        # detected inverter family. AC charge scheduling exists on all
-        # control-capable families (EG4_OFFGRID, EG4_HYBRID, LXP).
-        if not is_supported_control_model(device_data):
-            continue
-
-        for window in AC_CHARGE_SCHEDULE_WINDOWS:
-            entities.append(
-                EG4ACChargeTimeEntity(coordinator, serial, window, is_end=False)
-            )
-            entities.append(
-                EG4ACChargeTimeEntity(coordinator, serial, window, is_end=True)
-            )
+        entities.extend(
+            EG4ScheduleTimeEntity(coordinator, serial, spec, window, is_end=is_end)
+            for spec in SCHEDULE_TIME_TYPES
+            if _schedule_supported(spec, device_data)
+            for window in SCHEDULE_WINDOWS
+            for is_end in (False, True)
+        )
 
     if entities:
         _LOGGER.info("Setup complete: %d time entities created", len(entities))
         async_add_entities(entities, update_before_add=False)
 
 
-class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
-    """One boundary (start or end) of one AC charge schedule window.
+class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
+    """One boundary (start or end) of one schedule window.
 
-    Window 1 (registers 68/69) is enabled by default; windows 2 and 3
-    (registers 70-73) are created registry-disabled — most users schedule a
-    single daily window. The window numbering is user-facing (1-3); the
-    firmware/cloud period index is ``window - 1``.
+    Per schedule type, window 1 is enabled by default; windows 2 and 3 are
+    created registry-disabled — most users schedule a single daily window.
+    The window numbering is user-facing (1-3); the firmware/cloud period
+    index is ``window - 1``.
     """
 
     _attr_entity_category = EntityCategory.CONFIG
@@ -104,6 +118,7 @@ class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
+        spec: ScheduleTimeSpec,
         window: int,
         *,
         is_end: bool,
@@ -113,10 +128,12 @@ class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
         Args:
             coordinator: The data update coordinator.
             serial: Inverter serial number.
+            spec: The schedule type's declarative table entry.
             window: User-facing window number (1-3).
             is_end: False for the window start boundary, True for the end.
         """
         super().__init__(coordinator, serial)
+        self._spec = spec
         self._window = window
         self._is_end = is_end
         # Set when a successful write's follow-up parameter refresh failed:
@@ -128,22 +145,22 @@ class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
         self._pre_write_value: time | None = None
 
         boundary = "end" if is_end else "start"
-        key = f"ac_charge_{boundary}_time_{window}"
+        key = f"{spec.key}_{boundary}_time_{window}"
         self._attr_translation_key = key
         self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_{key}"
         self._attr_icon = "mdi:clock-end" if is_end else "mdi:clock-start"
         self._attr_entity_registry_enabled_default = window == 1
 
-        # Packed schedule register: base 68, two registers per window
-        # (start, end) — 68/69, 70/71, 72/73.
-        self._register = (
-            AC_CHARGE_SCHEDULE_BASE_REGISTER + (window - 1) * 2 + (1 if is_end else 0)
-        )
+        # Packed schedule register: two registers per window (start, end)
+        # from the schedule's base register.
+        self._register = spec.base_register + (window - 1) * 2 + (1 if is_end else 0)
         # Cloud parameter names: window 1 unsuffixed, windows 2/3 suffixed
-        # _1/_2 (live probe, FlexBOSS21_52XXXXXX78.json regs 68-73).
+        # _1/_2 (portal holdParam convention, live register probes).
         suffix = "" if window == 1 else f"_{window - 1}"
-        self._cloud_hour_param = f"HOLD_AC_CHARGE_{boundary.upper()}_HOUR{suffix}"
-        self._cloud_minute_param = f"HOLD_AC_CHARGE_{boundary.upper()}_MINUTE{suffix}"
+        self._cloud_hour_param = f"{spec.cloud_prefix}_{boundary.upper()}_HOUR{suffix}"
+        self._cloud_minute_param = (
+            f"{spec.cloud_prefix}_{boundary.upper()}_MINUTE{suffix}"
+        )
 
     # ── Value read ──────────────────────────────────────────────────
 
@@ -163,7 +180,7 @@ class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
 
     def _decode_packed(self, params: dict[str, Any]) -> time | None:
         """Decode the packed register value from a local parameter cache."""
-        for key in LOCAL_AC_CHARGE_TIME_PARAM_KEYS[self._register]:
+        for key in self._spec.local_param_keys[self._register]:
             raw = params.get(key)
             if raw is None or isinstance(raw, bool):
                 # A bool means a bit-field style decode — never a packed
@@ -253,7 +270,8 @@ class EG4ACChargeTimeEntity(EG4BaseTime, TimeEntity):
         boundary_value = time(hour=value.hour, minute=value.minute)
         packed = pack_time(boundary_value.hour, boundary_value.minute)
         _LOGGER.info(
-            "Setting AC charge %s time %d for %s to %s",
+            "Setting %s %s time %d for %s to %s",
+            self._spec.key,
             "end" if self._is_end else "start",
             self._window,
             self.serial,

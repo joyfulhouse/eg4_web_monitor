@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "AC Charge End Time 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "AC First Start Time 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "AC First End Time 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "AC First Start Time 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "AC First End Time 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "AC First Start Time 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "AC First End Time 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Forced Charge Start Time 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Forced Charge End Time 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Forced Charge Start Time 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Forced Charge End Time 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Forced Charge Start Time 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Forced Charge End Time 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Forced Discharge Start Time 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Forced Discharge End Time 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Forced Discharge Start Time 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Forced Discharge End Time 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Forced Discharge Start Time 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Forced Discharge End Time 3"
       }
     }
   },

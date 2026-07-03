@@ -1,9 +1,19 @@
-"""Tests for the EG4 time platform (AC charge schedule, issue #277).
+"""Tests for the EG4 time platform (schedule windows, issues #277 + #295).
 
-Registers 68-73 hold the AC charge schedule as three windows × (start, end).
+Four packed-time schedule types share one data-driven implementation
+(``SCHEDULE_TIME_TYPES`` in const/modbus.py):
+
+- AC Charge      — regs 68-73  (#277), all control-capable families
+- AC First       — regs 152-157 (#295), EG4_OFFGRID (SNA) only: the portal
+  exposes the AC First section only on the SNA working-mode page
+- Forced Charge  — regs 76-81  (#295), all control-capable families
+- Forced Discharge — regs 84-89 (#295), control-capable grid-tied families
+  (suppressed on EG4_OFFGRID per the PR #220 / issue #197 adjudication)
+
 Each 16-bit register packs hour (low byte) | minute (high byte) — verified by
-the live cloud register probe in pylxpweb docs/inverters/FlexBOSS21_52XXXXXX78.json,
-where querying one register returns BOTH the *_HOUR and *_MINUTE cloud params.
+the live cloud register probes in pylxpweb docs/inverters/ (FlexBOSS21 for
+68-73, SNA12K-US blocks 106-111 for 152-157), where querying one register
+returns BOTH the *_HOUR and *_MINUTE cloud params.
 """
 
 from datetime import time
@@ -15,11 +25,19 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.eg4_web_monitor.const import (
     AC_CHARGE_SCHEDULE_BASE_REGISTER,
     LOCAL_AC_CHARGE_TIME_PARAM_KEYS,
+    SCHEDULE_TIME_TYPES,
+    ScheduleTimeSpec,
 )
 from custom_components.eg4_web_monitor.time import (
-    EG4ACChargeTimeEntity,
+    EG4ScheduleTimeEntity,
     async_setup_entry,
 )
+
+SCHEDULE_KEYS = tuple(spec.key for spec in SCHEDULE_TIME_TYPES)
+
+
+def _spec(key: str) -> ScheduleTimeSpec:
+    return next(spec for spec in SCHEDULE_TIME_TYPES if spec.key == key)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -72,13 +90,16 @@ def _entity(
     coordinator: MagicMock,
     *,
     serial: str = "1234567890",
+    schedule: str = "ac_charge",
     window: int = 1,
     is_end: bool = False,
-) -> EG4ACChargeTimeEntity:
-    return EG4ACChargeTimeEntity(coordinator, serial, window, is_end=is_end)
+) -> EG4ScheduleTimeEntity:
+    return EG4ScheduleTimeEntity(
+        coordinator, serial, _spec(schedule), window, is_end=is_end
+    )
 
 
-def _prep(entity: EG4ACChargeTimeEntity) -> None:
+def _prep(entity: EG4ScheduleTimeEntity) -> None:
     """Prepare entity for async action tests (set hass + entity_id)."""
     entity.hass = MagicMock()  # type: ignore[attr-defined]
     entity.entity_id = "time.test_entity"
@@ -89,6 +110,119 @@ def _prep(entity: EG4ACChargeTimeEntity) -> None:
 def _pack(hour: int, minute: int) -> int:
     """Packed register encoding: hour low byte, minute high byte."""
     return (hour & 0xFF) | ((minute & 0xFF) << 8)
+
+
+async def _setup_keys(hass, coordinator) -> set[str]:
+    """Run async_setup_entry and return the created translation keys."""
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entities = []
+    await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+    return {e._attr_translation_key for e in entities}
+
+
+def _expected_keys(*schedules: str) -> set[str]:
+    return {
+        f"{schedule}_{boundary}_time_{window}"
+        for schedule in schedules
+        for boundary in ("start", "end")
+        for window in (1, 2, 3)
+    }
+
+
+# ── Schedule table (drift guards) ────────────────────────────────────
+
+
+class TestScheduleTable:
+    """The declarative table is the single source of schedule truth."""
+
+    def test_expected_schedule_types(self):
+        assert SCHEDULE_KEYS == (
+            "ac_charge",
+            "ac_first",
+            "forced_charge",
+            "forced_discharge",
+        )
+
+    @pytest.mark.parametrize(
+        ("key", "cloud_prefix", "base_register", "gate"),
+        [
+            ("ac_charge", "HOLD_AC_CHARGE", 68, "control"),
+            ("ac_first", "HOLD_AC_FIRST", 152, "offgrid"),
+            ("forced_charge", "HOLD_FORCED_CHARGE", 76, "control"),
+            ("forced_discharge", "HOLD_FORCED_DISCHARGE", 84, "control_grid_tied"),
+        ],
+    )
+    def test_table_entries(self, key, cloud_prefix, base_register, gate):
+        """Independently-derived literals: portal holdParams + register
+        probes (FlexBOSS21 68-73, SNA12K-US blocks 106-111 → 152-157) and
+        the EG4-18KPV Modbus spec (76-81 / 84-89)."""
+        spec = _spec(key)
+        assert spec.cloud_prefix == cloud_prefix
+        assert spec.base_register == base_register
+        assert spec.gate == gate
+
+    def test_table_matches_pylxpweb_schedule_configs(self):
+        """Drift guard: the integration table must agree with pylxpweb's
+        SCHEDULE_CONFIGS wherever the installed pylxpweb knows the type.
+
+        AC_FIRST ships in pylxpweb > 0.9.36b21; on older versions only the
+        integration-side literals above pin its layout.
+        """
+        from pylxpweb.constants import SCHEDULE_CONFIGS, ScheduleType
+
+        checked = 0
+        for spec in SCHEDULE_TIME_TYPES:
+            try:
+                schedule_type = ScheduleType(spec.key)
+            except ValueError:
+                assert spec.key == "ac_first", (
+                    f"{spec.key} missing from pylxpweb ScheduleType"
+                )
+                continue
+            config = SCHEDULE_CONFIGS[schedule_type]
+            assert config.cloud_prefix == spec.cloud_prefix, spec.key
+            assert config.base_register == spec.base_register, spec.key
+            checked += 1
+        assert checked >= 3
+
+    def test_register_blocks_do_not_overlap(self):
+        merged: set[int] = set()
+        for spec in SCHEDULE_TIME_TYPES:
+            block = set(range(spec.base_register, spec.base_register + 6))
+            assert not (merged & block), spec.key
+            merged |= block
+
+    @pytest.mark.parametrize("key", SCHEDULE_KEYS)
+    def test_local_alias_map_covers_all_six_registers(self, key):
+        """Every schedule register has a local parameter-cache alias chain
+        ending in the plain register-address fallback."""
+        spec = _spec(key)
+        expected_registers = [spec.base_register + offset for offset in range(6)]
+        assert sorted(spec.local_param_keys) == expected_registers
+        for register, chain in spec.local_param_keys.items():
+            assert chain[-1] == str(register)
+
+    def test_ac_charge_spec_keeps_stale_alias_chains(self):
+        """AC charge keeps the pylxpweb stale-name chains (zero churn)."""
+        assert _spec("ac_charge").local_param_keys is LOCAL_AC_CHARGE_TIME_PARAM_KEYS
+        assert AC_CHARGE_SCHEDULE_BASE_REGISTER == 68
+
+    @pytest.mark.parametrize(
+        ("key", "register", "primary"),
+        [
+            ("forced_charge", 76, "HOLD_FORCED_CHARGE_TIME_0_START"),
+            ("forced_charge", 81, "HOLD_FORCED_CHARGE_TIME_2_END"),
+            ("forced_discharge", 84, "HOLD_FORCED_DISCHARGE_TIME_0_START"),
+            ("forced_discharge", 89, "HOLD_FORCED_DISCHARGE_TIME_2_END"),
+            ("ac_first", 152, "HOLD_AC_FIRST_TIME_0_START"),
+            ("ac_first", 157, "HOLD_AC_FIRST_TIME_2_END"),
+        ],
+    )
+    def test_canonical_local_alias_chains(self, key, register, primary):
+        """New schedule types surface under pylxpweb's canonical packed
+        names, with the raw register-address string as fallback."""
+        assert _spec(key).local_param_keys[register] == (primary, str(register))
 
 
 # ── Platform registration ────────────────────────────────────────────
@@ -107,37 +241,84 @@ class TestTimePlatformRegistration:
         assert Platform.TIME in PLATFORMS
 
 
-# ── Platform setup ───────────────────────────────────────────────────
+# ── Platform setup / family gating ───────────────────────────────────
 
 
 class TestTimePlatformSetup:
     """Entity creation per device/family."""
 
     @pytest.mark.asyncio
-    async def test_setup_creates_six_entities_per_inverter(self, hass):
-        """A supported inverter gets 3 windows × (start, end) = 6 entities."""
+    async def test_setup_control_capable_model(self, hass):
+        """A supported grid-tied model (no detected family) gets AC charge,
+        forced charge and forced discharge — 18 entities — but NOT AC First
+        (which needs positive EG4_OFFGRID identification)."""
         coordinator = _mock_coordinator()
-        entry = MagicMock()
-        entry.runtime_data = coordinator
 
-        entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+        keys = await _setup_keys(hass, coordinator)
 
-        assert len(entities) == 6
-        keys = sorted(e._attr_translation_key for e in entities)
-        assert keys == [
-            "ac_charge_end_time_1",
-            "ac_charge_end_time_2",
-            "ac_charge_end_time_3",
-            "ac_charge_start_time_1",
-            "ac_charge_start_time_2",
-            "ac_charge_start_time_3",
-        ]
+        assert keys == _expected_keys("ac_charge", "forced_charge", "forced_discharge")
 
     @pytest.mark.asyncio
-    async def test_setup_sna_offgrid_family_creates_entities(self, hass):
-        """The reporter's 12000XP: cloud model "SNA-US 15K" with EG4_OFFGRID
-        family must get the schedule entities (family backstop, #259/#277)."""
+    async def test_setup_sna_offgrid_family(self, hass):
+        """EG4_OFFGRID (the reporter's SNA-US class hardware): AC First is
+        created; forced discharge is suppressed (#197/#220 adjudication)."""
+        coordinator = _mock_coordinator(model="SNA-US 15K")
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+
+        keys = await _setup_keys(hass, coordinator)
+
+        assert keys == _expected_keys("ac_charge", "ac_first", "forced_charge")
+
+    @pytest.mark.asyncio
+    async def test_setup_hybrid_and_lxp_families_no_ac_first(self, hass):
+        """EG4_HYBRID and LXP get the grid-tied schedule set; the AC First
+        section exists only on the SNA working-mode page, so no AC First."""
+        for family in ("EG4_HYBRID", "LXP"):
+            coordinator = _mock_coordinator(model="Mystery Model")
+            coordinator.data["devices"]["1234567890"]["features"] = {
+                "inverter_family": family
+            }
+
+            keys = await _setup_keys(hass, coordinator)
+
+            assert keys == _expected_keys(
+                "ac_charge", "forced_charge", "forced_discharge"
+            ), family
+
+    @pytest.mark.asyncio
+    async def test_setup_offgrid_model_without_family_features(self, hass):
+        """A 12000XP model string WITHOUT detected features is control-capable
+        but not positively EG4_OFFGRID: no AC First (fails closed), forced
+        discharge stays (suppression also needs positive identification)."""
+        coordinator = _mock_coordinator(model="12000XP")
+
+        keys = await _setup_keys(hass, coordinator)
+
+        assert keys == _expected_keys("ac_charge", "forced_charge", "forced_discharge")
+
+    @pytest.mark.asyncio
+    async def test_setup_unsupported_model_creates_nothing(self, hass):
+        """Unknown model with no detected family gets no control entities."""
+        coordinator = _mock_coordinator(model="Mystery Model")
+
+        assert await _setup_keys(hass, coordinator) == set()
+
+    @pytest.mark.asyncio
+    async def test_setup_skips_non_inverter_devices(self, hass):
+        """GridBOSS/MID devices have no inverter schedules."""
+        coordinator = _mock_coordinator()
+        coordinator.data["devices"] = {
+            "gb123": {"type": "gridboss", "model": "GridBOSS"}
+        }
+
+        assert await _setup_keys(hass, coordinator) == set()
+
+    @pytest.mark.asyncio
+    async def test_window_1_enabled_windows_2_3_disabled_by_default(self, hass):
+        """Per schedule type: window 1 enabled, windows 2/3 registry-disabled
+        (most users schedule a single daily window)."""
         coordinator = _mock_coordinator(model="SNA-US 15K")
         coordinator.data["devices"]["1234567890"]["features"] = {
             "inverter_family": "EG4_OFFGRID"
@@ -148,68 +329,16 @@ class TestTimePlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 6
-
-    @pytest.mark.asyncio
-    async def test_setup_hybrid_and_lxp_families(self, hass):
-        """EG4_HYBRID and LXP families also get schedule entities."""
-        for family in ("EG4_HYBRID", "LXP"):
-            coordinator = _mock_coordinator(model="Mystery Model")
-            coordinator.data["devices"]["1234567890"]["features"] = {
-                "inverter_family": family
-            }
-            entry = MagicMock()
-            entry.runtime_data = coordinator
-
-            entities = []
-            await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
-
-            assert len(entities) == 6, family
-
-    @pytest.mark.asyncio
-    async def test_setup_unsupported_model_creates_nothing(self, hass):
-        """Unknown model with no detected family gets no control entities."""
-        coordinator = _mock_coordinator(model="Mystery Model")
-        entry = MagicMock()
-        entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
-
-        assert entities == []
-
-    @pytest.mark.asyncio
-    async def test_setup_skips_non_inverter_devices(self, hass):
-        """GridBOSS/MID devices have no AC charge schedule."""
-        coordinator = _mock_coordinator()
-        coordinator.data["devices"] = {
-            "gb123": {"type": "gridboss", "model": "GridBOSS"}
-        }
-        entry = MagicMock()
-        entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
-
-        assert entities == []
-
-    @pytest.mark.asyncio
-    async def test_window_1_enabled_windows_2_3_disabled_by_default(self, hass):
-        """Most users use one window: windows 2/3 are registry-disabled."""
-        coordinator = _mock_coordinator()
-        entry = MagicMock()
-        entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
-
         by_key = {e._attr_translation_key: e for e in entities}
-        assert by_key["ac_charge_start_time_1"].entity_registry_enabled_default
-        assert by_key["ac_charge_end_time_1"].entity_registry_enabled_default
-        assert not by_key["ac_charge_start_time_2"].entity_registry_enabled_default
-        assert not by_key["ac_charge_end_time_2"].entity_registry_enabled_default
-        assert not by_key["ac_charge_start_time_3"].entity_registry_enabled_default
-        assert not by_key["ac_charge_end_time_3"].entity_registry_enabled_default
+        for schedule in ("ac_charge", "ac_first", "forced_charge"):
+            for boundary in ("start", "end"):
+                assert by_key[
+                    f"{schedule}_{boundary}_time_1"
+                ].entity_registry_enabled_default, schedule
+                for window in (2, 3):
+                    assert not by_key[
+                        f"{schedule}_{boundary}_time_{window}"
+                    ].entity_registry_enabled_default, schedule
 
 
 # ── Register / cloud-parameter mapping ───────────────────────────────
@@ -218,64 +347,96 @@ class TestTimePlatformSetup:
 class TestScheduleRegisterMapping:
     """Entity ↔ register ↔ cloud-parameter wiring."""
 
-    def test_base_register(self):
-        assert AC_CHARGE_SCHEDULE_BASE_REGISTER == 68
-
     @pytest.mark.parametrize(
-        ("window", "is_end", "register"),
+        ("schedule", "base"),
         [
-            (1, False, 68),
-            (1, True, 69),
-            (2, False, 70),
-            (2, True, 71),
-            (3, False, 72),
-            (3, True, 73),
+            ("ac_charge", 68),
+            ("ac_first", 152),
+            ("forced_charge", 76),
+            ("forced_discharge", 84),
         ],
     )
-    def test_register_assignment(self, window, is_end, register):
+    @pytest.mark.parametrize(
+        ("window", "is_end", "offset"),
+        [
+            (1, False, 0),
+            (1, True, 1),
+            (2, False, 2),
+            (2, True, 3),
+            (3, False, 4),
+            (3, True, 5),
+        ],
+    )
+    def test_register_assignment(self, schedule, base, window, is_end, offset):
         """Each window boundary maps to its packed schedule register."""
         coordinator = _mock_coordinator()
-        entity = _entity(coordinator, window=window, is_end=is_end)
-        assert entity._register == register
+        entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
+        assert entity._register == base + offset
 
+    @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
     @pytest.mark.parametrize(
-        ("window", "is_end", "hour_param", "minute_param"),
+        ("window", "is_end", "suffix"),
         [
-            (1, False, "HOLD_AC_CHARGE_START_HOUR", "HOLD_AC_CHARGE_START_MINUTE"),
-            (1, True, "HOLD_AC_CHARGE_END_HOUR", "HOLD_AC_CHARGE_END_MINUTE"),
-            (2, False, "HOLD_AC_CHARGE_START_HOUR_1", "HOLD_AC_CHARGE_START_MINUTE_1"),
-            (2, True, "HOLD_AC_CHARGE_END_HOUR_1", "HOLD_AC_CHARGE_END_MINUTE_1"),
-            (3, False, "HOLD_AC_CHARGE_START_HOUR_2", "HOLD_AC_CHARGE_START_MINUTE_2"),
-            (3, True, "HOLD_AC_CHARGE_END_HOUR_2", "HOLD_AC_CHARGE_END_MINUTE_2"),
+            (1, False, ""),
+            (1, True, ""),
+            (2, False, "_1"),
+            (2, True, "_1"),
+            (3, False, "_2"),
+            (3, True, "_2"),
         ],
     )
-    def test_cloud_param_names(self, window, is_end, hour_param, minute_param):
+    def test_cloud_param_names(self, schedule, window, is_end, suffix):
         """Cloud params: window 1 unsuffixed, windows 2/3 suffixed _1/_2
-        (live probe: FlexBOSS21_52XXXXXX78.json regs 68-73)."""
+        (portal holdParam convention, live probes)."""
         coordinator = _mock_coordinator()
-        entity = _entity(coordinator, window=window, is_end=is_end)
-        assert entity._cloud_hour_param == hour_param
-        assert entity._cloud_minute_param == minute_param
-
-    def test_local_alias_map_covers_all_schedule_registers(self):
-        """Every schedule register has a local parameter-cache alias chain."""
-        assert sorted(LOCAL_AC_CHARGE_TIME_PARAM_KEYS) == [68, 69, 70, 71, 72, 73]
+        entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
+        prefix = _spec(schedule).cloud_prefix
+        boundary = "END" if is_end else "START"
+        assert entity._cloud_hour_param == f"{prefix}_{boundary}_HOUR{suffix}"
+        assert entity._cloud_minute_param == f"{prefix}_{boundary}_MINUTE{suffix}"
 
     def test_unique_ids(self):
+        """AC charge unique_ids stay exactly as shipped in #277 (zero churn);
+        new schedules follow the same pattern."""
         coordinator = _mock_coordinator()
-        start1 = _entity(coordinator, window=1, is_end=False)
-        end3 = _entity(coordinator, window=3, is_end=True)
-        assert start1._attr_unique_id == (
-            "flexboss21_1234567890_ac_charge_start_time_1"
+        assert (
+            _entity(coordinator, window=1)._attr_unique_id
+            == "flexboss21_1234567890_ac_charge_start_time_1"
         )
-        assert end3._attr_unique_id == "flexboss21_1234567890_ac_charge_end_time_3"
+        assert (
+            _entity(coordinator, window=3, is_end=True)._attr_unique_id
+            == "flexboss21_1234567890_ac_charge_end_time_3"
+        )
+        assert (
+            _entity(coordinator, schedule="ac_first", window=2)._attr_unique_id
+            == "flexboss21_1234567890_ac_first_start_time_2"
+        )
+        assert (
+            _entity(
+                coordinator, schedule="forced_discharge", window=1, is_end=True
+            )._attr_unique_id
+            == "flexboss21_1234567890_forced_discharge_end_time_1"
+        )
 
-    def test_translation_key_only_no_attr_name(self):
+    @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
+    def test_translation_key_only_no_attr_name(self, schedule):
         """Names come from translation_key; _attr_name must stay unset (#262)."""
         coordinator = _mock_coordinator()
-        entity = _entity(coordinator)
-        assert entity._attr_translation_key == "ac_charge_start_time_1"
+        entity = _entity(coordinator, schedule=schedule)
+        assert entity._attr_translation_key == f"{schedule}_start_time_1"
         assert getattr(entity, "_attr_name", None) is None
+
+    def test_translation_keys_exist_in_strings_json(self):
+        """Every schedule/boundary/window translation key is defined."""
+        import json
+        from pathlib import Path
+
+        strings = json.loads(
+            (Path("custom_components/eg4_web_monitor") / "strings.json").read_text()
+        )
+        time_keys = strings["entity"]["time"]
+        for key in _expected_keys(*SCHEDULE_KEYS):
+            assert key in time_keys, key
 
 
 # ── Packed round-trip (byte order) ───────────────────────────────────
@@ -307,7 +468,7 @@ class TestPackedTimeRoundTrip:
 class TestNativeValueLocalRaw:
     """LOCAL/HYBRID-with-transport: unpack raw packed register values."""
 
-    def test_start_time_1_from_packed_reg_68(self):
+    def test_ac_charge_start_1_from_packed_reg_68(self):
         """Reg 68's packed value surfaces under pylxpweb's legacy alias."""
         coordinator = _mock_coordinator(
             local_only=True,
@@ -316,15 +477,7 @@ class TestNativeValueLocalRaw:
         entity = _entity(coordinator, window=1, is_end=False)
         assert entity.native_value == time(8, 0)
 
-    def test_end_time_1_from_packed_reg_69(self):
-        coordinator = _mock_coordinator(
-            local_only=True,
-            parameters={"HOLD_AC_CHARGE_START_MINUTE_1": _pack(20, 0)},
-        )
-        entity = _entity(coordinator, window=1, is_end=True)
-        assert entity.native_value == time(20, 0)
-
-    def test_start_time_3_from_packed_reg_72_enable_alias(self):
+    def test_ac_charge_start_3_from_packed_reg_72_enable_alias(self):
         """Reg 72 (window 3 start) hides under the misnamed ENABLE_1 alias."""
         coordinator = _mock_coordinator(
             local_only=True,
@@ -333,21 +486,42 @@ class TestNativeValueLocalRaw:
         entity = _entity(coordinator, window=3, is_end=False)
         assert entity.native_value == time(22, 15)
 
-    def test_end_time_3_from_packed_reg_73_enable_alias(self):
+    @pytest.mark.parametrize(
+        ("schedule", "window", "is_end", "param"),
+        [
+            ("forced_charge", 1, False, "HOLD_FORCED_CHARGE_TIME_0_START"),
+            ("forced_charge", 3, True, "HOLD_FORCED_CHARGE_TIME_2_END"),
+            ("forced_discharge", 1, False, "HOLD_FORCED_DISCHARGE_TIME_0_START"),
+            ("forced_discharge", 2, True, "HOLD_FORCED_DISCHARGE_TIME_1_END"),
+            ("ac_first", 1, False, "HOLD_AC_FIRST_TIME_0_START"),
+            ("ac_first", 3, True, "HOLD_AC_FIRST_TIME_2_END"),
+        ],
+    )
+    def test_canonical_named_packed_values(self, schedule, window, is_end, param):
+        """New schedule registers surface under pylxpweb's canonical names."""
         coordinator = _mock_coordinator(
-            local_only=True,
-            parameters={"HOLD_AC_CHARGE_ENABLE_2": _pack(23, 59)},
+            local_only=True, parameters={param: _pack(21, 45)}
         )
-        entity = _entity(coordinator, window=3, is_end=True)
-        assert entity.native_value == time(23, 59)
+        entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
+        assert entity.native_value == time(21, 45)
 
-    def test_plain_register_address_fallback_key(self):
-        """A future pylxpweb that drops the aliases surfaces "68" instead."""
+    @pytest.mark.parametrize(
+        ("schedule", "register"),
+        [
+            ("ac_charge", "68"),
+            ("ac_first", "152"),
+            ("forced_charge", "76"),
+            ("forced_discharge", "84"),
+        ],
+    )
+    def test_plain_register_address_fallback_key(self, schedule, register):
+        """A pylxpweb without the name mapping surfaces the raw address key
+        (the shipped 0.9.36b21 behaviour for 84-89 and 152-157)."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"68": _pack(6, 45)},
+            parameters={register: _pack(6, 45)},
         )
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         assert entity.native_value == time(6, 45)
 
     def test_hybrid_transport_uses_local_raw_branch(self):
@@ -359,13 +533,15 @@ class TestNativeValueLocalRaw:
         entity = _entity(coordinator, window=1, is_end=False)
         assert entity.native_value == time(23, 30)
 
-    def test_garbage_packed_value_yields_none(self):
+    @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
+    def test_garbage_packed_value_yields_none(self, schedule):
         """Minute byte > 59 (corrupt read) must not raise or mislead."""
+        spec = _spec(schedule)
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"HOLD_AC_CHARGE_START_HOUR_1": (99 << 8) | 8},
+            parameters={str(spec.base_register): (99 << 8) | 8},
         )
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         assert entity.native_value is None
 
     def test_boolean_cache_value_is_skipped(self):
@@ -377,9 +553,10 @@ class TestNativeValueLocalRaw:
         entity = _entity(coordinator, window=3, is_end=False)
         assert entity.native_value is None
 
-    def test_missing_parameter_yields_none(self):
+    @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
+    def test_missing_parameter_yields_none(self, schedule):
         coordinator = _mock_coordinator(local_only=True, parameters={})
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         assert entity.native_value is None
 
 
@@ -389,15 +566,29 @@ class TestNativeValueLocalRaw:
 class TestNativeValueCloud:
     """CLOUD (and legacy flat HYBRID): separate *_HOUR / *_MINUTE params."""
 
-    def test_start_time_1_from_cloud_strings(self):
+    @pytest.mark.parametrize(
+        ("schedule", "hour_param", "minute_param"),
+        [
+            ("ac_charge", "HOLD_AC_CHARGE_START_HOUR", "HOLD_AC_CHARGE_START_MINUTE"),
+            ("ac_first", "HOLD_AC_FIRST_START_HOUR", "HOLD_AC_FIRST_START_MINUTE"),
+            (
+                "forced_charge",
+                "HOLD_FORCED_CHARGE_START_HOUR",
+                "HOLD_FORCED_CHARGE_START_MINUTE",
+            ),
+            (
+                "forced_discharge",
+                "HOLD_FORCED_DISCHARGE_START_HOUR",
+                "HOLD_FORCED_DISCHARGE_START_MINUTE",
+            ),
+        ],
+    )
+    def test_start_time_1_from_cloud_strings(self, schedule, hour_param, minute_param):
         """Cloud returns zero-padded strings ("08"/"00")."""
         coordinator = _mock_coordinator(
-            parameters={
-                "HOLD_AC_CHARGE_START_HOUR": "08",
-                "HOLD_AC_CHARGE_START_MINUTE": "00",
-            },
+            parameters={hour_param: "08", minute_param: "00"},
         )
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         assert entity.native_value == time(8, 0)
 
     def test_end_time_2_from_cloud_ints(self):
@@ -420,11 +611,11 @@ class TestNativeValueCloud:
     def test_out_of_range_cloud_value_yields_none(self):
         coordinator = _mock_coordinator(
             parameters={
-                "HOLD_AC_CHARGE_START_HOUR": "25",
-                "HOLD_AC_CHARGE_START_MINUTE": "00",
+                "HOLD_AC_FIRST_START_HOUR": "25",
+                "HOLD_AC_FIRST_START_MINUTE": "00",
             },
         )
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule="ac_first", window=1, is_end=False)
         assert entity.native_value is None
 
     def test_non_numeric_cloud_value_yields_none(self):
@@ -473,63 +664,87 @@ class TestAvailability:
 class TestWritePaths:
     """LOCAL packed register write; CLOUD named hour/minute writes."""
 
+    @pytest.mark.parametrize(
+        ("schedule", "window", "is_end", "register"),
+        [
+            ("ac_charge", 1, False, 68),
+            ("ac_charge", 3, True, 73),
+            ("ac_first", 1, False, 152),
+            ("ac_first", 2, True, 155),
+            ("forced_charge", 1, False, 76),
+            ("forced_charge", 3, False, 80),
+            ("forced_discharge", 1, True, 85),
+            ("forced_discharge", 3, True, 89),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_local_write_packs_hour_low_minute_high(self):
+    async def test_local_write_packs_hour_low_minute_high(
+        self, schedule, window, is_end, register
+    ):
         """LOCAL: one packed write to the window's register."""
         coordinator = _mock_coordinator(has_local=True)
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 
         await entity.async_set_value(time(6, 30))
 
         coordinator.write_register.assert_awaited_once_with(
-            68, (30 << 8) | 6, serial="1234567890"
+            register, (30 << 8) | 6, serial="1234567890"
         )
         coordinator.refresh_all_device_parameters.assert_awaited()
         coordinator.client.api.control.write_parameter.assert_not_awaited()
 
+    @pytest.mark.parametrize(
+        ("schedule", "window", "is_end", "hour_param", "minute_param"),
+        [
+            (
+                "ac_charge",
+                1,
+                True,
+                "HOLD_AC_CHARGE_END_HOUR",
+                "HOLD_AC_CHARGE_END_MINUTE",
+            ),
+            (
+                "ac_first",
+                1,
+                False,
+                "HOLD_AC_FIRST_START_HOUR",
+                "HOLD_AC_FIRST_START_MINUTE",
+            ),
+            (
+                "forced_charge",
+                2,
+                False,
+                "HOLD_FORCED_CHARGE_START_HOUR_1",
+                "HOLD_FORCED_CHARGE_START_MINUTE_1",
+            ),
+            (
+                "forced_discharge",
+                3,
+                True,
+                "HOLD_FORCED_DISCHARGE_END_HOUR_2",
+                "HOLD_FORCED_DISCHARGE_END_MINUTE_2",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_local_write_window_3_end_register_73(self):
-        coordinator = _mock_coordinator(has_local=True)
-        entity = _entity(coordinator, window=3, is_end=True)
-        _prep(entity)
-
-        await entity.async_set_value(time(23, 59))
-
-        coordinator.write_register.assert_awaited_once_with(
-            73, (59 << 8) | 23, serial="1234567890"
-        )
-
-    @pytest.mark.asyncio
-    async def test_cloud_write_sends_named_hour_and_minute(self):
+    async def test_cloud_write_sends_named_hour_and_minute(
+        self, schedule, window, is_end, hour_param, minute_param
+    ):
         """CLOUD: two named-parameter writes (the portal's own params)."""
         coordinator = _mock_coordinator(has_local=False)
-        entity = _entity(coordinator, window=1, is_end=True)
+        entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 
-        await entity.async_set_value(time(20, 0))
+        await entity.async_set_value(time(20, 5))
 
         calls = coordinator.client.api.control.write_parameter.await_args_list
         assert [c.args for c in calls] == [
-            ("1234567890", "HOLD_AC_CHARGE_END_HOUR", "20"),
-            ("1234567890", "HOLD_AC_CHARGE_END_MINUTE", "0"),
+            ("1234567890", hour_param, "20"),
+            ("1234567890", minute_param, "5"),
         ]
         coordinator.write_register.assert_not_awaited()
         coordinator.refresh_all_device_parameters.assert_awaited()
-
-    @pytest.mark.asyncio
-    async def test_cloud_write_window_2_suffixed_params(self):
-        coordinator = _mock_coordinator(has_local=False)
-        entity = _entity(coordinator, window=2, is_end=False)
-        _prep(entity)
-
-        await entity.async_set_value(time(1, 5))
-
-        calls = coordinator.client.api.control.write_parameter.await_args_list
-        assert [c.args for c in calls] == [
-            ("1234567890", "HOLD_AC_CHARGE_START_HOUR_1", "1"),
-            ("1234567890", "HOLD_AC_CHARGE_START_MINUTE_1", "5"),
-        ]
 
     @pytest.mark.asyncio
     async def test_cloud_write_failure_raises(self):
@@ -552,20 +767,24 @@ class TestWritePaths:
         with pytest.raises(HomeAssistantError):
             await entity.async_set_value(time(8, 0))
 
+    @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
     @pytest.mark.asyncio
-    async def test_midnight_crossing_end_before_start_is_allowed(self):
+    async def test_midnight_crossing_end_before_start_is_allowed(self, schedule):
         """Overnight windows (end < start, e.g. 20:00→08:00) are firmware-legal;
         the entities must not cross-validate the pair."""
+        spec = _spec(schedule)
         coordinator = _mock_coordinator(
             has_local=True,
-            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(20, 0)},
+            parameters={str(spec.base_register): _pack(20, 0)},
         )
-        end_entity = _entity(coordinator, window=1, is_end=True)
+        end_entity = _entity(coordinator, schedule=schedule, window=1, is_end=True)
         _prep(end_entity)
 
         await end_entity.async_set_value(time(8, 0))
 
-        coordinator.write_register.assert_awaited_once_with(69, 8, serial="1234567890")
+        coordinator.write_register.assert_awaited_once_with(
+            spec.base_register + 1, 8, serial="1234567890"
+        )
 
     @pytest.mark.asyncio
     async def test_optimistic_value_during_write(self):
@@ -608,8 +827,11 @@ class TestWritePaths:
 class TestWriteFailureConvergence:
     """Partial cloud writes and failed refreshes must not hide device state."""
 
+    @pytest.mark.parametrize("schedule", ("ac_charge", "ac_first"))
     @pytest.mark.asyncio
-    async def test_cloud_partial_failure_refreshes_and_shows_device_state(self):
+    async def test_cloud_partial_failure_refreshes_and_shows_device_state(
+        self, schedule
+    ):
         """P1: hour write succeeds, minute write fails.
 
         The device now holds hour=new/minute=old. A best-effort parameter
@@ -618,11 +840,12 @@ class TestWriteFailureConvergence:
         and not the optimistic target.
         """
         serial = "1234567890"
+        prefix = _spec(schedule).cloud_prefix
         coordinator = _mock_coordinator(
             has_local=False,
             parameters={
-                "HOLD_AC_CHARGE_START_HOUR": "8",
-                "HOLD_AC_CHARGE_START_MINUTE": "0",
+                f"{prefix}_START_HOUR": "8",
+                f"{prefix}_START_MINUTE": "0",
             },
         )
 
@@ -637,15 +860,15 @@ class TestWriteFailureConvergence:
         async def _refresh_mixed(*args, **kwargs):
             # Device truth after the partial write: hour landed, minute not.
             coordinator.data["parameters"][serial] = {
-                "HOLD_AC_CHARGE_START_HOUR": "20",
-                "HOLD_AC_CHARGE_START_MINUTE": "0",
+                f"{prefix}_START_HOUR": "20",
+                f"{prefix}_START_MINUTE": "0",
             }
 
         coordinator.refresh_all_device_parameters = AsyncMock(
             side_effect=_refresh_mixed
         )
 
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         _prep(entity)
 
         with pytest.raises(HomeAssistantError, match="partially applied"):
@@ -720,22 +943,24 @@ class TestWriteFailureConvergence:
         assert entity._optimistic_value is None
         assert entity.native_value == time(8, 0)
 
+    @pytest.mark.parametrize("schedule", ("ac_charge", "ac_first", "forced_discharge"))
     @pytest.mark.asyncio
-    async def test_write_success_refresh_failure_retains_optimistic(self):
+    async def test_write_success_refresh_failure_retains_optimistic(self, schedule):
         """P2: the write landed on the device but the follow-up refresh died.
 
         Clearing the optimistic value would make the UI "revert" to the stale
         cached time even though hardware changed — keep the optimistic value.
         """
+        spec = _spec(schedule)
         coordinator = _mock_coordinator(
             has_local=True,
-            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+            parameters={str(spec.base_register): _pack(8, 0)},
         )
         coordinator.refresh_all_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
 
-        entity = _entity(coordinator, window=1, is_end=False)
+        entity = _entity(coordinator, schedule=schedule, window=1, is_end=False)
         _prep(entity)
 
         # Write succeeds; refresh failure is logged, not raised.
