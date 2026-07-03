@@ -945,6 +945,10 @@
       "title": "Netgekoppelde bedieningen verwijderd van {model} {serial}",
       "description": "De bedieningen **Peak Shaving** en **Forced Discharge** (de modusschakelaars plus de instellingen Grid Peak Shaving Power, Forced Discharge Power en Forced Discharge SOC Limit) zijn verwijderd van **{serial}** ({model}).\n\nDeze functies werken op netparallelle export/import-menging, wat EG4 off-grid modellen (12000XP/6000XP) niet ondersteunen — de registers bestaan, maar de functies zijn inert op deze hardware.\n\nAls een automatisering of dashboard naar deze entiteiten verwees, verwijder die verwijzingen. Als u denkt dat uw apparaat deze functies wél ondersteunt, meld dit dan in de GitHub-issues van de integratie."
     },
+    "offgrid_battery_backup_removed": {
+      "title": "Batterij-backupbediening verwijderd van {model} {serial}",
+      "description": "De schakelaars **EPS Battery Backup** en **Battery Backup Mode** zijn verwijderd van **{serial}** ({model}).\n\nHet EG4-portaal zelf biedt geen batterij-backupbediening voor de off-grid XP-familie (12000XP/6000XP), en de firmware weigert de onderliggende schrijfopdracht (“failed to enable working mode”). Off-grid XP-modellen voeden hun backuplasten van nature, dus deze schakelaars hebben niets te regelen.\n\nAls automatiseringen of dashboards naar deze entiteiten verwezen, verwijder die verwijzingen dan. Denkt u dat uw apparaat deze functies wél ondersteunt, meld dit dan via de GitHub-issues van de integratie."
+    },
     "dongle_validation_disabled": {
       "title": "Datavalidatie aanbevolen voor WiFi dongle",
       "description": "Een WiFi dongle is geconfigureerd maar **Datavalidatie** is uitgeschakeld. WiFi dongles delen een Modbus-bus, en gelijktijdig lezen kan corrupte registerdata veroorzaken (bijv. energiepieken).\n\nGa naar **Instellingen > Apparaten & diensten > EG4 Web Monitor > Configureren** en schakel **Datavalidatie** in."

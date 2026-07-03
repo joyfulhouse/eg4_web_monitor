@@ -45,6 +45,57 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 )
 
 
+# Per-family control capability map (GH #289): FUNC_ parameters whose
+# controls a family's firmware rejects outright AND whose controls the
+# vendor's own portal does not expose for that family. Entities for these
+# are not created — offering a switch the firmware refuses to honor is an
+# optimistic lie.
+#
+# EG4_OFFGRID evidence (12000XP v2, serial 61062J0147, fw ceaa-000709):
+# the EG4 maintenance "Remote Set" page for the unit exposes NO battery
+# backup / working-mode toggle at all (its Working Mode section is a
+# schedule of AC Charge / AC First / Self Consumption), and enabling
+# Battery Backup Mode from HA errors with "failed to enable working mode"
+# (cloud write rejected). Off-grid XP units power their backup loads
+# natively — there is nothing for these controls to switch.
+#
+# Deliberately NOT listed (fail-open for XP-v2 uncertainty, same
+# adjudication style as the Forced Discharge gating in PR #220):
+# - FUNC_GREEN_EN (Off Grid Mode): the write is ACCEPTED and the firmware
+#   self-reverts the bit within ~10 s; the switch converges to the true
+#   state on the post-write parameter refresh, which is honest behavior.
+# - FUNC_CHARGE_LAST: the bit sticks when written; "appears inert" is not
+#   rejection evidence.
+FAMILY_UNSUPPORTED_CONTROL_PARAMS: dict[str, frozenset[str]] = {
+    INVERTER_FAMILY_EG4_OFFGRID: frozenset(
+        {
+            "FUNC_EPS_EN",  # EPS Battery Backup switch (reg 21 bit 0)
+            "FUNC_BATTERY_BACKUP_CTRL",  # Battery Backup Mode (reg 233 bit 1)
+        }
+    ),
+}
+
+
+def is_family_control_supported(device_data: dict[str, Any], param: str) -> bool:
+    """Whether a FUNC_ control parameter is supported on the device's family.
+
+    Consults :data:`FAMILY_UNSUPPORTED_CONTROL_PARAMS`. Fails open: a device
+    whose family is missing or unknown keeps every control — suppression only
+    applies to positively identified families (mirrors ``is_offgrid_family``).
+
+    Args:
+        device_data: Device data dictionary with ``features``.
+        param: FUNC_ parameter name backing the control (e.g. ``FUNC_EPS_EN``).
+
+    Returns:
+        False only when the detected family explicitly rejects the control.
+    """
+    features = device_data.get("features") or {}
+    family = str(features.get("inverter_family") or "")
+    unsupported = FAMILY_UNSUPPORTED_CONTROL_PARAMS.get(family)
+    return unsupported is None or param not in unsupported
+
+
 async def async_write_with_cloud_fallback(
     coordinator: "EG4DataUpdateCoordinator",
     serial: str,
@@ -218,15 +269,17 @@ def flag_offgrid_control_suppression(
     model: str,
     platform: str,
     unique_id_suffixes: Iterable[str],
+    issue_key: str = "offgrid_grid_controls_removed",
 ) -> None:
-    """Raise a Repairs issue when grid-tied controls vanish from an offgrid device.
+    """Raise a Repairs issue when family-gated controls vanish from a device.
 
     Peak Shaving and Forced Discharge controls are suppressed for the
-    EG4_OFFGRID family (PR #220 / issue #197 adjudication). Users who already
+    EG4_OFFGRID family (PR #220 / issue #197 adjudication), and the battery
+    backup switches followed per the #289 capability map. Users who already
     had those entities registered should learn why they disappeared instead
     of finding dead automations — same precedent as the #219 family-profile
-    pruning. The issue is one per device serial; re-creating it with the same
-    issue_id is an idempotent update.
+    pruning. The issue is one per (issue_key, serial); re-creating it with
+    the same issue_id is an idempotent update.
 
     Matching is suffix-based rather than exact: number unique IDs embed the
     model slug (``{clean_model}_{serial}_{key}``), and devices that were once
@@ -244,6 +297,9 @@ def flag_offgrid_control_suppression(
             suppressed entities (``{serial}_{control_key}``). The issue is
             only raised if at least one matching entity was previously
             registered.
+        issue_key: Translation key in ``strings.json`` ``issues`` describing
+            WHICH controls were removed and why; also prefixes the per-serial
+            issue id.
     """
     registry = er.async_get(hass)
     suffixes = tuple(suffix.lower() for suffix in unique_id_suffixes)
@@ -263,10 +319,10 @@ def flag_offgrid_control_suppression(
     ir.async_create_issue(
         hass,
         DOMAIN,
-        f"offgrid_grid_controls_removed_{serial}",
+        f"{issue_key}_{serial}",
         is_fixable=False,
         severity=ir.IssueSeverity.WARNING,
-        translation_key="offgrid_grid_controls_removed",
+        translation_key=issue_key,
         translation_placeholders={
             "serial": str(serial),
             "model": str(model),

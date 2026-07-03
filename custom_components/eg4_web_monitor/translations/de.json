@@ -945,6 +945,10 @@
       "title": "Netzgekoppelte Steuerungen von {model} {serial} entfernt",
       "description": "Die Steuerungen **Peak Shaving** und **Forced Discharge** (die Modus-Schalter sowie die Einstellungen Grid Peak Shaving Power, Forced Discharge Power und Forced Discharge SOC Limit) wurden von **{serial}** ({model}) entfernt.\n\nDiese Funktionen wirken auf netzparallelen Export/Import, den EG4 Off-Grid-Modelle (12000XP/6000XP) nicht unterstützen — die Register existieren, aber die Funktionen sind auf dieser Hardware wirkungslos.\n\nFalls Automationen oder Dashboards diese Entitäten referenzieren, entfernen Sie die Verweise. Wenn Ihr Gerät diese Funktionen tatsächlich unterstützt, melden Sie dies bitte in den GitHub-Issues der Integration."
     },
+    "offgrid_battery_backup_removed": {
+      "title": "Batterie-Backup-Steuerungen von {model} {serial} entfernt",
+      "description": "Die Schalter **EPS Battery Backup** und **Battery Backup Mode** wurden von **{serial}** ({model}) entfernt.\n\nDas EG4-Portal selbst bietet für die Off-Grid-XP-Familie (12000XP/6000XP) keine Batterie-Backup-Steuerung an, und die Firmware lehnt den zugrunde liegenden Schreibbefehl ab („failed to enable working mode“). Off-Grid-XP-Modelle versorgen ihre Backup-Lasten nativ, sodass diese Schalter nichts zu steuern haben.\n\nFalls Automatisierungen oder Dashboards diese Entitäten referenziert haben, entfernen Sie diese Verweise. Wenn Sie glauben, dass Ihr Gerät diese Funktionen tatsächlich unterstützt, melden Sie dies bitte in den GitHub-Issues der Integration."
+    },
     "dongle_validation_disabled": {
       "title": "Datenvalidierung empfohlen für WiFi dongle",
       "description": "Ein WiFi dongle ist konfiguriert, aber die **Datenvalidierung** ist deaktiviert. WiFi dongles teilen sich einen Modbus-Bus, und gleichzeitige Lesevorgänge können fehlerhafte Registerdaten verursachen (z.B. Energiespitzen).\n\nZur Behebung gehen Sie zu **Einstellungen > Geräte & Dienste > EG4 Web Monitor > Konfigurieren** und aktivieren Sie die **Datenvalidierung**."
