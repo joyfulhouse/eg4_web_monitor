@@ -1177,8 +1177,9 @@ class TestOffgridBatteryBackupGating:
         }
         assert "FUNC_BATTERY_BACKUP_CTRL" not in params
         # Exact set: portal-backed AC Charge + PV Charge Priority stay, as
-        # do EPS / Off Grid Mode / Charge Last (fail-open, no rejection
-        # evidence for them).
+        # do EPS / Off Grid Mode / Charge Last / Share Battery (fail-open,
+        # no rejection evidence for them; Share Battery is gated like
+        # Charge Last — all control-capable families, #288).
         assert self._switch_keys(entities) == {
             "quick_charge",
             "battery_backup",
@@ -1186,6 +1187,7 @@ class TestOffgridBatteryBackupGating:
             "charge_last",
             "ac_charge",
             "forced_chg_en",
+            "share_battery",
         }
 
     @pytest.mark.asyncio
@@ -1236,6 +1238,7 @@ class TestOffgridBatteryBackupGating:
             "feed_in_grid_en",
             "pv_sell_to_grid_en",
             "fast_zero_export",
+            "share_battery",
         }
 
     @pytest.mark.asyncio
