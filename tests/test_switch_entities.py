@@ -16,6 +16,7 @@ from custom_components.eg4_web_monitor.const import (
     WORKING_MODES,
 )
 import custom_components.eg4_web_monitor.switch as switch_module
+from custom_components.eg4_web_monitor.utils import is_family_control_supported
 from custom_components.eg4_web_monitor.switch import (
     _supports_eps_battery_backup,
     async_setup_entry,
@@ -145,7 +146,12 @@ class TestSupportsEpsBatteryBackup:
     """Test the EPS feature-detection helper."""
 
     def test_feature_offgrid_family(self):
-        """Off-grid family with supports_off_grid=True -> True."""
+        """Off-grid family KEEPS the EPS switch (#289 / PR #307 review).
+
+        The SNA12K-US reference dump shows FUNC_EPS_EN live and actively
+        ENABLED on EG4_OFFGRID hardware, so the XP-v2 portal-absence
+        evidence must not family-gate the switch away from SNA owners.
+        """
         device_data = {
             "features": {
                 "inverter_family": INVERTER_FAMILY_EG4_OFFGRID,
@@ -167,6 +173,64 @@ class TestSupportsEpsBatteryBackup:
     def test_fallback_flexboss_model(self):
         """FlexBOSS models are supported when no features available."""
         assert _supports_eps_battery_backup({"model": "FlexBOSS21"}) is True
+
+
+# ── Family control capability map (GH #289) ─────────────────────────
+
+
+class TestFamilyControlCapabilityMap:
+    """is_family_control_supported() — firmware-rejected control gating."""
+
+    def test_offgrid_rejects_battery_backup_ctrl_only(self):
+        """EG4_OFFGRID rejects FUNC_BATTERY_BACKUP_CTRL — and ONLY that.
+
+        The map's bar is a live rejected-write report (the 12000XP v2
+        "failed to enable working mode"). FUNC_EPS_EN must NOT be listed:
+        the SNA12K-US reference dump shows it actively enabled on the same
+        family (Opus review on PR #307).
+        """
+        device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
+        assert not is_family_control_supported(device_data, "FUNC_BATTERY_BACKUP_CTRL")
+        assert is_family_control_supported(device_data, "FUNC_EPS_EN")
+
+    def test_offgrid_keeps_unlisted_controls(self):
+        """Controls without rejection evidence stay enabled on EG4_OFFGRID.
+
+        EPS (live-enabled on the SNA reference unit), Off Grid Mode
+        (accepted-then-self-reverted) and Charge Last (sticks, possibly
+        inert) are deliberately NOT in the map — the #289 adjudication
+        requires a rejected-write report and fails open on ambiguity.
+        """
+        device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
+        for param in (
+            "FUNC_EPS_EN",
+            "FUNC_GREEN_EN",
+            "FUNC_CHARGE_LAST",
+            "FUNC_AC_CHARGE",
+        ):
+            assert is_family_control_supported(device_data, param), param
+
+    def test_grid_tied_families_unrestricted(self):
+        """EG4_HYBRID and LXP keep every control."""
+        for family in ("EG4_HYBRID", "LXP"):
+            device_data = {"features": {"inverter_family": family}}
+            for param in ("FUNC_EPS_EN", "FUNC_BATTERY_BACKUP_CTRL"):
+                assert is_family_control_supported(device_data, param), (
+                    family,
+                    param,
+                )
+
+    def test_unknown_or_missing_family_fails_open(self):
+        """Suppression needs a positively identified family."""
+        for device_data in (
+            {"model": "12000XP"},
+            {"model": "12000XP", "features": {}},
+            {"model": "12000XP", "features": {"inverter_family": "UNKNOWN"}},
+            {"model": "12000XP", "features": None},
+        ):
+            assert is_family_control_supported(
+                device_data, "FUNC_BATTERY_BACKUP_CTRL"
+            ), device_data
 
 
 # ── async_setup_entry ────────────────────────────────────────────────
@@ -1071,6 +1135,176 @@ class TestDSTSwitch:
 
         with pytest.raises(HomeAssistantError, match="Failed to"):
             await switch.async_turn_on()
+
+
+# ── Battery backup capability gating (GH #289) ──────────────────────
+
+
+class TestOffgridBatteryBackupGating:
+    """Setup gating for the battery backup controls on EG4_OFFGRID (#289)."""
+
+    @staticmethod
+    def _switch_keys(entities: list, serial: str = "1234567890") -> set[str]:
+        """Collect entity_key suffixes of the created inverter switches."""
+        return {
+            e._attr_unique_id.removeprefix(f"{serial}_")
+            for e in entities
+            if not isinstance(e, EG4DSTSwitch)
+        }
+
+    @pytest.mark.asyncio
+    async def test_xp_v2_family_skips_battery_backup_mode(self, hass):
+        """Feature-detected EG4_OFFGRID (12000XP v2) gets exactly the
+        supported control set — no Battery Backup Mode (write-rejected),
+        but the EPS switch STAYS (live-enabled on the SNA reference unit,
+        no rejected-write evidence — PR #307 review)."""
+        coordinator = _mock_coordinator(
+            model="12000XP-US V2",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4BatteryBackupSwitch" in type_names
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BATTERY_BACKUP_CTRL" not in params
+        # Exact set: portal-backed AC Charge + PV Charge Priority stay, as
+        # do EPS / Off Grid Mode / Charge Last / Share Battery (fail-open,
+        # no rejection evidence for them; Share Battery is gated like
+        # Charge Last — all control-capable families, #288).
+        assert self._switch_keys(entities) == {
+            "quick_charge",
+            "battery_backup",
+            "off_grid_mode",
+            "charge_last",
+            "ac_charge",
+            "forced_chg_en",
+            "share_battery",
+        }
+
+    @pytest.mark.asyncio
+    async def test_sna_offgrid_family_keeps_eps_switch(self, hass):
+        """Must-have (PR #307 review): SNA-US (same EG4_OFFGRID bucket,
+        device type code 54) with FUNC_EPS_EN present-and-enabled keeps the
+        EPS Battery Backup switch — its reference dump shows the function
+        live and working, so #289 must not strip it family-wide."""
+        coordinator = _mock_coordinator(
+            model="SNA-US 12K",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+            parameters={"FUNC_EPS_EN": True},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        eps = [e for e in entities if type(e).__name__ == "EG4BatteryBackupSwitch"]
+        assert len(eps) == 1
+        assert eps[0].is_on is True
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_entity_set_unchanged(self, hass):
+        """Regression drift guard: EG4_HYBRID keeps the full control set —
+        the #289 capability map must not leak into other families."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert self._switch_keys(entities) == {
+            "quick_charge",
+            "battery_backup",
+            "off_grid_mode",
+            "charge_last",
+            "ac_charge",
+            "forced_chg_en",
+            "forced_dischg_en",
+            "grid_peak_shaving",
+            "battery_backup_ctrl",
+            "feed_in_grid_en",
+            "pv_sell_to_grid_en",
+            "fast_zero_export",
+            "share_battery",
+        }
+
+    @pytest.mark.asyncio
+    async def test_xp_model_string_only_keeps_working_mode(self, hass):
+        """Family-unknown XP (model string only) fails open for the working
+        mode — the capability map needs a positively identified family. The
+        EPS switch stays suppressed via the legacy model-string fallback."""
+        coordinator = _mock_coordinator(model="12000XP")
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4BatteryBackupSwitch" not in type_names
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BATTERY_BACKUP_CTRL" in params
+
+    @pytest.mark.asyncio
+    async def test_offgrid_flags_battery_backup_repairs_issue(self, hass, monkeypatch):
+        """EG4_OFFGRID setup raises the dedicated battery-backup Repairs
+        probe (issue_key) alongside the legacy grid-controls one."""
+        flag = MagicMock()
+        monkeypatch.setattr(switch_module, "flag_offgrid_control_suppression", flag)
+        coordinator = _mock_coordinator(
+            model="12000XP-US V2",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        await async_setup_entry(hass, entry, lambda e, **kw: None)
+
+        issue_calls = {
+            call.kwargs.get("issue_key", "offgrid_grid_controls_removed"): call
+            for call in flag.call_args_list
+        }
+        assert set(issue_calls) == {
+            "offgrid_grid_controls_removed",
+            "offgrid_battery_backup_removed",
+        }
+        bb_call = issue_calls["offgrid_battery_backup_removed"]
+        # ONLY the write-rejected Battery Backup Mode key — the EPS switch
+        # is not suppressed, so its key must not be probed.
+        assert bb_call.args[4] == ("1234567890_battery_backup_ctrl",)
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_flags_no_repairs_issue(self, hass, monkeypatch):
+        """No suppression probes fire for grid-tied families."""
+        flag = MagicMock()
+        monkeypatch.setattr(switch_module, "flag_offgrid_control_suppression", flag)
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        await async_setup_entry(hass, entry, lambda e, **kw: None)
+
+        flag.assert_not_called()
 
 
 # ── Grid sell-back controls (GH #135) ────────────────────────────────

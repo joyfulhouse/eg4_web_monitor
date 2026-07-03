@@ -638,7 +638,7 @@ Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
-| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed) |
+| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed). Not created on EG4_OFFGRID — cloud write rejected on 12000XP v2 and local reg-233 access returns ILLEGAL DATA ADDRESS family-wide (#289/#296) |
 
 > **Note:** Register 233 contains 9 API-mapped parameters (`BIT_DRY_CONTRACTOR_MULTIPLEX`,
 > `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.) but only

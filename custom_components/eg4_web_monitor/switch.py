@@ -24,7 +24,6 @@ from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
 from .const import (
     FUNCTION_PARAM_MAPPING,
-    INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BAT_SHARED,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
@@ -43,6 +42,7 @@ from .const import (
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     flag_offgrid_control_suppression,
+    is_family_control_supported,
     is_offgrid_family,
     is_supported_control_model,
     supports_grid_sellback,
@@ -76,6 +76,14 @@ _SUPPRESSED_OFFGRID_SWITCH_KEYS: tuple[str, ...] = (
     "forced_dischg_en",
 )
 
+# Battery backup control key suppressed on EG4_OFFGRID via the family
+# capability map (FAMILY_UNSUPPORTED_CONTROL_PARAMS, GH #289): the Battery
+# Backup Mode working switch (entity_key "battery_backup_ctrl",
+# FUNC_BATTERY_BACKUP_CTRL — the one with a live rejected-write report).
+# Same suffix-matched Repairs probe as above. The EPS Battery Backup
+# switch is deliberately NOT here — see the capability map's rationale.
+_SUPPRESSED_OFFGRID_BATTERY_BACKUP_KEYS: tuple[str, ...] = ("battery_backup_ctrl",)
+
 
 def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     """Check if device supports EPS battery backup parameter.
@@ -83,6 +91,14 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     The EPS battery backup switch controls a specific inverter parameter.
     Some devices (like XP series) don't support this parameter through the API,
     even though they have off-grid capability in hardware.
+
+    NOT family-gated (#289 / PR #307 review): the SNA12K-US reference dump
+    (pylxpweb docs/inverters/SNA12KUS_52XXXXXX68.md) shows FUNC_EPS_EN live
+    and actively ENABLED on EG4_OFFGRID hardware, so the XP-v2
+    portal-absence evidence does not generalize to the family — a family
+    gate would strip a working switch from SNA-US owners. Feature-detected
+    devices keep the switch; only the legacy model-string fallback for
+    feature-less XP devices excludes it.
 
     Args:
         device_data: Device data dictionary with model and features
@@ -94,15 +110,7 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
 
     # If features are available, use feature-based detection
     if features:
-        # EG4 Off-Grid series (12000XP, 6000XP) supports EPS natively
-        # but the parameter control may be different
-        inverter_family = features.get("inverter_family")
-        if inverter_family == INVERTER_FAMILY_EG4_OFFGRID:
-            # EG4_OFFGRID devices support EPS but may use different parameter
-            # For now, keep them enabled until we confirm parameter support
-            return bool(features.get("supports_off_grid", True))
-
-        # EG4_HYBRID and others generally support the EPS parameter
+        # All positively identified families keep the EPS parameter switch
         return bool(features.get("supports_off_grid", True))
 
     # Fallback to string matching for backward compatibility
@@ -259,6 +267,20 @@ async def async_setup_entry(
                             f"{serial}_{key}" for key in _SUPPRESSED_OFFGRID_SWITCH_KEYS
                         ),
                     )
+                    # Battery Backup Mode is write-rejected on this family
+                    # (#289) — separate issue text from the inert grid-tied
+                    # controls above.
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        device_data.get("model", "Unknown"),
+                        "switch",
+                        tuple(
+                            f"{serial}_{key}"
+                            for key in _SUPPRESSED_OFFGRID_BATTERY_BACKUP_KEYS
+                        ),
+                        issue_key="offgrid_battery_backup_removed",
+                    )
                 for mode_config in WORKING_MODES.values():
                     param = mode_config.get("param", "")
                     # Grid-tied-only controls are inert on EG4_OFFGRID
@@ -267,6 +289,18 @@ async def async_setup_entry(
                         _LOGGER.debug(
                             "Skipping working mode %s for %s (grid-tied only; "
                             "family=EG4_OFFGRID)",
+                            param,
+                            serial,
+                        )
+                        continue
+                    # Family capability map (#289): controls the family's
+                    # firmware rejects and the vendor portal never exposes
+                    # (e.g. Battery Backup Mode on EG4_OFFGRID) are not
+                    # created — the write path can only error.
+                    if not is_family_control_supported(device_data, param):
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (unsupported "
+                            "on this inverter family, GH #289)",
                             param,
                             serial,
                         )

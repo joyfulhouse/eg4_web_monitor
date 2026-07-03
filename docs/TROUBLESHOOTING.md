@@ -60,6 +60,36 @@ To verify, check which sensors appear in the EG4 Monitor app, confirm the
 feature physically exists, and enable debug logging to inspect the data the API
 returns.
 
+### XP family (6000XP/12000XP) control notes
+
+EG4's off-grid XP family runs different firmware from the hybrid
+(FlexBOSS/18kPV/12kPV) line, and several controls behave differently there
+(reported and portal-verified on a 12000XP v2, issue #289):
+
+- **AC Charge Mode controls charging from the grid, not grid passthrough.**
+  Turning the switch off stops the battery from charging off AC power; the
+  inverter can still power your loads from the grid (bypass). There is no
+  switch that cuts grid passthrough — that is inherent to the XP topology.
+- **Off Grid Mode may self-revert.** XP v2 firmware accepts the write and
+  then clears the bit again within about 10 seconds (vendor behavior — the
+  EG4 portal does not offer this toggle for XP v2 either). The switch in
+  Home Assistant reflects the device's real state after the next refresh,
+  so it turning itself off means the firmware rejected the mode, not that
+  the write failed.
+- **The Battery Backup Mode switch is hidden on this family.** Enabling
+  that working mode is rejected outright ("failed to enable working mode"
+  on a 12000XP v2) and EG4's own portal exposes no working-mode toggle for
+  these units, so the switch is not created on EG4's off-grid family
+  (which also includes the SNA-US models). The **EPS Battery Backup**
+  switch is *not* hidden — it is confirmed live and working on off-grid
+  family hardware (SNA-US reference unit). The grid-tied-only controls
+  (Peak Shaving, Forced Discharge, Grid Sell Back, Export PV Only, Fast
+  Zero Export) remain hidden as before, since they act on grid-parallel
+  export this hardware doesn't perform.
+- **Charge Last sticks but may have no visible effect** on XP firmware; it
+  flips PV surplus priority, which mostly matters on exporting (grid-tied)
+  systems.
+
 ### Local mode connectivity
 
 If a Modbus, serial, or WiFi dongle connection fails, double-check wiring and

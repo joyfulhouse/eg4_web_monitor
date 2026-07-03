@@ -945,6 +945,10 @@
       "title": "Controles de rede removidos de {model} {serial}",
       "description": "Os controles **Peak Shaving** e **Forced Discharge** (os interruptores de modo e as configurações Grid Peak Shaving Power, Forced Discharge Power e Forced Discharge SOC Limit) foram removidos de **{serial}** ({model}).\n\nEssas funções atuam na mistura de exportação/importação em paralelo com a rede, que os modelos off-grid da EG4 (12000XP/6000XP) não suportam — os registradores existem, mas as funções são inertes neste hardware.\n\nSe alguma automação ou painel referenciava essas entidades, remova as referências. Se você acredita que seu dispositivo realmente suporta essas funções, informe nos issues do GitHub da integração."
     },
+    "offgrid_battery_backup_removed": {
+      "title": "Controlo Battery Backup Mode removido de {model} {serial}",
+      "description": "O interruptor **Battery Backup Mode** foi removido de **{serial}** ({model}).\n\nA ativação deste modo de funcionamento é rejeitada pelo firmware da família off-grid da EG4 (“failed to enable working mode” num 12000XP v2), e o próprio portal da EG4 não expõe um interruptor de modo de funcionamento para estes equipamentos. O interruptor **EPS Battery Backup** não é afetado.\n\nSe alguma automação ou painel referenciava esta entidade, remova essas referências. Se acredita que o seu dispositivo realmente suporta esta função, reporte nos issues do GitHub da integração."
+    },
     "dongle_validation_disabled": {
       "title": "Validação de dados recomendada para WiFi dongle",
       "description": "Um WiFi dongle está configurado, mas a **Validação de dados** está desativada. WiFi dongles compartilham um barramento Modbus, e leituras simultâneas podem causar dados de registro corrompidos (ex.: picos de energia).\n\nPara corrigir, vá em **Configurações > Dispositivos e serviços > EG4 Web Monitor > Configurar** e ative a **Validação de dados**."

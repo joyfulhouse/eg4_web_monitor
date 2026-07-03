@@ -945,6 +945,10 @@
       "title": "Netzgekoppelte Steuerungen von {model} {serial} entfernt",
       "description": "Die Steuerungen **Peak Shaving** und **Forced Discharge** (die Modus-Schalter sowie die Einstellungen Grid Peak Shaving Power, Forced Discharge Power und Forced Discharge SOC Limit) wurden von **{serial}** ({model}) entfernt.\n\nDiese Funktionen wirken auf netzparallelen Export/Import, den EG4 Off-Grid-Modelle (12000XP/6000XP) nicht unterstützen — die Register existieren, aber die Funktionen sind auf dieser Hardware wirkungslos.\n\nFalls Automationen oder Dashboards diese Entitäten referenzieren, entfernen Sie die Verweise. Wenn Ihr Gerät diese Funktionen tatsächlich unterstützt, melden Sie dies bitte in den GitHub-Issues der Integration."
     },
+    "offgrid_battery_backup_removed": {
+      "title": "Battery-Backup-Mode-Steuerung von {model} {serial} entfernt",
+      "description": "Der Schalter **Battery Backup Mode** wurde von **{serial}** ({model}) entfernt.\n\nDas Aktivieren dieses Arbeitsmodus wird von der Firmware der EG4-Off-Grid-Familie abgelehnt („failed to enable working mode“ auf einem 12000XP v2), und das EG4-Portal selbst bietet für diese Geräte keinen Arbeitsmodus-Schalter an. Der Schalter **EPS Battery Backup** ist nicht betroffen.\n\nFalls Automatisierungen oder Dashboards diese Entität referenziert haben, entfernen Sie diese Verweise. Wenn Sie glauben, dass Ihr Gerät diese Funktion tatsächlich unterstützt, melden Sie dies bitte in den GitHub-Issues der Integration."
+    },
     "dongle_validation_disabled": {
       "title": "Datenvalidierung empfohlen für WiFi dongle",
       "description": "Ein WiFi dongle ist konfiguriert, aber die **Datenvalidierung** ist deaktiviert. WiFi dongles teilen sich einen Modbus-Bus, und gleichzeitige Lesevorgänge können fehlerhafte Registerdaten verursachen (z.B. Energiespitzen).\n\nZur Behebung gehen Sie zu **Einstellungen > Geräte & Dienste > EG4 Web Monitor > Konfigurieren** und aktivieren Sie die **Datenvalidierung**."
