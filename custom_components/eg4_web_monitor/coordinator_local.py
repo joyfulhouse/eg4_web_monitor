@@ -461,7 +461,10 @@ class LocalTransportMixin(_MixinBase):
             )
 
     async def _read_modbus_parameters(
-        self, transport: Any, device_data: dict[str, Any] | None = None
+        self,
+        transport: Any,
+        device_data: dict[str, Any] | None = None,
+        device: Any = None,
     ) -> dict[str, Any]:
         """Read configuration parameters using library's named parameter mapping.
 
@@ -472,11 +475,32 @@ class LocalTransportMixin(_MixinBase):
             transport: ModbusTransport or DongleTransport instance
             device_data: The device's per-cycle data dict (with ``features``)
                 for family-gated ranges; None reads the family-agnostic set.
+            device: The BaseInverter owning ``transport``, for the link-down
+                gate below; None skips the gate (direct-transport callers).
 
         Returns:
             Dictionary of parameter keys to values matching HTTP API format
         """
         params: dict[str, Any] = {}
+        # Link-down gate (pylxpweb#206/#208 parity): these targeted range
+        # reads go straight to the raw transport, bypassing
+        # BaseInverter.refresh() and its link-down probe rate limit, and
+        # Python 3.11's asyncio.wait_for cannot interrupt an in-flight
+        # pymodbus read — every range would walk into the dead RS485 link
+        # for a multi-minute stall.  Report the skip as INCOMPLETE so the
+        # #282 machinery treats it exactly like a failed read: callers
+        # carry last-known values forward and keep the device queued for a
+        # floored retry.  Link state is (re-)evaluated here AFTER this
+        # cycle's refresh() probe ran, so the first cycle after link
+        # recovery reads immediately.
+        if device is not None and is_transport_link_down(device):
+            self._last_param_read_complete = False
+            _LOGGER.debug(
+                "Skipping targeted parameter read for %s: local transport "
+                "link is down (re-probed by the regular poll cycle)",
+                getattr(device, "serial_number", "unknown"),
+            )
+            return params
         failed_ranges: list[str] = []
         # Completeness flag for the caller's sticky carry-forward + throttle
         # re-arm (#282): a partial read must not blank known parameter values
@@ -772,7 +796,9 @@ class LocalTransportMixin(_MixinBase):
             }
 
             if include_params:
-                param_data = await self._read_modbus_parameters(transport, device_data)
+                param_data = await self._read_modbus_parameters(
+                    transport, device_data, device=inverter
+                )
                 if not self._last_param_read_complete:
                     # Sticky carry-forward (#282): keep last-known values for
                     # the failed range(s); only re-read ranges change.
@@ -1395,7 +1421,7 @@ class LocalTransportMixin(_MixinBase):
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
                     param_data = await self._read_modbus_parameters(
-                        param_transport, device_data
+                        param_transport, device_data, device=inverter
                     )
                     if self._last_param_read_complete:
                         self._param_completed_this_cycle.add(serial)
