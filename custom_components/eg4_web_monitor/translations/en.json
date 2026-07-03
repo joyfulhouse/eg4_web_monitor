@@ -713,6 +713,9 @@
       },
       "fast_zero_export": {
         "name": "Fast Zero Export"
+      },
+      "share_battery": {
+        "name": "Share Battery"
       }
     },
     "number": {

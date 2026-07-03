@@ -1677,3 +1677,223 @@ class TestFastZeroExportSwitchBehavior:
         coordinator.client.api.control.control_function.assert_called_once_with(
             "1234567890", "FUNC_RUN_WITHOUT_GRID", True
         )
+
+
+# ── Share Battery (FUNC_BAT_SHARED, reg 110 bit 3, GH #288) ──
+
+
+def _make_share_battery_switch(coordinator) -> EG4WorkingModeSwitch:
+    """Build the Share Battery working-mode switch under test."""
+    return EG4WorkingModeSwitch(
+        coordinator=coordinator,
+        serial="1234567890",
+        mode_config=WORKING_MODES["share_battery_mode"],
+    )
+
+
+class TestShareBatteryGating:
+    """Setup gating for the Share Battery switch (GH #288).
+
+    Battery sharing is a multi-inverter paralleling feature, not a
+    grid-tied one, and reg 110 bit 3 is agreed by the base AND SNA
+    register tables — so the switch follows the Charge Last gate: every
+    control-capable family gets it, registry-disabled by default.
+    """
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_creates_share_battery(self, hass):
+        """EG4_HYBRID (e.g. FlexBOSS21) gets the switch."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BAT_SHARED" in params
+
+    @pytest.mark.asyncio
+    async def test_lxp_family_creates_share_battery(self, hass):
+        """LXP three-phase pairs are the reporter's exact setup (GH #288)."""
+        coordinator = _mock_coordinator(
+            model="LXP-LB 12K",
+            device_data={"features": {"inverter_family": "LXP"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BAT_SHARED" in params
+
+    @pytest.mark.asyncio
+    async def test_offgrid_family_creates_share_battery(self, hass):
+        """EG4_OFFGRID keeps the switch: unlike Fast Zero Export the
+        function is not grid-tied, and bit 3 is one of the reg-110
+        positions where the SNA table agrees with the base table."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BAT_SHARED" in params
+
+    @pytest.mark.asyncio
+    async def test_local_only_creates_share_battery(self, hass):
+        """LOCAL mode keeps the switch — FUNC_BAT_SHARED has a Modbus
+        mapping in _WORKING_MODE_PARAMETERS (reg 110 bit 3 RMW)."""
+        coordinator = _mock_coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_BAT_SHARED" in params
+
+    def test_local_map_carries_bat_shared(self):
+        """The installed pylxpweb decodes FUNC_BAT_SHARED from local
+        registers (reg 110 bit 3, base and SNA tables) — no version
+        guard needed."""
+        assert switch_module._local_params_can_carry("FUNC_BAT_SHARED")
+
+    def test_disabled_by_default(self):
+        """Niche multi-inverter feature: registry-disabled by default."""
+        coordinator = _mock_coordinator()
+        switch = _make_share_battery_switch(coordinator)
+        assert switch.entity_registry_enabled_default is False
+
+    def test_other_working_modes_stay_enabled_by_default(self):
+        """The enabled_default plumbing must not disable existing modes."""
+        coordinator = _mock_coordinator()
+        switch = _make_fast_zero_export_switch(coordinator)
+        assert switch.entity_registry_enabled_default is True
+
+
+class TestShareBatterySwitchBehavior:
+    """State reads and writes for the Share Battery switch (GH #288).
+
+    Register HOLD 110 bit 3; the portal write is cloud function
+    FUNC_BAT_SHARED (reporter-verified on the Luxpower website).
+    """
+
+    def test_entity_identity(self):
+        """entity_key 'share_battery' (not the raw param name) and a
+        translation_key instead of a hardcoded _attr_name."""
+        coordinator = _mock_coordinator()
+        switch = _make_share_battery_switch(coordinator)
+        assert switch.unique_id == "1234567890_share_battery"
+        assert switch.translation_key == "share_battery"
+        # Localizable name: translation_key must not be overridden by name
+        assert getattr(switch, "_attr_name", None) is None
+
+    def test_is_on_from_params(self):
+        """State decodes from the FUNC_BAT_SHARED parameter (param polling)."""
+        coordinator = _mock_coordinator(parameters={"FUNC_BAT_SHARED": True})
+        switch = _make_share_battery_switch(coordinator)
+        assert switch.is_on is True
+
+    def test_is_off_from_params(self):
+        coordinator = _mock_coordinator(parameters={"FUNC_BAT_SHARED": False})
+        switch = _make_share_battery_switch(coordinator)
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_local(self):
+        """Local transport writes FUNC_BAT_SHARED by name (reg 110 bit 3
+        read-modify-write in pylxpweb)."""
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = _make_share_battery_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_BAT_SHARED"
+        assert call_args[0][1] is True
+
+    @pytest.mark.asyncio
+    async def test_turn_off_local(self):
+        coordinator = _mock_coordinator(has_http=False, has_local=True)
+        switch = _make_share_battery_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        call_args = coordinator.write_named_parameter.call_args
+        assert call_args[0][0] == "FUNC_BAT_SHARED"
+        assert call_args[0][1] is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_cloud_uses_function_control(self):
+        """Cloud path writes FUNC_BAT_SHARED via the generic
+        function-control API — the exact call the website makes."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_share_battery_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_BAT_SHARED", True
+        )
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_cloud_uses_function_control(self):
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_share_battery_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_BAT_SHARED", False
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_local_fail_falls_back_to_cloud(self):
+        """HYBRID: failed local write falls back to cloud function control."""
+        coordinator = _mock_coordinator(has_http=True, has_local=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = _make_share_battery_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_BAT_SHARED", True
+        )

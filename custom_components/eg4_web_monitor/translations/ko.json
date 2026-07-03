@@ -713,6 +713,9 @@
       },
       "fast_zero_export": {
         "name": "고속 제로 수출"
+      },
+      "share_battery": {
+        "name": "배터리 공유"
       }
     },
     "number": {

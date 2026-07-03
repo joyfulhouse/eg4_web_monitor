@@ -26,6 +26,7 @@ from .const import (
     FUNCTION_PARAM_MAPPING,
     INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_BAT_SHARED,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
@@ -694,6 +695,13 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # _WORKING_MODE_METHODS: the cloud path goes through the generic
     # function-control API — the exact call the website makes.
     "FUNC_RUN_WITHOUT_GRID": PARAM_FUNC_RUN_WITHOUT_GRID,
+    # Register 110, bit 3 (GH #288) — "Share Battery" in the portals. Same
+    # bit in pylxpweb's base and SNA register-110 tables, so the name
+    # resolves locally on every supported install. Deliberately absent from
+    # _WORKING_MODE_METHODS: the cloud path goes through the generic
+    # function-control API with FUNC_BAT_SHARED — the exact call the
+    # website makes (reporter-verified).
+    "FUNC_BAT_SHARED": PARAM_FUNC_BAT_SHARED,
 }
 
 
@@ -723,6 +731,11 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             entity_category=mode_config.get("entity_category"),
             translation_key=mode_config.get("translation_key"),
         )
+
+        # Niche modes register disabled by default (e.g. Share Battery,
+        # GH #288 — multi-inverter shared-bank setups only).
+        if mode_config.get("enabled_default") is False:
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def is_on(self) -> bool:
