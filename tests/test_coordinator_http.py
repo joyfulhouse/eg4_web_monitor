@@ -1,6 +1,7 @@
 """Tests for the HTTP/cloud update mixin (coordinator_http.py)."""
 
 import asyncio
+import logging
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -1541,6 +1542,161 @@ class TestBatteryCarryForward:
         # The old key is not carried — its serial is already published.
         assert "INV001-BAT001" not in second
         assert len(second) == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_physically_removed_battery_converges_within_bound(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry, caplog
+    ):
+        """A removed pack leaves within BATTERY_CARRY_FORWARD_MAX_AGE (no restart).
+
+        pylxpweb's 3-streak empty-bank convergence retires the accumulator and
+        the cloud stops reporting the pack — carry-forward must not hold the
+        key immortally with frozen SoC feeding bank aggregates.  Once
+        battery_last_seen ages past the bound the key is evicted (one INFO).
+        """
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+
+        bank = MagicMock()
+        bank.batteries = [
+            _cloud_battery("INV001_BAT001", "BAT001", 0, 85),
+            _cloud_battery("INV001_BAT002", "BAT002", 1, 82),
+        ]
+        inv._battery_bank = bank
+
+        first = await self._run_cycle(coordinator)
+        assert len(first) == 2
+
+        # The pack is physically removed: pylxpweb retires the accumulator
+        # and the cloud stops reporting it.
+        bank.batteries = [_cloud_battery("INV001_BAT001", "BAT001", 0, 85)]
+
+        # Within the bound: still carried (this is the #258 fix itself).
+        second = await self._run_cycle(coordinator)
+        assert "INV001-BAT002" in second
+
+        # Beyond the bound: evicted, and stays evicted.
+        coordinator._battery_carry_forward["INV001"]["INV001-BAT002"][
+            "battery_last_seen"
+        ] = dt_util.utcnow() - timedelta(hours=7)
+        with caplog.at_level(logging.INFO):
+            third = await self._run_cycle(coordinator)
+        assert "INV001-BAT002" not in third
+        assert "INV001-BAT002" not in coordinator._battery_carry_forward["INV001"]
+        assert any(
+            "INV001-BAT002" in r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.INFO and "Evict" in r.getMessage()
+        )
+        fourth = await self._run_cycle(coordinator)
+        assert "INV001-BAT002" not in fourth
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_carry_forward_single_pack_not_double_published(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Two cached keys sharing one serial must not both be carried."""
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+        inv._battery_bank = None
+        inv._transport = None
+        inv._transport_battery = None
+
+        fresh = dt_util.utcnow()
+        coordinator._battery_carry_forward["INV001"] = {
+            "INV001-BAT001": {
+                "battery_soc": 85,
+                "battery_serial_number": "BAT001",
+                "battery_last_seen": fresh,
+            },
+            "BAT001": {
+                "battery_soc": 84,
+                "battery_serial_number": "BAT001",
+                "battery_last_seen": fresh,
+            },
+        }
+
+        result = await self._run_cycle(coordinator)
+        assert len(result) == 1, (
+            f"one physical pack must publish once, got {set(result)}"
+        )
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_local_fallback_does_not_resurrect_retired_positional_key(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """rr-merge retirement is authoritative over the carry-forward cache.
+
+        Cloud bank absent (LOCAL fallback branch): a no-serial pack is cached
+        positionally as INV001-01; when its serial later appears the rr merge
+        retires the positional key — the carry-forward cache must not re-add
+        it (the cached positional mapping has no serial for the supersede
+        guard to match).
+        """
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+        inv._battery_bank = None
+
+        # 3 debounce polls (_NO_SERIAL_EXPOSE_POLLS) expose the positional key.
+        no_serial = BatteryData(battery_index=0, serial_number="", voltage=52.0, soc=90)
+        inv._transport_battery = BatteryBankData(battery_count=1, batteries=[no_serial])
+        result: dict[str, Any] = {}
+        for _ in range(3):
+            result = await self._run_cycle(coordinator)
+        assert "INV001-01" in result
+        assert "INV001-01" in coordinator._battery_carry_forward["INV001"]
+
+        # The serial arrives: rr merge retires INV001-01 for the serial key.
+        with_serial = BatteryData(
+            battery_index=0, serial_number="BATTERYSER001", voltage=52.0, soc=91
+        )
+        inv._transport_battery = BatteryBankData(
+            battery_count=1, batteries=[with_serial]
+        )
+        result = await self._run_cycle(coordinator)
+        assert "INV001-BATTERYSER001" in result
+        assert "INV001-01" not in result, "retired positional key resurrected"
+        assert "INV001-01" not in coordinator._battery_carry_forward["INV001"]
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_transient_duplicate_serial_leaves_no_lasting_entity(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """A transient dup-serial poll must not mint a lasting extra battery.
+
+        One corrupt poll shows two slots with the same serial (the LOCAL merge
+        mints a positional collision key); the next clean poll retires it and
+        the carry-forward must not resurrect it.
+        """
+        coordinator, inv = self._make_coordinator(hass, http_config_entry)
+        inv._battery_bank = None
+
+        dup_a = BatteryData(
+            battery_index=0, serial_number="BATTERYSER001", voltage=52.0, soc=90
+        )
+        dup_b = BatteryData(
+            battery_index=1, serial_number="BATTERYSER001", voltage=51.9, soc=89
+        )
+        inv._transport_battery = BatteryBankData(
+            battery_count=2, batteries=[dup_a, dup_b]
+        )
+        result = await self._run_cycle(coordinator)
+        assert "INV001-BATTERYSER001" in result
+        assert "INV001-02" in result  # positional collision key
+
+        # Clean poll: both slots report distinct serials.
+        clean_b = BatteryData(
+            battery_index=1, serial_number="BATTERYSER002", voltage=51.9, soc=89
+        )
+        inv._transport_battery = BatteryBankData(
+            battery_count=2, batteries=[dup_a, clean_b]
+        )
+        result = await self._run_cycle(coordinator)
+        assert "INV001-BATTERYSER001" in result
+        assert "INV001-BATTERYSER002" in result
+        assert "INV001-02" not in result, "collision key must not persist"
+        assert "INV001-02" not in coordinator._battery_carry_forward["INV001"]
 
 
 # ── _refresh_station_devices (serialized dongle access) ──────────────

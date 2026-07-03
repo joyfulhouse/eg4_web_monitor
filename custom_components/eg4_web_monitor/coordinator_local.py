@@ -8,6 +8,7 @@ aggregation, and static entity creation.
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
@@ -39,6 +40,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator_mixins import (
+    BATTERY_CARRY_FORWARD_MAX_AGE,
     _PARAMETER_RETRY_INTERVAL,
     _MixinBase,
     apply_gridboss_to_parallel_group,
@@ -257,6 +259,14 @@ class LocalTransportMixin(_MixinBase):
                 fallback_keys.discard(slot_fallback_key)
                 if slot_fallback_key != battery_key:
                     cache.pop(slot_fallback_key, None)
+                    # Retirement is authoritative across BOTH sticky layers
+                    # (#258 review P1): the carry-forward cache published this
+                    # positional key on earlier cycles and would resurrect it
+                    # otherwise (a no-serial mapping carries no serial for the
+                    # supersede guard to match).
+                    self._battery_carry_forward.get(inverter_serial, {}).pop(
+                        slot_fallback_key, None
+                    )
                     _LOGGER.debug(
                         "RR [%s] slot %d: retired positional fallback %s "
                         "(serial %s now known)",
@@ -1148,13 +1158,43 @@ class LocalTransportMixin(_MixinBase):
                     # A genuine shared-battery secondary never populates the
                     # cache, so this can only re-serve batteries this
                     # inverter itself reported earlier.
-                    device_data["batteries"] = dict(cached_batteries)
-                    _LOGGER.debug(
-                        "LOCAL: %s serving %d individual batteries "
-                        "from cache (no battery data this poll)",
-                        serial,
-                        len(device_data["batteries"]),
-                    )
+                    #
+                    # Bounded (#258 review): an entry not read for over
+                    # BATTERY_CARRY_FORWARD_MAX_AGE is a physically removed
+                    # pack, not a transient — evict it so removal converges
+                    # instead of re-serving frozen data until restart.
+                    now = dt_util.utcnow()
+                    aged = [
+                        key
+                        for key, mapping in cached_batteries.items()
+                        if isinstance(
+                            last_seen := mapping.get("battery_last_seen"),
+                            datetime,
+                        )
+                        and now - dt_util.as_utc(last_seen)
+                        > BATTERY_CARRY_FORWARD_MAX_AGE
+                    ]
+                    for key in aged:
+                        cached_batteries.pop(key, None)
+                        self._battery_carry_forward.get(serial, {}).pop(key, None)
+                    if aged:
+                        _LOGGER.info(
+                            "LOCAL: Evicting %d batteries for %s not seen for "
+                            "over %s (physically removed or permanently "
+                            "vanished): %s",
+                            len(aged),
+                            serial,
+                            BATTERY_CARRY_FORWARD_MAX_AGE,
+                            aged,
+                        )
+                    if cached_batteries:
+                        device_data["batteries"] = dict(cached_batteries)
+                        _LOGGER.debug(
+                            "LOCAL: %s serving %d individual batteries "
+                            "from cache (no battery data this poll)",
+                            serial,
+                            len(device_data["batteries"]),
+                        )
 
                 device_data["sensors"]["firmware_version"] = firmware_version
                 device_data["sensors"]["connection_transport"] = _get_transport_label(

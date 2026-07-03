@@ -11,7 +11,7 @@ import asyncio
 import logging
 import time as _time
 from collections.abc import Collection
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -43,6 +43,7 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
+    BATTERY_CARRY_FORWARD_MAX_AGE,
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
@@ -605,7 +606,8 @@ class HTTPUpdateMixin(_MixinBase):
         ``battery_last_polled`` stamps, so staleness stays visible as data —
         never as availability flapping (the #261/#282 sticky precedent).
 
-        Two guards keep identities from doubling:
+        Two guards keep identities from doubling, and one bound keeps carried
+        keys from becoming immortal:
 
         - ``exclude``: legacy positional keys that are aliases of a battery
           published under its canonical key this cycle (#252 migration pairs).
@@ -614,6 +616,12 @@ class HTTPUpdateMixin(_MixinBase):
         - serial supersede: a cached key whose ``battery_serial_number`` is
           already published under a different key was re-keyed by the payload;
           carrying the old key would publish the same physical pack twice.
+          The published-serial set grows as carried mappings are admitted, so
+          two cached keys sharing one serial can never both be carried.
+        - eviction bound: a cached key whose ``battery_last_seen`` aged past
+          ``BATTERY_CARRY_FORWARD_MAX_AGE`` is a physically removed (or
+          permanently vanished) pack, not a transient gap — it is evicted
+          (one INFO) so removal converges without a Home Assistant restart.
 
         Args:
             inverter_serial: Parent inverter serial number.
@@ -624,20 +632,43 @@ class HTTPUpdateMixin(_MixinBase):
         cache = self._battery_carry_forward.get(inverter_serial)
 
         if cache:
+            now = dt_util.utcnow()
             current_serials = {
                 sn
                 for mapping in current.values()
                 if isinstance(sn := mapping.get("battery_serial_number"), str) and sn
             }
             carried: list[str] = []
-            for key, mapping in cache.items():
-                if key in current or key in exclude:
+            evicted: list[str] = []
+            for key, mapping in list(cache.items()):
+                if key in current:
+                    continue
+                last_seen = mapping.get("battery_last_seen")
+                if (
+                    isinstance(last_seen, datetime)
+                    and now - dt_util.as_utc(last_seen) > BATTERY_CARRY_FORWARD_MAX_AGE
+                ):
+                    del cache[key]
+                    evicted.append(key)
+                    continue
+                if key in exclude:
                     continue
                 sn = mapping.get("battery_serial_number")
                 if isinstance(sn, str) and sn in current_serials:
                     continue
                 current[key] = mapping
                 carried.append(key)
+                if isinstance(sn, str) and sn:
+                    current_serials.add(sn)
+            if evicted:
+                _LOGGER.info(
+                    "Evicting %d batteries for %s not seen for over %s "
+                    "(physically removed or permanently vanished): %s",
+                    len(evicted),
+                    inverter_serial,
+                    BATTERY_CARRY_FORWARD_MAX_AGE,
+                    evicted,
+                )
             if carried:
                 _LOGGER.debug(
                     "Carrying forward %d batteries missing from this cycle for %s: %s",
@@ -1083,8 +1114,16 @@ class HTTPUpdateMixin(_MixinBase):
                 )
                 # The round-robin cache never evicts, but a session that
                 # earlier published cloud-keyed batteries (hybrid → local
-                # fallback flip) must not drop them (#258).
-                self._apply_battery_carry_forward(serial, device_data)
+                # fallback flip) must not drop them (#258).  Legacy positional
+                # aliases of serials the rr merge knows are excluded — a
+                # no-serial pack whose serial just arrived had its positional
+                # key retired by the merge, and the cached positional mapping
+                # carries no serial for the supersede guard to match.
+                self._apply_battery_carry_forward(
+                    serial,
+                    device_data,
+                    exclude=set(self._battery_serial_to_key.get(serial, {}).values()),
+                )
                 _LOGGER.debug(
                     "LOCAL: %d individual batteries for %s (round-robin cache)",
                     len(device_data.get("batteries", {})),
