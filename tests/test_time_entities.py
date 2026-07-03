@@ -822,6 +822,28 @@ class TestWritePaths:
         coordinator.write_register.assert_not_awaited()
         assert coordinator.client.api.control.write_parameter.await_count == 2
 
+    @pytest.mark.asyncio
+    async def test_link_down_write_skips_param_refresh_and_retains_optimistic(self):
+        """Known-down link: the post-write parameter refresh must NOT run
+        (pylxpweb's param fetch has no link gate — the local reads would
+        hang, codex P1 on PR #301); the optimistic value is RETAINED — the
+        acknowledged cloud write is device truth — until fresh parameter
+        data arrives on link recovery."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(20, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        coordinator.refresh_all_device_parameters.assert_not_awaited()
+        assert entity._optimistic_retained is True
+        assert entity.native_value == time(20, 30)
+
     @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
     @pytest.mark.asyncio
     async def test_midnight_crossing_end_before_start_is_allowed(self, schedule):

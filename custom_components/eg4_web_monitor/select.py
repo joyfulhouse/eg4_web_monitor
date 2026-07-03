@@ -407,7 +407,11 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
                 if not result.success:
                     raise HomeAssistantError(f"Failed to set PV input mode to {option}")
                 inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
+                if inverter and not self.coordinator.is_transport_link_down(
+                    self._serial
+                ):
+                    # Skipped on a down link: the local parameter reads would
+                    # hang; the cache seed (local_values) converges the entity.
                     await inverter.refresh(force=True, include_parameters=True)
 
             await async_write_with_cloud_fallback(
@@ -416,6 +420,7 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
                 f"PV input mode to {option}",
                 local_write=_local_write,
                 cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_PV_INPUT_MODE: int_value},
             )
 
             _LOGGER.info(
@@ -686,7 +691,11 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                         f"Failed to set {self._control_name} to {option}"
                     )
                 inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
+                if inverter and not self.coordinator.is_transport_link_down(
+                    self._serial
+                ):
+                    # Skipped on a down link: the local parameter reads would
+                    # hang; the cache seed (local_values) converges the entity.
                     await inverter.refresh(force=True, include_parameters=True)
 
             await async_write_with_cloud_fallback(
@@ -695,6 +704,7 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                 f"{self._control_name} to {option}",
                 local_write=_local_write,
                 cloud_write=_cloud_write,
+                local_values={self._param_key: voltage_mode},
             )
 
             self._optimistic_state = None

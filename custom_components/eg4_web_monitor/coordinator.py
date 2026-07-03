@@ -5,7 +5,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from collections.abc import Callable, Collection
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -102,6 +102,7 @@ from .coordinator_mixins import (
     DSTSyncMixin,
     FirmwareUpdateMixin,
     ParameterManagementMixin,
+    is_transport_link_down as _device_transport_link_down,
 )
 from .const.sensors import SENSOR_TYPES
 from .utils import async_write_with_cloud_fallback
@@ -586,22 +587,46 @@ class EG4DataUpdateCoordinator(
         pylxpweb keeps the transport ATTACHED while the link is down (reads
         keep probing every cycle), so ``has_local_transport()`` stays True
         during an outage. Control writes use this to prefer the cloud
-        immediately instead of waiting out a doomed Modbus timeout.
-        Duck-typed via ``getattr`` so MID devices and older pylxpweb versions
-        without the property simply report the link as up.
+        immediately instead of waiting out a doomed Modbus timeout, and
+        parameter refreshes use it to skip local reads that would hang.
+
+        Delegates to :func:`coordinator_mixins.is_transport_link_down` — the
+        single implementation, whose strict guards (transport must be
+        attached, ``transport_link_down`` must be a real bool) keep stale
+        attributes without a transport and older pylxpweb versions from ever
+        reporting a down link.
 
         Args:
             serial: Device serial to check.
 
         Returns:
-            True if the device object reports ``transport_link_down``.
+            True only when the device reports an attached-but-dead link.
         """
         device: Any = self.get_inverter_object(serial) or self._get_device_object(
             serial
         )
         if device is None:
             device = self._mid_device_cache.get(serial)
-        return bool(getattr(device, "transport_link_down", False))
+        return _device_transport_link_down(device)
+
+    def note_parameters_written(self, serial: str, values: dict[str, Any]) -> None:
+        """Merge acknowledged written parameter values into the cache and notify.
+
+        Convergence for cloud-fallback writes while a local transport is
+        attached: the follow-up local parameter refresh is skipped (link
+        down) or may fail, and the #282 sticky carry-forward would otherwise
+        pin the stale pre-write value until link recovery — visually
+        reverting the entity after its optimistic value clears. The written
+        value IS device truth (the cloud write was acknowledged), expressed
+        in the same local-raw representation the attached-transport cache
+        uses. A later successful parameter read overwrites it with fresh
+        device data.
+        """
+        if not self.data:
+            return
+        params = self.data.setdefault("parameters", {}).setdefault(serial, {})
+        params.update(values)
+        self.async_update_listeners()
 
     def _has_modbus_transport(self) -> bool:
         """Check if any Modbus TCP/Serial transport is configured."""
@@ -1017,13 +1042,19 @@ class EG4DataUpdateCoordinator(
             charge_result = await client.api.control.control_function(
                 serial, PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage
             )
-            discharge_result = await client.api.control.control_function(
-                serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
-            )
-            if not (charge_result.success and discharge_result.success):
+            if not charge_result.success:
+                # Nothing written yet — no partial state to converge on.
                 raise HomeAssistantError(
                     f"Failed to set battery control mode for {serial}"
                 )
+            try:
+                discharge_result = await client.api.control.control_function(
+                    serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
+                )
+            except Exception as err:
+                await self._raise_partial_battery_mode_write(serial, err)
+            if not discharge_result.success:
+                await self._raise_partial_battery_mode_write(serial, None)
 
         await async_write_with_cloud_fallback(
             self,
@@ -1031,7 +1062,45 @@ class EG4DataUpdateCoordinator(
             "battery control mode",
             local_write=_local_write,
             cloud_write=_cloud_write,
+            local_values={
+                PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage,
+                PARAM_FUNC_BAT_DISCHARGE_CONTROL: discharge_voltage,
+            },
         )
+
+    async def _raise_partial_battery_mode_write(
+        self, serial: str, err: Exception | None
+    ) -> NoReturn:
+        """Re-read parameters after a partial battery-mode cloud write, then raise.
+
+        The charge bit was written but the discharge bit was not — register
+        179 holds a MIXED regime (same convergence pattern as the schedule
+        time entities' partial hour/minute cloud writes). A best-effort
+        parameter refresh re-reads the device so entities reflect the actual
+        state; ``_refresh_device_parameters`` internally skips the read when
+        the local link is down (the cloud param poll or link recovery
+        converges later).
+        """
+        _LOGGER.warning(
+            "Battery control mode write for %s partially applied (discharge "
+            "bit failed%s); re-reading device parameters to reflect the "
+            "actual state",
+            serial,
+            f": {err}" if err else "",
+        )
+        try:
+            await self._refresh_device_parameters(serial)
+        except Exception:
+            _LOGGER.debug(
+                "Best-effort parameter re-read after partial battery mode "
+                "write failed for %s",
+                serial,
+            )
+        raise HomeAssistantError(
+            f"Failed to set battery control mode for {serial}: the regime may "
+            "be partially applied (charge and discharge bits are written "
+            "separately) — device state was re-read"
+        ) from err
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.

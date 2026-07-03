@@ -517,3 +517,33 @@ class TestPVInputModeSelectFallback:
 
         with pytest.raises(HomeAssistantError, match="timeout"):
             await select.async_select_option("PV1")
+
+    @pytest.mark.asyncio
+    async def test_link_down_skips_local_write_and_param_refresh_seeds_cache(self):
+        """Known-down link: the local write AND the follow-up local
+        parameter read are both skipped (pylxpweb's param fetch has no link
+        gate and would hang, codex P1 on PR #301); the acknowledged cloud
+        value is seeded into the cache so the entity converges."""
+        coordinator = _mock_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=result_mock
+        )
+        select = self._select(coordinator)
+
+        await select.async_select_option("PV2")
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_PV_INPUT_MODE", "2"
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.refresh.assert_not_awaited()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"HOLD_PV_INPUT_MODE": 2}
+        )

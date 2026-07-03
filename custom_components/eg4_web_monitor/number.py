@@ -412,9 +412,9 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         """
         _LOGGER.info("Setting %s for %s", label, self.serial)
         self._warn_if_ineffective()
+        write_val = local_value if local_value is not None else int(value)
 
         async def _local_write() -> None:
-            write_val = local_value if local_value is not None else int(value)
             await self.coordinator.write_named_parameter(
                 local_param, write_val, serial=self.serial
             )
@@ -440,6 +440,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 local_write=_local_write,
                 cloud_write=cloud_write
                 or (_cloud_via_method if cloud_method else None),
+                local_values={local_param: write_val},
             )
             await self._refresh_related_entities()
 
@@ -480,7 +481,10 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             if not result.success:
                 raise HomeAssistantError(f"Failed to set {label}")
             inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: pylxpweb's parameter fetch has no
+                # link gate and the local reads would hang; the cache seed
+                # (local_values) converges the entity instead.
                 await inverter.refresh(force=True, include_parameters=True)
 
         with optimistic_value_context(self, value):
@@ -490,6 +494,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 label,
                 local_write=_local_write,
                 cloud_write=_cloud_write,
+                local_values={param_name: raw_value},
             )
             await self._refresh_related_entities()
 
@@ -705,7 +710,9 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             if not result.success:
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
             inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: the local parameter reads would
+                # hang; the cache seed (local_values) converges the entity.
                 await inverter.refresh(force=True, include_parameters=True)
 
         with optimistic_value_context(self, value):
@@ -715,6 +722,7 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 f"system charge SOC limit to {int_value}%",
                 local_write=_local_write,
                 cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: int_value},
             )
             await self._refresh_related_entities()
 
@@ -1073,7 +1081,9 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
                     f"Failed to set PV start voltage to {int_value} V"
                 )
             inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: the local parameter reads would
+                # hang; the cache seed (local_values) converges the entity.
                 await inverter.refresh(force=True, include_parameters=True)
 
         with optimistic_value_context(self, value):
@@ -1083,6 +1093,7 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
                 f"PV start voltage to {int_value} V",
                 local_write=_local_write,
                 cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_START_PV_VOLT: int_value * 10},
             )
             await self._refresh_related_entities()
 
@@ -1454,7 +1465,9 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
                 f"Failed to set start discharge power threshold to {watts} W"
             )
         inverter = self.coordinator.get_inverter_object(self.serial)
-        if inverter:
+        if inverter and not self.coordinator.is_transport_link_down(self.serial):
+            # Skipped on a down link: the local parameter reads would hang;
+            # _write_parameter's cache seed (local_values) converges the entity.
             await inverter.refresh(force=True, include_parameters=True)
 
 

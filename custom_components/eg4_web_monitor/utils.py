@@ -52,6 +52,7 @@ async def async_write_with_cloud_fallback(
     *,
     local_write: Callable[[], Awaitable[Any]],
     cloud_write: Callable[[], Awaitable[Any]] | None = None,
+    local_values: dict[str, Any] | None = None,
 ) -> None:
     """Attempt a local register write, falling back to the cloud API.
 
@@ -82,11 +83,21 @@ async def async_write_with_cloud_fallback(
         cloud_write: Coroutine factory performing the equivalent cloud write,
             or None when the action has no cloud path (raw-register-only
             controls) — local errors then propagate unchanged.
+        local_values: The written parameters in the LOCAL-RAW representation
+            the attached-transport cache uses. When the write lands via the
+            cloud path while a local transport is attached, these are merged
+            into the coordinator's parameter cache
+            (:meth:`EG4DataUpdateCoordinator.note_parameters_written`) so the
+            entity converges on the written value — the follow-up local
+            parameter refresh is skipped on a down link, and without the
+            seed the entity would revert to the stale pre-write cache value
+            once its optimistic state clears.
 
     Raises:
         HomeAssistantError: If all available write paths fail, or none exist.
     """
-    if coordinator.has_local_transport(serial):
+    local_attached = coordinator.has_local_transport(serial)
+    if local_attached:
         cloud_available = cloud_write is not None and coordinator.has_http_api()
         if cloud_available and coordinator.is_transport_link_down(serial):
             _LOGGER.warning(
@@ -110,6 +121,12 @@ async def async_write_with_cloud_fallback(
                 )
     if cloud_write is not None and coordinator.has_http_api():
         await cloud_write()
+        if local_attached and local_values:
+            # Cloud fallback with an attached local transport: seed the
+            # (local-raw) parameter cache with the acknowledged write so
+            # the entity shows the new value even though the local param
+            # re-read is skipped/unreliable while the link is down.
+            coordinator.note_parameters_written(serial, local_values)
         return
     raise HomeAssistantError(
         "No local transport or cloud API available for parameter write."

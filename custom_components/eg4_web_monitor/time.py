@@ -305,7 +305,15 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                 cloud_write=lambda: self._async_write_cloud(boundary_value),
             )
             write_ok = True
-            refresh_ok = await self._async_refresh_parameters()
+            if self.coordinator.is_transport_link_down(self.serial):
+                # The packed register cannot be re-read on a dead link (and
+                # refresh_all_device_parameters skips this serial). Leave
+                # refresh_ok False so the optimistic value is RETAINED —
+                # the acknowledged cloud write IS device truth — until
+                # fresh parameter data arrives on link recovery.
+                refresh_ok = False
+            else:
+                refresh_ok = await self._async_refresh_parameters()
         finally:
             if not write_ok or refresh_ok:
                 # Write failed (entity falls back to the parameter cache —
@@ -369,7 +377,9 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         device holds a mixed schedule time. A best-effort parameter refresh
         (its own errors suppressed) re-reads the device so the entity shows
         the actual (mixed) state once the optimistic value is dropped by
-        the caller's failure path.
+        the caller's failure path. Skipped while the local transport link
+        is down — the re-read would hang on the dead link; the cloud param
+        poll or link recovery converges the entity later.
         """
         _LOGGER.warning(
             "Cloud schedule write for %s partially applied (%s failed%s); "
@@ -378,7 +388,8 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             failed_param,
             f": {err}" if err else "",
         )
-        await self._async_refresh_parameters()
+        if not self.coordinator.is_transport_link_down(self.serial):
+            await self._async_refresh_parameters()
         raise HomeAssistantError(
             f"Failed to set {failed_param} for {self.serial}: the schedule "
             "time may be partially applied (hour and minute are written "
