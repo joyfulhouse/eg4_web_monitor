@@ -733,8 +733,10 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         )
 
         # Niche modes register disabled by default (e.g. Share Battery,
-        # GH #288 — multi-inverter shared-bank setups only).
-        if mode_config.get("enabled_default") is False:
+        # GH #288 — multi-inverter shared-bank setups only). Truthiness (not
+        # an ``is False`` identity check) so a future non-bool falsy value
+        # (0, None, "") can't silently ship the entity enabled (#310).
+        if not mode_config.get("enabled_default", True):
             self._attr_entity_registry_enabled_default = False
 
     @property

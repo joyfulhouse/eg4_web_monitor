@@ -1197,14 +1197,40 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     turn_on=value,
                     refresh_params=True,
                 )
+                # The write landed via the cloud: seed the parameter cache so
+                # the switch converges on the acknowledged value even when the
+                # post-write local parameter refresh is skipped (#310). Every
+                # ``parameter`` reaching this wrapper is a named local bit
+                # param, i.e. exactly the parameter-cache key ``is_on`` reads.
+                self._seed_cloud_written_parameter(parameter, value)
             else:
                 await self._execute_cloud_function_action(
                     action_name=action_name,
                     parameter=parameter,
                     value=value,
+                    seed_param_key=parameter,
                 )
         else:
             raise HomeAssistantError(f"No transport available for {action_name}")
+
+    def _seed_cloud_written_parameter(self, param_key: str, value: bool) -> None:
+        """Seed an acknowledged cloud-written FUNC_ bit into the parameter cache.
+
+        Convergence for cloud-fallback writes while a local transport is
+        attached (GH #310, the switch counterpart of
+        :func:`utils.async_write_with_cloud_fallback` seeding): under a down
+        local link the post-write parameter refresh is skipped
+        (``_refresh_device_parameters``), so without the seed ``is_on`` would
+        revert to the stale pre-write cache value once the optimistic state
+        clears, until link recovery. The seed is the local-raw representation
+        (bit params read back as ``bool``), and a later successful parameter
+        read overwrites it with fresh device data.
+
+        Never fires for pure-cloud installs (no transport attached): their
+        parameter cache is cloud-fed and refreshes normally.
+        """
+        if self.coordinator.has_local_transport(self._serial):
+            self.coordinator.note_parameters_written(self._serial, {param_key: value})
 
     async def _execute_cloud_function_action(
         self,
@@ -1212,6 +1238,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         parameter: str,
         value: bool,
         api_delay: float = 1.0,
+        seed_param_key: str | None = None,
     ) -> None:
         """Execute a switch action via the cloud function-control API.
 
@@ -1227,6 +1254,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             parameter: Cloud function parameter name (e.g., "FUNC_CHARGE_LAST").
             value: True to enable, False to disable.
             api_delay: Seconds to wait for the API to propagate changes.
+            seed_param_key: Parameter-cache key to seed with the acknowledged
+                ``value`` when a local transport is attached (#310) — pass
+                only for parameter-backed switches whose ``is_on`` reads this
+                key; leave ``None`` for actions whose state is not parameter
+                cache backed (e.g. status-based quick charge).
 
         Raises:
             HomeAssistantError: If no cloud client exists or the write fails.
@@ -1263,6 +1295,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 action_name,
                 self._serial,
             )
+
+            # Seed the acknowledged value BEFORE the refresh/optimistic-clear:
+            # under a down local link the parameter refresh below is skipped,
+            # and is_on would otherwise revert to the stale pre-write cache
+            # value once the optimistic state clears (#310).
+            if seed_param_key is not None:
+                self._seed_cloud_written_parameter(seed_param_key, value)
 
             # Wait for API to propagate changes before refreshing parameters
             await asyncio.sleep(api_delay)
