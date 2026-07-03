@@ -2949,6 +2949,49 @@ class TestBatteryControlModeMethods:
 
         coordinator._refresh_device_parameters.assert_awaited_once_with("INV001")
 
+    async def test_battery_control_mode_partial_write_link_down_seeds_charge_bit(
+        self, hass, local_config_entry
+    ):
+        """HYBRID link-down partial write: the re-read is impossible (gated),
+        so the KNOWN-succeeded charge bit is seeded into the cache — the
+        failed discharge bit stays untouched (device still holds its old
+        value) — while the error still surfaces (codex medium on PR #301)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        coordinator.data = {
+            "parameters": {
+                "INV001": {
+                    "FUNC_BAT_CHARGE_CONTROL": False,
+                    "FUNC_BAT_DISCHARGE_CONTROL": False,
+                }
+            }
+        }
+        coordinator.async_update_listeners = MagicMock()
+        ok = MagicMock()
+        ok.success = True
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(
+            side_effect=[ok, failed]
+        )
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "voltage"
+            )
+
+        # Re-read skipped (link down), succeeded charge bit seeded, failed
+        # discharge bit unchanged (pre-write cache value).
+        coordinator._refresh_device_parameters.assert_not_awaited()
+        params = coordinator.data["parameters"]["INV001"]
+        assert params["FUNC_BAT_CHARGE_CONTROL"] is True
+        assert params["FUNC_BAT_DISCHARGE_CONTROL"] is False
+        coordinator.async_update_listeners.assert_called_once()
+
 
 class TestLinkDownParameterRefreshGate:
     """Parameter refreshes must skip attached-but-dead links (codex P1 on

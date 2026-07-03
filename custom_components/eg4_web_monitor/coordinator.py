@@ -1052,9 +1052,13 @@ class EG4DataUpdateCoordinator(
                     serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
                 )
             except Exception as err:
-                await self._raise_partial_battery_mode_write(serial, err)
+                await self._raise_partial_battery_mode_write(
+                    serial, charge_voltage, err
+                )
             if not discharge_result.success:
-                await self._raise_partial_battery_mode_write(serial, None)
+                await self._raise_partial_battery_mode_write(
+                    serial, charge_voltage, None
+                )
 
         await async_write_with_cloud_fallback(
             self,
@@ -1069,7 +1073,7 @@ class EG4DataUpdateCoordinator(
         )
 
     async def _raise_partial_battery_mode_write(
-        self, serial: str, err: Exception | None
+        self, serial: str, charge_voltage: bool, err: Exception | None
     ) -> NoReturn:
         """Re-read parameters after a partial battery-mode cloud write, then raise.
 
@@ -1077,9 +1081,12 @@ class EG4DataUpdateCoordinator(
         179 holds a MIXED regime (same convergence pattern as the schedule
         time entities' partial hour/minute cloud writes). A best-effort
         parameter refresh re-reads the device so entities reflect the actual
-        state; ``_refresh_device_parameters`` internally skips the read when
-        the local link is down (the cloud param poll or link recovery
-        converges later).
+        state. When the local link is DOWN the re-read is impossible
+        (``_refresh_device_parameters`` skips it), so the KNOWN-succeeded
+        charge bit is seeded into the cache instead — the failed discharge
+        bit is left untouched (the device still holds its previous value) —
+        so the cache converges on what actually landed while the error still
+        surfaces.
         """
         _LOGGER.warning(
             "Battery control mode write for %s partially applied (discharge "
@@ -1088,14 +1095,19 @@ class EG4DataUpdateCoordinator(
             serial,
             f": {err}" if err else "",
         )
-        try:
-            await self._refresh_device_parameters(serial)
-        except Exception:
-            _LOGGER.debug(
-                "Best-effort parameter re-read after partial battery mode "
-                "write failed for %s",
-                serial,
+        if self.is_transport_link_down(serial):
+            self.note_parameters_written(
+                serial, {PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage}
             )
+        else:
+            try:
+                await self._refresh_device_parameters(serial)
+            except Exception:
+                _LOGGER.debug(
+                    "Best-effort parameter re-read after partial battery mode "
+                    "write failed for %s",
+                    serial,
+                )
         raise HomeAssistantError(
             f"Failed to set battery control mode for {serial}: the regime may "
             "be partially applied (charge and discharge bits are written "
