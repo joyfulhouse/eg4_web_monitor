@@ -5,6 +5,33 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.22] - 2026-07-03
+
+> Requires [pylxpweb 0.9.36b24](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b24)
+> (installed automatically; the manifest requirement is bumped).
+>
+> This is the 3.4.0 issue-zeroing release: every open bug and feature request
+> against the integration is resolved here (the sole remaining open issue,
+> #176 RS485 battery transport, is milestoned 3.5.0). Every PR passed the
+> dual Opus + Codex adversarial review gate, several through multiple rounds.
+
+### Added
+
+- **Generator, Off-Grid and Peak Shaving schedule time entities — full portal parity** ([#312](https://github.com/joyfulhouse/eg4_web_monitor/pull/312)): the remaining schedule windows from the portal's working-mode pages join the seven schedule families as native **time** entities, with registers live-verified on real hardware (cloud-write ↔ local-register correlation): **Peak Shaving** (registers 209-212, 2 windows; the cloud reads these via the portal's `LSP_HOLD_DIS_CHG_POWER_TIME_37..44` interleaved params), **Generator Charge** (256-259, 2 windows; created on EG4_HYBRID and — per the SNA register probe — EG4_OFFGRID), and **Off-Grid** (269-274, 3 windows, EG4_HYBRID). Cloud writes use the portal's own **atomic writeTime endpoint** (one call per boundary — no partial hour/minute failure mode; pylxpweb #209). Smart Load schedules are deliberately excluded: cloud writes returned DATAFRAME_TIMEOUT on both test units and the registers could not be pinned.
+- **Share Battery switch** ([#306](https://github.com/joyfulhouse/eg4_web_monitor/pull/306), closes [#288](https://github.com/joyfulhouse/eg4_web_monitor/issues/288)): the portal's per-inverter Share Battery toggle (HOLD 110 bit 3) for multi-inverter shared-bank systems, using the reporter-verified `FUNC_BAT_SHARED` cloud function; disabled by default (niche feature). pylxpweb's battery-count debug line now notes when reg96=0 is expected on a sharing secondary (pylxpweb #207).
+
+### Changed
+
+- **ALL schedule time entities are now disabled by default** — including the existing AC Charge/Forced Charge/Forced Discharge/AC First window-1 entities that beta.18-.20 created enabled. They serve a limited automation use case and add entity noise for most installs. Entities you have already enabled stay enabled (the default only affects new registrations); enable any window from the entity registry.
+
+### Fixed
+
+- **Quick Charge switch no longer lies on the XP family** ([#308](https://github.com/joyfulhouse/eg4_web_monitor/pull/308), closes [#296](https://github.com/joyfulhouse/eg4_web_monitor/issues/296)): on 6000XP/12000XP the switch state read holding register 233 — the exact register that family's firmware rejects (`ILLEGAL DATA ADDRESS`), so the switch showed *off* seconds after starting a charge that was actually running (reporter's log). Quick-charge status and control on the off-grid family now route through the cloud API (the same source the EG4 app reflects) when cloud credentials exist; the commanded state is retained until a **fresh** status read confirms it (never overridden by known-pre-write data — the exact 502-storm flap in the report); the Duration number reads live register 234 so its display and its write agree; and all new cloud/local reads are link-down-gated and time-bounded. Three review rounds.
+- **XP-v2: Battery Backup Mode switch removed where firmware rejects it** ([#307](https://github.com/joyfulhouse/eg4_web_monitor/pull/307), closes [#289](https://github.com/joyfulhouse/eg4_web_monitor/issues/289)): the reporter's 12000XP v2 rejects the working-mode write ("failed to enable working mode") and EG4's own Remote Set portal doesn't offer the control for that platform — the switch is no longer created on the off-grid family, with a one-shot Repairs notice for anyone who had it registered. **EPS Battery Backup stays** — the SNA register dump proves it live and enabled on that family (the review gate caught and reverted an over-broad first draft). New XP-family control notes in TROUBLESHOOTING (AC Charge controls charging, not grid passthrough; Off Grid Mode self-reverts on XP-v2 firmware).
+- **Positional battery retirement across slot shifts** ([#309](https://github.com/joyfulhouse/eg4_web_monitor/pull/309), closes [#302](https://github.com/joyfulhouse/eg4_web_monitor/issues/302)): when a battery's serial becomes readable after a serial-less cold-start window, the exposed positional entity now retires immediately and exactly (previously the shifted slot index made retirement miss it until the 6-hour bound), with a discoverable INFO log naming the stale entity.
+- **Switches converge after cloud-fallback writes instead of reverting** ([#311](https://github.com/joyfulhouse/eg4_web_monitor/pull/311), closes [#310](https://github.com/joyfulhouse/eg4_web_monitor/issues/310)): the #301 parameter-cache seeding now covers the switch family too — a switch flipped while the local link is down converges on the acknowledged cloud value with zero intermediate stale state publishes (the review's state-sequence test found and killed a second stale-publish window). Off-grid Green Mode state is now honest: pylxpweb no longer decodes the unverified SNA bit as truth, and an absent reading shows *unknown* instead of *off* (pylxpweb #210).
+- **Targeted Modbus parameter reads are link-down-gated** ([#313](https://github.com/joyfulhouse/eg4_web_monitor/pull/313)): the integration's own per-cycle 8-range parameter read bypassed pylxpweb's refresh guard and could stall a poll cycle for minutes against a dead RS485 link; it now skips with correct sticky/retry accounting and resumes on the recovery cycle. Library-side defense-in-depth shipped in pylxpweb #208.
+
 ## [3.4.0-beta.21] - 2026-07-03
 
 > Requires [pylxpweb 0.9.36b23](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b23)
