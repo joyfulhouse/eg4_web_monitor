@@ -5,6 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.23] - 2026-07-03
+
+> Requires [pylxpweb 0.9.36b24](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b24)
+> (unchanged from beta.22). This is the 3.4.0 release candidate.
+
+### Fixed
+
+- **Forced Charge schedule times removed from the off-grid family** ([#316](https://github.com/joyfulhouse/eg4_web_monitor/pull/316), from @mjstrand's beta.21 report on [#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295)): setting a Forced Charge start/end time on a 12000XP failed with `REMOTE_SET_ERROR` — the EG4 cloud rejects the parameter, and the off-grid working-mode portal page carries no Forced Charge schedule at all (the beta.20 gate over-generalized from the hybrid page). The six time entities are no longer created on EG4_OFFGRID; anyone who had one registered gets a one-shot Repairs notice. Interesting inverse discovered in the same investigation: the off-grid portal page *does* carry a full Forced Discharge schedule widget, which we currently suppress — tracked as [#317](https://github.com/joyfulhouse/eg4_web_monitor/issues/317), pending hardware write evidence.
+
 ## [3.4.0-beta.22] - 2026-07-03
 
 > Requires [pylxpweb 0.9.36b24](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b24)
