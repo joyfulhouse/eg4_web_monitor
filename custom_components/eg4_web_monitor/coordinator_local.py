@@ -338,7 +338,54 @@ class LocalTransportMixin(_MixinBase):
             list(legacy_key_map.keys()),
         )
 
+        # Age-based eviction must run on every merge, not only on empty
+        # polls: this method returns the full accumulated cache, so once any
+        # battery has been seen device_data["batteries"] is never empty and
+        # the empty-poll re-serve branch downstream is unreachable.  Without
+        # this, a physically removed pack would be re-served with frozen
+        # values until restart.  Mirrors the unconditional HYBRID/CLOUD
+        # bound in _apply_battery_carry_forward.  Rotating batteries are
+        # safe: their mapping is re-stamped whenever their page comes
+        # around, well within the bound.
+        self._evict_aged_rr_batteries(inverter_serial)
+
         return dict(cache)
+
+    def _evict_aged_rr_batteries(self, inverter_serial: str) -> None:
+        """Evict round-robin cache entries aged past the carry-forward bound.
+
+        An entry whose ``battery_last_seen`` is older than
+        BATTERY_CARRY_FORWARD_MAX_AGE is a physically removed pack, not a
+        transient — evict it from the rr-cache (and the carry-forward
+        layer, which would otherwise resurrect it) so removal converges
+        without an HA restart (#258 review).
+        """
+        cache = self._battery_rr_cache.get(inverter_serial)
+        if not cache:
+            return
+        now = dt_util.utcnow()
+        aged = [
+            key
+            for key, mapping in cache.items()
+            if isinstance(
+                last_seen := mapping.get("battery_last_seen"),
+                datetime,
+            )
+            and now - dt_util.as_utc(last_seen) > BATTERY_CARRY_FORWARD_MAX_AGE
+        ]
+        for key in aged:
+            cache.pop(key, None)
+            self._battery_carry_forward.get(inverter_serial, {}).pop(key, None)
+        if aged:
+            _LOGGER.info(
+                "LOCAL: Evicting %d batteries for %s not seen for "
+                "over %s (physically removed or permanently "
+                "vanished): %s",
+                len(aged),
+                inverter_serial,
+                BATTERY_CARRY_FORWARD_MAX_AGE,
+                aged,
+            )
 
     async def _read_modbus_parameters(
         self, transport: Any, device_data: dict[str, Any] | None = None
@@ -1186,30 +1233,7 @@ class LocalTransportMixin(_MixinBase):
                     # BATTERY_CARRY_FORWARD_MAX_AGE is a physically removed
                     # pack, not a transient — evict it so removal converges
                     # instead of re-serving frozen data until restart.
-                    now = dt_util.utcnow()
-                    aged = [
-                        key
-                        for key, mapping in cached_batteries.items()
-                        if isinstance(
-                            last_seen := mapping.get("battery_last_seen"),
-                            datetime,
-                        )
-                        and now - dt_util.as_utc(last_seen)
-                        > BATTERY_CARRY_FORWARD_MAX_AGE
-                    ]
-                    for key in aged:
-                        cached_batteries.pop(key, None)
-                        self._battery_carry_forward.get(serial, {}).pop(key, None)
-                    if aged:
-                        _LOGGER.info(
-                            "LOCAL: Evicting %d batteries for %s not seen for "
-                            "over %s (physically removed or permanently "
-                            "vanished): %s",
-                            len(aged),
-                            serial,
-                            BATTERY_CARRY_FORWARD_MAX_AGE,
-                            aged,
-                        )
+                    self._evict_aged_rr_batteries(serial)
                     if cached_batteries:
                         device_data["batteries"] = dict(cached_batteries)
                         _LOGGER.debug(
