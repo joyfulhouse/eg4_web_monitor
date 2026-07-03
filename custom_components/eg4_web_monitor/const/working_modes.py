@@ -14,6 +14,8 @@ Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
 - ``translation_key``: localize the entity name via strings.json instead
   of the hardcoded ``name`` (which HA would otherwise let override the
   translation — issue #262 gotcha).
+- ``enabled_default``: set False to register the switch disabled by
+  default (niche features, e.g. Share Battery — GH #288).
 
 Cloud-only state parameters need no per-mode flag: switch.py setup probes
 the installed pylxpweb register map (``_local_params_can_carry``) and skips
@@ -120,6 +122,27 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_key": "fast_zero_export",
         "translation_key": "fast_zero_export",
     },
+    # Share Battery (FUNC_BAT_SHARED, GH #288) — register 110 bit 3. The
+    # portals show a per-inverter "Share Battery" toggle for multi-inverter
+    # systems sharing one battery bank (only the primary sits on the battery
+    # CAN bus; a sharing secondary legitimately reads battery_count reg96=0).
+    # Reporter-verified: the portal write is cloud function FUNC_BAT_SHARED
+    # (generic function-control API — no dedicated pylxpweb methods, so no
+    # version guard needed). Bit 3 is a register-110 position where the base
+    # (18kPV) and SNA/OFFGRID tables agree in pylxpweb, and battery sharing
+    # is a paralleling feature rather than a grid-tied one, so it gets the
+    # same gate as Charge Last (all control-capable inverters). Disabled by
+    # default: niche multi-inverter feature (avoid entity noise).
+    "share_battery_mode": {
+        "name": "Share Battery",
+        "param": "FUNC_BAT_SHARED",
+        "description": "Share one battery bank across paralleled inverters",
+        "icon": "mdi:battery-sync",
+        "entity_category": EntityCategory.CONFIG,
+        "entity_key": "share_battery",
+        "translation_key": "share_battery",
+        "enabled_default": False,
+    },
 }
 
 # =============================================================================
@@ -137,4 +160,5 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_FEED_IN_GRID_EN": "FUNC_FEED_IN_GRID_EN",
     "FUNC_PV_SELL_TO_GRID_EN": "FUNC_PV_SELL_TO_GRID_EN",
     "FUNC_RUN_WITHOUT_GRID": "FUNC_RUN_WITHOUT_GRID",
+    "FUNC_BAT_SHARED": "FUNC_BAT_SHARED",
 }

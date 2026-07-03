@@ -713,6 +713,9 @@
       },
       "fast_zero_export": {
         "name": "Быстрый нулевой экспорт"
+      },
+      "share_battery": {
+        "name": "Совместная батарея"
       }
     },
     "number": {

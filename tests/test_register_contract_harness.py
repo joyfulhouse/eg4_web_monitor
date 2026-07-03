@@ -87,6 +87,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
+    PARAM_FUNC_BAT_SHARED,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
     PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
@@ -1281,6 +1282,11 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # FUNC_RUN_WITHOUT_GRID for their Grid Sell tab "Fast Zero Export"
     # button. Same bit in pylxpweb's base AND SNA reg-110 tables.
     PARAM_FUNC_RUN_WITHOUT_GRID: (110, 1),
+    # Share Battery (GH #288): reg 110 bit 3 — reporter's protocol
+    # screenshot pins the bit and the portal write is cloud function
+    # FUNC_BAT_SHARED (reporter-verified). Same bit in pylxpweb's base AND
+    # SNA reg-110 tables ("all sources agree on bits 0-4").
+    PARAM_FUNC_BAT_SHARED: (110, 3),
     PARAM_FUNC_GREEN_EN: (110, 8),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12

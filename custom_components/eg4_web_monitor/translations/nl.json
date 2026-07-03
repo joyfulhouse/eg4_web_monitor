@@ -713,6 +713,9 @@
       },
       "fast_zero_export": {
         "name": "Snelle nul-export"
+      },
+      "share_battery": {
+        "name": "Batterij delen"
       }
     },
     "number": {

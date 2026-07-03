@@ -37,6 +37,13 @@ PARAM_FUNC_CHARGE_LAST = "FUNC_CHARGE_LAST"
 # + #274 screenshots). Speeds up the zero-export control loop; the vendors
 # advise selecting it as the opposite of the Grid Sell Back setting.
 PARAM_FUNC_RUN_WITHOUT_GRID = "FUNC_RUN_WITHOUT_GRID"
+# Share Battery (reg 110 bit 3, GH #288) — "Share Battery" toggle in the
+# Luxpower/EG4 portals for multi-inverter systems sharing one battery bank
+# (only the primary sits on the battery CAN bus; secondaries read reg96=0).
+# Reporter-verified: the portal write is cloud function FUNC_BAT_SHARED.
+# Bit 3 is one of the register-110 positions where every source agrees for
+# both the base (18kPV) and SNA/OFFGRID layouts in pylxpweb.
+PARAM_FUNC_BAT_SHARED = "FUNC_BAT_SHARED"
 
 # Extended bit field parameter names (registers 179, 233)
 PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
