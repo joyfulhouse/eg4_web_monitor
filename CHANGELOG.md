@@ -5,6 +5,17 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.19] - 2026-07-02
+
+> Requires [pylxpweb 0.9.36b21](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b21)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **HYBRID/CLOUD: battery entities no longer flip unavailable in subsets when the cloud momentarily omits packs** ([#258](https://github.com/joyfulhouse/eg4_web_monitor/issues/258)): on rotating >4-battery banks, a fresh `getBatteryInfo` response occasionally omits or re-keys part of the bank for a cycle. The hybrid merge rebuilt the battery dict from that cloud payload as its baseline — and battery-entity availability is key-presence — so the omitted packs' entities went *unavailable* within seconds of the cloud poll (the reporter's beta.18 drops each followed a fresh cloud POST by ~4 s) even while the local register accumulator held valid data for every pack the whole time. The merge now **carries forward once-published batteries** across transient omissions in every mode branch: carried packs keep their original `battery_last_seen` (staleness stays visible as data, never as availability flapping), legacy pre-migration keys and serial-superseded keys are excluded so the #252 registry migration is unaffected, and a **6-hour staleness bound** evicts a carried pack that has genuinely stopped reporting everywhere (physical removal converges without an HA restart; the bound is far above the seconds-scale cloud gaps and does not govern firmware page-pinning, which the accumulator serves as fresh data). The LOCAL round-robin cache gets the same bound, and cache retirement is now authoritative across both sticky layers. Reported by @ivanfmartinez with the decisive debug log.
+- **A transient duplicate-serial register read can no longer mint a lasting phantom battery** ([#258](https://github.com/joyfulhouse/eg4_web_monitor/issues/258), [pylxpweb#200](https://github.com/joyfulhouse/pylxpweb/pull/200)): corrupt serial bytes captured during a dongle misroute could make two battery slots report the same serial; the accumulator now disambiguates the collision (one latched WARNING) and **re-verifies** it — the next clean read of that bank position evicts the suspect entry, while a genuine duplicate-serial pack pair keeps re-minting its entry and stays protected at the library layer (Home Assistant identity is the serial, so only one entity can represent a genuine duplicate pair — inherent). Also fixes the battery debug dump printing 14 of 15 serial characters, which manufactured phantom "duplicate serials" in debug logs.
+- **Developer: the Fast block-size regression test is now version-independent** — it simulated "released library without the feature" by asserting against the installed pylxpweb and broke once 0.9.36b20 shipped the feature; it now patches the feature-detection instead.
+
 ## [3.4.0-beta.18] - 2026-07-02
 
 > Requires [pylxpweb 0.9.36b20](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b20)
