@@ -68,7 +68,7 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
     input_block_size_kwargs,
 )
-from .utils import local_battery_key
+from .utils import is_offgrid_family, local_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -340,7 +340,9 @@ class LocalTransportMixin(_MixinBase):
 
         return dict(cache)
 
-    async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
+    async def _read_modbus_parameters(
+        self, transport: Any, device_data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Read configuration parameters using library's named parameter mapping.
 
         Uses pylxpweb's read_named_parameters() which maps Modbus registers
@@ -348,6 +350,8 @@ class LocalTransportMixin(_MixinBase):
 
         Args:
             transport: ModbusTransport or DongleTransport instance
+            device_data: The device's per-cycle data dict (with ``features``)
+                for family-gated ranges; None reads the family-agnostic set.
 
         Returns:
             Dictionary of parameter keys to values matching HTTP API format
@@ -360,6 +364,21 @@ class LocalTransportMixin(_MixinBase):
         self._last_param_read_complete = True
 
         try:
+            # AC First schedule windows (152-157, GH #295): consumed only by
+            # the EG4_OFFGRID-gated AC First time entities, so the range is
+            # family-gated with the SAME fails-closed predicate as the entity
+            # gate — non-SNA firmware that NAKs the range would otherwise mark
+            # every parameter cycle incomplete and loop the #282 early retry
+            # for registers nothing consumes. Evaluated per call (the caller
+            # passes the freshly-built per-cycle device_data), so a family
+            # detected after the first poll picks the range up on the next
+            # parameter cycle. pylxpweb > 0.9.36b21 names these registers
+            # HOLD_AC_FIRST_TIME_*; older releases surface the raw
+            # "152".."157" keys — the time entities' alias chains handle both.
+            ac_first_range: list[tuple[int, int]] = (
+                [(152, 6)] if is_offgrid_family(device_data or {}) else []
+            )
+
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
             register_ranges = [
@@ -367,11 +386,12 @@ class LocalTransportMixin(_MixinBase):
                     20,
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
-                # Power settings + AC charge/discharge (64-79) + forced
-                # discharge power/SOC (82-83, GH #207) + forced charge and
-                # forced discharge schedule windows (76-81/84-89, GH #295)
-                # — one widened read keeps the Modbus budget flat vs
-                # separate (82, 2)/(84, 6) reads.
+                # Power settings + AC charge/discharge (64-79, incl. the
+                # forced charge schedule 76-81) + forced discharge power/SOC
+                # (82-83, GH #207) + the forced discharge schedule windows
+                # (84-89, newly covered for GH #295) — one widened read
+                # keeps the Modbus budget flat vs separate (82, 2)/(84, 6)
+                # reads.
                 (64, 26),
                 (
                     100,
@@ -386,11 +406,7 @@ class LocalTransportMixin(_MixinBase):
                 # anywhere, so read_named_parameters emits the raw "117" key.
                 (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
-                # AC First schedule windows (152-157, GH #295, SNA/off-grid).
-                # pylxpweb > 0.9.36b21 names them HOLD_AC_FIRST_TIME_*;
-                # older releases surface the raw "152".."157" keys — the
-                # time entities' alias chains handle both.
-                (152, 6),
+                *ac_first_range,  # (152, 6) on EG4_OFFGRID only (GH #295)
                 (158, 2),  # AC charge start/stop voltage (158-159)
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
                 (
@@ -636,7 +652,7 @@ class LocalTransportMixin(_MixinBase):
             }
 
             if include_params:
-                param_data = await self._read_modbus_parameters(transport)
+                param_data = await self._read_modbus_parameters(transport, device_data)
                 if not self._last_param_read_complete:
                     # Sticky carry-forward (#282): keep last-known values for
                     # the failed range(s); only re-read ranges change.
@@ -1281,7 +1297,9 @@ class LocalTransportMixin(_MixinBase):
                 param_transport = inverter.transport
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
-                    param_data = await self._read_modbus_parameters(param_transport)
+                    param_data = await self._read_modbus_parameters(
+                        param_transport, device_data
+                    )
                     if self._last_param_read_complete:
                         self._param_completed_this_cycle.add(serial)
                         self._param_retry_pending.discard(serial)

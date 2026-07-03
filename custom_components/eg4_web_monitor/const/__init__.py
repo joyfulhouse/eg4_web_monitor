@@ -125,8 +125,6 @@ from .config_keys import (
 from .modbus import (
     AC_CHARGE_SCHEDULE_BASE_REGISTER,
     LOCAL_AC_CHARGE_TIME_PARAM_KEYS,
-    SCHEDULE_TIME_TYPES,
-    ScheduleTimeSpec,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
@@ -171,6 +169,8 @@ from .modbus import (
     REG_ONGRID_EOD_VOLTAGE,
     REG_PTOUSER_START_CHARGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
+    SCHEDULE_TIME_TYPES,
+    ScheduleTimeSpec,
 )
 
 # Device types and inverter families - extracted to device_types.py

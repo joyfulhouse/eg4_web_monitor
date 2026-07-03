@@ -145,32 +145,39 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 14 register ranges are read — pinned exactly so a control's
-        backing register can't silently fall out of the local poll (the
-        codex r1 MEDIUM on reg 202: entity wired but range never read),
-        and a removed range can't silently creep back (231-232, eg4-gfu5)."""
+        """All 13 family-agnostic register ranges are read — pinned exactly
+        so a control's backing register can't silently fall out of the local
+        poll (the codex r1 MEDIUM on reg 202: entity wired but range never
+        read), and a removed range can't silently creep back (231-232,
+        eg4-gfu5). The AC First range (152, 6) is EG4_OFFGRID-gated and must
+        NOT appear for a grid-tied device — non-SNA firmware that NAKs the
+        range would loop the #282 early retry for registers nothing consumes
+        (GH #295 review P1)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result = await coordinator._read_modbus_parameters(
+            mock_transport,
+            {"features": {"inverter_family": "EG4_HYBRID"}},
+        )
 
         called_ranges = [
             call.args for call in mock_transport.read_named_parameters.call_args_list
         ]
         assert called_ranges == [
             (20, 3),
-            # widened 64-83 → 64-89 for the forced charge/discharge schedule
-            # windows (regs 76-81/84-89, GH #295)
+            # widened 64-83 → 64-89 for the forced discharge schedule
+            # windows (regs 84-89, GH #295; 76-81 was already inside 64-83)
             (64, 26),
             (100, 4),  # widened for grid sell back percent (reg 103, GH #135)
             (105, 2),
             (110, 1),
             (116, 2),  # P_to_user start discharge/charge thresholds (GH #272)
             (125, 1),
-            (152, 6),  # AC First schedule windows (SNA/off-grid, GH #295)
+            # (152, 6) absent: AC First is EG4_OFFGRID-only (GH #295)
             (158, 2),
             (169, 1),
             (179, 1),
@@ -181,12 +188,48 @@ class TestReadModbusParameters:
         ]
         assert "PARAM_A" in result
 
-    async def test_schedule_window_ranges_cover_all_schedule_registers(
-        self, hass, local_config_entry
+    async def test_offgrid_device_reads_ac_first_range(self, hass, local_config_entry):
+        """EG4_OFFGRID devices additionally poll the AC First schedule
+        windows (152-157) — same fails-closed family predicate as the AC
+        First time entities (GH #295)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+
+        await coordinator._read_modbus_parameters(
+            mock_transport,
+            {"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+
+        called_ranges = [
+            call.args for call in mock_transport.read_named_parameters.call_args_list
+        ]
+        assert (152, 6) in called_ranges
+        assert len(called_ranges) == 14
+        # Kept in ascending register order between (125, 1) and (158, 2).
+        assert called_ranges.index((152, 6)) == called_ranges.index((158, 2)) - 1
+
+    @pytest.mark.parametrize(
+        ("device_data", "expects_ac_first"),
+        [
+            (None, False),  # deprecated single-device path default
+            ({"features": {}}, False),  # family not detected — fails closed
+            ({"features": {"inverter_family": "LXP"}}, False),
+            ({"features": {"inverter_family": "EG4_OFFGRID"}}, True),
+        ],
+    )
+    async def test_schedule_window_ranges_cover_consumed_schedule_registers(
+        self, hass, local_config_entry, device_data, expects_ac_first
     ):
-        """GH #295: every SCHEDULE_TIME_TYPES register (68-73, 76-81, 84-89,
-        152-157) is inside a polled range so LOCAL/HYBRID schedule time
-        entities populate without cloud access."""
+        """GH #295: every SCHEDULE_TIME_TYPES register whose entities can
+        exist on the device is inside a polled range, so LOCAL/HYBRID
+        schedule time entities populate without cloud access. The AC First
+        block (152-157) is polled exactly when the entity gate would create
+        its entities; the range list is rebuilt per call from the per-cycle
+        device_data, so a family detected after the first poll is picked up
+        on the next parameter cycle."""
         from custom_components.eg4_web_monitor.const import SCHEDULE_TIME_TYPES
 
         local_config_entry.add_to_hass(hass)
@@ -194,7 +237,7 @@ class TestReadModbusParameters:
 
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.return_value = {}
-        await coordinator._read_modbus_parameters(mock_transport)
+        await coordinator._read_modbus_parameters(mock_transport, device_data)
 
         polled: set[int] = set()
         for call in mock_transport.read_named_parameters.call_args_list:
@@ -203,7 +246,10 @@ class TestReadModbusParameters:
 
         for spec in SCHEDULE_TIME_TYPES:
             schedule_registers = set(range(spec.base_register, spec.base_register + 6))
-            assert schedule_registers <= polled, spec.key
+            if spec.key == "ac_first" and not expects_ac_first:
+                assert not (schedule_registers & polled), spec.key
+            else:
+                assert schedule_registers <= polled, spec.key
 
     async def test_start_threshold_registers_read(self, hass, local_config_entry):
         """GH #272: HOLD 116/117 are in the LOCAL poll so the Start
@@ -281,10 +327,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 14 ranges attempted despite first failure
-        assert call_count == 14
+        # All 13 family-agnostic ranges attempted despite first failure
+        assert call_count == 13
         # Successful ranges contributed their params
-        assert len(result) == 13  # 14 total - 1 failed
+        assert len(result) == 12  # 13 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
@@ -408,7 +454,9 @@ class TestStickyParameterCarryForward:
     ):
         coordinator = self._seed_coordinator(hass, local_config_entry)
 
-        async def partial_read(transport: Any) -> dict[str, Any]:
+        async def partial_read(
+            transport: Any, device_data: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
             coordinator._last_param_read_complete = False
             return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
 
@@ -439,7 +487,9 @@ class TestStickyParameterCarryForward:
     ):
         coordinator = self._seed_coordinator(hass, local_config_entry)
 
-        async def full_read(transport: Any) -> dict[str, Any]:
+        async def full_read(
+            transport: Any, device_data: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
             coordinator._last_param_read_complete = True
             return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
 
@@ -555,7 +605,9 @@ class TestPerDeviceParamRetry:
         coordinator, transports = self._seed(hass, two_device_entry)
         read_calls: list[Any] = []
 
-        async def complete_read(transport: Any) -> dict[str, Any]:
+        async def complete_read(
+            transport: Any, device_data: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
             read_calls.append(transport)
             coordinator._last_param_read_complete = True
             return {"PARAM": 1}
@@ -585,7 +637,9 @@ class TestPerDeviceParamRetry:
         coordinator, transports = self._seed(hass, two_device_entry)
         read_calls: list[Any] = []
 
-        async def read_by_device(transport: Any) -> dict[str, Any]:
+        async def read_by_device(
+            transport: Any, device_data: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
             read_calls.append(transport)
             # B's read is permanently partial; A's is complete.
             coordinator._last_param_read_complete = (

@@ -943,7 +943,7 @@ class TestWriteFailureConvergence:
         assert entity._optimistic_value is None
         assert entity.native_value == time(8, 0)
 
-    @pytest.mark.parametrize("schedule", ("ac_charge", "forced_discharge"))
+    @pytest.mark.parametrize("schedule", ("ac_charge", "ac_first", "forced_discharge"))
     @pytest.mark.asyncio
     async def test_write_success_refresh_failure_retains_optimistic(self, schedule):
         """P2: the write landed on the device but the follow-up refresh died.
