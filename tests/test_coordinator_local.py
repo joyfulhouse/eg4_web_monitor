@@ -403,6 +403,73 @@ class TestReadModbusParameters:
 
         assert coordinator._last_param_read_complete is False
 
+    async def test_link_down_device_skips_read_and_marks_incomplete(
+        self, hass, local_config_entry
+    ):
+        """pylxpweb#208 parity: the targeted range reads here go straight to
+        the raw transport, bypassing BaseInverter.refresh() and its link-down
+        probe gate, so an attached-but-dead link must be gated at this choke
+        point — Python 3.11's asyncio.wait_for cannot interrupt an in-flight
+        pymodbus read and every range would stall for minutes.  The skip
+        reports INCOMPLETE so callers carry last-known values forward and
+        keep the device queued for a floored retry (#282 semantics)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        device = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
+        device.transport = mock_transport
+        device.transport_link_down = True
+        device.serial_number = "INV001"
+
+        result = await coordinator._read_modbus_parameters(
+            mock_transport, None, device=device
+        )
+
+        assert result == {}
+        mock_transport.read_named_parameters.assert_not_called()
+        assert coordinator._last_param_read_complete is False
+
+    async def test_healthy_link_device_reads_normally(self, hass, local_config_entry):
+        """Passing the device does not change behavior on a healthy link."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
+        device = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
+        device.transport = mock_transport
+        device.transport_link_down = False
+        device.serial_number = "INV001"
+
+        result = await coordinator._read_modbus_parameters(
+            mock_transport, None, device=device
+        )
+
+        assert mock_transport.read_named_parameters.call_count == 13
+        assert "PARAM_A" in result
+        assert coordinator._last_param_read_complete is True
+
+    async def test_detached_transport_device_is_not_gated(
+        self, hass, local_config_entry
+    ):
+        """The gate requires an ATTACHED transport (is_transport_link_down
+        contract): a device without one is never treated as degraded."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+        device = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
+        device.transport = None
+        device.transport_link_down = True  # meaningless without a transport
+        device.serial_number = "INV001"
+
+        await coordinator._read_modbus_parameters(mock_transport, None, device=device)
+
+        assert mock_transport.read_named_parameters.call_count == 13
+        assert coordinator._last_param_read_complete is True
+
 
 # ── #282 sticky parameters: carry-forward + throttle re-arm ─────────
 
@@ -455,7 +522,9 @@ class TestStickyParameterCarryForward:
         coordinator = self._seed_coordinator(hass, local_config_entry)
 
         async def partial_read(
-            transport: Any, device_data: dict[str, Any] | None = None
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
         ) -> dict[str, Any]:
             coordinator._last_param_read_complete = False
             return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
@@ -488,7 +557,9 @@ class TestStickyParameterCarryForward:
         coordinator = self._seed_coordinator(hass, local_config_entry)
 
         async def full_read(
-            transport: Any, device_data: dict[str, Any] | None = None
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
         ) -> dict[str, Any]:
             coordinator._last_param_read_complete = True
             return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
@@ -506,6 +577,129 @@ class TestStickyParameterCarryForward:
         assert result["parameters"]["INV001"] == {"HOLD_CHG_POWER_PERCENT_CMD": 60}
         assert coordinator._last_parameter_refresh is not None
         assert coordinator._param_retry_pending == set()
+
+
+class TestLinkDownParameterGateCycle:
+    """Full-cycle behavior of the targeted-read link-down gate.
+
+    Closes the gap found in the pylxpweb PR #208 review: the library gained a
+    ``transport_link_down`` guard in ``_fetch_parameters()`` and PR #301 gated
+    the ``_refresh_device_parameters`` chain, but the coordinator's own
+    targeted 8-range read calls ``transport.read_named_parameters()`` directly
+    on the raw transport — nothing stopped it from walking into a dead RS485
+    link (Python 3.11 ``asyncio.wait_for`` cannot interrupt in-flight pymodbus
+    reads; multi-minute stalls).
+    """
+
+    SERIAL = "INV001"
+
+    def _seed_coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._local_parameters_loaded = True
+        coordinator._local_static_phase_done = True  # skip the static first refresh
+
+        runtime = InverterRuntimeData(
+            pv_total_power=0,
+            battery_soc=50,
+            rectifier_power=0,
+            parallel_number=0,
+            parallel_master_slave=0,
+            parallel_phase=0,
+        )
+        inv = make_real_inverter(self.SERIAL, "FlexBOSS21", runtime=runtime)
+        inv.refresh = AsyncMock()
+        inv.detect_features = AsyncMock()
+        inv._transport = make_transport_spec(is_connected=True)
+        inv._transport_energy = None
+        inv._transport_battery = None
+        coordinator._inverter_cache[self.SERIAL] = inv
+        coordinator._firmware_cache[self.SERIAL] = "TEST-FW"
+        coordinator.data = {
+            "devices": {},
+            "parameters": {
+                self.SERIAL: {
+                    "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,
+                    "HOLD_CHG_POWER_PERCENT_CMD": 80,
+                }
+            },
+        }
+        return coordinator
+
+    async def _run_cycle(self, coordinator) -> dict[str, Any]:
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            return await coordinator._async_update_local_data()
+
+    async def test_link_down_skips_read_carries_values_and_queues_retry(
+        self, hass, local_config_entry
+    ):
+        """Outage cycle: no targeted read is attempted, last-known parameter
+        values carry forward (entities keep their values), and the device
+        stays queued for a floored retry — a skip must behave exactly like an
+        incomplete read (#282), never stamping completeness."""
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+        inv = coordinator._inverter_cache[self.SERIAL]
+        inv._transport_consecutive_failures = 3  # TRANSPORT_LINK_DOWN_THRESHOLD
+        assert inv.transport_link_down is True
+
+        result = await self._run_cycle(coordinator)
+
+        inv._transport.read_named_parameters.assert_not_called()
+        assert result["parameters"][self.SERIAL] == {
+            "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,  # carried forward, NOT blanked
+            "HOLD_CHG_POWER_PERCENT_CMD": 80,
+        }
+        assert coordinator._last_param_read_complete is False
+        assert self.SERIAL in coordinator._param_retry_pending
+
+    async def test_link_recovery_reads_on_next_retry_cycle(
+        self, hass, local_config_entry
+    ):
+        """The first cycle after link recovery reads again (within the ~2-min
+        retry floor) — the gate must not suppress the post-recovery read."""
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+        inv = coordinator._inverter_cache[self.SERIAL]
+        inv._transport_consecutive_failures = 3
+
+        # Cycle 1: outage — skipped, queued for retry.
+        await self._run_cycle(coordinator)
+        assert self.SERIAL in coordinator._param_retry_pending
+        inv._transport.read_named_parameters.assert_not_called()
+
+        # Link recovers (a successful probe resets the failure counter).
+        inv._transport_consecutive_failures = 0
+        assert inv.transport_link_down is False
+        inv._transport.read_named_parameters.return_value = {"PARAM": 1}
+        # Retry floor elapsed.
+        coordinator._last_parameter_attempt = dt_util.utcnow() - timedelta(minutes=3)
+
+        # Cycle 2: retry-due — the targeted read runs and drains the queue.
+        result = await self._run_cycle(coordinator)
+
+        assert inv._transport.read_named_parameters.call_count == 13
+        assert result["parameters"][self.SERIAL] == {"PARAM": 1}
+        assert coordinator._param_retry_pending == set()
+        assert coordinator._last_param_read_complete is True
+
+    async def test_healthy_link_cycle_reads_unchanged(self, hass, local_config_entry):
+        """A healthy link is untouched by the gate: the param-due cycle reads
+        all ranges and stamps the hourly cadence as before."""
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+        inv = coordinator._inverter_cache[self.SERIAL]
+        assert inv.transport_link_down is False
+        inv._transport.read_named_parameters.return_value = {"PARAM": 1}
+
+        result = await self._run_cycle(coordinator)
+
+        assert inv._transport.read_named_parameters.call_count == 13
+        assert result["parameters"][self.SERIAL] == {"PARAM": 1}
+        assert coordinator._param_retry_pending == set()
+        assert coordinator._last_parameter_refresh is not None
 
 
 class TestPerDeviceParamRetry:
@@ -606,7 +800,9 @@ class TestPerDeviceParamRetry:
         read_calls: list[Any] = []
 
         async def complete_read(
-            transport: Any, device_data: dict[str, Any] | None = None
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
         ) -> dict[str, Any]:
             read_calls.append(transport)
             coordinator._last_param_read_complete = True
@@ -638,7 +834,9 @@ class TestPerDeviceParamRetry:
         read_calls: list[Any] = []
 
         async def read_by_device(
-            transport: Any, device_data: dict[str, Any] | None = None
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
         ) -> dict[str, Any]:
             read_calls.append(transport)
             # B's read is permanently partial; A's is complete.
