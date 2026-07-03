@@ -18,7 +18,6 @@ class BrandConfig:
     Attributes:
         domain: Home Assistant integration domain (e.g., "eg4_web_monitor")
         brand_name: Full brand name for display (e.g., "EG4 Electronics")
-        short_name: Short brand name for entity IDs (e.g., "EG4")
         entity_prefix: Prefix for entity IDs (e.g., "eg4")
         default_base_url: Default API base URL for this brand
         default_verify_ssl: Default SSL verification setting
@@ -27,7 +26,6 @@ class BrandConfig:
 
     domain: str
     brand_name: str
-    short_name: str
     entity_prefix: str
     default_base_url: str
     default_verify_ssl: bool
@@ -38,7 +36,6 @@ class BrandConfig:
 BRAND_EG4 = BrandConfig(
     domain="eg4_web_monitor",
     brand_name="EG4 Electronics",
-    short_name="EG4",
     entity_prefix="eg4",
     default_base_url="https://monitor.eg4electronics.com",
     default_verify_ssl=True,

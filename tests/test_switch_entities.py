@@ -813,27 +813,21 @@ class TestWorkingModeSwitch:
         """Boolean parameter value -> is_on."""
         coordinator = _mock_coordinator(parameters={"FUNC_AC_CHARGE": True})
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         assert switch.is_on is True
 
     def test_is_on_from_params_int(self):
         """Integer param value 1 -> True."""
         coordinator = _mock_coordinator(parameters={"FUNC_AC_CHARGE": 1})
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         assert switch.is_on is True
 
     def test_is_on_false_when_missing(self):
         """Missing parameter -> False."""
         coordinator = _mock_coordinator()
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         assert switch.is_on is False
 
     @pytest.mark.asyncio
@@ -841,9 +835,7 @@ class TestWorkingModeSwitch:
         """Local mode: writes PARAM_FUNC_AC_CHARGE."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -856,9 +848,7 @@ class TestWorkingModeSwitch:
         """Cloud mode: calls enable_ac_charge_mode."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -870,9 +860,7 @@ class TestWorkingModeSwitch:
         """Peak shaving uses local named parameter write (reg 179 bit 7)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
         mode_config = WORKING_MODES["peak_shaving_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "peak_shaving_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -885,9 +873,7 @@ class TestWorkingModeSwitch:
         """Battery backup ctrl uses local named parameter write (reg 233 bit 1)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
         mode_config = WORKING_MODES["battery_backup_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "battery_backup_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -899,9 +885,7 @@ class TestWorkingModeSwitch:
         """Extra attributes include description and function_parameter."""
         coordinator = _mock_coordinator()
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         attrs = switch.extra_state_attributes
         assert attrs["function_parameter"] == "FUNC_AC_CHARGE"
         assert "description" in attrs
@@ -965,9 +949,7 @@ class TestCloudFallback:
             side_effect=HomeAssistantError("Modbus timeout")
         )
         mode_config = WORKING_MODES["battery_backup_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "battery_backup_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -979,9 +961,7 @@ class TestCloudFallback:
         """Local write succeeds -> cloud API NOT called."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
         mode_config = WORKING_MODES["ac_charge_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "ac_charge_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -999,9 +979,7 @@ class TestCloudFallback:
             side_effect=HomeAssistantError("Modbus timeout")
         )
         mode_config = WORKING_MODES["peak_shaving_mode"]
-        switch = EG4WorkingModeSwitch(
-            coordinator, "1234567890", "peak_shaving_mode", mode_config
-        )
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -1380,7 +1358,6 @@ class TestGridSellbackSwitchBehavior:
         return EG4WorkingModeSwitch(
             coordinator=coordinator,
             serial="1234567890",
-            mode_key=mode_key,
             mode_config=WORKING_MODES[mode_key],
         )
 
@@ -1508,7 +1485,6 @@ def _make_fast_zero_export_switch(coordinator) -> EG4WorkingModeSwitch:
     return EG4WorkingModeSwitch(
         coordinator=coordinator,
         serial="1234567890",
-        mode_key="fast_zero_export_mode",
         mode_config=WORKING_MODES["fast_zero_export_mode"],
     )
 
