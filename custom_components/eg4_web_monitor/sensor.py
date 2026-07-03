@@ -715,8 +715,10 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
         if uom := sensor_config.get("unit_of_measurement"):
             self._attr_native_unit_of_measurement = uom
 
-        # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
-        if sensor_config.get("enabled_default") is False:
+        # Allow sensors to be disabled by default (e.g. noisy last_polled
+        # timestamps). Truthiness, not an ``is False`` identity check, so a
+        # non-bool falsy value can't silently ship the entity enabled (#310).
+        if not sensor_config.get("enabled_default", True):
             self._attr_entity_registry_enabled_default = False
 
         # Build unique ID

@@ -958,11 +958,46 @@ class TestOffGridModeSwitch:
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
         assert switch.is_on is True
 
-    def test_is_on_false_default(self):
-        """Default state should be False when param missing."""
+    def test_is_on_unknown_when_param_missing(self):
+        """Absent FUNC_GREEN_EN = UNKNOWN (None), never off (#310 round 2).
+
+        EG4_OFFGRID local reads deliberately omit the key (unverified SNA
+        bit, pylxpweb #210) and the local param refresh replaces the
+        serial's parameters wholesale — False here would flip a
+        cloud-confirmed "on" to "off" after any local refresh.
+        """
         coordinator = _mock_coordinator()
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        assert switch.is_on is None
+
+    def test_is_on_false_when_param_present_false(self):
+        """A present falsy value is a real 'disabled' (bool or raw 0)."""
+        coordinator = _mock_coordinator(parameters={"FUNC_GREEN_EN": False})
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
         assert switch.is_on is False
+        coordinator.data["parameters"]["1234567890"]["FUNC_GREEN_EN"] = 0
+        assert switch.is_on is False
+
+    def test_offgrid_local_refresh_without_key_goes_unknown_not_off(self):
+        """Offgrid: cloud-seeded True, then a local param refresh replaces
+        the params wholesale WITHOUT the key -> state becomes unknown,
+        not a silent revert to off."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={"FUNC_GREEN_EN": True},  # cloud-read/seeded value
+            device_data={"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}},
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        assert switch.is_on is True
+
+        # Wholesale replace, as _refresh_device_parameters does after a
+        # successful offgrid local read (no FUNC_GREEN_EN served).
+        coordinator.data["parameters"]["1234567890"] = {
+            "FUNC_BUZZER_EN": True,
+            "FUNC_CHARGE_LAST": False,
+        }
+        assert switch.is_on is None
 
     @pytest.mark.asyncio
     async def test_turn_on_local(self):
@@ -1351,6 +1386,196 @@ class TestCloudFallback:
 
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.enable_peak_shaving_mode.assert_called_once()
+
+
+class TestCloudFallbackParameterSeeding:
+    """Cloud-fallback writes seed the parameter cache (GH #310).
+
+    Under HYBRID link-down the post-write local parameter refresh is
+    skipped (``_refresh_device_parameters``), so without seeding the
+    acknowledged value via ``note_parameters_written()`` the switch
+    reverts to the stale pre-write cache value once its optimistic state
+    clears. Mirrors ``utils.async_write_with_cloud_fallback``: seed only
+    when a local transport is attached, never for pure-cloud.
+    """
+
+    @staticmethod
+    def _wire_note_parameters_written(coordinator) -> None:
+        """Make the mocked seed actually merge into the parameter cache."""
+
+        def _merge(serial: str, values: dict) -> None:
+            coordinator.data["parameters"].setdefault(serial, {}).update(values)
+
+        coordinator.note_parameters_written = MagicMock(side_effect=_merge)
+
+    @pytest.mark.asyncio
+    async def test_function_control_fallback_seeds_and_converges(self):
+        """HYBRID local-fail -> cloud function control seeds the cache and
+        the switch converges on the written value without a local read."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_CHARGE_LAST: False},
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        self._wire_note_parameters_written(coordinator)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {PARAM_FUNC_CHARGE_LAST: True}
+        )
+        # The link-down refresh is a no-op (AsyncMock, like the skipped
+        # real refresh): state must come from the seeded cache value.
+        assert switch._optimistic_state is None
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_named_method_fallback_seeds_without_stale_publish(self):
+        """HYBRID local-fail -> cloud named-method route (EPS) seeds BEFORE
+        the optimistic clear: every published state carries the written
+        value — no wrong-then-corrected double transition (recorder
+        pollution, automation misfire on the intermediate stale value)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_EPS_EN: False},
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        self._wire_note_parameters_written(coordinator)
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+        published: list[bool | None] = []
+        switch.async_write_ha_state = MagicMock(
+            side_effect=lambda: published.append(switch.is_on)
+        )
+
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup.assert_called_once()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {PARAM_FUNC_EPS_EN: True}
+        )
+        # The link-down refresh is a no-op (AsyncMock, like the skipped
+        # real refresh): the final publish must come from the seeded cache
+        # and NO intermediate publish may carry the stale pre-write value.
+        assert published and all(state is True for state in published)
+        assert switch._optimistic_state is None
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_version_degraded_cloud_branch_seeds(self, monkeypatch):
+        """The cloud-only-because-version-guard branch (transport attached,
+        param name unresolvable by legacy pylxpweb) seeds too — the
+        pre-#310 stale-until-recovery bug must not survive there."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda name: False
+        )
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", WORKING_MODES["ac_charge_mode"]
+        )
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_ac_charge_mode.assert_called_once()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"FUNC_AC_CHARGE": True}
+        )
+
+    @pytest.mark.asyncio
+    async def test_working_mode_function_route_seeds_off_value(self):
+        """Share Battery (generic function-control route) seeds False on
+        turn-off — the seed carries the written boolean, not just True."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={"FUNC_BAT_SHARED": True},
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", WORKING_MODES["share_battery_mode"]
+        )
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"FUNC_BAT_SHARED": False}
+        )
+
+    @pytest.mark.asyncio
+    async def test_pure_cloud_function_write_not_seeded(self):
+        """CLOUD-only (no transport attached): the cloud parameter cache
+        refreshes normally — no seeding."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_called_once()
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pure_cloud_named_method_write_not_seeded(self):
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup.assert_called_once()
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_local_success_path_not_seeded(self):
+        """Local write succeeds: no cloud write, no seed — the existing
+        optimistic in-place parameter update already covers it."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        coordinator.client.api.control.control_function.assert_not_called()
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cloud_only_green_mode_with_transport_seeds(self):
+        """cloud_only actions (off-grid green mode) with a transport
+        attached are cloud-preferred writes — they seed as well."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            device_data={"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}},
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        # Local write withheld (unverified SNA bit), cloud method used
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_green_mode.assert_called_once()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {PARAM_FUNC_GREEN_EN: True}
+        )
 
 
 # ── DSTSwitch ────────────────────────────────────────────────────────
@@ -2319,6 +2544,18 @@ class TestShareBatteryGating:
         coordinator = _mock_coordinator()
         switch = _make_fast_zero_export_switch(coordinator)
         assert switch.entity_registry_enabled_default is True
+
+    @pytest.mark.parametrize("falsy", [0, None, ""])
+    def test_falsy_non_bool_enabled_default_disables(self, falsy):
+        """Truthiness, not an ``is False`` identity check (GH #310): a
+        future non-bool falsy value must not silently ship enabled."""
+        coordinator = _mock_coordinator()
+        mode_config = {
+            **WORKING_MODES["share_battery_mode"],
+            "enabled_default": falsy,
+        }
+        switch = EG4WorkingModeSwitch(coordinator, "1234567890", mode_config)
+        assert switch.entity_registry_enabled_default is False
 
 
 class TestShareBatterySwitchBehavior:

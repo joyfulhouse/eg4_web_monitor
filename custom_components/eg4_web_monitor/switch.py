@@ -656,13 +656,25 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if off-grid mode is enabled."""
+        """Return True if off-grid mode is enabled, None when unknown.
+
+        An absent FUNC_GREEN_EN key means UNKNOWN, not off: EG4_OFFGRID
+        local reads deliberately omit the key (the SNA register-110 bit
+        for green is unverified — pylxpweb #210), and a successful local
+        parameter refresh replaces the serial's parameter dict wholesale
+        (coordinator_mixins._refresh_device_parameters). Returning False
+        for the absent key would silently flip a cloud-confirmed/seeded
+        "on" to "off" after any local refresh on that family.
+        """
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
             return self._optimistic_state
 
         # Check parameter data from coordinator
-        return bool(self._parameter_data.get("FUNC_GREEN_EN", False))
+        value = self._parameter_data.get(PARAM_FUNC_GREEN_EN)
+        if value is None:
+            return None
+        return bool(value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -869,8 +881,10 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         )
 
         # Niche modes register disabled by default (e.g. Share Battery,
-        # GH #288 — multi-inverter shared-bank setups only).
-        if mode_config.get("enabled_default") is False:
+        # GH #288 — multi-inverter shared-bank setups only). Truthiness (not
+        # an ``is False`` identity check) so a future non-bool falsy value
+        # (0, None, "") can't silently ship the entity enabled (#310).
+        if not mode_config.get("enabled_default", True):
             self._attr_entity_registry_enabled_default = False
 
     @property
@@ -985,13 +999,20 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 value=turn_on,
             )
         elif self.coordinator.has_http_api() and methods:
-            # Cloud-only, no local parameter mapping
+            # Cloud-only, no local parameter mapping. A transport can still
+            # be attached here (the version guard above degrades legacy
+            # flat-HYBRID installs to this branch), so seed the parameter
+            # cache with the acknowledged value like the fallback path —
+            # otherwise a link-down write reverts to the stale pre-write
+            # state until link recovery (#310). Pure-cloud stays unseeded
+            # via the has_local_transport guard in the seeding helper.
             await self._execute_switch_action(
                 action_name=f"working mode {param}",
                 enable_method=methods[0],
                 disable_method=methods[1],
                 turn_on=turn_on,
                 refresh_params=True,
+                seed_param_key=FUNCTION_PARAM_MAPPING.get(param),
             )
         else:
             raise HomeAssistantError(
