@@ -7060,6 +7060,30 @@ class TestQuickChargeOffgridCloudStatus:
         inverter.transport.read_parameters.assert_awaited_once_with(234, 1)
         assert status["fetched_at"] <= time.monotonic()
 
+    async def test_fetch_offgrid_reg234_skipped_when_link_down(
+        self, hass, mock_config_entry
+    ):
+        """Codex round-3: an attached-but-dead transport link must not be
+        touched — a raw read_parameters on it is the uninterruptible
+        multi-minute pymodbus hang class (same gate as
+        _refresh_device_parameters). No transport read is attempted; minute
+        degrades to None (stored-preference fallback); the cloud active flag
+        is unaffected."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        inverter.transport_link_down = True
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.transport.read_parameters.assert_not_awaited()
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["quickChargeMinute"] is None
+
     async def test_fetch_offgrid_reg234_read_failure_falls_back_to_none(
         self, hass, mock_config_entry
     ):

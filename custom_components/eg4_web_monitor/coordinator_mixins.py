@@ -782,9 +782,23 @@ class DeviceProcessingMixin(_MixinBase):
         this read fails and returns None, and the number falls back to the
         stored cloud-start preference (the setter's reg-234 write would then
         surface its own error).
+
+        Skipped while the transport link is down: a raw ``read_parameters``
+        on an attached-but-dead link is the multi-minute pymodbus hang class
+        that Python 3.11's ``asyncio.wait_for`` cannot interrupt (same gate
+        as ``_refresh_device_parameters``) — and this read fires on every
+        30s-throttled status poll, in exactly the HYBRID configuration where
+        the link can be down. Degrades to None like a failed read.
         """
         transport = getattr(inverter, "transport", None)
         if transport is None:
+            return None
+        if is_transport_link_down(inverter):
+            _LOGGER.debug(
+                "Skipping reg 234 read for %s: local transport link is down "
+                "(Quick Charge Duration falls back to the stored preference)",
+                inverter.serial_number,
+            )
             return None
         try:
             regs = await transport.read_parameters(234, 1)

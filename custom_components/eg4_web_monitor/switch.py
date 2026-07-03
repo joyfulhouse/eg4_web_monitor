@@ -328,6 +328,12 @@ async def async_setup_entry(
 # (ON -> stale OFF at t+TTL -> eventual fresh ON) during exactly the cloud
 # 502 storms the reporter's environment produces. A fresh read normally lands
 # within one 30s status throttle window and ends the hold.
+#
+# Intentional trade-off: because the hold is fresh-data-terminated, a
+# PERMANENT status-source outage after a command retains the commanded state
+# indefinitely (the last thing we know the inverter accepted) — this reverses
+# the earlier "a dead status source can never pin state forever" guarantee.
+# Showing the accepted command beats flapping to provably pre-write data.
 QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
 
 
