@@ -277,12 +277,23 @@ class TestLegacyTransportConstruction:
         mock_create.assert_called_once()
         assert mock_create.call_args.kwargs["max_input_block_size"] == 120
 
-    def test_fast_with_released_lib_stays_conservative(self) -> None:
-        """Against real 0.9.36b19 detection, the kwarg is simply absent."""
+    def test_fast_with_feature_less_lib_stays_conservative(self) -> None:
+        """When detection reports no support, the kwarg is simply absent.
+
+        The feature-less library (< 0.9.36b20) is SIMULATED by patching
+        ``input_block_size_kwargs`` to return ``{}`` — asserting against the
+        real detection of whatever pylxpweb happens to be installed made this
+        test version-dependent (it failed under the manifest-mandated b20,
+        which supports the feature).
+        """
         with (
             patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
             patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
             patch("pylxpweb.transports.create_transport") as mock_create,
+            patch(
+                "custom_components.eg4_web_monitor.coordinator.input_block_size_kwargs",
+                return_value={},
+            ),
         ):
             EG4DataUpdateCoordinator(
                 _mock_hass(),
