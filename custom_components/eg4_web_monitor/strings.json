@@ -849,6 +849,48 @@
       },
       "forced_discharge_end_time_3": {
         "name": "Forced Discharge End Time 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Peak Shaving Start Time 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Peak Shaving End Time 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Peak Shaving Start Time 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Peak Shaving End Time 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Generator Charge Start Time 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Generator Charge End Time 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Generator Charge Start Time 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Generator Charge End Time 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Off-Grid Start Time 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Off-Grid End Time 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Off-Grid Start Time 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Off-Grid End Time 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Off-Grid Start Time 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Off-Grid End Time 3"
       }
     }
   },

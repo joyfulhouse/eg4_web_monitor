@@ -849,6 +849,48 @@
       },
       "forced_discharge_end_time_3": {
         "name": "強制放電結束時間 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "削峰開始時間 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "削峰結束時間 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "削峰開始時間 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "削峰結束時間 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "發電機充電開始時間 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "發電機充電結束時間 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "發電機充電開始時間 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "發電機充電結束時間 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "離網開始時間 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "離網結束時間 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "離網開始時間 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "離網結束時間 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "離網開始時間 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "離網結束時間 3"
       }
     }
   },

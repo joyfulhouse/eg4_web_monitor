@@ -68,7 +68,7 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
     input_block_size_kwargs,
 )
-from .utils import is_offgrid_family, local_battery_key
+from .utils import is_hybrid_family, is_offgrid_family, local_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -426,6 +426,22 @@ class LocalTransportMixin(_MixinBase):
                 [(152, 6)] if is_offgrid_family(device_data or {}) else []
             )
 
+            # Peak Shaving (209-212), Generator (256-259) and Off-Grid
+            # (269-274) schedule windows: consumed only by the EG4_HYBRID-gated
+            # schedule time entities, so — like the AC First (152, 6) read above
+            # — these ranges are family-gated with the same fails-closed
+            # predicate. Non-hybrid firmware that NAKs them would otherwise mark
+            # every parameter cycle incomplete and loop the #282 early retry for
+            # registers nothing consumes. Evaluated per call (freshly-built
+            # per-cycle device_data). One combined read covers 256-274 (19 regs);
+            # 209-212 is a second small read (no adjacent gated range to fold
+            # into). pylxpweb PR #209 names these registers
+            # HOLD_{PEAK_SHAVING,GEN,OFF_GRID}_TIME_*; older releases surface the
+            # raw address keys — the entities' alias chains handle both.
+            hybrid_schedule_ranges: list[tuple[int, int]] = (
+                [(209, 4), (256, 19)] if is_hybrid_family(device_data or {}) else []
+            )
+
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
             register_ranges = [
@@ -471,6 +487,9 @@ class LocalTransportMixin(_MixinBase):
                 # unverified, so there is nothing useful to read locally yet.
                 # Grid Peak Shaving Power is cloud-sourced only.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
+                # Peak Shaving / Generator / Off-Grid schedules — EG4_HYBRID
+                # only (209-212, 256-274). See hybrid_schedule_ranges above.
+                *hybrid_schedule_ranges,
             ]
 
             for start, count in register_ranges:

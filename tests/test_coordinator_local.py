@@ -149,10 +149,11 @@ class TestReadModbusParameters:
         so a control's backing register can't silently fall out of the local
         poll (the codex r1 MEDIUM on reg 202: entity wired but range never
         read), and a removed range can't silently creep back (231-232,
-        eg4-gfu5). The AC First range (152, 6) is EG4_OFFGRID-gated and must
-        NOT appear for a grid-tied device — non-SNA firmware that NAKs the
-        range would loop the #282 early retry for registers nothing consumes
-        (GH #295 review P1)."""
+        eg4-gfu5). LXP is grid-tied and neither EG4_OFFGRID nor EG4_HYBRID, so
+        NO family-specific ranges appear — the AC First (152, 6) and the
+        Peak Shaving/Generator/Off-Grid (209-212 / 256-274) reads are all
+        family-gated so non-matching firmware that NAKs them can't loop the
+        #282 early retry for registers nothing consumes (GH #295 review P1)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -161,7 +162,7 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(
             mock_transport,
-            {"features": {"inverter_family": "EG4_HYBRID"}},
+            {"features": {"inverter_family": "LXP"}},
         )
 
         called_ranges = [
@@ -185,8 +186,33 @@ class TestReadModbusParameters:
             (227, 2),
             # (231, 2) removed: PS1 is reg 206, reg 231 unknown (eg4-gfu5)
             (233, 1),
+            # (209, 4)/(256, 19) absent: Peak Shaving/Generator/Off-Grid are
+            # EG4_HYBRID-gated (pylxpweb PR #209).
         ]
         assert "PARAM_A" in result
+
+    async def test_hybrid_device_reads_schedule_ranges(self, hass, local_config_entry):
+        """EG4_HYBRID devices additionally poll the Peak Shaving (209-212) and
+        the combined Generator/Off-Grid (256-274) schedule windows — same
+        fails-closed family predicate as their time entities (pylxpweb #209).
+        AC First (152, 6) stays absent (EG4_OFFGRID-only)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+
+        await coordinator._read_modbus_parameters(
+            mock_transport,
+            {"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+
+        called_ranges = [
+            call.args for call in mock_transport.read_named_parameters.call_args_list
+        ]
+        assert (209, 4) in called_ranges
+        assert (256, 19) in called_ranges
+        assert (152, 6) not in called_ranges
 
     async def test_offgrid_device_reads_ac_first_range(self, hass, local_config_entry):
         """EG4_OFFGRID devices additionally poll the AC First schedule
@@ -212,25 +238,36 @@ class TestReadModbusParameters:
         assert called_ranges.index((152, 6)) == called_ranges.index((158, 2)) - 1
 
     @pytest.mark.parametrize(
-        ("device_data", "expects_ac_first"),
+        "device_data",
         [
-            (None, False),  # deprecated single-device path default
-            ({"features": {}}, False),  # family not detected — fails closed
-            ({"features": {"inverter_family": "LXP"}}, False),
-            ({"features": {"inverter_family": "EG4_OFFGRID"}}, True),
+            None,  # deprecated single-device path default
+            {"features": {}},  # family not detected — fails closed
+            {"features": {"inverter_family": "LXP"}},
+            {"features": {"inverter_family": "EG4_OFFGRID"}},
+            {"features": {"inverter_family": "EG4_HYBRID"}},
         ],
     )
-    async def test_schedule_window_ranges_cover_consumed_schedule_registers(
-        self, hass, local_config_entry, device_data, expects_ac_first
+    async def test_schedule_window_ranges_gated_per_family(
+        self, hass, local_config_entry, device_data
     ):
-        """GH #295: every SCHEDULE_TIME_TYPES register whose entities can
-        exist on the device is inside a polled range, so LOCAL/HYBRID
-        schedule time entities populate without cloud access. The AC First
-        block (152-157) is polled exactly when the entity gate would create
-        its entities; the range list is rebuilt per call from the per-cycle
-        device_data, so a family detected after the first poll is picked up
-        on the next parameter cycle."""
+        """Every schedule register block is polled exactly when its LOCAL read
+        gate fires, and NOT otherwise (non-matching firmware that NAKs the
+        range would loop the #282 early retry). Gates: classic families always
+        (their registers sit inside the unconditional 64-89 read etc.); AC
+        First iff EG4_OFFGRID; Peak Shaving/Generator/Off-Grid iff EG4_HYBRID
+        (LOCAL read is hybrid-only — Generator's entity gate also allows
+        EG4_OFFGRID, but that path relies on cloud). The range list is rebuilt
+        per call from the per-cycle device_data."""
         from custom_components.eg4_web_monitor.const import SCHEDULE_TIME_TYPES
+
+        family = (device_data or {}).get("features", {}).get("inverter_family")
+
+        def local_read_expected(spec) -> bool:
+            if spec.key == "ac_first":
+                return family == "EG4_OFFGRID"
+            if spec.write_via_time_api:
+                return family == "EG4_HYBRID"
+            return True
 
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -245,11 +282,13 @@ class TestReadModbusParameters:
             polled.update(range(start, start + count))
 
         for spec in SCHEDULE_TIME_TYPES:
-            schedule_registers = set(range(spec.base_register, spec.base_register + 6))
-            if spec.key == "ac_first" and not expects_ac_first:
-                assert not (schedule_registers & polled), spec.key
-            else:
+            schedule_registers = set(
+                range(spec.base_register, spec.base_register + 2 * spec.windows)
+            )
+            if local_read_expected(spec):
                 assert schedule_registers <= polled, spec.key
+            else:
+                assert not (schedule_registers & polled), spec.key
 
     async def test_start_threshold_registers_read(self, hass, local_config_entry):
         """GH #272: HOLD 116/117 are in the LOCAL poll so the Start

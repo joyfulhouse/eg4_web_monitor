@@ -211,6 +211,17 @@ def is_offgrid_family(device_data: dict[str, Any]) -> bool:
     return bool(features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID)
 
 
+def is_hybrid_family(device_data: dict[str, Any]) -> bool:
+    """Return True when a device is positively identified as EG4_HYBRID.
+
+    Fails closed (False) when features are missing or the family is unknown —
+    the Generator/Off-Grid/Peak Shaving schedules were verified on EG4_HYBRID
+    hardware and are only created there (plus EG4_OFFGRID for Generator).
+    """
+    features = device_data.get("features") or {}
+    return bool(features.get("inverter_family") == INVERTER_FAMILY_EG4_HYBRID)
+
+
 @callback
 def flag_offgrid_control_suppression(
     hass: HomeAssistant,

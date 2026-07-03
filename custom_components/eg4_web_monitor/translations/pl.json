@@ -849,6 +849,48 @@
       },
       "forced_discharge_end_time_3": {
         "name": "Czas zakończenia rozładowania wymuszonego 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Czas rozpoczęcia Redukcja szczytów 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Czas zakończenia Redukcja szczytów 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Czas rozpoczęcia Redukcja szczytów 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Czas zakończenia Redukcja szczytów 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Czas rozpoczęcia Ładowanie z generatora 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Czas zakończenia Ładowanie z generatora 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Czas rozpoczęcia Ładowanie z generatora 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Czas zakończenia Ładowanie z generatora 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Czas rozpoczęcia Poza siecią 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Czas zakończenia Poza siecią 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Czas rozpoczęcia Poza siecią 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Czas zakończenia Poza siecią 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Czas rozpoczęcia Poza siecią 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Czas zakończenia Poza siecią 3"
       }
     }
   },

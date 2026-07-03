@@ -212,28 +212,53 @@ class ScheduleTimeSpec:
             inert on the SNA platform, PR #220 / issue #197 adjudication);
             ``offgrid``: only positively-identified EG4_OFFGRID hardware
             (the portal shows the AC First section only on the SNA
-            working-mode page, issue #295).
+            working-mode page, issue #295);
+            ``hybrid``: only positively-identified EG4_HYBRID hardware (the
+            families verified on the FlexBOSS21, fails closed);
+            ``hybrid_or_offgrid``: EG4_HYBRID or EG4_OFFGRID (Generator
+            charge — regs 256-259 carry gen-schedule params on the SNA12K-US
+            probe too).
         local_param_keys: Per-register alias chains under which the LOCAL
             parameter cache (pylxpweb ``read_named_parameters``) surfaces the
             raw packed value; the last entry is always the plain
             register-address fallback for unmapped registers.
+        windows: Number of daily schedule windows (2 or 3). The schedule
+            occupies ``2 * windows`` consecutive registers.
+        bare_first_window: When True (classic families), window 1's cloud
+            params are unsuffixed and windows 2/3 use ``_1``/``_2``. When
+            False (Generator/Off-Grid/Peak Shaving), ALL windows are suffixed
+            ``_1..._N`` with no bare window.
+        write_via_time_api: When True, cloud writes use pylxpweb's atomic
+            ``write_time_parameter`` (portal ``writeTime`` endpoint) with the
+            composite ``{cloud_prefix}_{START|END}_TIME{suffix}`` param instead
+            of separate hour/minute writes.
+        read_lsp_base: When set (Peak Shaving), cloud reads pull hour/minute
+            from the interleaved ``LSP_HOLD_DIS_CHG_POWER_TIME_{n}`` params;
+            index ``read_lsp_base + period*4`` gives start-hour, ``+1``
+            start-minute, ``+2`` end-hour, ``+3`` end-minute.
     """
 
     key: str
     cloud_prefix: str
     base_register: int
-    gate: Literal["control", "control_grid_tied", "offgrid"]
+    gate: Literal[
+        "control", "control_grid_tied", "offgrid", "hybrid", "hybrid_or_offgrid"
+    ]
     local_param_keys: dict[int, tuple[str, ...]]
+    windows: int = 3
+    bare_first_window: bool = True
+    write_via_time_api: bool = False
+    read_lsp_base: int | None = None
 
 
 def _canonical_time_param_keys(
-    cloud_prefix: str, base_register: int
+    cloud_prefix: str, base_register: int, windows: int = 3
 ) -> dict[int, tuple[str, ...]]:
     """Alias chains for schedule registers named canonically in pylxpweb.
 
-    pylxpweb (> 0.9.36b21) maps these registers to the canonical packed-time
-    names ``{cloud_prefix}_TIME_{period}_{START|END}``; older releases leave
-    them unmapped, so ``read_named_parameters`` falls back to the plain
+    pylxpweb maps these registers to the canonical packed-time names
+    ``{cloud_prefix}_TIME_{period}_{START|END}``; older releases leave them
+    unmapped, so ``read_named_parameters`` falls back to the plain
     register-address string key (the #272 reg-117 precedent).
     """
     return {
@@ -241,7 +266,7 @@ def _canonical_time_param_keys(
             f"{cloud_prefix}_TIME_{period}_{'END' if offset else 'START'}",
             str(base_register + period * 2 + offset),
         )
-        for period in range(3)
+        for period in range(windows)
         for offset in (0, 1)
     }
 
@@ -282,5 +307,50 @@ SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
         base_register=84,
         gate="control_grid_tied",
         local_param_keys=_canonical_time_param_keys("HOLD_FORCED_DISCHARGE", 84),
+    ),
+    # Peak Shaving: regs 209-212, 2 windows. Live write-verified on a
+    # FlexBOSS21 (FAAB-2525): writeTime 01:05 -> reg 211=1281. Cloud reads
+    # report the schedule under interleaved LSP_HOLD_DIS_CHG_POWER_TIME_37..44
+    # params; cloud writes use the atomic writeTime composites. EG4_HYBRID only
+    # (absent on the SNA12K-US probe). pylxpweb ScheduleType.PEAK_SHAVING.
+    ScheduleTimeSpec(
+        key="peak_shaving",
+        cloud_prefix="HOLD_PEAK_SHAVING",
+        base_register=209,
+        gate="hybrid",
+        local_param_keys=_canonical_time_param_keys(
+            "HOLD_PEAK_SHAVING", 209, windows=2
+        ),
+        windows=2,
+        bare_first_window=False,
+        write_via_time_api=True,
+        read_lsp_base=37,
+    ),
+    # Generator Charge: regs 256-259, 2 windows. Live-verified on the
+    # FlexBOSS21; the SNA12K-US probe (blocks 255-259) carries the same
+    # HOLD_GEN_{START|END}_{HOUR|MINUTE}_{1,2} names, so this family also
+    # applies to EG4_OFFGRID. pylxpweb ScheduleType.GEN_CHARGE.
+    ScheduleTimeSpec(
+        key="gen_charge",
+        cloud_prefix="HOLD_GEN",
+        base_register=256,
+        gate="hybrid_or_offgrid",
+        local_param_keys=_canonical_time_param_keys("HOLD_GEN", 256, windows=2),
+        windows=2,
+        bare_first_window=False,
+        write_via_time_api=True,
+    ),
+    # Off-Grid: regs 269-274, 3 windows. Live-correlated end1=23:59 on the
+    # FlexBOSS21; writes not live-tested (off-grid transitions on live home
+    # hardware). EG4_HYBRID only. pylxpweb ScheduleType.OFF_GRID.
+    ScheduleTimeSpec(
+        key="off_grid",
+        cloud_prefix="HOLD_OFF_GRID",
+        base_register=269,
+        gate="hybrid",
+        local_param_keys=_canonical_time_param_keys("HOLD_OFF_GRID", 269, windows=3),
+        windows=3,
+        bare_first_window=False,
+        write_via_time_api=True,
     ),
 )

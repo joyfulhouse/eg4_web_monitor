@@ -1,29 +1,35 @@
 """Time platform for EG4 Web Monitor integration.
 
-Exposes the inverter's packed-time schedules (issues #277 + #295) as native
-Home Assistant ``time`` entities: per schedule type, three daily windows ×
-(start, end). Each schedule occupies six consecutive holding registers and
-each 16-bit register packs hour (low byte) and minute (high byte) — verified
-by the live cloud register probes in pylxpweb ``docs/inverters/`` (FlexBOSS21
-for AC charge 68-73, SNA12K-US blocks 106-111 for AC First 152-157), where
-reading one register returns BOTH the ``*_HOUR`` and ``*_MINUTE`` cloud
-parameters (window 1 unsuffixed, windows 2/3 suffixed ``_1``/``_2``).
+Exposes the inverter's packed-time schedules as native Home Assistant ``time``
+entities: per schedule type, 2 or 3 daily windows × (start, end). Each schedule
+occupies ``2 × windows`` consecutive holding registers and each 16-bit register
+packs hour (low byte) and minute (high byte) — verified by the live cloud
+register probes in pylxpweb ``docs/inverters/``. Seven families are exposed:
 
-The schedule types, their registers, cloud parameter prefixes and family
-gates all come from the declarative ``SCHEDULE_TIME_TYPES`` table in
-const/modbus.py (mirroring pylxpweb's ``SCHEDULE_CONFIGS``).
+- Classic (AC Charge/First, Forced Charge/Discharge; issues #277 + #295): 3
+  windows, cloud params ``{prefix}_{START|END}_{HOUR|MINUTE}{suffix}`` with
+  window 1 unsuffixed and windows 2/3 suffixed ``_1``/``_2``.
+- writeTime (Generator/Off-Grid/Peak Shaving; pylxpweb PR #209): all windows
+  suffixed ``_1..._N`` (no bare window); cloud writes use pylxpweb's atomic
+  ``write_time_parameter`` (portal ``writeTime`` endpoint). Peak Shaving reads
+  back under the interleaved ``LSP_HOLD_DIS_CHG_POWER_TIME_{n}`` params.
+
+The schedule types, their registers, cloud parameter prefixes, window counts,
+suffix schemes and family gates all come from the declarative
+``SCHEDULE_TIME_TYPES`` table in const/modbus.py (mirroring pylxpweb's
+``SCHEDULE_CONFIGS``). All schedule time entities are registry-disabled by
+default (opt-in advanced feature).
 
 Write paths:
-- LOCAL / HYBRID with an attached transport: one packed register write
-  (FC06) via :meth:`EG4DataUpdateCoordinator.write_register`.
-- CLOUD: the portal's own named-parameter writes
-  (``{prefix}_{START|END}_{HOUR|MINUTE}{suffix}``), one hour + one minute
-  write.
+- LOCAL / HYBRID with an attached transport: one packed register write (FC06)
+  via :meth:`EG4DataUpdateCoordinator.write_register` (uniform across families).
+- CLOUD: writeTime families use the atomic ``write_time_parameter``; classic
+  families use the portal's separate ``*_HOUR`` + ``*_MINUTE`` writes.
 
 Read path: the coordinator's parameter poll. Locally the packed raw values
 surface under pylxpweb's parameter-cache keys (see each spec's
 ``local_param_keys`` alias chains); the cloud returns the separated
-hour/minute values.
+hour/minute values (or Peak Shaving's LSP params).
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ else:
     from homeassistant.components.time import TimeEntity
 
 from pylxpweb.constants import pack_time, unpack_time
+from pylxpweb.endpoints.control import ControlEndpoints
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseTime
@@ -50,6 +57,7 @@ from .const import SCHEDULE_TIME_TYPES, ScheduleTimeSpec
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     async_write_with_cloud_fallback,
+    is_hybrid_family,
     is_offgrid_family,
     is_supported_control_model,
 )
@@ -59,7 +67,13 @@ _LOGGER = logging.getLogger(__name__)
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
 
-SCHEDULE_WINDOWS = (1, 2, 3)
+# The Generator/Off-Grid/Peak Shaving families write via pylxpweb's atomic
+# ``write_time_parameter`` (portal writeTime endpoint). Older pylxpweb releases
+# lack it, so those entities are not created there — the manifest floor bump
+# lands at release time, not in this change. AC Charge/First/Forced families
+# are unaffected.
+_SUPPORTS_WRITE_TIME = hasattr(ControlEndpoints, "write_time_parameter")
+_logged_missing_write_time = False
 
 
 def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> bool:
@@ -69,13 +83,25 @@ def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> 
     - ``offgrid``: only positively-identified EG4_OFFGRID (SNA) hardware —
       the portal shows the AC First section only on the SNA working-mode
       page (#295). Fails closed when the family is unknown.
+    - ``hybrid`` / ``hybrid_or_offgrid``: only positively-identified
+      EG4_HYBRID (plus EG4_OFFGRID for Generator charge) hardware — the
+      families verified on the FlexBOSS21. Fails closed.
     - ``control`` / ``control_grid_tied``: the family-aware control gate
       (#259/#281); ``control_grid_tied`` additionally suppresses the
       entities on positively-identified EG4_OFFGRID hardware, matching the
       forced discharge number controls (PR #220 / issue #197).
+
+    The writeTime families are additionally skipped when the installed
+    pylxpweb is too old to provide ``write_time_parameter``.
     """
+    if spec.write_via_time_api and not _SUPPORTS_WRITE_TIME:
+        return False
     if spec.gate == "offgrid":
         return is_offgrid_family(device_data)
+    if spec.gate == "hybrid":
+        return is_hybrid_family(device_data)
+    if spec.gate == "hybrid_or_offgrid":
+        return is_hybrid_family(device_data) or is_offgrid_family(device_data)
     if not is_supported_control_model(device_data):
         return False
     return not (spec.gate == "control_grid_tied" and is_offgrid_family(device_data))
@@ -90,6 +116,15 @@ async def async_setup_entry(
     coordinator = config_entry.runtime_data
     entities: list[TimeEntity] = []
 
+    global _logged_missing_write_time
+    if not _SUPPORTS_WRITE_TIME and not _logged_missing_write_time:
+        _logged_missing_write_time = True
+        _LOGGER.info(
+            "Installed pylxpweb lacks write_time_parameter; Generator/Off-Grid/"
+            "Peak Shaving schedule time entities are not created (upgrade pylxpweb "
+            "to enable them)"
+        )
+
     for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         if device_data.get("type") != "inverter":
             continue
@@ -98,7 +133,7 @@ async def async_setup_entry(
             EG4ScheduleTimeEntity(coordinator, serial, spec, window, is_end=is_end)
             for spec in SCHEDULE_TIME_TYPES
             if _schedule_supported(spec, device_data)
-            for window in SCHEDULE_WINDOWS
+            for window in range(1, spec.windows + 1)
             for is_end in (False, True)
         )
 
@@ -110,10 +145,11 @@ async def async_setup_entry(
 class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
     """One boundary (start or end) of one schedule window.
 
-    Per schedule type, window 1 is enabled by default; windows 2 and 3 are
-    created registry-disabled — most users schedule a single daily window.
-    The window numbering is user-facing (1-3); the firmware/cloud period
-    index is ``window - 1``.
+    Every schedule time entity is created registry-disabled by default
+    (explicit product decision) — schedules are an advanced feature users opt
+    into. Users who previously enabled a window keep it (the registry persists;
+    the default only affects new registrations). The window numbering is
+    user-facing (1-N); the firmware/cloud period index is ``window - 1``.
     """
 
     _attr_entity_category = EntityCategory.CONFIG
@@ -153,18 +189,40 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         self._attr_translation_key = key
         self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_{key}"
         self._attr_icon = "mdi:clock-end" if is_end else "mdi:clock-start"
-        self._attr_entity_registry_enabled_default = window == 1
+        # All schedule time entities are opt-in (registry-disabled by default).
+        self._attr_entity_registry_enabled_default = False
 
         # Packed schedule register: two registers per window (start, end)
         # from the schedule's base register.
         self._register = spec.base_register + (window - 1) * 2 + (1 if is_end else 0)
-        # Cloud parameter names: window 1 unsuffixed, windows 2/3 suffixed
-        # _1/_2 (portal holdParam convention, live register probes).
-        suffix = "" if window == 1 else f"_{window - 1}"
-        self._cloud_hour_param = f"{spec.cloud_prefix}_{boundary.upper()}_HOUR{suffix}"
-        self._cloud_minute_param = (
-            f"{spec.cloud_prefix}_{boundary.upper()}_MINUTE{suffix}"
-        )
+
+        # Cloud window suffix. Classic families leave window 1 unsuffixed and
+        # suffix windows 2/3 ``_1``/``_2``; the writeTime families number ALL
+        # windows ``_1..._N`` (portal holdParam convention, live register
+        # probes).
+        if spec.bare_first_window:
+            suffix = "" if window == 1 else f"_{window - 1}"
+        else:
+            suffix = f"_{window}"
+
+        # Cloud read param names. Peak Shaving reports its schedule under the
+        # interleaved LSP_HOLD_DIS_CHG_POWER_TIME_{n} params rather than the
+        # {prefix}_{START|END}_{HOUR|MINUTE} convention.
+        if spec.read_lsp_base is not None:
+            lsp_base = spec.read_lsp_base + (window - 1) * 4 + (2 if is_end else 0)
+            self._cloud_hour_param = f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base}"
+            self._cloud_minute_param = f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base + 1}"
+        else:
+            self._cloud_hour_param = (
+                f"{spec.cloud_prefix}_{boundary.upper()}_HOUR{suffix}"
+            )
+            self._cloud_minute_param = (
+                f"{spec.cloud_prefix}_{boundary.upper()}_MINUTE{suffix}"
+            )
+
+        # Composite writeTime param (writeTime families only): the portal's
+        # atomic hour+minute boundary write target.
+        self._cloud_time_param = f"{spec.cloud_prefix}_{boundary.upper()}_TIME{suffix}"
 
     # ── Value read ──────────────────────────────────────────────────
 
@@ -328,23 +386,44 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             self.async_write_ha_state()
 
     async def _async_write_cloud(self, value: time) -> None:
-        """Write the hour and minute named parameters via the cloud API.
+        """Write the schedule boundary via the cloud API.
 
-        The portal edits a schedule time exactly this way — one write per
-        field (pylxpweb's own cloud schedule helper uses the same
-        parameters). The two writes are not atomic (the cloud offers no
-        transaction): if the minute write fails after the hour write
-        succeeded, the device holds a MIXED time. In that case the
-        parameters are re-read (best effort) BEFORE the error propagates,
-        so the entity converges to what the device actually holds instead
-        of hiding the partial write behind the stale cached value
-        (PR #283 review P1).
+        Two conventions:
+
+        - writeTime families (Generator/Off-Grid/Peak Shaving): a single
+          atomic ``write_time_parameter`` call sets the boundary's hour and
+          minute together, so there is no partial-write / mixed-time window
+          and no re-read convergence needed.
+        - Classic families (AC Charge/First, Forced Charge/Discharge): the
+          portal edits a schedule time as one write per field — hour then
+          minute (pylxpweb's own cloud schedule helper uses the same
+          parameters). The two writes are not atomic: if the minute write
+          fails after the hour write succeeded, the device holds a MIXED
+          time. In that case the parameters are re-read (best effort) BEFORE
+          the error propagates, so the entity converges to what the device
+          actually holds instead of hiding the partial write behind the stale
+          cached value (PR #283 review P1).
         """
         client = self.coordinator.client
         if client is None:  # pragma: no cover - guarded by caller
             raise HomeAssistantError(
                 "No local transport or cloud API available for parameter write."
             )
+        if self._spec.write_via_time_api:
+            # write_time_parameter exists on the pylxpweb release this family is
+            # gated on (_SUPPORTS_WRITE_TIME), but not on the older floor the
+            # manifest still pins pre-release; typing the endpoint as Any keeps
+            # a direct call from failing strict mypy against the installed stub.
+            control: Any = client.api.control
+            result = await control.write_time_parameter(
+                self.serial, self._cloud_time_param, value.hour, value.minute
+            )
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to set {self._cloud_time_param} to "
+                    f"{value.isoformat(timespec='minutes')} for {self.serial}"
+                )
+            return
         wrote_any = False
         for param, field in (
             (self._cloud_hour_param, value.hour),
