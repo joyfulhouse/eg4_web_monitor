@@ -849,6 +849,48 @@
       },
       "forced_discharge_end_time_3": {
         "name": "強制放電終了時刻 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "ピークカット開始時刻 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "ピークカット終了時刻 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "ピークカット開始時刻 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "ピークカット終了時刻 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "発電機充電開始時刻 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "発電機充電終了時刻 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "発電機充電開始時刻 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "発電機充電終了時刻 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "オフグリッド開始時刻 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "オフグリッド終了時刻 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "オフグリッド開始時刻 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "オフグリッド終了時刻 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "オフグリッド開始時刻 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "オフグリッド終了時刻 3"
       }
     }
   },

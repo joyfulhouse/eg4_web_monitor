@@ -849,6 +849,48 @@
       },
       "forced_discharge_end_time_3": {
         "name": "Zwangsentlade-Endzeit 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Spitzenlastkappung-Startzeit 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Spitzenlastkappung-Endzeit 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Spitzenlastkappung-Startzeit 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Spitzenlastkappung-Endzeit 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Generatorladung-Startzeit 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Generatorladung-Endzeit 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Generatorladung-Startzeit 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Generatorladung-Endzeit 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Inselbetrieb-Startzeit 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Inselbetrieb-Endzeit 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Inselbetrieb-Startzeit 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Inselbetrieb-Endzeit 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Inselbetrieb-Startzeit 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Inselbetrieb-Endzeit 3"
       }
     }
   },
