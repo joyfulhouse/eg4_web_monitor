@@ -173,6 +173,15 @@ class TestOperatingModeSelect:
         select = EG4OperatingModeSelect(coordinator, "1234567890", device_data)
         assert select.available is True
 
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the select unavailable (parity with
+        number/time entities)."""
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4OperatingModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is False
+
     @pytest.mark.asyncio
     async def test_select_normal(self):
         """Select Normal calls set_operating_mode(NORMAL)."""
@@ -331,6 +340,15 @@ class TestSmartPortModeSelect:
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         assert select.available is False
 
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the smart port select unavailable
+        (parity with number/time entities)."""
+        coordinator = _mock_gridboss_coordinator()
+        coordinator.last_update_success = False
+        device_data = coordinator.data["devices"]["gb123"]
+        select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
+        assert select.available is False
+
     def test_entity_name(self):
         """Name includes port number."""
         coordinator = _mock_gridboss_coordinator()
@@ -452,6 +470,26 @@ class TestSmartPortModeSelect:
         coordinator.client.api.control.set_smart_port_mode.assert_called_once_with(
             "gb123", 2, 2
         )
+
+
+class TestPVInputModeSelectAvailability:
+    """PV input select availability gates on coordinator health."""
+
+    def test_available_on_healthy_coordinator(self):
+        """Available with healthy coordinator + inverter device."""
+        coordinator = _mock_coordinator()
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4PVInputModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is True
+
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the select unavailable (parity with
+        number/time entities)."""
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4PVInputModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is False
 
 
 class TestPVInputModeSelectFallback:
