@@ -520,13 +520,25 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if off-grid mode is enabled."""
+        """Return True if off-grid mode is enabled, None when unknown.
+
+        An absent FUNC_GREEN_EN key means UNKNOWN, not off: EG4_OFFGRID
+        local reads deliberately omit the key (the SNA register-110 bit
+        for green is unverified — pylxpweb #210), and a successful local
+        parameter refresh replaces the serial's parameter dict wholesale
+        (coordinator_mixins._refresh_device_parameters). Returning False
+        for the absent key would silently flip a cloud-confirmed/seeded
+        "on" to "off" after any local refresh on that family.
+        """
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
             return self._optimistic_state
 
         # Check parameter data from coordinator
-        return bool(self._parameter_data.get("FUNC_GREEN_EN", False))
+        value = self._parameter_data.get(PARAM_FUNC_GREEN_EN)
+        if value is None:
+            return None
+        return bool(value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

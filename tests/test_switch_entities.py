@@ -606,11 +606,46 @@ class TestOffGridModeSwitch:
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
         assert switch.is_on is True
 
-    def test_is_on_false_default(self):
-        """Default state should be False when param missing."""
+    def test_is_on_unknown_when_param_missing(self):
+        """Absent FUNC_GREEN_EN = UNKNOWN (None), never off (#310 round 2).
+
+        EG4_OFFGRID local reads deliberately omit the key (unverified SNA
+        bit, pylxpweb #210) and the local param refresh replaces the
+        serial's parameters wholesale — False here would flip a
+        cloud-confirmed "on" to "off" after any local refresh.
+        """
         coordinator = _mock_coordinator()
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        assert switch.is_on is None
+
+    def test_is_on_false_when_param_present_false(self):
+        """A present falsy value is a real 'disabled' (bool or raw 0)."""
+        coordinator = _mock_coordinator(parameters={"FUNC_GREEN_EN": False})
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
         assert switch.is_on is False
+        coordinator.data["parameters"]["1234567890"]["FUNC_GREEN_EN"] = 0
+        assert switch.is_on is False
+
+    def test_offgrid_local_refresh_without_key_goes_unknown_not_off(self):
+        """Offgrid: cloud-seeded True, then a local param refresh replaces
+        the params wholesale WITHOUT the key -> state becomes unknown,
+        not a silent revert to off."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={"FUNC_GREEN_EN": True},  # cloud-read/seeded value
+            device_data={"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}},
+        )
+        switch = EG4OffGridModeSwitch(coordinator, "1234567890")
+        assert switch.is_on is True
+
+        # Wholesale replace, as _refresh_device_parameters does after a
+        # successful offgrid local read (no FUNC_GREEN_EN served).
+        coordinator.data["parameters"]["1234567890"] = {
+            "FUNC_BUZZER_EN": True,
+            "FUNC_CHARGE_LAST": False,
+        }
+        assert switch.is_on is None
 
     @pytest.mark.asyncio
     async def test_turn_on_local(self):
