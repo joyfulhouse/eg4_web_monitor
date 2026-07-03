@@ -4,7 +4,7 @@ import asyncio
 import logging
 import math
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, TYPE_CHECKING
 
 from homeassistant.const import EntityCategory
@@ -117,6 +117,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
+    async_write_with_cloud_fallback,
     flag_offgrid_control_suppression,
     is_offgrid_family,
     is_supported_control_model,
@@ -395,26 +396,52 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         *,
         local_param: str,
         local_value: int | float | None = None,
-        cloud_method: str,
-        cloud_kwargs: dict[str, Any],
+        cloud_method: str | None = None,
+        cloud_kwargs: dict[str, Any] | None = None,
+        cloud_write: Callable[[], Awaitable[Any]] | None = None,
         label: str,
     ) -> None:
-        """Write parameter via local transport or cloud API with optimistic context."""
+        """Write parameter via local transport or cloud API with optimistic context.
+
+        The local write is attempted first when a transport is attached; on
+        failure (or a known-down link) it falls back to the cloud path when a
+        cloud client exists — HYBRID parity with the switch platform's
+        ``_execute_local_with_fallback``. ``cloud_write`` overrides the
+        default inverter-method cloud path for entities whose verified cloud
+        route is a direct named-parameter write.
+        """
         _LOGGER.info("Setting %s for %s", label, self.serial)
         self._warn_if_ineffective()
-        with optimistic_value_context(self, value):
-            if self.coordinator.has_local_transport(self.serial):
-                write_val = local_value if local_value is not None else int(value)
-                await self.coordinator.write_named_parameter(
-                    local_param, write_val, serial=self.serial
+        write_val = local_value if local_value is not None else int(value)
+
+        async def _local_write() -> None:
+            await self.coordinator.write_named_parameter(
+                local_param, write_val, serial=self.serial
+            )
+            await asyncio.sleep(0.5)
+
+        async def _cloud_via_method() -> None:
+            inverter = self._get_inverter_or_raise()
+            method = getattr(inverter, cloud_method or "", None)
+            if method is None:
+                raise HomeAssistantError(
+                    f"Failed to set {label}: pylxpweb is missing {cloud_method}"
                 )
-                await asyncio.sleep(0.5)
-            else:
-                inverter = self._get_inverter_or_raise()
-                success = await getattr(inverter, cloud_method)(**cloud_kwargs)
-                if not success:
-                    raise HomeAssistantError(f"Failed to set {label}")
-                await inverter.refresh()
+            success = await method(**(cloud_kwargs or {}))
+            if not success:
+                raise HomeAssistantError(f"Failed to set {label}")
+            await inverter.refresh()
+
+        with optimistic_value_context(self, value):
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self.serial,
+                label,
+                local_write=_local_write,
+                cloud_write=cloud_write
+                or (_cloud_via_method if cloud_method else None),
+                local_values={local_param: write_val},
+            )
             await self._refresh_related_entities()
 
     async def _write_voltage_register(
@@ -430,29 +457,45 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         Voltage limit registers store decivolts (V × 10). The local path writes
         the named parameter via the transport's name map; the cloud path writes
         the raw register address directly (avoiding read/write name aliasing).
+        In HYBRID mode a failed local write falls back to the cloud path.
         """
         raw_value = int(round(value * 10))
         _LOGGER.info("Setting %s for %s to %.1f V", label, self.serial, value)
         self._warn_if_ineffective()
-        with optimistic_value_context(self, value):
-            if self.coordinator.has_local_transport(self.serial):
-                await self.coordinator.write_named_parameter(
-                    param_name, raw_value, serial=self.serial
-                )
-                await asyncio.sleep(0.5)
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.write_parameters(
-                    self.serial, {register: raw_value}
-                )
-                if not result.success:
-                    raise HomeAssistantError(f"Failed to set {label}")
-                inverter = self.coordinator.get_inverter_object(self.serial)
-                if inverter:
-                    await inverter.refresh(force=True, include_parameters=True)
-            else:
+
+        async def _local_write() -> None:
+            await self.coordinator.write_named_parameter(
+                param_name, raw_value, serial=self.serial
+            )
+            await asyncio.sleep(0.5)
+
+        async def _cloud_write() -> None:
+            client = self.coordinator.client
+            if client is None:
                 raise HomeAssistantError(
                     "No local transport or cloud API available for parameter write."
                 )
+            result = await client.api.control.write_parameters(
+                self.serial, {register: raw_value}
+            )
+            if not result.success:
+                raise HomeAssistantError(f"Failed to set {label}")
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: pylxpweb's parameter fetch has no
+                # link gate and the local reads would hang; the cache seed
+                # (local_values) converges the entity instead.
+                await inverter.refresh(force=True, include_parameters=True)
+
+        with optimistic_value_context(self, value):
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self.serial,
+                label,
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={param_name: raw_value},
+            )
             await self._refresh_related_entities()
 
     async def _refresh_related_entities(self) -> None:
@@ -649,24 +692,38 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             "Setting System Charge SOC Limit for %s to %d%%", self.serial, int_value
         )
         self._warn_if_ineffective()
-        with optimistic_value_context(self, value):
-            if self.coordinator.has_local_transport(self.serial):
-                await self.coordinator.write_named_parameter(
-                    PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT, int_value, serial=self.serial
-                )
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.set_system_charge_soc_limit(
-                    self.serial, int_value
-                )
-                if not result.success:
-                    raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
-                inverter = self.coordinator.get_inverter_object(self.serial)
-                if inverter:
-                    await inverter.refresh(force=True, include_parameters=True)
-            else:
+
+        async def _local_write() -> None:
+            await self.coordinator.write_named_parameter(
+                PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT, int_value, serial=self.serial
+            )
+
+        async def _cloud_write() -> None:
+            client = self.coordinator.client
+            if client is None:
                 raise HomeAssistantError(
                     "No local transport or cloud API available for parameter write."
                 )
+            result = await client.api.control.set_system_charge_soc_limit(
+                self.serial, int_value
+            )
+            if not result.success:
+                raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: the local parameter reads would
+                # hang; the cache seed (local_values) converges the entity.
+                await inverter.refresh(force=True, include_parameters=True)
+
+        with optimistic_value_context(self, value):
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self.serial,
+                f"system charge SOC limit to {int_value}%",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: int_value},
+            )
             await self._refresh_related_entities()
 
 
@@ -1001,29 +1058,43 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
             )
 
         _LOGGER.info("Setting PV start voltage for %s to %d V", self.serial, int_value)
-        with optimistic_value_context(self, value):
-            if self.coordinator.has_local_transport(self.serial):
-                # Local Modbus: write raw decivolts (140V -> 1400)
-                await self.coordinator.write_named_parameter(
-                    PARAM_HOLD_START_PV_VOLT, int_value * 10, serial=self.serial
-                )
-                await asyncio.sleep(0.5)
-            elif self.coordinator.client is not None:
-                # Cloud API: write human-readable volts
-                result = await self.coordinator.client.api.control.write_parameter(
-                    self.serial, "HOLD_START_PV_VOLT", str(int_value)
-                )
-                if not result.success:
-                    raise HomeAssistantError(
-                        f"Failed to set PV start voltage to {int_value} V"
-                    )
-                inverter = self.coordinator.get_inverter_object(self.serial)
-                if inverter:
-                    await inverter.refresh(force=True, include_parameters=True)
-            else:
+
+        async def _local_write() -> None:
+            # Local Modbus: write raw decivolts (140V -> 1400)
+            await self.coordinator.write_named_parameter(
+                PARAM_HOLD_START_PV_VOLT, int_value * 10, serial=self.serial
+            )
+            await asyncio.sleep(0.5)
+
+        async def _cloud_write() -> None:
+            # Cloud API: write human-readable volts
+            client = self.coordinator.client
+            if client is None:
                 raise HomeAssistantError(
                     "No local transport or cloud API available for parameter write."
                 )
+            result = await client.api.control.write_parameter(
+                self.serial, "HOLD_START_PV_VOLT", str(int_value)
+            )
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to set PV start voltage to {int_value} V"
+                )
+            inverter = self.coordinator.get_inverter_object(self.serial)
+            if inverter and not self.coordinator.is_transport_link_down(self.serial):
+                # Skipped on a down link: the local parameter reads would
+                # hang; the cache seed (local_values) converges the entity.
+                await inverter.refresh(force=True, include_parameters=True)
+
+        with optimistic_value_context(self, value):
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self.serial,
+                f"PV start voltage to {int_value} V",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_START_PV_VOLT: int_value * 10},
+            )
             await self._refresh_related_entities()
 
 
@@ -1353,20 +1424,17 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
             raise HomeAssistantError(
                 f"Start discharge power threshold must be an integer value, got {value}"
             )
-        if self.coordinator.has_local_transport(self.serial):
-            await self._write_parameter(
-                value,
-                local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
-                local_value=int_value,
-                # Unreachable with a local transport; kept honest for the
-                # shared helper's signature (pylxpweb >= 0.9.36b18 has the
-                # named Modbus method).
-                cloud_method="set_start_discharge_power",
-                cloud_kwargs={"watts": int_value},
-                label=f"start discharge power threshold to {int_value} W",
-            )
-            return
-        await self._write_cloud_named_parameter(int_value)
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
+            local_value=int_value,
+            # The named-param cloud writer is BOTH the cloud-mode path and
+            # the HYBRID local-failure fallback; pylxpweb's
+            # set_start_discharge_power is deliberately bypassed (see
+            # _write_cloud_named_parameter).
+            cloud_write=lambda: self._write_cloud_named_parameter(int_value),
+            label=f"start discharge power threshold to {int_value} W",
+        )
 
     async def _write_cloud_named_parameter(self, watts: int) -> None:
         """Write the threshold via the generic cloud named-parameter API.
@@ -1378,32 +1446,29 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         raw register by address, and its cloud read leg looks up the wrong
         key (the guessed HOLD_PTOUSER_START_DISCHARGE never exists on the
         server), so the named-param call is the only website-verified path.
+
+        Bare writer: logging, ineffective-regime warning, optimistic state
+        and the related-entity refresh are provided by ``_write_parameter``.
         """
         client = self.coordinator.client
         if client is None:
             raise HomeAssistantError(
                 "No local transport or cloud API available for parameter write."
             )
-        _LOGGER.info(
-            "Setting start discharge power threshold for %s to %d W",
+        result = await client.api.control.write_parameter(
             self.serial,
-            watts,
+            PARAM_HOLD_P_TO_USER_START_DISCHG,
+            str(watts),
         )
-        self._warn_if_ineffective()
-        with optimistic_value_context(self, float(watts)):
-            result = await client.api.control.write_parameter(
-                self.serial,
-                PARAM_HOLD_P_TO_USER_START_DISCHG,
-                str(watts),
+        if not result.success:
+            raise HomeAssistantError(
+                f"Failed to set start discharge power threshold to {watts} W"
             )
-            if not result.success:
-                raise HomeAssistantError(
-                    f"Failed to set start discharge power threshold to {watts} W"
-                )
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                await inverter.refresh(force=True, include_parameters=True)
-            await self._refresh_related_entities()
+        inverter = self.coordinator.get_inverter_object(self.serial)
+        if inverter and not self.coordinator.is_transport_link_down(self.serial):
+            # Skipped on a down link: the local parameter reads would hang;
+            # _write_parameter's cache seed (local_values) converges the entity.
+            await inverter.refresh(force=True, include_parameters=True)
 
 
 class StartChargePowerNumber(EG4BaseNumberEntity):

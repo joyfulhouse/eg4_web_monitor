@@ -2380,11 +2380,28 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
 
     async def _refresh_device_parameters(self, serial: str) -> None:
-        """Refresh parameters for a specific device using device object."""
+        """Refresh parameters for a specific device using device object.
+
+        Skipped while the device's local transport link is down: pylxpweb's
+        parameter fetch has no ``transport_link_down`` gate (unlike its
+        runtime/energy/battery reads), so an attached-but-dead link would
+        attempt local Modbus reads that Python 3.11's ``asyncio.wait_for``
+        cannot interrupt (multi-minute hangs). The regular poll re-probes
+        the link every cycle and parameters refresh on recovery; entities
+        converge on written values via ``note_parameters_written()``.
+        """
         try:
             inverter = self.get_inverter_object(serial)
             if not inverter:
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
+                return
+
+            if is_transport_link_down(inverter):
+                _LOGGER.debug(
+                    "Skipping parameter refresh for %s: local transport link "
+                    "is down (re-probed by the regular poll cycle)",
+                    serial,
+                )
                 return
 
             # Use force=True to bypass cache when refreshing parameters after changes

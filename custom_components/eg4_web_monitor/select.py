@@ -28,6 +28,7 @@ from .const import (
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import _get_model_from_coordinator
 from .utils import (
+    async_write_with_cloud_fallback,
     create_device_info,
     generate_entity_id,
     generate_unique_id,
@@ -387,25 +388,40 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
+            async def _local_write() -> None:
                 # Local Modbus: write register value directly
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_PV_INPUT_MODE, int_value, serial=self._serial
                 )
-            elif self.coordinator.client is not None:
+
+            async def _cloud_write() -> None:
                 # Cloud API: write via generic parameter write
-                result = await self.coordinator.client.api.control.write_parameter(
+                client = self.coordinator.client
+                if client is None:
+                    raise HomeAssistantError(
+                        "No local transport or cloud API available for parameter write."
+                    )
+                result = await client.api.control.write_parameter(
                     self._serial, "HOLD_PV_INPUT_MODE", str(int_value)
                 )
                 if not result.success:
                     raise HomeAssistantError(f"Failed to set PV input mode to {option}")
                 inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
+                if inverter and not self.coordinator.is_transport_link_down(
+                    self._serial
+                ):
+                    # Skipped on a down link: the local parameter reads would
+                    # hang; the cache seed (local_values) converges the entity.
                     await inverter.refresh(force=True, include_parameters=True)
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"PV input mode to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_PV_INPUT_MODE: int_value},
+            )
 
             _LOGGER.info(
                 "Successfully set PV input mode to %s for device %s",
@@ -515,24 +531,34 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
+            async def _local_write() -> None:
                 await self.coordinator.write_named_parameter(
                     f"BIT_MIDBOX_SP_MODE_{self._port}",
                     int_value,
                     serial=self._serial,
                 )
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.set_smart_port_mode(
+
+            async def _cloud_write() -> None:
+                client = self.coordinator.client
+                if client is None:
+                    raise HomeAssistantError(
+                        "No local transport or cloud API available for parameter write."
+                    )
+                result = await client.api.control.set_smart_port_mode(
                     self._serial, self._port, int_value
                 )
                 if not result.success:
                     raise HomeAssistantError(
                         f"Failed to set smart port {self._port} mode to {option}"
                     )
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"smart port {self._port} mode to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+            )
 
             _LOGGER.info(
                 "Successfully set smart port %d mode to %s for device %s",
@@ -646,12 +672,18 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
+            async def _local_write() -> None:
                 await self.coordinator.write_named_parameter(
                     self._param_key, voltage_mode, serial=self._serial
                 )
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.control_function(
+
+            async def _cloud_write() -> None:
+                client = self.coordinator.client
+                if client is None:
+                    raise HomeAssistantError(
+                        "No local transport or cloud API available for parameter write."
+                    )
+                result = await client.api.control.control_function(
                     self._serial, self._param_key, voltage_mode
                 )
                 if not result.success:
@@ -659,12 +691,21 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                         f"Failed to set {self._control_name} to {option}"
                     )
                 inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
+                if inverter and not self.coordinator.is_transport_link_down(
+                    self._serial
+                ):
+                    # Skipped on a down link: the local parameter reads would
+                    # hang; the cache seed (local_values) converges the entity.
                     await inverter.refresh(force=True, include_parameters=True)
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"{self._control_name} to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={self._param_key: voltage_mode},
+            )
 
             self._optimistic_state = None
             # The inverter firmware syncs the battery control regime across the

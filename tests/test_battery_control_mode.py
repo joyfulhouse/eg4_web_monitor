@@ -47,6 +47,7 @@ def _mock_coordinator(
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
     coordinator.has_http_api = MagicMock(return_value=not has_local)
+    coordinator.is_transport_link_down = MagicMock(return_value=False)
     coordinator.is_local_only = MagicMock(return_value=has_local)
     coordinator.last_update_success = True
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)

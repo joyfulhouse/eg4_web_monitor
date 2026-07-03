@@ -55,6 +55,7 @@ def _mock_coordinator(
         return_value=(has_local or local_only)
     )
     coordinator.has_http_api = MagicMock(return_value=has_http)
+    coordinator.is_transport_link_down = MagicMock(return_value=False)
     coordinator.is_local_only = MagicMock(return_value=local_only)
     coordinator.last_update_success = True
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
@@ -690,6 +691,139 @@ class TestWriteParameter:
         entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
         assert entity.native_min_value == 0
         assert entity.native_max_value == 101
+
+
+class TestHybridCloudFallback:
+    """HYBRID number writes fall back to the cloud when the local write
+    fails (switch parity — pylxpweb keeps the transport attached while the
+    link is down, so attachment alone must not pin the local path)."""
+
+    @pytest.mark.asyncio
+    async def test_write_parameter_local_failure_falls_back_to_cloud(self):
+        """_write_parameter: local raises -> inverter cloud method used."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(80.0)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_ac_charge_soc_limit.assert_called_once_with(soc_percent=80)
+
+    @pytest.mark.asyncio
+    async def test_write_parameter_local_only_failure_still_raises(self):
+        """LOCAL-only: no cloud client -> the local error propagates."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="timeout"):
+            await entity.async_set_native_value(80.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_ac_charge_soc_limit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_parameter_link_down_prefers_cloud_immediately(self):
+        """Known-down link: the doomed local write is skipped entirely."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(75.0)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_ac_charge_soc_limit.assert_called_once_with(soc_percent=75)
+
+    @pytest.mark.asyncio
+    async def test_link_down_write_skips_local_param_refresh_and_seeds_cache(self):
+        """Known-down link: the cloud write must NOT be followed by a local
+        parameter read (pylxpweb's param fetch has no link gate and would
+        hang); instead the acknowledged value is seeded into the cache so
+        the entity converges on the written value, not the stale pre-write
+        cache (codex P1 on PR #301)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.set_system_charge_soc_limit = AsyncMock(
+            return_value=result
+        )
+        entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(90.0)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.refresh.assert_not_awaited()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 90}
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallback_write_seeds_cache_with_local_raw_value(self):
+        """Attempt-then-fallback (link not yet flagged down): the cloud
+        write also seeds the local-raw cache so a failed follow-up local
+        read cannot revert the entity (#282 carry-forward keeps the seed)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(80.0)
+
+        coordinator.note_parameters_written.assert_called_once()
+        serial_arg, values = coordinator.note_parameters_written.call_args[0]
+        assert serial_arg == "1234567890"
+        assert list(values.values()) == [80]
+
+    @pytest.mark.asyncio
+    async def test_cloud_only_write_does_not_seed_cache(self):
+        """Pure-cloud (no local transport): no seeding — the cloud param
+        cache is refreshed normally and uses cloud-scaled values."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(80.0)
+
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_system_charge_soc_local_failure_falls_back_to_cloud(self):
+        """Inline 3-way site (system charge SOC): cloud API branch used."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.set_system_charge_soc_limit = AsyncMock(
+            return_value=result
+        )
+        entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(90.0)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.set_system_charge_soc_limit.assert_called_once_with(
+            "1234567890", 90
+        )
 
 
 class TestACChargePowerWrite:

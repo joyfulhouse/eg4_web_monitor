@@ -2932,6 +2932,222 @@ class TestBatteryControlModeMethods:
         assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
         assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)
 
+    async def test_async_write_battery_control_mode_hybrid_fallback(
+        self, hass, local_config_entry
+    ):
+        """HYBRID: a failed local write falls back to the cloud
+        function-control API instead of raising (switch parity)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(return_value=result)
+
+        await coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        calls = coordinator.client.api.control.control_function.call_args_list
+        assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", True)
+        assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", False)
+
+    async def test_async_write_battery_control_mode_local_only_failure_raises(
+        self, hass, local_config_entry
+    ):
+        """LOCAL-only: no cloud client -> the local write error propagates."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        coordinator.client = None
+
+        with pytest.raises(HomeAssistantError, match="timeout"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "soc"
+            )
+
+    async def test_battery_control_mode_partial_cloud_write_converges(
+        self, hass, local_config_entry
+    ):
+        """Cloud two-bit write: charge bit lands, discharge bit fails ->
+        device parameters are re-read (best effort) BEFORE the error
+        propagates, so entities reflect the actual (mixed) reg-179 regime
+        (same pattern as the schedule time partial hour/minute writes)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=False)
+        ok = MagicMock()
+        ok.success = True
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(
+            side_effect=[ok, failed]
+        )
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "soc"
+            )
+
+        coordinator._refresh_device_parameters.assert_awaited_once_with("INV001")
+
+    async def test_battery_control_mode_partial_cloud_exception_converges(
+        self, hass, local_config_entry
+    ):
+        """A raised exception on the discharge-bit write converges the same
+        way (re-read then raise)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=False)
+        ok = MagicMock()
+        ok.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(
+            side_effect=[ok, RuntimeError("connection reset")]
+        )
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "soc"
+            )
+
+        coordinator._refresh_device_parameters.assert_awaited_once_with("INV001")
+
+    async def test_battery_control_mode_partial_write_link_down_seeds_charge_bit(
+        self, hass, local_config_entry
+    ):
+        """HYBRID link-down partial write: the re-read is impossible (gated),
+        so the KNOWN-succeeded charge bit is seeded into the cache — the
+        failed discharge bit stays untouched (device still holds its old
+        value) — while the error still surfaces (codex medium on PR #301)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        coordinator.data = {
+            "parameters": {
+                "INV001": {
+                    "FUNC_BAT_CHARGE_CONTROL": False,
+                    "FUNC_BAT_DISCHARGE_CONTROL": False,
+                }
+            }
+        }
+        coordinator.async_update_listeners = MagicMock()
+        ok = MagicMock()
+        ok.success = True
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(
+            side_effect=[ok, failed]
+        )
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        with pytest.raises(HomeAssistantError, match="partially applied"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "voltage"
+            )
+
+        # Re-read skipped (link down), succeeded charge bit seeded, failed
+        # discharge bit unchanged (pre-write cache value).
+        coordinator._refresh_device_parameters.assert_not_awaited()
+        params = coordinator.data["parameters"]["INV001"]
+        assert params["FUNC_BAT_CHARGE_CONTROL"] is True
+        assert params["FUNC_BAT_DISCHARGE_CONTROL"] is False
+        coordinator.async_update_listeners.assert_called_once()
+
+
+class TestLinkDownParameterRefreshGate:
+    """Parameter refreshes must skip attached-but-dead links (codex P1 on
+    PR #301): pylxpweb's parameter fetch has no transport_link_down gate
+    (unlike runtime/energy/battery), so a local param read on a down link
+    hangs for minutes (Python 3.11 asyncio.wait_for cannot interrupt
+    in-flight pymodbus reads)."""
+
+    @staticmethod
+    def _fake_inverter(*, link_down: bool, parameters: dict | None = None):
+        inv = MagicMock()
+        inv.transport = object()
+        inv.transport_link_down = link_down
+        inv.refresh = AsyncMock()
+        inv.parameters = parameters or {}
+        return inv
+
+    async def test_refresh_all_skips_only_down_link_serials(
+        self, hass, local_config_entry
+    ):
+        """refresh_all_device_parameters: the down serial is skipped, the
+        healthy sibling is still refreshed."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        down = self._fake_inverter(link_down=True)
+        up = self._fake_inverter(link_down=False, parameters={"HOLD_X": 1})
+        coordinator._inverter_cache = {"DOWN1": down, "UP1": up}
+        coordinator.data = {
+            "devices": {
+                "DOWN1": {"type": "inverter"},
+                "UP1": {"type": "inverter"},
+            }
+        }
+
+        await coordinator.refresh_all_device_parameters()
+
+        down.refresh.assert_not_awaited()
+        up.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+        assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
+
+    async def test_async_refresh_device_parameters_skips_down_link(
+        self, hass, local_config_entry
+    ):
+        """The single-serial public refresh path is gated the same way."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        down = self._fake_inverter(link_down=True)
+        coordinator._inverter_cache = {"DOWN1": down}
+        coordinator.data = {"devices": {"DOWN1": {"type": "inverter"}}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        await coordinator.async_refresh_device_parameters("DOWN1")
+
+        down.refresh.assert_not_awaited()
+
+    async def test_note_parameters_written_merges_and_notifies(
+        self, hass, local_config_entry
+    ):
+        """Acknowledged written values merge into the cache and notify
+        listeners (entity convergence after a skipped local re-read)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.data = {"parameters": {"INV001": {"HOLD_A": 1}}}
+        coordinator.async_update_listeners = MagicMock()
+
+        coordinator.note_parameters_written("INV001", {"HOLD_B": 2})
+
+        assert coordinator.data["parameters"]["INV001"] == {"HOLD_A": 1, "HOLD_B": 2}
+        coordinator.async_update_listeners.assert_called_once()
+
+    async def test_note_parameters_written_no_data_is_noop(
+        self, hass, local_config_entry
+    ):
+        """Before the first refresh (data=None) the seed is a no-op."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.data = None
+        coordinator.async_update_listeners = MagicMock()
+
+        coordinator.note_parameters_written("INV001", {"HOLD_B": 2})
+
+        coordinator.async_update_listeners.assert_not_called()
+
 
 # ── Transport link-down flow (eg4-57g / #226 attached-but-dead) ──────
 

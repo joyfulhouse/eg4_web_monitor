@@ -48,7 +48,11 @@ from . import EG4ConfigEntry
 from .base_entity import EG4BaseTime
 from .const import SCHEDULE_TIME_TYPES, ScheduleTimeSpec
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import is_offgrid_family, is_supported_control_model
+from .utils import (
+    async_write_with_cloud_fallback,
+    is_offgrid_family,
+    is_supported_control_model,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -287,18 +291,29 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         write_ok = False
         refresh_ok = False
         try:
-            if self.coordinator.has_local_transport(self.serial):
+
+            async def _local_write() -> None:
                 await self.coordinator.write_register(
                     self._register, packed, serial=self.serial
                 )
-            elif self.coordinator.client is not None:
-                await self._async_write_cloud(boundary_value)
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self.serial,
+                f"{self._spec.key} schedule time",
+                local_write=_local_write,
+                cloud_write=lambda: self._async_write_cloud(boundary_value),
+            )
             write_ok = True
-            refresh_ok = await self._async_refresh_parameters()
+            if self.coordinator.is_transport_link_down(self.serial):
+                # The packed register cannot be re-read on a dead link (and
+                # refresh_all_device_parameters skips this serial). Leave
+                # refresh_ok False so the optimistic value is RETAINED —
+                # the acknowledged cloud write IS device truth — until
+                # fresh parameter data arrives on link recovery.
+                refresh_ok = False
+            else:
+                refresh_ok = await self._async_refresh_parameters()
         finally:
             if not write_ok or refresh_ok:
                 # Write failed (entity falls back to the parameter cache —
@@ -362,7 +377,9 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         device holds a mixed schedule time. A best-effort parameter refresh
         (its own errors suppressed) re-reads the device so the entity shows
         the actual (mixed) state once the optimistic value is dropped by
-        the caller's failure path.
+        the caller's failure path. Skipped while the local transport link
+        is down — the re-read would hang on the dead link; the cloud param
+        poll or link recovery converges the entity later.
         """
         _LOGGER.warning(
             "Cloud schedule write for %s partially applied (%s failed%s); "
@@ -371,7 +388,8 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             failed_param,
             f": {err}" if err else "",
         )
-        await self._async_refresh_parameters()
+        if not self.coordinator.is_transport_link_down(self.serial):
+            await self._async_refresh_parameters()
         raise HomeAssistantError(
             f"Failed to set {failed_param} for {self.serial}: the schedule "
             "time may be partially applied (hour and minute are written "
