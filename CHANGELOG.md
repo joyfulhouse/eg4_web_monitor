@@ -5,6 +5,28 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.21] - 2026-07-03
+
+> Requires [pylxpweb 0.9.36b23](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b23)
+> (installed automatically; the manifest requirement is bumped).
+>
+> This release is the outcome of a four-scanner adversarial bug sweep
+> (two independent Claude passes, Codex, and Antigravity) over the integration
+> and the pylxpweb library, followed by a dead-code cleanup of both. Every fix
+> below was independently verified before implementation and every PR passed a
+> dual Opus + Codex review gate.
+
+### Fixed
+
+- **LOCAL: a physically removed battery now disappears within the staleness bound instead of surviving until a Home Assistant restart** ([#300](https://github.com/joyfulhouse/eg4_web_monitor/pull/300)): the 6-hour eviction added in beta.19 sat in a branch that only ran when a poll returned *zero* batteries — but the round-robin merge always returns the full accumulated cache, so on any normal poll the eviction was unreachable and a removed pack's entities stayed populated with frozen values indefinitely. The eviction now runs unconditionally on every merge (matching the HYBRID/CLOUD behavior shipped in beta.19), and the same bound now also covers the HYBRID coordinator's local-only branch, which was previously unbounded.
+- **HYBRID: schedule time, number and select controls now fall back to the cloud when the local write fails or the local link is down** ([#301](https://github.com/joyfulhouse/eg4_web_monitor/pull/301)): switches have always retried a failed local write through the cloud API, but every other control type chose the local path purely because a transport was *attached* — and pylxpweb keeps the transport attached during a link outage — so changing a charge schedule, SOC limit, PV input mode or battery control mode failed until the link recovered even with a healthy cloud connection. All control writes now share the switches' local-attempt-then-cloud semantics, prefer the cloud *immediately* when the library reports the link down (no timeout wait), and the post-write parameter refreshes are link-down-aware so the service call can't stall against a dead transport. After a successful cloud fallback the acknowledged values are seeded into the parameter cache, so the entity converges on what was written instead of reverting to the stale pre-write value until link recovery. Excluded by design: Quick Charge Duration and the Start Charge threshold (no equivalent cloud write exists).
+- **Switches and selects now report unavailable during a sustained coordinator outage, like every other entity type** ([#303](https://github.com/joyfulhouse/eg4_web_monitor/pull/303)): sensors, numbers and time entities already gated availability on coordinator health; switches and selects were missed in 2025-12 and stayed clickable against stale data through a full outage (the write then failed loudly). The gate only engages after three consecutive failed update cycles (the existing stale-tolerance circuit breaker) and single-device or transient failures never trip it, so day-to-day behavior is unchanged.
+- **Library (pylxpweb 0.9.36b23)**: a truncated-but-well-formed holding-register response from the dongle or Modbus TCP could silently produce a partial parameter read that blanked parameter-backed entities for up to an hour ([pylxpweb#203](https://github.com/joyfulhouse/pylxpweb/pull/203) — the input-register path was guarded in beta.14, the parameter path never was); a battery whose electrical data arrived before its serial number on a cold start could mint a permanent duplicate battery with frozen values ([pylxpweb#204](https://github.com/joyfulhouse/pylxpweb/pull/204)); public cloud-mode schedule getters always returned 00:00 ([pylxpweb#205](https://github.com/joyfulhouse/pylxpweb/pull/205), no integration impact — it reads the named parameters directly); and the link-down probe no longer runs the full six-group input read on every degraded poll, cutting dead-link poll pressure roughly 6× ([pylxpweb#205](https://github.com/joyfulhouse/pylxpweb/pull/205)).
+
+### Changed
+
+- **Dead-code cleanup, both repositories** ([#299](https://github.com/joyfulhouse/eg4_web_monitor/pull/299), [pylxpweb#202](https://github.com/joyfulhouse/pylxpweb/pull/202)): −106 integration lines and −26 library lines of verified-unreferenced code (orphaned helpers, unused mappings, dead stores). Zero functional change — entity IDs, unique IDs and translation keys are byte-identical, verified by both review gates.
+
 ## [3.4.0-beta.20] - 2026-07-02
 
 > Requires [pylxpweb 0.9.36b22](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b22)
