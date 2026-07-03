@@ -31,7 +31,7 @@ else:
     )
 
 from pylxpweb import LuxpowerClient
-from pylxpweb.devices import Battery, Station
+from pylxpweb.devices import Station
 from pylxpweb.devices.inverters.base import BaseInverter
 from .const import (
     BLOCK_SIZE_PRESET_REGISTERS,
@@ -568,22 +568,6 @@ class EG4DataUpdateCoordinator(
     def get_inverter_object(self, serial: str) -> BaseInverter | None:
         """Get inverter device object by serial number (O(1) cached lookup)."""
         return self._inverter_cache.get(serial)
-
-    def get_battery_object(self, serial: str, battery_index: int) -> Battery | None:
-        """Get battery object by inverter serial and battery index."""
-        inverter = self.get_inverter_object(serial)
-        battery_bank = getattr(inverter, "_battery_bank", None) if inverter else None
-        if not battery_bank:
-            return None
-
-        if not hasattr(battery_bank, "batteries"):
-            return None
-
-        for battery in battery_bank.batteries:
-            if battery.index == battery_index:
-                return cast(Battery, battery)
-
-        return None
 
     def has_http_api(self) -> bool:
         """Check if HTTP API is available (HTTP or Hybrid mode).

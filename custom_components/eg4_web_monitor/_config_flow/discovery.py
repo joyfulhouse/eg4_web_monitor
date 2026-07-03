@@ -69,36 +69,6 @@ class DiscoveredDevice:
     parallel_master_slave: int = 0
     parallel_phase: int = 0
 
-    @property
-    def parallel_group_name(self) -> str | None:
-        """Get parallel group name (e.g., 'A', 'B') or None if standalone.
-
-        Returns:
-            Group name ('A' for group 1, 'B' for group 2, etc.) or None
-            if the device is standalone.
-        """
-        if self.parallel_number == 0:
-            return None
-        return chr(ord("A") + self.parallel_number - 1)
-
-    @property
-    def is_standalone(self) -> bool:
-        """Check if device is standalone (not in parallel group).
-
-        Returns:
-            True if device is standalone, False if in a parallel group.
-        """
-        return self.parallel_number == 0 or self.parallel_master_slave == 0
-
-    @property
-    def is_master(self) -> bool:
-        """Check if device is the master in a parallel group.
-
-        Returns:
-            True if device is the master (primary) inverter.
-        """
-        return self.parallel_master_slave == 1
-
 
 def _get_model_from_device_type(device_type_code: int) -> tuple[str, str]:
     """Derive model name and family from device type code.

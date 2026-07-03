@@ -258,7 +258,7 @@ async def async_setup_entry(
                             f"{serial}_{key}" for key in _SUPPRESSED_OFFGRID_SWITCH_KEYS
                         ),
                     )
-                for mode_key, mode_config in WORKING_MODES.items():
+                for mode_config in WORKING_MODES.values():
                     param = mode_config.get("param", "")
                     # Grid-tied-only controls are inert on EG4_OFFGRID
                     # hardware — see GRID_TIED_ONLY_WORKING_MODE_PARAMS.
@@ -309,7 +309,6 @@ async def async_setup_entry(
                         EG4WorkingModeSwitch(
                             coordinator=coordinator,
                             serial=serial,
-                            mode_key=mode_key,
                             mode_config=mode_config,
                         )
                     )
@@ -705,11 +704,9 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        mode_key: str,
         mode_config: dict[str, Any],
     ) -> None:
         """Initialize the working mode switch."""
-        self._mode_key = mode_key
         self._mode_config = mode_config
 
         # Clean parameter name for entity key (remove func_ prefix for cleaner

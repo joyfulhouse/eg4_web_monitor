@@ -142,7 +142,6 @@ class EG4ConfigFlow(
         self._base_url: str = DEFAULT_BASE_URL
         self._verify_ssl: bool = DEFAULT_VERIFY_SSL
         self._dst_sync: bool = True
-        self._library_debug: bool = False  # Legacy: kept for migration only
         self._plant_id: str | None = None
         self._plant_name: str | None = None
         self._plants: list[dict[str, Any]] | None = None

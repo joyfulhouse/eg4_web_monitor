@@ -325,8 +325,6 @@ def _apply_sensor_config(
     sensor_config: dict[str, Any] = cast(
         "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
     )
-    entity._sensor_config = sensor_config
-
     entity._attr_native_unit_of_measurement = sensor_config.get("unit")
     entity._attr_device_class = sensor_config.get("device_class")
     entity._attr_state_class = sensor_config.get("state_class")
@@ -381,7 +379,6 @@ class EG4BaseSensor(EG4DeviceEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
@@ -495,7 +492,6 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
@@ -599,7 +595,6 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 

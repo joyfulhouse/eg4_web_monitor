@@ -88,9 +88,6 @@ async def async_setup_entry(
     for serial, device_data in coordinator.data["devices"].items():
         # Check if this device has individual batteries
         if "batteries" in device_data:
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-            parent_model = device_info.get("deviceTypeText4APP", "Unknown")
-
             for battery_key in device_data["batteries"]:
                 # Create refresh button for each individual battery
                 phase2_entities.append(
@@ -98,8 +95,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         parent_serial=serial,
                         battery_key=battery_key,
-                        parent_model=parent_model,
-                        battery_id=battery_key,
                     )
                 )
 
@@ -142,15 +137,11 @@ async def async_setup_entry(
                 if battery_key in known:
                     continue
                 known.add(battery_key)
-                device_info = coordinator.data.get("device_info", {}).get(serial, {})
-                parent_model = device_info.get("deviceTypeText4APP", "Unknown")
                 new_entities.append(
                     EG4BatteryRefreshButton(
                         coordinator=coordinator,
                         parent_serial=serial,
                         battery_key=battery_key,
-                        parent_model=parent_model,
-                        battery_id=battery_key,
                     )
                 )
         if new_entities:
@@ -278,19 +269,14 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
     - Availability checking for battery presence
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(
         self,
         coordinator: EG4DataUpdateCoordinator,
         parent_serial: str,
         battery_key: str,
-        parent_model: str,
-        battery_id: str,
     ) -> None:
         """Initialize the battery refresh button."""
         super().__init__(coordinator, parent_serial, battery_key)
-
-        self._parent_model = parent_model
-        self._battery_id = battery_id
 
         # Create unique identifiers - match battery device pattern
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
@@ -319,7 +305,7 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
 
         # Add parent device info
         attributes["parent_device"] = self._parent_serial
-        attributes["battery_id"] = self._battery_id
+        attributes["battery_id"] = self._battery_key
 
         return attributes if attributes else None
 

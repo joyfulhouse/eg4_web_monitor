@@ -48,12 +48,8 @@ def _get_model(
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
 
-# Operating mode options
+# Operating mode options (FUNC_SET_TO_STANDBY: true = Normal, false = Standby)
 OPERATING_MODE_OPTIONS = ["Normal", "Standby"]
-OPERATING_MODE_MAPPING = {
-    "Normal": True,  # True = normal mode (FUNC_SET_TO_STANDBY = true means Normal)
-    "Standby": False,  # False = standby mode (FUNC_SET_TO_STANDBY = false means Standby)
-}
 
 # PV Input Mode options (register 20, HOLD_PV_INPUT_MODE)
 # Maps display label -> raw register value

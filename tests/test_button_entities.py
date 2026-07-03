@@ -109,8 +109,6 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         assert entity._parent_serial == "1234567890"
@@ -135,8 +133,6 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         await entity.async_press()
@@ -156,8 +152,6 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         assert "1234567890" in entity.unique_id
