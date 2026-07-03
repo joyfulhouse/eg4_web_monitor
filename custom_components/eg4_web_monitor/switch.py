@@ -851,13 +851,20 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 value=turn_on,
             )
         elif self.coordinator.has_http_api() and methods:
-            # Cloud-only, no local parameter mapping
+            # Cloud-only, no local parameter mapping. A transport can still
+            # be attached here (the version guard above degrades legacy
+            # flat-HYBRID installs to this branch), so seed the parameter
+            # cache with the acknowledged value like the fallback path —
+            # otherwise a link-down write reverts to the stale pre-write
+            # state until link recovery (#310). Pure-cloud stays unseeded
+            # via the has_local_transport guard in the seeding helper.
             await self._execute_switch_action(
                 action_name=f"working mode {param}",
                 enable_method=methods[0],
                 disable_method=methods[1],
                 turn_on=turn_on,
                 refresh_params=True,
+                seed_param_key=FUNCTION_PARAM_MAPPING.get(param),
             )
         else:
             raise HomeAssistantError(

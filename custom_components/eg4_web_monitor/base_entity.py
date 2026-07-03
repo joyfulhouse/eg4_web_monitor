@@ -360,8 +360,10 @@ def _apply_sensor_config(
             else EntityCategory.DIAGNOSTIC
         )
 
-    # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
-    if sensor_config.get("enabled_default") is False:
+    # Allow sensors to be disabled by default (e.g. noisy last_polled
+    # timestamps). Truthiness, not an ``is False`` identity check, so a
+    # non-bool falsy value can't silently ship the entity enabled (#310).
+    if not sensor_config.get("enabled_default", True):
         entity._attr_entity_registry_enabled_default = False
 
     return sensor_config
@@ -1007,6 +1009,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         refresh_params: bool = False,
         api_delay: float = 1.0,
         enable_kwargs: dict[str, Any] | None = None,
+        seed_param_key: str | None = None,
     ) -> None:
         """Execute a switch action with optimistic state handling.
 
@@ -1032,6 +1035,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             enable_kwargs: Optional keyword arguments passed to the enable method
                 on the turn-on path only (the disable method is always called with
                 no arguments).
+            seed_param_key: Parameter-cache key to seed with the acknowledged
+                ``turn_on`` boolean when a local transport is attached (#310).
+                Pass only for parameter-backed switches whose ``is_on`` reads
+                this key; leave ``None`` for status-based actions (e.g. quick
+                charge) and pure-cloud-only callers.
 
         Raises:
             HomeAssistantError: If the action fails.
@@ -1078,6 +1086,15 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 action_name,
                 self._serial,
             )
+
+            # Seed the acknowledged value BEFORE the refresh/optimistic-clear
+            # (#310): under a down local link the parameter refresh below is a
+            # no-op, so without the seed this method would publish the STALE
+            # pre-write state when it clears the optimistic value — a
+            # wrong-then-corrected double transition (recorder pollution,
+            # automation misfires on the intermediate value).
+            if seed_param_key is not None:
+                self._seed_cloud_written_parameter(seed_param_key, turn_on)
 
             # Refresh inverter data from API
             await inverter.refresh()
@@ -1171,10 +1188,17 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         if not cloud_only and self.coordinator.has_local_transport(self._serial):
             try:
+                # When a cloud fallback exists, keep the optimistic state on
+                # local failure: clearing it there would publish the stale
+                # pre-write value for one transition before the cloud retry
+                # re-asserts it (#310 review — recorder pollution/automation
+                # misfire). The cloud path's own error handling clears it if
+                # the retry fails too.
                 await self._execute_named_parameter_action(
                     action_name=action_name,
                     parameter=parameter,
                     value=value,
+                    clear_optimistic_on_error=not self.coordinator.has_http_api(),
                 )
                 return
             except HomeAssistantError:
@@ -1189,6 +1213,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     raise
 
         if self.coordinator.has_http_api():
+            # The write lands via the cloud: seed the parameter cache with
+            # the acknowledged value so the switch converges even when the
+            # post-write local parameter refresh is skipped (#310). Every
+            # ``parameter`` reaching this wrapper is a named local bit
+            # param, i.e. exactly the parameter-cache key ``is_on`` reads.
             if cloud_enable_method and cloud_disable_method:
                 await self._execute_switch_action(
                     action_name=action_name,
@@ -1196,13 +1225,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     disable_method=cloud_disable_method,
                     turn_on=value,
                     refresh_params=True,
+                    seed_param_key=parameter,
                 )
-                # The write landed via the cloud: seed the parameter cache so
-                # the switch converges on the acknowledged value even when the
-                # post-write local parameter refresh is skipped (#310). Every
-                # ``parameter`` reaching this wrapper is a named local bit
-                # param, i.e. exactly the parameter-cache key ``is_on`` reads.
-                self._seed_cloud_written_parameter(parameter, value)
             else:
                 await self._execute_cloud_function_action(
                     action_name=action_name,
@@ -1336,6 +1360,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         action_name: str,
         parameter: str,
         value: bool,
+        clear_optimistic_on_error: bool = True,
     ) -> None:
         """Execute a switch action by writing a named parameter.
 
@@ -1346,6 +1371,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             action_name: Human-readable name of the action for logging.
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
             value: True to enable, False to disable.
+            clear_optimistic_on_error: Whether a failed write clears the
+                optimistic state (and publishes). The fallback wrapper passes
+                False when a cloud retry follows, so the entity never
+                publishes the stale pre-write value between the local failure
+                and the cloud attempt (#310 review).
 
         Raises:
             HomeAssistantError: If the parameter write fails.
@@ -1395,8 +1425,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             self.async_write_ha_state()
 
         except HomeAssistantError:
-            self._optimistic_state = None
-            self.async_write_ha_state()
+            if clear_optimistic_on_error:
+                self._optimistic_state = None
+                self.async_write_ha_state()
             raise
         except Exception as e:
             _LOGGER.error(
@@ -1406,8 +1437,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self._serial,
                 e,
             )
-            self._optimistic_state = None
-            self.async_write_ha_state()
+            if clear_optimistic_on_error:
+                self._optimistic_state = None
+                self.async_write_ha_state()
             raise HomeAssistantError(
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e

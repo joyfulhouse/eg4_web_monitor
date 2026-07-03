@@ -1048,14 +1048,26 @@ class TestCloudFallbackParameterSeeding:
         assert switch.is_on is True
 
     @pytest.mark.asyncio
-    async def test_named_method_fallback_seeds_parameter_cache(self):
-        """HYBRID local-fail -> cloud named-method route (EPS) seeds too."""
-        coordinator = _mock_coordinator(has_local=True, has_http=True)
+    async def test_named_method_fallback_seeds_without_stale_publish(self):
+        """HYBRID local-fail -> cloud named-method route (EPS) seeds BEFORE
+        the optimistic clear: every published state carries the written
+        value — no wrong-then-corrected double transition (recorder
+        pollution, automation misfire on the intermediate stale value)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_EPS_EN: False},
+        )
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Modbus timeout")
         )
+        self._wire_note_parameters_written(coordinator)
         switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
         _prep(switch)
+        published: list[bool | None] = []
+        switch.async_write_ha_state = MagicMock(
+            side_effect=lambda: published.append(switch.is_on)
+        )
 
         await switch.async_turn_on()
 
@@ -1063,6 +1075,35 @@ class TestCloudFallbackParameterSeeding:
         inverter.enable_battery_backup.assert_called_once()
         coordinator.note_parameters_written.assert_called_once_with(
             "1234567890", {PARAM_FUNC_EPS_EN: True}
+        )
+        # The link-down refresh is a no-op (AsyncMock, like the skipped
+        # real refresh): the final publish must come from the seeded cache
+        # and NO intermediate publish may carry the stale pre-write value.
+        assert published and all(state is True for state in published)
+        assert switch._optimistic_state is None
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_version_degraded_cloud_branch_seeds(self, monkeypatch):
+        """The cloud-only-because-version-guard branch (transport attached,
+        param name unresolvable by legacy pylxpweb) seeds too — the
+        pre-#310 stale-until-recovery bug must not survive there."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda name: False
+        )
+        switch = EG4WorkingModeSwitch(
+            coordinator, "1234567890", WORKING_MODES["ac_charge_mode"]
+        )
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_ac_charge_mode.assert_called_once()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"FUNC_AC_CHARGE": True}
         )
 
     @pytest.mark.asyncio
