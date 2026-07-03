@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import math
+import time
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
@@ -317,6 +319,13 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
+# Upper bound (seconds) on the Quick Charge switch's post-write optimistic
+# retention (#296). A fresh status read normally lands within one 30s status
+# throttle window and clears the hold; the TTL only exists so a dead status
+# source can never pin the commanded state forever.
+QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
+
+
 class EG4QuickChargeSwitch(EG4BaseSwitch):
     """Switch to control quick charge functionality."""
 
@@ -333,6 +342,46 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             name="Quick Charge",
             icon="mdi:battery-charging",
         )
+        # Post-write optimistic retention (#296): after a successful
+        # enable/disable, hold the commanded state until a quick-charge
+        # status read FRESHER than the write confirms either state. The
+        # coordinator refresh inside _execute_switch_action can serve a
+        # stale/carried-forward status (30s throttle) or one read before the
+        # cloud registered the new task — clearing optimistic state on that
+        # data flipped the switch OFF ~7s after a successful (cloud-fallback)
+        # start while the inverter kept charging.
+        self._pending_state: bool | None = None
+        self._pending_since: float = 0.0
+
+    def _prefers_cloud_control(self) -> bool:
+        """True when quick charge must be driven via the cloud endpoints.
+
+        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects writes to
+        holding register 233 (ILLEGAL DATA ADDRESS, #296), so pylxpweb's
+        local-first enable/disable burns a doomed Modbus write + warning on
+        every toggle before falling back to the cloud. Go straight to the
+        cloud start/stop endpoints when a cloud client is configured; other
+        families keep the local-first behavior (register 233 works there).
+        """
+        return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
+
+    async def _cloud_enable_quick_charge(self, minute: int | None = None) -> bool:
+        """Start quick charge via the cloud endpoint (offgrid family, #296)."""
+        client = self.coordinator.client
+        if client is None:
+            return False
+        result = await client.api.control.start_quick_charge(
+            self._serial, minute=minute
+        )
+        return bool(result.success)
+
+    async def _cloud_disable_quick_charge(self) -> bool:
+        """Stop quick charge via the cloud endpoint (offgrid family, #296)."""
+        client = self.coordinator.client
+        if client is None:
+            return False
+        result = await client.api.control.stop_quick_charge(self._serial)
+        return bool(result.success)
 
     @property
     def is_on(self) -> bool | None:
@@ -341,11 +390,27 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         if self._optimistic_state is not None:
             return self._optimistic_state
 
-        # Check if we have quick charge status data from coordinator
         quick_charge_status = self._device_data.get("quick_charge_status")
-        if quick_charge_status and isinstance(quick_charge_status, dict):
+        status = quick_charge_status if isinstance(quick_charge_status, dict) else None
+
+        # Post-write retention (#296): keep the commanded state until a
+        # status read performed AFTER the write lands. A carried-forward or
+        # pre-write status must not clobber a successful start/stop; a fresh
+        # read (fetched_at newer than the write) is trusted either way, and
+        # the TTL bounds the hold if no fresh read ever arrives.
+        if self._pending_state is not None:
+            fetched_at = status.get("fetched_at") if status else None
+            fresh = fetched_at is not None and fetched_at >= self._pending_since
+            expired = (
+                time.monotonic() - self._pending_since > QUICK_CHARGE_OPTIMISTIC_TTL
+            )
+            if not fresh and not expired:
+                return self._pending_state
+            self._pending_state = None
+
+        if status:
             # Parse the hasUnclosedQuickChargeTask field from getStatusInfo response
-            has_unclosed_task = quick_charge_status.get("hasUnclosedQuickChargeTask")
+            has_unclosed_task = status.get("hasUnclosedQuickChargeTask")
             if has_unclosed_task is not None:
                 return bool(has_unclosed_task)
 
@@ -386,24 +451,44 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         minute = self.coordinator._quick_charge_minutes.get(
             self._serial, QUICK_CHARGE_DURATION_DEFAULT
         )
-        await self._execute_switch_action(
-            action_name="quick charge",
-            enable_method="enable_quick_charge",
-            disable_method="disable_quick_charge",
-            turn_on=True,
-            refresh_params=False,
-            enable_kwargs={"minute": minute},
-        )
+        await self._async_set_quick_charge(True, enable_kwargs={"minute": minute})
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off quick charge."""
+        await self._async_set_quick_charge(False)
+
+    async def _async_set_quick_charge(
+        self, turn_on: bool, enable_kwargs: dict[str, Any] | None = None
+    ) -> None:
+        """Run the enable/disable action and arm the post-write retention.
+
+        pylxpweb's enable/disable prefer the local transport (register 233);
+        on the EG4_OFFGRID family that register is firmware-rejected, so the
+        cloud-direct callables are used instead (#296). On success the
+        commanded state is retained until a status read fresher than the
+        write confirms either state (see ``is_on``); a failed action clears
+        any prior hold and re-raises.
+        """
+        enable_method: str | Callable[..., Awaitable[bool]] = "enable_quick_charge"
+        disable_method: str | Callable[..., Awaitable[bool]] = "disable_quick_charge"
+        if self._prefers_cloud_control():
+            enable_method = self._cloud_enable_quick_charge
+            disable_method = self._cloud_disable_quick_charge
+
+        self._pending_state = None
         await self._execute_switch_action(
             action_name="quick charge",
-            enable_method="enable_quick_charge",
-            disable_method="disable_quick_charge",
-            turn_on=False,
+            enable_method=enable_method,
+            disable_method=disable_method,
+            turn_on=turn_on,
             refresh_params=False,
+            enable_kwargs=enable_kwargs,
         )
+        # Success (no exception raised): hold the commanded state until a
+        # fresh post-write status read confirms either state (#296).
+        self._pending_state = turn_on
+        self._pending_since = time.monotonic()
+        self.async_write_ha_state()
 
 
 class EG4BatteryBackupSwitch(EG4BaseSwitch):

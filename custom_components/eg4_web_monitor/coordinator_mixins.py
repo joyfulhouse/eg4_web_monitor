@@ -58,7 +58,7 @@ from .coordinator_mappings import (
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
-from .utils import clean_battery_display_name
+from .utils import clean_battery_display_name, is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -737,17 +737,102 @@ class DeviceProcessingMixin(_MixinBase):
                 return transport.get("grid_type")
         return None
 
+    def _quick_charge_prefers_cloud(
+        self, inverter: "BaseInverter", device_data: dict[str, Any]
+    ) -> bool:
+        """True when quick charge state/control must come from the cloud API.
+
+        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects holding
+        register 233 with ILLEGAL DATA ADDRESS (issue #296) — the register
+        pylxpweb's transport-preferring quick-charge paths read and write.
+        A quick charge started via the cloud endpoint (the local-write
+        fallback, and what the EG4 app reflects) is therefore invisible to
+        the local read. When such a device has a transport attached AND a
+        cloud client is available (HYBRID), bypass the transport and use the
+        cloud getStatusInfo/start/stop endpoints directly. Fails closed
+        (False) for every other family, cloud-only devices (whose pylxpweb
+        paths already use the cloud), and LOCAL-only installs (no cloud to
+        prefer).
+        """
+        return (
+            is_offgrid_family(device_data)
+            and self.client is not None
+            and getattr(inverter, "transport", None) is not None
+        )
+
+    async def _read_quick_charge_status(
+        self, inverter: "BaseInverter", device_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Read the live quick-charge status into the coordinator dict shape.
+
+        Transport-aware via pylxpweb (cloud getStatusInfo; LOCAL/HYBRID
+        registers 233/234), except for EG4_OFFGRID + HYBRID where register
+        233 is firmware-rejected and the cloud endpoint is authoritative
+        (#296). ``fetched_at`` (monotonic) records when the data was actually
+        read so consumers can distinguish a fresh read from a carried-forward
+        one. Returns None when the installed pylxpweb exposes no read method.
+        """
+        client = self.client
+        if client is not None and self._quick_charge_prefers_cloud(
+            inverter, device_data
+        ):
+            status = await client.api.control.get_quick_charge_status(
+                inverter.serial_number
+            )
+        elif hasattr(inverter, "get_quick_charge_detail"):
+            # Prefer the full detail (remaining time + task metadata);
+            # version-guard for older pylxpweb exposing only the boolean.
+            status = await inverter.get_quick_charge_detail()
+        elif hasattr(inverter, "get_quick_charge_status"):
+            return {
+                "hasUnclosedQuickChargeTask": (
+                    await inverter.get_quick_charge_status()
+                ),
+                "fetched_at": time.monotonic(),
+            }
+        else:
+            return None
+        return {
+            "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
+            "remainTimeBeforeQuickChargeStop": (status.remainTimeBeforeQuickChargeStop),
+            "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
+            "unclosedQuickChargeTaskStatus": status.unclosedQuickChargeTaskStatus,
+            # Raw holding reg 234 (minutes); None on cloud. Lets the
+            # duration number mirror the live register on LOCAL/HYBRID
+            # instead of a stored preference. getattr guards older
+            # pylxpweb without the field.
+            "quickChargeMinute": getattr(status, "quickChargeMinute", None),
+            "fetched_at": time.monotonic(),
+        }
+
+    def _carry_forward_quick_charge_status(
+        self, serial: str, target: dict[str, Any]
+    ) -> None:
+        """Copy the previous cycle's quick-charge status into ``target``.
+
+        The carried dict keeps its original ``fetched_at`` stamp, so consumers
+        (the Quick Charge switch's post-write retention, #296) still see it as
+        stale data rather than a fresh confirming read.
+        """
+        if self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("quick_charge_status")
+            if prev is not None:
+                target["quick_charge_status"] = prev
+
     async def _fetch_quick_charge_status(
         self, inverter: "BaseInverter", target: dict[str, Any]
     ) -> None:
         """Fetch + store ``quick_charge_status`` into ``target`` (throttled).
 
         Transport-aware via pylxpweb: cloud reads getStatusInfo; LOCAL/HYBRID
-        reads registers 233 (active) + 234 (remaining minutes). Shared by the
+        reads registers 233 (active) + 234 (remaining minutes) — except the
+        EG4_OFFGRID family in HYBRID, which reads the cloud endpoint because
+        register 233 is firmware-rejected there (#296). Shared by the
         HTTP/HYBRID (`_process_inverter_object`) and LOCAL
         (`_process_single_local_device`) paths so the Quick Charge switch and
         remaining sensor work in every mode. Carries the previous value
-        forward when the throttle window has not elapsed.
+        forward when the throttle window has not elapsed or the read failed
+        (a transient error must not flip the switch to a lying OFF).
         """
         interval = 30  # seconds
         if not hasattr(self, "_last_status_fetch"):
@@ -757,31 +842,9 @@ class DeviceProcessingMixin(_MixinBase):
         qc_key = f"qc_{serial}"
         if now - self._last_status_fetch.get(qc_key, 0.0) >= interval:
             try:
-                # Prefer the full detail (remaining time + task metadata);
-                # version-guard for older pylxpweb exposing only the boolean.
-                if hasattr(inverter, "get_quick_charge_detail"):
-                    status = await inverter.get_quick_charge_detail()
-                    target["quick_charge_status"] = {
-                        "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
-                        "remainTimeBeforeQuickChargeStop": (
-                            status.remainTimeBeforeQuickChargeStop
-                        ),
-                        "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
-                        "unclosedQuickChargeTaskStatus": (
-                            status.unclosedQuickChargeTaskStatus
-                        ),
-                        # Raw holding reg 234 (minutes); None on cloud. Lets the
-                        # duration number mirror the live register on LOCAL/HYBRID
-                        # instead of a stored preference. getattr guards older
-                        # pylxpweb without the field.
-                        "quickChargeMinute": getattr(status, "quickChargeMinute", None),
-                    }
-                elif hasattr(inverter, "get_quick_charge_status"):
-                    target["quick_charge_status"] = {
-                        "hasUnclosedQuickChargeTask": (
-                            await inverter.get_quick_charge_status()
-                        ),
-                    }
+                status_dict = await self._read_quick_charge_status(inverter, target)
+                if status_dict is not None:
+                    target["quick_charge_status"] = status_dict
                 self._last_status_fetch[qc_key] = now
                 _LOGGER.debug(
                     "Quick charge status for %s: %s",
@@ -793,10 +856,9 @@ class DeviceProcessingMixin(_MixinBase):
                 _LOGGER.debug(
                     "Could not fetch quick charge status for %s: %s", serial, e
                 )
-        elif self.data and serial in self.data.get("devices", {}):
-            prev = self.data["devices"][serial].get("quick_charge_status")
-            if prev is not None:
-                target["quick_charge_status"] = prev
+                self._carry_forward_quick_charge_status(serial, target)
+        else:
+            self._carry_forward_quick_charge_status(serial, target)
 
     async def is_quick_charge_active_live(self, serial: str) -> bool | None:
         """Return whether a quick charge is running *right now* for ``serial``.
@@ -821,6 +883,17 @@ class DeviceProcessingMixin(_MixinBase):
         if inverter is None:
             return None
         try:
+            client = self.client
+            device_data: dict[str, Any] = (
+                (self.data or {}).get("devices", {}).get(serial, {})
+            )
+            if client is not None and self._quick_charge_prefers_cloud(
+                inverter, device_data
+            ):
+                # EG4_OFFGRID + HYBRID: register 233 is firmware-rejected, so
+                # the cloud getStatusInfo is the authoritative live state (#296).
+                status = await client.api.control.get_quick_charge_status(serial)
+                return bool(status.hasUnclosedQuickChargeTask)
             if hasattr(inverter, "get_quick_charge_detail"):
                 detail = await inverter.get_quick_charge_detail()
                 return bool(detail.hasUnclosedQuickChargeTask)

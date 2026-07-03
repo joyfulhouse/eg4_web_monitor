@@ -1,5 +1,7 @@
 """Tests for EG4 switch entities."""
 
+import time
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -113,6 +115,13 @@ def _mock_coordinator(
         control_response.success = True
         mock_client = MagicMock()
         mock_client.api.control.control_function = AsyncMock(
+            return_value=control_response
+        )
+        # Cloud quick charge endpoints (offgrid cloud-direct path, #296)
+        mock_client.api.control.start_quick_charge = AsyncMock(
+            return_value=control_response
+        )
+        mock_client.api.control.stop_quick_charge = AsyncMock(
             return_value=control_response
         )
         coordinator.client = mock_client
@@ -509,6 +518,229 @@ class TestQuickChargeSwitch:
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         attrs = switch.extra_state_attributes
         assert attrs is None or "minutes_remaining" not in attrs
+
+
+_OFFGRID_FEATURES = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
+
+
+class TestQuickChargeSwitchOffgridCloudFirst:
+    """EG4_OFFGRID (12000XP/6000XP) drives quick charge via the cloud (#296).
+
+    The XP firmware rejects holding register 233 (ILLEGAL DATA ADDRESS), so
+    pylxpweb's local-first enable/disable burns a doomed Modbus write on every
+    toggle before falling back to the cloud. The switch goes straight to the
+    cloud start/stop endpoints for that family when a cloud client exists.
+    """
+
+    @pytest.mark.asyncio
+    async def test_offgrid_hybrid_turn_on_uses_cloud_endpoint(self):
+        """Offgrid + cloud: start_quick_charge called; no local-first attempt."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data=dict(_OFFGRID_FEATURES),
+            transport_attached=True,
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.start_quick_charge.assert_awaited_once_with(
+            "1234567890", minute=60
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_quick_charge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_hybrid_turn_off_uses_cloud_endpoint(self):
+        """Offgrid + cloud: stop_quick_charge called; no local-first attempt."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data=dict(_OFFGRID_FEATURES),
+            transport_attached=True,
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_off()
+
+        coordinator.client.api.control.stop_quick_charge.assert_awaited_once_with(
+            "1234567890"
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.disable_quick_charge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_without_cloud_uses_inverter_method(self):
+        """Offgrid LOCAL-only: no cloud to prefer — the inverter method runs
+        (and fails honestly if the firmware rejects it)."""
+        coordinator = _mock_coordinator(
+            has_http=False,
+            has_local=True,
+            local_only=True,
+            model="12000XP",
+            device_data=dict(_OFFGRID_FEATURES),
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+
+    @pytest.mark.asyncio
+    async def test_non_offgrid_keeps_local_first_method(self):
+        """Hybrid families keep pylxpweb's local-first enable (233 works)."""
+        coordinator = _mock_coordinator(
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+            transport_attached=True,
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+        coordinator.client.api.control.start_quick_charge.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_cloud_start_failure_raises(self):
+        """A failed cloud start raises and does not arm the retention hold."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            device_data=dict(_OFFGRID_FEATURES),
+            transport_attached=True,
+        )
+        failure = MagicMock()
+        failure.success = False
+        coordinator.client.api.control.start_quick_charge = AsyncMock(
+            return_value=failure
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        with pytest.raises(HomeAssistantError):
+            await switch.async_turn_on()
+        assert switch._pending_state is None
+        assert switch.is_on is False
+
+
+class TestQuickChargeSwitchOptimisticRetention:
+    """Post-write retention (#296): a successful enable must survive stale or
+    carried-forward status polls until a read FRESHER than the write confirms
+    either state, bounded by a TTL."""
+
+    @pytest.mark.asyncio
+    async def test_turn_on_arms_retention(self):
+        """A successful turn_on holds ON even though the coordinator has no
+        confirming status (the reporter's 7-second flip-off)."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        assert switch._optimistic_state is None  # base machinery cleared it
+        assert switch.is_on is True  # retention holds the commanded state
+
+    @pytest.mark.asyncio
+    async def test_stale_status_does_not_clobber_retention(self):
+        """A status read from BEFORE the write (stale fetched_at) is ignored."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        # Simulate the next poll carrying forward a pre-write idle status.
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "fetched_at": switch._pending_since - 10.0,
+        }
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_statusless_poll_does_not_clobber_retention(self):
+        """A poll with no quick_charge_status at all keeps the held state."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.data["devices"]["1234567890"].pop("quick_charge_status", None)
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_fresh_confirming_read_clears_retention(self):
+        """A post-write read confirming ON clears the hold; state stays ON."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "fetched_at": time.monotonic() + 1.0,
+        }
+        assert switch.is_on is True
+        assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    async def test_fresh_off_read_is_trusted(self):
+        """A post-write read reporting idle wins over the hold (fresh data is
+        authoritative in either direction)."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "fetched_at": time.monotonic() + 1.0,
+        }
+        assert switch.is_on is False
+        assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    async def test_retention_ttl_expiry(self):
+        """The hold cannot stick forever: past the TTL the switch falls back
+        to the (absent/idle) coordinator status."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        switch._pending_since = (
+            time.monotonic() - switch_module.QUICK_CHARGE_OPTIMISTIC_TTL - 1.0
+        )
+        assert switch.is_on is False
+        assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    async def test_turn_off_arms_retention_off(self):
+        """Turn-off retention: a stale still-active status can't flip the
+        switch back ON after a successful stop."""
+        coordinator = _mock_coordinator(
+            device_data={
+                "quick_charge_status": {
+                    "hasUnclosedQuickChargeTask": True,
+                    "fetched_at": time.monotonic() - 60.0,
+                }
+            }
+        )
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_off()
+
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_failed_enable_does_not_arm_retention(self):
+        """A failed enable raises and leaves no hold behind."""
+        coordinator = _mock_coordinator()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_quick_charge = AsyncMock(return_value=False)
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        with pytest.raises(HomeAssistantError):
+            await switch.async_turn_on()
+        assert switch._pending_state is None
+        assert switch.is_on is False
 
 
 # ── BatteryBackupSwitch ──────────────────────────────────────────────
