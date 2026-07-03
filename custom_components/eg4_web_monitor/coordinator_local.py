@@ -157,6 +157,12 @@ class LocalTransportMixin(_MixinBase):
         key_migrations: dict[str, str] = {}
         # Canonical keys claimed this poll → slot, for duplicate detection.
         keys_this_poll: dict[str, int] = {}
+        # Exposure record for the shifted-slot retirement sweep (#302):
+        # positional keys re-claimed by a serial-less battery this poll, and
+        # every slot that reported serial-less data this poll (pending or
+        # exposed).
+        positional_keys_this_poll: set[str] = set()
+        noserial_slots_this_poll: set[int] = set()
 
         for batt in transport_batteries:
             # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
@@ -182,6 +188,7 @@ class LocalTransportMixin(_MixinBase):
                 # (#252 cold start — see _NO_SERIAL_EXPOSE_POLLS).
                 seen_polls = noserial_polls.get(slot, 0) + 1
                 noserial_polls[slot] = seen_polls
+                noserial_slots_this_poll.add(slot)
                 fallback_key = f"{inverter_serial}-{slot + 1:02d}"
                 if seen_polls < _NO_SERIAL_EXPOSE_POLLS:
                     poll_slots_skipped += 1
@@ -196,6 +203,7 @@ class LocalTransportMixin(_MixinBase):
                     )
                     continue
                 fallback_keys.add(fallback_key)
+                positional_keys_this_poll.add(fallback_key)
                 cache[fallback_key] = _build_individual_battery_mapping(batt)
                 _LOGGER.debug(
                     "RR [%s] slot %d: no serial, fallback key %s (V=%.1f SoC=%s)",
@@ -243,6 +251,7 @@ class LocalTransportMixin(_MixinBase):
                 )
                 collision_key = f"{inverter_serial}-{slot + 1:02d}"
                 fallback_keys.add(collision_key)
+                positional_keys_this_poll.add(collision_key)
                 cache[collision_key] = _build_individual_battery_mapping(batt)
                 continue
             keys_this_poll[battery_key] = slot
@@ -296,6 +305,48 @@ class LocalTransportMixin(_MixinBase):
                 batt.voltage or 0.0,
                 batt.soc or 0,
             )
+
+        # Shifted-slot positional retirement (#302).  When a positional slot's
+        # serial becomes readable, pylxpweb (post pylxpweb#204) evicts its
+        # "pos:N" accumulator entry and mints the serial a NEW virtual slot —
+        # preserving the old slot as a reservation hole — so the serial's
+        # battery_index no longer points at the slot whose positional key was
+        # exposed.  The same-slot retirement above then misses the exposed
+        # key, leaving a frozen positional twin (until the 6h age bound,
+        # #300) and a stale debounce counter that keeps blocking the #252
+        # registry migration through active_keys below.
+        #
+        # BatteryData carries no bank-position metadata that survives the
+        # eviction, so the exposed key is matched by ABSENCE instead of by
+        # position: the transport serves its full accumulator on every poll,
+        # so an exposed positional key that no serial-less battery re-claimed
+        # this poll has been evicted upstream — exactly the pos:N entries the
+        # arriving serial(s) reconciled.  Gated on new_serials so the swept
+        # polls are precisely the reconciliation events; steady-state polls
+        # (including transient ghost reads of a still-serial-less battery)
+        # keep the pre-#302 behavior.
+        if new_serials:
+            for stale_key in sorted(fallback_keys - positional_keys_this_poll):
+                fallback_keys.discard(stale_key)
+                # A placeholder serial (Battery_ID_NN) can canonically claim
+                # the very key it was exposed under — never drop a mapping a
+                # serial owns as of this poll.
+                if stale_key not in keys_this_poll:
+                    cache.pop(stale_key, None)
+                    self._battery_carry_forward.get(inverter_serial, {}).pop(
+                        stale_key, None
+                    )
+                _LOGGER.debug(
+                    "RR [%s]: retired shifted positional fallback %s "
+                    "(new serial(s) %s claimed fresh virtual slots)",
+                    inverter_serial,
+                    stale_key,
+                    new_serials,
+                )
+            for stale_slot in [
+                s for s in noserial_polls if s not in noserial_slots_this_poll
+            ]:
+                noserial_polls.pop(stale_slot)
 
         if key_migrations:
             # Rotation trust guard: with more distinct serials than register
