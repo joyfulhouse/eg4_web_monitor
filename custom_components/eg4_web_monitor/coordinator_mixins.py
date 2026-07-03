@@ -590,6 +590,7 @@ if TYPE_CHECKING:
         _battery_fallback_keys: dict[str, set[str]]
         _battery_noserial_polls: dict[str, dict[int, int]]
         _battery_migration_suppressed: set[str]
+        _battery_shift_retire_logged: set[str]
         # ── Battery carry-forward (#258, coordinator.py) ──
         _battery_carry_forward: dict[str, dict[str, dict[str, Any]]]
 
