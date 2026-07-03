@@ -681,9 +681,10 @@ class TestQuickChargeSwitchOptimisticRetention:
         assert switch._pending_state is None
 
     @pytest.mark.asyncio
-    async def test_fresh_off_read_is_trusted(self):
-        """A post-write read reporting idle wins over the hold (fresh data is
-        authoritative in either direction)."""
+    async def test_fresh_off_read_within_ttl_holds(self):
+        """A post-write read reporting idle within the TTL does NOT end the
+        hold — the cloud may simply not have registered the new task yet
+        (propagation lag)."""
         coordinator = _mock_coordinator()
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
@@ -693,13 +694,14 @@ class TestQuickChargeSwitchOptimisticRetention:
             "hasUnclosedQuickChargeTask": False,
             "fetched_at": time.monotonic() + 1.0,
         }
-        assert switch.is_on is False
-        assert switch._pending_state is None
+        assert switch.is_on is True
+        assert switch._pending_state is True
 
     @pytest.mark.asyncio
-    async def test_retention_ttl_expiry(self):
-        """The hold cannot stick forever: past the TTL the switch falls back
-        to the (absent/idle) coordinator status."""
+    async def test_fresh_off_read_after_ttl_is_trusted(self):
+        """Past the TTL a fresh unconfirming read is trusted — the hard bound
+        that keeps the hold from sticking forever on a genuinely idle
+        inverter."""
         coordinator = _mock_coordinator()
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
@@ -708,8 +710,62 @@ class TestQuickChargeSwitchOptimisticRetention:
         switch._pending_since = (
             time.monotonic() - switch_module.QUICK_CHARGE_OPTIMISTIC_TTL - 1.0
         )
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            # Fresh: read after the (backdated) write.
+            "fetched_at": time.monotonic(),
+        }
         assert switch.is_on is False
         assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    async def test_ttl_expiry_with_stale_data_does_not_flap(self):
+        """Codex round-2 blocker: at TTL expiry a KNOWN-STALE (pre-write)
+        status must not reclaim the switch — that would reproduce the original
+        bug at t+TTL (ON -> stale OFF -> eventual fresh ON) during a cloud 502
+        storm. The hold survives until fresh data, which is then trusted."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        # Stale pre-write idle status (e.g. carried forward through a 502
+        # storm), and the TTL has expired.
+        stale = {
+            "hasUnclosedQuickChargeTask": False,
+            "fetched_at": switch._pending_since - 10.0,
+        }
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = stale
+        switch._pending_since = (
+            time.monotonic() - switch_module.QUICK_CHARGE_OPTIMISTIC_TTL - 1.0
+        )
+        stale["fetched_at"] = switch._pending_since - 10.0  # keep it pre-write
+        assert switch.is_on is True  # no flap to the stale value
+        assert switch._pending_state is True
+
+        # A fresh read finally lands and is trusted in either direction.
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "fetched_at": time.monotonic(),
+        }
+        assert switch.is_on is True
+        assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    async def test_ttl_expiry_with_no_data_holds(self):
+        """With NO status data at all the hold also survives the TTL —
+        absence of data is not evidence of idle."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.data["devices"]["1234567890"].pop("quick_charge_status", None)
+        switch._pending_since = (
+            time.monotonic() - switch_module.QUICK_CHARGE_OPTIMISTIC_TTL - 1.0
+        )
+        assert switch.is_on is True
+        assert switch._pending_state is True
 
     @pytest.mark.asyncio
     async def test_turn_off_arms_retention_off(self):

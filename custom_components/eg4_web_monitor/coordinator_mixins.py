@@ -62,6 +62,14 @@ from .utils import clean_battery_display_name, is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
 
+# Bound (seconds) on the offgrid cloud quick-charge status read (#296). The
+# read shares the pylxpweb client's station-wide retry/backoff state; during a
+# cloud 502 storm an escalated backoff can sleep up to ~60s inside the call,
+# which would hold a coordinator semaphore slot for the storm's duration. A
+# timeout is treated as a failed read (carry-forward). Full backoff-domain
+# isolation is a pylxpweb architectural item deliberately not attempted here.
+QUICK_CHARGE_CLOUD_STATUS_TIMEOUT = 10.0
+
 # Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
 # parameter read no longer stamps _last_parameter_refresh, so the refresh
 # re-arms early instead of serving a degraded snapshot for the whole
@@ -760,6 +768,37 @@ class DeviceProcessingMixin(_MixinBase):
             and getattr(inverter, "transport", None) is not None
         )
 
+    async def _read_offgrid_quick_charge_minute(
+        self, inverter: "BaseInverter"
+    ) -> int | None:
+        """Best-effort local read of holding reg 234 (minutes) for offgrid HYBRID.
+
+        The offgrid cloud-status route (#296) bypasses pylxpweb's reg 233+234
+        detail read, but the Quick Charge Duration number mirrors — and its
+        setter writes — reg 234 whenever a local transport is configured. So
+        the register read is kept local here to keep the number's read and
+        write sides pointing at the same truth. Only reg 233 is proven
+        firmware-rejected on the XP; if reg 234 turns out equally unsupported
+        this read fails and returns None, and the number falls back to the
+        stored cloud-start preference (the setter's reg-234 write would then
+        surface its own error).
+        """
+        transport = getattr(inverter, "transport", None)
+        if transport is None:
+            return None
+        try:
+            regs = await transport.read_parameters(234, 1)
+            raw = regs.get(234)
+            return int(raw) if raw is not None else None
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not read holding reg 234 for %s: %s (Quick Charge "
+                "Duration falls back to the stored preference)",
+                inverter.serial_number,
+                e,
+            )
+            return None
+
     async def _read_quick_charge_status(
         self, inverter: "BaseInverter", device_data: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -772,17 +811,31 @@ class DeviceProcessingMixin(_MixinBase):
         read so consumers can distinguish a fresh read from a carried-forward
         one. Returns None when the installed pylxpweb exposes no read method.
         """
+        quick_charge_minute: int | None = None
         client = self.client
         if client is not None and self._quick_charge_prefers_cloud(
             inverter, device_data
         ):
-            status = await client.api.control.get_quick_charge_status(
-                inverter.serial_number
+            # Bound the cloud read: it shares the pylxpweb client's
+            # station-wide retry/backoff state, and during a 502 storm an
+            # escalated backoff sleep (up to ~60s) would otherwise hold a
+            # coordinator slot for the whole storm. A timeout is a failed
+            # read — the caller's carry-forward path handles it.
+            status = await asyncio.wait_for(
+                client.api.control.get_quick_charge_status(inverter.serial_number),
+                timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
             )
+            # Active flag from the cloud, duration register read locally so
+            # the Duration number's read and write sides agree (#296 round 2).
+            quick_charge_minute = await self._read_offgrid_quick_charge_minute(inverter)
         elif hasattr(inverter, "get_quick_charge_detail"):
             # Prefer the full detail (remaining time + task metadata);
             # version-guard for older pylxpweb exposing only the boolean.
             status = await inverter.get_quick_charge_detail()
+            # Raw holding reg 234 (minutes); None on cloud. Lets the duration
+            # number mirror the live register on LOCAL/HYBRID instead of a
+            # stored preference. getattr guards older pylxpweb without it.
+            quick_charge_minute = getattr(status, "quickChargeMinute", None)
         elif hasattr(inverter, "get_quick_charge_status"):
             return {
                 "hasUnclosedQuickChargeTask": (
@@ -797,11 +850,7 @@ class DeviceProcessingMixin(_MixinBase):
             "remainTimeBeforeQuickChargeStop": (status.remainTimeBeforeQuickChargeStop),
             "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
             "unclosedQuickChargeTaskStatus": status.unclosedQuickChargeTaskStatus,
-            # Raw holding reg 234 (minutes); None on cloud. Lets the
-            # duration number mirror the live register on LOCAL/HYBRID
-            # instead of a stored preference. getattr guards older
-            # pylxpweb without the field.
-            "quickChargeMinute": getattr(status, "quickChargeMinute", None),
+            "quickChargeMinute": quick_charge_minute,
             "fetched_at": time.monotonic(),
         }
 
@@ -891,8 +940,13 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter, device_data
             ):
                 # EG4_OFFGRID + HYBRID: register 233 is firmware-rejected, so
-                # the cloud getStatusInfo is the authoritative live state (#296).
-                status = await client.api.control.get_quick_charge_status(serial)
+                # the cloud getStatusInfo is the authoritative live state
+                # (#296). Bounded like the throttled fetch — a backoff-stalled
+                # cloud call must not hang the caller; timeout -> unknown.
+                status = await asyncio.wait_for(
+                    client.api.control.get_quick_charge_status(serial),
+                    timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
+                )
                 return bool(status.hasUnclosedQuickChargeTask)
             if hasattr(inverter, "get_quick_charge_detail"):
                 detail = await inverter.get_quick_charge_detail()

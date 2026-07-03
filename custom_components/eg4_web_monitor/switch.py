@@ -319,10 +319,15 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
-# Upper bound (seconds) on the Quick Charge switch's post-write optimistic
-# retention (#296). A fresh status read normally lands within one 30s status
-# throttle window and clears the hold; the TTL only exists so a dead status
-# source can never pin the commanded state forever.
+# Bound (seconds) on how long the Quick Charge switch distrusts a FRESH but
+# UNCONFIRMING status read after a successful write (#296): within the bound
+# the cloud may simply not have registered the new task yet; past it a fresh
+# read is trusted in either direction. Known-stale data (carried forward, or
+# read before the write) NEVER overrides the commanded state regardless of
+# this bound — falling back to it at expiry would reproduce the reported flap
+# (ON -> stale OFF at t+TTL -> eventual fresh ON) during exactly the cloud
+# 502 storms the reporter's environment produces. A fresh read normally lands
+# within one 30s status throttle window and ends the hold.
 QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
 
 
@@ -393,19 +398,25 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         quick_charge_status = self._device_data.get("quick_charge_status")
         status = quick_charge_status if isinstance(quick_charge_status, dict) else None
 
-        # Post-write retention (#296): keep the commanded state until a
-        # status read performed AFTER the write lands. A carried-forward or
-        # pre-write status must not clobber a successful start/stop; a fresh
-        # read (fetched_at newer than the write) is trusted either way, and
-        # the TTL bounds the hold if no fresh read ever arrives.
+        # Post-write retention (#296): the commanded state holds until a
+        # status read performed AFTER the write (fetched_at newer than the
+        # write) reports on the charge. Known-stale data — carried forward or
+        # read pre-write — never overrides the command, even past the TTL:
+        # trusting it at expiry would flap the switch to the pre-write value
+        # mid-charge (Codex review). A fresh CONFIRMING read ends the hold
+        # immediately; a fresh UNCONFIRMING read is trusted only after the
+        # TTL (within it, the cloud may not have registered the task yet).
         if self._pending_state is not None:
             fetched_at = status.get("fetched_at") if status else None
-            fresh = fetched_at is not None and fetched_at >= self._pending_since
+            if fetched_at is None or fetched_at < self._pending_since:
+                return self._pending_state  # stale/absent — hold
+            reported = status.get("hasUnclosedQuickChargeTask") if status else None
+            confirming = reported is not None and bool(reported) == self._pending_state
             expired = (
                 time.monotonic() - self._pending_since > QUICK_CHARGE_OPTIMISTIC_TTL
             )
-            if not fresh and not expired:
-                return self._pending_state
+            if not confirming and not expired:
+                return self._pending_state  # fresh but unconfirming — hold
             self._pending_state = None
 
         if status:

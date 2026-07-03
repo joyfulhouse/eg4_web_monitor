@@ -7016,7 +7016,11 @@ class TestQuickChargeOffgridCloudStatus:
     def _offgrid_inverter() -> MagicMock:
         inverter = MagicMock()
         inverter.serial_number = "61062J0147"
-        inverter.transport = object()  # HYBRID: local transport attached
+        # HYBRID: local transport attached; reg 234 (duration/remaining
+        # minutes) reads 45 locally.
+        transport = MagicMock()
+        transport.read_parameters = AsyncMock(return_value={234: 45})
+        inverter.transport = transport
         inverter.get_quick_charge_detail = AsyncMock()
         return inverter
 
@@ -7050,8 +7054,34 @@ class TestQuickChargeOffgridCloudStatus:
         status = target["quick_charge_status"]
         assert status["hasUnclosedQuickChargeTask"] is True
         assert status["remainTimeBeforeQuickChargeStop"] == 3540
-        assert status["quickChargeMinute"] is None
+        # Duration register stays LOCAL (reg 234) so the Duration number's
+        # read and write sides agree on offgrid+HYBRID (Codex round 2).
+        assert status["quickChargeMinute"] == 45
+        inverter.transport.read_parameters.assert_awaited_once_with(234, 1)
         assert status["fetched_at"] <= time.monotonic()
+
+    async def test_fetch_offgrid_reg234_read_failure_falls_back_to_none(
+        self, hass, mock_config_entry
+    ):
+        """If the local reg-234 read fails (possibly firmware-rejected like
+        reg 233 — unverified on XP), quickChargeMinute is None and the
+        Duration number falls back to the stored preference; the cloud
+        active flag is unaffected."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        inverter.transport.read_parameters = AsyncMock(
+            side_effect=OSError("illegal data address")
+        )
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["quickChargeMinute"] is None
 
     async def test_fetch_keeps_local_detail_for_other_families(
         self, hass, mock_config_entry
@@ -7118,6 +7148,39 @@ class TestQuickChargeOffgridCloudStatus:
 
         assert target["quick_charge_status"] is prev
         assert target["quick_charge_status"]["fetched_at"] == 1234.5
+
+    async def test_cloud_status_read_is_time_bounded(
+        self, hass, mock_config_entry, monkeypatch
+    ):
+        """A backoff-stalled cloud status call is cut off by asyncio.wait_for
+        and treated as a failed read (carry-forward) instead of holding a
+        coordinator slot for the whole 502-storm backoff."""
+        import asyncio
+
+        from custom_components.eg4_web_monitor import coordinator_mixins
+
+        monkeypatch.setattr(
+            coordinator_mixins, "QUICK_CHARGE_CLOUD_STATUS_TIMEOUT", 0.01
+        )
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+
+        async def _stalled(serial: str) -> Any:
+            await asyncio.sleep(5)
+
+        coordinator.client.api.control.get_quick_charge_status = AsyncMock(
+            side_effect=_stalled
+        )
+        prev = {"hasUnclosedQuickChargeTask": True, "fetched_at": 1234.5}
+        coordinator.data = {"devices": {"61062J0147": {"quick_charge_status": prev}}}
+        inverter = self._offgrid_inverter()
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        assert target["quick_charge_status"] is prev  # timeout -> carry-forward
 
     async def test_active_live_uses_cloud_for_offgrid_hybrid(
         self, hass, mock_config_entry
