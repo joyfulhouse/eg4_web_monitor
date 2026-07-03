@@ -327,6 +327,23 @@ class TestBatteryControlSelects:
         )
         assert select.current_option is None
 
+    def test_available_on_healthy_coordinator(self) -> None:
+        coordinator = _mock_coordinator()
+        select = EG4BatteryChargeControlSelect(
+            coordinator, "1234567890", {"type": "inverter", "model": "FlexBOSS21"}
+        )
+        assert select.available is True
+
+    def test_unavailable_on_coordinator_failure(self) -> None:
+        # Coordinator failure makes the select unavailable (parity with
+        # number/time entities).
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        select = EG4BatteryChargeControlSelect(
+            coordinator, "1234567890", {"type": "inverter", "model": "FlexBOSS21"}
+        )
+        assert select.available is False
+
     @pytest.mark.asyncio
     async def test_select_local_writes_named_bit(self) -> None:
         coordinator = _mock_coordinator(has_local=True)

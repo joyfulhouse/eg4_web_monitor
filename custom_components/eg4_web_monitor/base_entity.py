@@ -976,9 +976,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         """Return if entity is available.
 
         Returns:
-            True if the device is an inverter and available, False otherwise.
+            True if the coordinator is healthy and the device is an inverter,
+            False otherwise.
         """
-        return bool(self._device_data.get("type") == "inverter")
+        return bool(
+            self.coordinator.last_update_success
+            and self._device_data.get("type") == "inverter"
+        )
 
     def _get_inverter_or_raise(self) -> Any:
         """Get inverter device object or raise HomeAssistantError.

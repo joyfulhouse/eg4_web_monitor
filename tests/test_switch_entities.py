@@ -429,6 +429,20 @@ class TestQuickChargeSwitch:
         switch._optimistic_state = True
         assert switch.is_on is True
 
+    def test_available_on_healthy_coordinator(self):
+        """Available with healthy coordinator + inverter device."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        assert switch.available is True
+
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the switch unavailable (parity with
+        number/time entities — EG4BaseSwitch gates on last_update_success)."""
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        assert switch.available is False
+
     @pytest.mark.asyncio
     async def test_turn_on(self):
         """Turn on calls enable_quick_charge with the default duration (60)."""
