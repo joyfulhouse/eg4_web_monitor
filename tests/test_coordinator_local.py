@@ -649,6 +649,15 @@ class TestStickyParameterCarryForward:
         assert coordinator._param_retry_pending == set()
 
 
+# Targeted parameter reads per cycle for the seeded FlexBOSS21 (model-fallback
+# family EG4_HYBRID): 13 base ranges in _read_modbus_parameters() plus the 3
+# family-gated schedule ranges — Peak Shaving (209,4), Generator (256,4) and
+# Off-Grid (269,6) — added by the beta.22 schedule families (GH #295 / PR
+# #312).  PR #313 landed these tests with the pre-#312 count of 13; both PRs
+# were green alone but the merged branch reads 16 (merge skew, not a bug).
+_EXPECTED_HYBRID_READS = 16
+
+
 class TestLinkDownParameterGateCycle:
     """Full-cycle behavior of the targeted-read link-down gate.
 
@@ -751,7 +760,7 @@ class TestLinkDownParameterGateCycle:
         # Cycle 2: retry-due — the targeted read runs and drains the queue.
         result = await self._run_cycle(coordinator)
 
-        assert inv._transport.read_named_parameters.call_count == 13
+        assert inv._transport.read_named_parameters.call_count == _EXPECTED_HYBRID_READS
         assert result["parameters"][self.SERIAL] == {"PARAM": 1}
         assert coordinator._param_retry_pending == set()
         assert coordinator._last_param_read_complete is True
@@ -766,7 +775,7 @@ class TestLinkDownParameterGateCycle:
 
         result = await self._run_cycle(coordinator)
 
-        assert inv._transport.read_named_parameters.call_count == 13
+        assert inv._transport.read_named_parameters.call_count == _EXPECTED_HYBRID_READS
         assert result["parameters"][self.SERIAL] == {"PARAM": 1}
         assert coordinator._param_retry_pending == set()
         assert coordinator._last_parameter_refresh is not None

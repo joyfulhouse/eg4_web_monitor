@@ -450,6 +450,11 @@ class TestSwitchPlatformSetup:
         # Grid sell controls (GH #135): both available with cloud parameters
         assert "FUNC_FEED_IN_GRID_EN" in working_mode_params
         assert "FUNC_PV_SELL_TO_GRID_EN" in working_mode_params
+        # Share Battery (#306): no transport/family gate beyond the control
+        # model check, so CLOUD mode (no local transport) must create it too.
+        # A beta.22 live validation ran the cloud container against a stale
+        # pre-beta.22 checkout and reported it missing — lock the contract.
+        assert "FUNC_BAT_SHARED" in working_mode_params
 
     @pytest.mark.asyncio
     async def test_setup_never_writes_to_inverter(self, hass):
