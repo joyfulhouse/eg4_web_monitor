@@ -69,6 +69,17 @@ _LOGGER = logging.getLogger(__name__)
 # dongle outage doesn't add a full parameter read to every ~20-30 s poll.
 _PARAMETER_RETRY_INTERVAL = timedelta(minutes=2)
 
+# Eviction bound for once-published batteries served from cache (#258 review).
+# The carry-forward and the LOCAL round-robin re-serve absorb seconds-to-
+# minutes cloud/transport gaps; without a bound a PHYSICALLY REMOVED pack
+# would survive until restart with frozen SoC feeding bank aggregates and
+# automations, negating pylxpweb's empty-bank convergence.  6 hours is far
+# above every transient this covers, and safe versus the 2026-06-28 9-hour
+# firmware page pinning: during pinning the accumulator still SERVES the
+# batteries as fresh current-cycle data, so cached-serve is not what holds
+# them — only a battery gone from BOTH cloud and accumulator ages here.
+BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
+
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
@@ -579,6 +590,8 @@ if TYPE_CHECKING:
         _battery_fallback_keys: dict[str, set[str]]
         _battery_noserial_polls: dict[str, dict[int, int]]
         _battery_migration_suppressed: set[str]
+        # ── Battery carry-forward (#258, coordinator.py) ──
+        _battery_carry_forward: dict[str, dict[str, dict[str, Any]]]
 
         def _register_battery_key_migrations(
             self,
