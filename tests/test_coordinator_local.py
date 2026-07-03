@@ -2772,6 +2772,79 @@ class TestBatteryRRCacheFallback:
             if r.levelno == _logging.INFO and "Evict" in r.getMessage()
         )
 
+    async def test_merge_evicts_aged_entries_on_nonempty_poll(
+        self, hass: Any, caplog: Any
+    ) -> None:
+        """Rotating pack: removal converges even though polls stay non-empty.
+
+        ``_merge_round_robin_batteries`` returns the full accumulated cache,
+        so once any battery has been seen ``device_data["batteries"]`` is
+        never empty and the empty-poll re-serve branch (which used to host
+        the only eviction) is unreachable.  The BATTERY_CARRY_FORWARD_MAX_AGE
+        bound must therefore apply on every merge: a battery that stopped
+        appearing (physically removed) is evicted while live batteries —
+        including one merely on a page not covered by this rotation
+        position — survive.
+        """
+        import logging as _logging
+
+        from custom_components.eg4_web_monitor.utils import local_battery_key
+
+        serial = "DONGLE001"
+        entry = self._make_config_entry(hass, serial)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+        def _batt(index: int, batt_serial: str) -> BatteryData:
+            return BatteryData(
+                battery_index=index,
+                serial_number=batt_serial,
+                voltage=52.5,
+                soc=90,
+            )
+
+        sn_live = "BATLIVE00001"
+        sn_carried = "BATCARRY0001"
+        sn_removed = "BATGONE00001"
+
+        # Poll 1: all three batteries appear (fresh timestamps).
+        coordinator._merge_round_robin_batteries(
+            serial,
+            [_batt(0, sn_live), _batt(1, sn_carried), _batt(2, sn_removed)],
+        )
+        cache = coordinator._battery_rr_cache[serial]
+        key_live = local_battery_key(serial, sn_live, 0)
+        key_carried = local_battery_key(serial, sn_carried, 1)
+        key_removed = local_battery_key(serial, sn_removed, 2)
+        assert set(cache) == {key_live, key_carried, key_removed}
+
+        # Time passes: the removed battery hasn't been read for over 6h;
+        # the carried battery was last read 5h ago (rotation page not
+        # covered recently, still within the bound).
+        now = dt_util.utcnow()
+        cache[key_removed]["battery_last_seen"] = now - timedelta(hours=7)
+        cache[key_carried]["battery_last_seen"] = now - timedelta(hours=5)
+        coordinator._battery_carry_forward.setdefault(serial, {})[key_removed] = dict(
+            cache[key_removed]
+        )
+
+        # Poll 2 (NON-empty): only the live battery's page is covered.
+        with caplog.at_level(_logging.INFO):
+            merged = coordinator._merge_round_robin_batteries(
+                serial, [_batt(0, sn_live)]
+            )
+
+        assert key_live in merged
+        assert key_carried in merged, "within-bound carried battery evicted"
+        assert key_removed not in merged, "aged battery re-served on non-empty poll"
+        # Authoritative eviction across both sticky layers, with one INFO.
+        assert key_removed not in coordinator._battery_rr_cache[serial]
+        assert key_removed not in coordinator._battery_carry_forward[serial]
+        assert any(
+            key_removed in r.getMessage()
+            for r in caplog.records
+            if r.levelno == _logging.INFO and "Evict" in r.getMessage()
+        )
+
 
 class TestBatteryControlModeMethods:
     """Coordinator helpers for the battery control regime (SOC vs Voltage)."""
