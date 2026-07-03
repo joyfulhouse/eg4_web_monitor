@@ -146,11 +146,11 @@ class TestSupportsEpsBatteryBackup:
     """Test the EPS feature-detection helper."""
 
     def test_feature_offgrid_family(self):
-        """Off-grid family is excluded via the capability map (#289).
+        """Off-grid family KEEPS the EPS switch (#289 / PR #307 review).
 
-        The EG4 portal exposes no battery backup control for XP v2 and the
-        firmware rejects the write, so feature-detected EG4_OFFGRID devices
-        no longer get the EPS switch regardless of supports_off_grid.
+        The SNA12K-US reference dump shows FUNC_EPS_EN live and actively
+        ENABLED on EG4_OFFGRID hardware, so the XP-v2 portal-absence
+        evidence must not family-gate the switch away from SNA owners.
         """
         device_data = {
             "features": {
@@ -158,7 +158,7 @@ class TestSupportsEpsBatteryBackup:
                 "supports_off_grid": True,
             }
         }
-        assert _supports_eps_battery_backup(device_data) is False
+        assert _supports_eps_battery_backup(device_data) is True
 
     def test_feature_hybrid_family(self):
         """Hybrid family without explicit off_grid flag defaults True."""
@@ -181,21 +181,33 @@ class TestSupportsEpsBatteryBackup:
 class TestFamilyControlCapabilityMap:
     """is_family_control_supported() — firmware-rejected control gating."""
 
-    def test_offgrid_rejects_battery_backup_params(self):
-        """EG4_OFFGRID rejects both battery backup FUNC_ params."""
+    def test_offgrid_rejects_battery_backup_ctrl_only(self):
+        """EG4_OFFGRID rejects FUNC_BATTERY_BACKUP_CTRL — and ONLY that.
+
+        The map's bar is a live rejected-write report (the 12000XP v2
+        "failed to enable working mode"). FUNC_EPS_EN must NOT be listed:
+        the SNA12K-US reference dump shows it actively enabled on the same
+        family (Opus review on PR #307).
+        """
         device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
-        assert not is_family_control_supported(device_data, "FUNC_EPS_EN")
         assert not is_family_control_supported(device_data, "FUNC_BATTERY_BACKUP_CTRL")
+        assert is_family_control_supported(device_data, "FUNC_EPS_EN")
 
     def test_offgrid_keeps_unlisted_controls(self):
         """Controls without rejection evidence stay enabled on EG4_OFFGRID.
 
-        Off Grid Mode (accepted-then-self-reverted) and Charge Last
-        (sticks, possibly inert) are deliberately NOT in the map — the #289
-        adjudication fails open on ambiguity.
+        EPS (live-enabled on the SNA reference unit), Off Grid Mode
+        (accepted-then-self-reverted) and Charge Last (sticks, possibly
+        inert) are deliberately NOT in the map — the #289 adjudication
+        requires a rejected-write report and fails open on ambiguity.
         """
         device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
-        for param in ("FUNC_GREEN_EN", "FUNC_CHARGE_LAST", "FUNC_AC_CHARGE"):
+        for param in (
+            "FUNC_EPS_EN",
+            "FUNC_GREEN_EN",
+            "FUNC_CHARGE_LAST",
+            "FUNC_AC_CHARGE",
+        ):
             assert is_family_control_supported(device_data, param), param
 
     def test_grid_tied_families_unrestricted(self):
@@ -216,7 +228,9 @@ class TestFamilyControlCapabilityMap:
             {"model": "12000XP", "features": {"inverter_family": "UNKNOWN"}},
             {"model": "12000XP", "features": None},
         ):
-            assert is_family_control_supported(device_data, "FUNC_EPS_EN"), device_data
+            assert is_family_control_supported(
+                device_data, "FUNC_BATTERY_BACKUP_CTRL"
+            ), device_data
 
 
 # ── async_setup_entry ────────────────────────────────────────────────
@@ -1139,9 +1153,11 @@ class TestOffgridBatteryBackupGating:
         }
 
     @pytest.mark.asyncio
-    async def test_xp_v2_family_skips_battery_backup_switches(self, hass):
+    async def test_xp_v2_family_skips_battery_backup_mode(self, hass):
         """Feature-detected EG4_OFFGRID (12000XP v2) gets exactly the
-        supported control set — no EPS switch, no Battery Backup Mode."""
+        supported control set — no Battery Backup Mode (write-rejected),
+        but the EPS switch STAYS (live-enabled on the SNA reference unit,
+        no rejected-write evidence — PR #307 review)."""
         coordinator = _mock_coordinator(
             model="12000XP-US V2",
             device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
@@ -1153,7 +1169,7 @@ class TestOffgridBatteryBackupGating:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
-        assert "EG4BatteryBackupSwitch" not in type_names
+        assert "EG4BatteryBackupSwitch" in type_names
         params = {
             e._mode_config["param"]
             for e in entities
@@ -1161,14 +1177,37 @@ class TestOffgridBatteryBackupGating:
         }
         assert "FUNC_BATTERY_BACKUP_CTRL" not in params
         # Exact set: portal-backed AC Charge + PV Charge Priority stay, as
-        # do Off Grid Mode / Charge Last (fail-open, no rejection evidence).
+        # do EPS / Off Grid Mode / Charge Last (fail-open, no rejection
+        # evidence for them).
         assert self._switch_keys(entities) == {
             "quick_charge",
+            "battery_backup",
             "off_grid_mode",
             "charge_last",
             "ac_charge",
             "forced_chg_en",
         }
+
+    @pytest.mark.asyncio
+    async def test_sna_offgrid_family_keeps_eps_switch(self, hass):
+        """Must-have (PR #307 review): SNA-US (same EG4_OFFGRID bucket,
+        device type code 54) with FUNC_EPS_EN present-and-enabled keeps the
+        EPS Battery Backup switch — its reference dump shows the function
+        live and working, so #289 must not strip it family-wide."""
+        coordinator = _mock_coordinator(
+            model="SNA-US 12K",
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+            parameters={"FUNC_EPS_EN": True},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        eps = [e for e in entities if type(e).__name__ == "EG4BatteryBackupSwitch"]
+        assert len(eps) == 1
+        assert eps[0].is_on is True
 
     @pytest.mark.asyncio
     async def test_hybrid_family_entity_set_unchanged(self, hass):
@@ -1244,10 +1283,9 @@ class TestOffgridBatteryBackupGating:
             "offgrid_battery_backup_removed",
         }
         bb_call = issue_calls["offgrid_battery_backup_removed"]
-        assert bb_call.args[4] == (
-            "1234567890_battery_backup",
-            "1234567890_battery_backup_ctrl",
-        )
+        # ONLY the write-rejected Battery Backup Mode key — the EPS switch
+        # is not suppressed, so its key must not be probed.
+        assert bb_call.args[4] == ("1234567890_battery_backup_ctrl",)
 
     @pytest.mark.asyncio
     async def test_hybrid_family_flags_no_repairs_issue(self, hass, monkeypatch):

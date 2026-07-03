@@ -946,8 +946,8 @@
       "description": "**Peak Shaving** と **Forced Discharge** の制御(モードスイッチおよび Grid Peak Shaving Power、Forced Discharge Power、Forced Discharge SOC Limit の設定)が **{serial}**({model})から削除されました。\n\nこれらの機能は系統並列での売電/買電ブレンディングに作用しますが、EG4 オフグリッドモデル(12000XP/6000XP)はこれをサポートしていません。レジスタ自体は存在しますが、このハードウェアでは機能しません。\n\nこれらのエンティティを参照するオートメーションやダッシュボードがある場合は、参照を削除してください。お使いのデバイスが本当にこれらの機能をサポートしていると思われる場合は、統合の GitHub Issues に報告してください。"
     },
     "offgrid_battery_backup_removed": {
-      "title": "{model} {serial} からバッテリーバックアップ制御が削除されました",
-      "description": "**EPS Battery Backup** と **Battery Backup Mode** のスイッチが **{serial}**（{model}）から削除されました。\n\nEG4 のポータル自体、オフグリッド XP ファミリー（12000XP/6000XP）に対してバッテリーバックアップ制御を提供しておらず、ファームウェアは対応する書き込みを拒否します（“failed to enable working mode”）。オフグリッド XP モデルはバックアップ負荷をネイティブに給電するため、これらのスイッチが制御するものはありません。\n\nこれらのエンティティを参照していたオートメーションやダッシュボードがある場合は、その参照を削除してください。お使いのデバイスがこれらの機能を実際にサポートしていると思われる場合は、インテグレーションの GitHub Issues に報告してください。"
+      "title": "{model} {serial} から Battery Backup Mode 制御が削除されました",
+      "description": "**Battery Backup Mode** スイッチが **{serial}**（{model}）から削除されました。\n\nEG4 のオフグリッドファミリーのファームウェアは、この動作モードの有効化を拒否します（12000XP v2 で “failed to enable working mode”）。また、EG4 のポータル自体もこれらの機器には動作モードの切り替えを提供していません。**EPS Battery Backup** スイッチには影響ありません。\n\nこのエンティティを参照していたオートメーションやダッシュボードがある場合は、その参照を削除してください。お使いのデバイスがこの機能を実際にサポートしていると思われる場合は、インテグレーションの GitHub Issues に報告してください。"
     },
     "dongle_validation_disabled": {
       "title": "WiFi dongle のデータ検証を推奨",

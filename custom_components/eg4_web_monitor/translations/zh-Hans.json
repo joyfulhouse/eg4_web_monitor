@@ -946,8 +946,8 @@
       "description": "**Peak Shaving**(削峰)和 **Forced Discharge**(强制放电)控制(模式开关以及 Grid Peak Shaving Power、Forced Discharge Power 和 Forced Discharge SOC Limit 设置)已从 **{serial}**({model})移除。\n\n这些功能作用于并网的输出/输入混合控制,EG4 离网型号(12000XP/6000XP)不支持此能力——寄存器虽然存在,但功能在该硬件上无效。\n\n如有自动化或仪表板引用了这些实体,请移除相关引用。如果您认为您的设备确实支持这些功能,请在集成的 GitHub Issues 中报告。"
     },
     "offgrid_battery_backup_removed": {
-      "title": "已从 {model} {serial} 移除电池备用控制",
-      "description": "**EPS Battery Backup** 和 **Battery Backup Mode** 开关已从 **{serial}**（{model}）移除。\n\nEG4 门户本身没有为离网 XP 系列（12000XP/6000XP）提供任何电池备用控制，且固件会拒绝相应的写入（“failed to enable working mode”）。离网 XP 型号原生为备用负载供电，因此这些开关没有可控制的对象。\n\n如果有自动化或仪表板引用了这些实体，请移除相关引用。如果您认为您的设备确实支持这些功能，请在集成的 GitHub Issues 中报告。"
+      "title": "已从 {model} {serial} 移除 Battery Backup Mode 控制",
+      "description": "**Battery Backup Mode** 开关已从 **{serial}**（{model}）移除。\n\nEG4 离网系列的固件会拒绝启用该工作模式（12000XP v2 上报 “failed to enable working mode”），且 EG4 门户本身也没有为这些设备提供工作模式开关。**EPS Battery Backup** 开关不受影响。\n\n如果有自动化或仪表板引用了该实体，请移除相关引用。如果您认为您的设备确实支持此功能，请在集成的 GitHub Issues 中报告。"
     },
     "dongle_validation_disabled": {
       "title": "建议为 WiFi dongle 启用数据验证",

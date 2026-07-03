@@ -76,15 +76,16 @@ EG4's off-grid XP family runs different firmware from the hybrid
   Home Assistant reflects the device's real state after the next refresh,
   so it turning itself off means the firmware rejected the mode, not that
   the write failed.
-- **Battery backup switches are hidden on this family.** The **EPS Battery
-  Backup** and **Battery Backup Mode** switches are not created for XP
-  models: EG4's own portal exposes no battery-backup/working-mode control
-  for the family and the firmware rejects the write ("failed to enable
-  working mode"). XP units power their backup loads natively, so there is
-  nothing for these switches to do. The same applies to the grid-tied-only
-  controls (Peak Shaving, Forced Discharge, Grid Sell Back, Export PV Only,
-  Fast Zero Export), which act on grid-parallel export the XP hardware
-  doesn't perform.
+- **The Battery Backup Mode switch is hidden on this family.** Enabling
+  that working mode is rejected outright ("failed to enable working mode"
+  on a 12000XP v2) and EG4's own portal exposes no working-mode toggle for
+  these units, so the switch is not created on EG4's off-grid family
+  (which also includes the SNA-US models). The **EPS Battery Backup**
+  switch is *not* hidden — it is confirmed live and working on off-grid
+  family hardware (SNA-US reference unit). The grid-tied-only controls
+  (Peak Shaving, Forced Discharge, Grid Sell Back, Export PV Only, Fast
+  Zero Export) remain hidden as before, since they act on grid-parallel
+  export this hardware doesn't perform.
 - **Charge Last sticks but may have no visible effect** on XP firmware; it
   flips PV surplus priority, which mostly matters on exporting (grid-tied)
   systems.

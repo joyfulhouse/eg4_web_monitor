@@ -946,8 +946,8 @@
       "description": "**Peak Shaving** and **Forced Discharge** controls (the mode switches plus the Grid Peak Shaving Power, Forced Discharge Power and Forced Discharge SOC Limit settings) have been removed from **{serial}** ({model}).\n\nThese functions act on grid-parallel export/import blending, which EG4 off-grid models (12000XP/6000XP) do not support — the underlying registers exist but the functions are inert on this hardware, so the controls never did anything.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports these functions, please report it on the integration's GitHub issues."
     },
     "offgrid_battery_backup_removed": {
-      "title": "Battery backup controls removed from {model} {serial}",
-      "description": "The **EPS Battery Backup** and **Battery Backup Mode** switches have been removed from **{serial}** ({model}).\n\nEG4's own portal exposes no battery backup control for the off-grid XP family (12000XP/6000XP), and the firmware rejects the underlying write (“failed to enable working mode”). Off-grid XP models power their backup loads natively, so there is nothing for these switches to control.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports these functions, please report it on the integration's GitHub issues."
+      "title": "Battery Backup Mode control removed from {model} {serial}",
+      "description": "The **Battery Backup Mode** switch has been removed from **{serial}** ({model}).\n\nEnabling this working mode is rejected by the firmware on EG4's off-grid family (“failed to enable working mode” on a 12000XP v2), and EG4's own portal does not expose a working-mode toggle for these units. The **EPS Battery Backup** switch is unaffected.\n\nIf any automation or dashboard referenced this entity, remove those references. If you believe your device genuinely supports this function, please report it on the integration's GitHub issues."
     },
     "dongle_validation_disabled": {
       "title": "Data validation recommended for WiFi dongle",

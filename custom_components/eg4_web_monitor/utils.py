@@ -46,21 +46,34 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 
 
 # Per-family control capability map (GH #289): FUNC_ parameters whose
-# controls a family's firmware rejects outright AND whose controls the
-# vendor's own portal does not expose for that family. Entities for these
+# controls a family's firmware/cloud REJECTS ON WRITE. Entities for these
 # are not created — offering a switch the firmware refuses to honor is an
 # optimistic lie.
 #
-# EG4_OFFGRID evidence (12000XP v2, serial 61062J0147, fw ceaa-000709):
-# the EG4 maintenance "Remote Set" page for the unit exposes NO battery
-# backup / working-mode toggle at all (its Working Mode section is a
-# schedule of AC Charge / AC First / Self Consumption), and enabling
-# Battery Backup Mode from HA errors with "failed to enable working mode"
-# (cloud write rejected). Off-grid XP units power their backup loads
-# natively — there is nothing for these controls to switch.
+# Inclusion bar (Opus review on PR #307): a live rejected-write report.
+# Portal absence alone is NOT sufficient — the EG4_OFFGRID bucket (device
+# type code 54) spans SNA12K-US, 12000XP v1/v2 AND 6000XP, no
+# device_type_code isolates XP v2, and the FUNC_ bits are register-decoded
+# from the shared family-54 layout (regs 21/233 present on every unit, all
+# modes), so neither a narrower family gate nor a value-presence probe can
+# discriminate an XP-v2-only quirk.
 #
-# Deliberately NOT listed (fail-open for XP-v2 uncertainty, same
-# adjudication style as the Forced Discharge gating in PR #220):
+# EG4_OFFGRID / FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1): enabling Battery
+# Backup Mode on a 12000XP v2 (serial 61062J0147, fw ceaa-000709) is
+# rejected by the cloud ("failed to enable working mode"), and the EG4
+# maintenance Remote Set page for the unit exposes no working-mode toggle
+# (its Working Mode section is an AC Charge / AC First / Self Consumption
+# schedule). The SNA12K-US reference dump (pylxpweb
+# docs/inverters/SNA12KUS_52XXXXXX68.md) shows the bit present but
+# DISABLED, consistent with the function being unused family-wide.
+#
+# Deliberately NOT listed (fail-open on ambiguity, same adjudication style
+# as the Forced Discharge gating in PR #220):
+# - FUNC_EPS_EN (EPS Battery Backup): #289's portal-absence evidence came
+#   from an XP v2, but the SNA12K-US reference dump shows FUNC_EPS_EN
+#   actively ENABLED (True) on live family-54 hardware — a family gate
+#   would remove a working EPS switch from SNA-US 12K/15K owners,
+#   partially reversing #259. No rejected-write report exists for it.
 # - FUNC_GREEN_EN (Off Grid Mode): the write is ACCEPTED and the firmware
 #   self-reverts the bit within ~10 s; the switch converges to the true
 #   state on the post-write parameter refresh, which is honest behavior.
@@ -69,7 +82,6 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 FAMILY_UNSUPPORTED_CONTROL_PARAMS: dict[str, frozenset[str]] = {
     INVERTER_FAMILY_EG4_OFFGRID: frozenset(
         {
-            "FUNC_EPS_EN",  # EPS Battery Backup switch (reg 21 bit 0)
             "FUNC_BATTERY_BACKUP_CTRL",  # Battery Backup Mode (reg 233 bit 1)
         }
     ),
@@ -274,8 +286,8 @@ def flag_offgrid_control_suppression(
     """Raise a Repairs issue when family-gated controls vanish from a device.
 
     Peak Shaving and Forced Discharge controls are suppressed for the
-    EG4_OFFGRID family (PR #220 / issue #197 adjudication), and the battery
-    backup switches followed per the #289 capability map. Users who already
+    EG4_OFFGRID family (PR #220 / issue #197 adjudication), and the Battery
+    Backup Mode switch followed per the #289 capability map. Users who already
     had those entities registered should learn why they disappeared instead
     of finding dead automations — same precedent as the #219 family-profile
     pruning. The issue is one per (issue_key, serial); re-creating it with
