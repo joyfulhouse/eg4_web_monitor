@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "AC充電終了時刻 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "ACファースト開始時刻 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "ACファースト終了時刻 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "ACファースト開始時刻 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "ACファースト終了時刻 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "ACファースト開始時刻 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "ACファースト終了時刻 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "強制充電開始時刻 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "強制充電終了時刻 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "強制充電開始時刻 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "強制充電終了時刻 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "強制充電開始時刻 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "強制充電終了時刻 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "強制放電開始時刻 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "強制放電終了時刻 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "強制放電開始時刻 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "強制放電終了時刻 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "強制放電開始時刻 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "強制放電終了時刻 3"
       }
     }
   },

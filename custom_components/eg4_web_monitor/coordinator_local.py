@@ -368,9 +368,11 @@ class LocalTransportMixin(_MixinBase):
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
                 # Power settings + AC charge/discharge (64-79) + forced
-                # discharge power/SOC (82-83, GH #207) — one widened read
-                # keeps the Modbus budget flat vs a separate (82, 2) read.
-                (64, 20),
+                # discharge power/SOC (82-83, GH #207) + forced charge and
+                # forced discharge schedule windows (76-81/84-89, GH #295)
+                # — one widened read keeps the Modbus budget flat vs
+                # separate (82, 2)/(84, 6) reads.
+                (64, 26),
                 (
                     100,
                     4,
@@ -384,6 +386,11 @@ class LocalTransportMixin(_MixinBase):
                 # anywhere, so read_named_parameters emits the raw "117" key.
                 (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
+                # AC First schedule windows (152-157, GH #295, SNA/off-grid).
+                # pylxpweb > 0.9.36b21 names them HOLD_AC_FIRST_TIME_*;
+                # older releases surface the raw "152".."157" keys — the
+                # time entities' alias chains handle both.
+                (152, 6),
                 (158, 2),  # AC charge start/stop voltage (158-159)
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
                 (

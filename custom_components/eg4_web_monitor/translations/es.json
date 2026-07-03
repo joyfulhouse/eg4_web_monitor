@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "Hora de Fin de Carga AC 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Hora de Inicio de AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Hora de Fin de AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Hora de Inicio de AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Hora de Fin de AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Hora de Inicio de AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Hora de Fin de AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Hora de Inicio de Carga Forzada 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Hora de Fin de Carga Forzada 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Hora de Inicio de Carga Forzada 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Hora de Fin de Carga Forzada 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Hora de Inicio de Carga Forzada 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Hora de Fin de Carga Forzada 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Hora de Inicio de Descarga Forzada 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Hora de Fin de Descarga Forzada 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Hora de Inicio de Descarga Forzada 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Hora de Fin de Descarga Forzada 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Hora de Inicio de Descarga Forzada 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Hora de Fin de Descarga Forzada 3"
       }
     }
   },

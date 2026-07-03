@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "Czas zakończenia ładowania AC 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Czas rozpoczęcia AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Czas zakończenia AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Czas rozpoczęcia AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Czas zakończenia AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Czas rozpoczęcia AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Czas zakończenia AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Czas rozpoczęcia ładowania wymuszonego 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Czas zakończenia ładowania wymuszonego 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Czas rozpoczęcia ładowania wymuszonego 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Czas zakończenia ładowania wymuszonego 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Czas rozpoczęcia ładowania wymuszonego 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Czas zakończenia ładowania wymuszonego 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Czas rozpoczęcia rozładowania wymuszonego 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Czas zakończenia rozładowania wymuszonego 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Czas rozpoczęcia rozładowania wymuszonego 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Czas zakończenia rozładowania wymuszonego 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Czas rozpoczęcia rozładowania wymuszonego 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Czas zakończenia rozładowania wymuszonego 3"
       }
     }
   },

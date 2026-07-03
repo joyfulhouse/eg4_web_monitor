@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "交流充电结束时间 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "交流优先开始时间 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "交流优先结束时间 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "交流优先开始时间 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "交流优先结束时间 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "交流优先开始时间 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "交流优先结束时间 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "强制充电开始时间 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "强制充电结束时间 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "强制充电开始时间 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "强制充电结束时间 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "强制充电开始时间 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "强制充电结束时间 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "强制放电开始时间 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "强制放电结束时间 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "强制放电开始时间 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "强制放电结束时间 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "强制放电开始时间 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "强制放电结束时间 3"
       }
     }
   },

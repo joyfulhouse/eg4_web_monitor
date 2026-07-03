@@ -792,6 +792,60 @@
       },
       "ac_charge_end_time_3": {
         "name": "Ora di Fine Carica AC 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Ora di Inizio AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Ora di Fine AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Ora di Inizio AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Ora di Fine AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Ora di Inizio AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Ora di Fine AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Ora di Inizio Carica Forzata 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Ora di Fine Carica Forzata 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Ora di Inizio Carica Forzata 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Ora di Fine Carica Forzata 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Ora di Inizio Carica Forzata 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Ora di Fine Carica Forzata 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Ora di Inizio Scarica Forzata 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Ora di Fine Scarica Forzata 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Ora di Inizio Scarica Forzata 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Ora di Fine Scarica Forzata 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Ora di Inizio Scarica Forzata 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Ora di Fine Scarica Forzata 3"
       }
     }
   },

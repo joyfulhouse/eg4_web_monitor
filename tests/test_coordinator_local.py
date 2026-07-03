@@ -145,7 +145,7 @@ class TestReadModbusParameters:
     """Test reading configuration parameters from Modbus registers."""
 
     async def test_reads_all_register_ranges(self, hass, local_config_entry):
-        """All 13 register ranges are read — pinned exactly so a control's
+        """All 14 register ranges are read — pinned exactly so a control's
         backing register can't silently fall out of the local poll (the
         codex r1 MEDIUM on reg 202: entity wired but range never read),
         and a removed range can't silently creep back (231-232, eg4-gfu5)."""
@@ -162,12 +162,15 @@ class TestReadModbusParameters:
         ]
         assert called_ranges == [
             (20, 3),
-            (64, 20),
+            # widened 64-83 → 64-89 for the forced charge/discharge schedule
+            # windows (regs 76-81/84-89, GH #295)
+            (64, 26),
             (100, 4),  # widened for grid sell back percent (reg 103, GH #135)
             (105, 2),
             (110, 1),
             (116, 2),  # P_to_user start discharge/charge thresholds (GH #272)
             (125, 1),
+            (152, 6),  # AC First schedule windows (SNA/off-grid, GH #295)
             (158, 2),
             (169, 1),
             (179, 1),
@@ -177,6 +180,30 @@ class TestReadModbusParameters:
             (233, 1),
         ]
         assert "PARAM_A" in result
+
+    async def test_schedule_window_ranges_cover_all_schedule_registers(
+        self, hass, local_config_entry
+    ):
+        """GH #295: every SCHEDULE_TIME_TYPES register (68-73, 76-81, 84-89,
+        152-157) is inside a polled range so LOCAL/HYBRID schedule time
+        entities populate without cloud access."""
+        from custom_components.eg4_web_monitor.const import SCHEDULE_TIME_TYPES
+
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+        await coordinator._read_modbus_parameters(mock_transport)
+
+        polled: set[int] = set()
+        for call in mock_transport.read_named_parameters.call_args_list:
+            start, count = call.args
+            polled.update(range(start, start + count))
+
+        for spec in SCHEDULE_TIME_TYPES:
+            schedule_registers = set(range(spec.base_register, spec.base_register + 6))
+            assert schedule_registers <= polled, spec.key
 
     async def test_start_threshold_registers_read(self, hass, local_config_entry):
         """GH #272: HOLD 116/117 are in the LOCAL poll so the Start
@@ -254,10 +281,10 @@ class TestReadModbusParameters:
 
         result = await coordinator._read_modbus_parameters(mock_transport)
 
-        # All 13 ranges attempted despite first failure
-        assert call_count == 13
+        # All 14 ranges attempted despite first failure
+        assert call_count == 14
         # Successful ranges contributed their params
-        assert len(result) == 12  # 13 total - 1 failed
+        assert len(result) == 13  # 14 total - 1 failed
 
     async def test_total_failure_returns_empty(self, hass, local_config_entry):
         """All register ranges failing returns empty dict."""
