@@ -5,6 +5,7 @@ All entity classes should inherit from these bases to ensure consistent behavior
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from datetime import time as dt_time
 import logging
@@ -1001,8 +1002,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
     async def _execute_switch_action(
         self,
         action_name: str,
-        enable_method: str,
-        disable_method: str,
+        enable_method: str | Callable[..., Awaitable[bool]],
+        disable_method: str | Callable[..., Awaitable[bool]],
         turn_on: bool,
         refresh_params: bool = False,
         api_delay: float = 1.0,
@@ -1024,8 +1025,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         Args:
             action_name: Human-readable name of the action for logging.
-            enable_method: Name of the method to call when turning on.
-            disable_method: Name of the method to call when turning off.
+            enable_method: Method to call when turning on — either the name of
+                a method on the inverter object, or an awaitable callable
+                (e.g. a cloud-direct bound method for families whose local
+                register is firmware-rejected, #296).
+            disable_method: Method to call when turning off (same forms).
             turn_on: True to enable, False to disable.
             refresh_params: If True, refresh parameters instead of just data.
             api_delay: Seconds to wait for API to propagate changes (default 1.0).
@@ -1036,7 +1040,12 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         Raises:
             HomeAssistantError: If the action fails.
         """
-        method_name = enable_method if turn_on else disable_method
+        method_ref = enable_method if turn_on else disable_method
+        method_name = (
+            method_ref
+            if isinstance(method_ref, str)
+            else getattr(method_ref, "__name__", action_name)
+        )
         action_verb = "Enabling" if turn_on else "Disabling"
 
         try:
@@ -1053,8 +1062,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
             inverter = self._get_inverter_or_raise()
 
-            # Call the appropriate method
-            method = getattr(inverter, method_name, None)
+            # Call the appropriate method: an inverter method looked up by
+            # name, or a pre-bound callable (cloud-direct path, #296).
+            method = (
+                getattr(inverter, method_ref, None)
+                if isinstance(method_ref, str)
+                else method_ref
+            )
             if method is None:
                 self._optimistic_state = None
                 self.async_write_ha_state()
