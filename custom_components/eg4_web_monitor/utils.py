@@ -297,8 +297,9 @@ def flag_offgrid_control_suppression(
     """Raise a Repairs issue when family-gated controls vanish from a device.
 
     Peak Shaving and Forced Discharge controls are suppressed for the
-    EG4_OFFGRID family (PR #220 / issue #197 adjudication), and the Battery
-    Backup Mode switch followed per the #289 capability map. Users who already
+    EG4_OFFGRID family (PR #220 / issue #197 adjudication), the Battery
+    Backup Mode switch followed per the #289 capability map, and the Forced
+    Charge schedule times per the #295 live report. Users who already
     had those entities registered should learn why they disappeared instead
     of finding dead automations — same precedent as the #219 family-profile
     pruning. The issue is one per (issue_key, serial); re-creating it with
@@ -315,7 +316,7 @@ def flag_offgrid_control_suppression(
         serial: Inverter serial number.
         model: Inverter model string (for the issue text).
         platform: Entity platform domain the unique IDs belong to
-            (``"switch"`` or ``"number"``).
+            (``"switch"``, ``"number"`` or ``"time"``).
         unique_id_suffixes: Case-insensitive unique-ID suffixes of the
             suppressed entities (``{serial}_{control_key}``). The issue is
             only raised if at least one matching entity was previously

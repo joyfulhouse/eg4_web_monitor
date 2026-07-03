@@ -209,7 +209,9 @@ class ScheduleTimeSpec:
             family backstop, #259);
             ``control_grid_tied``: control-capable but suppressed on
             positively-identified EG4_OFFGRID hardware (forced discharge is
-            inert on the SNA platform, PR #220 / issue #197 adjudication);
+            inert on the SNA platform, PR #220 / issue #197 adjudication;
+            forced charge schedule writes are cloud-rejected on the family,
+            issue #295 live report);
             ``offgrid``: only positively-identified EG4_OFFGRID hardware
             (the portal shows the AC First section only on the SNA
             working-mode page, issue #295);
@@ -291,12 +293,17 @@ SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
         local_param_keys=_canonical_time_param_keys("HOLD_AC_FIRST", 152),
     ),
     # Forced Charge (PV charge priority, #295): regs 76-81 (EG4-18KPV spec,
-    # pylxpweb SCHEDULE_CONFIGS); cloud params present on every probed family.
+    # pylxpweb SCHEDULE_CONFIGS). Suppressed on EG4_OFFGRID: the cloud
+    # rejects HOLD_FORCED_CHARGE_* writes on a 12000XP v2 (REMOTE_SET_ERROR,
+    # serial 61062J0147, #295 live report) and the SNA working-mode portal
+    # page contains ZERO HOLD_FORCED_CHARGE params (vs a full Forced
+    # Discharge schedule widget) — same evidence standard as the #307
+    # Battery Backup gate.
     ScheduleTimeSpec(
         key="forced_charge",
         cloud_prefix="HOLD_FORCED_CHARGE",
         base_register=76,
-        gate="control",
+        gate="control_grid_tied",
         local_param_keys=_canonical_time_param_keys("HOLD_FORCED_CHARGE", 76),
     ),
     # Forced Discharge (#295): regs 84-89; suppressed on EG4_OFFGRID like the

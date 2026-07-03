@@ -991,6 +991,10 @@
       "title": "{model} {serial}에서 Battery Backup Mode 제어가 제거되었습니다",
       "description": "**Battery Backup Mode** 스위치가 **{serial}**({model})에서 제거되었습니다.\n\nEG4 오프그리드 제품군의 펌웨어는 이 작동 모드 활성화를 거부하며(12000XP v2에서 “failed to enable working mode”), EG4 포털 자체도 이 장비에는 작동 모드 토글을 제공하지 않습니다. **EPS Battery Backup** 스위치는 영향을 받지 않습니다.\n\n이 엔티티를 참조하던 자동화나 대시보드가 있다면 해당 참조를 제거하세요. 장치가 실제로 이 기능을 지원한다고 생각되면 통합구성요소의 GitHub 이슈로 보고해 주세요."
     },
+    "offgrid_forced_charge_times_removed": {
+      "title": "{model} {serial}에서 Forced Charge 일정 시간이 제거되었습니다",
+      "description": "**Forced Charge** 일정 시간 설정(시작/종료 시각, 창 1~3)이 **{serial}**({model})에서 제거되었습니다.\n\nEG4 클라우드는 오프그리드 제품군에서 이 파라미터에 대한 쓰기를 거부하며(12000XP v2에서 REMOTE_SET_ERROR), EG4 포털 자체도 이 장비에는 Forced Charge 일정을 제공하지 않습니다. **AC Charge** 및 **AC First** 일정은 영향을 받지 않습니다.\n\n이 엔티티를 참조하던 자동화나 대시보드가 있다면 해당 참조를 제거하세요. 장치가 실제로 이 일정을 지원한다고 생각되면 통합구성요소의 GitHub 이슈로 보고해 주세요."
+    },
     "dongle_validation_disabled": {
       "title": "WiFi dongle 데이터 검증 권장",
       "description": "WiFi dongle이 구성되어 있지만 **데이터 검증**이 비활성화되어 있습니다. WiFi dongle은 Modbus 버스를 공유하며, 동시 읽기로 인해 레지스터 데이터가 손상될 수 있습니다(예: 에너지 스파이크).\n\n수정하려면 **설정 > 기기 및 서비스 > EG4 Web Monitor > 구성**으로 이동하여 **데이터 검증**을 활성화하세요."
