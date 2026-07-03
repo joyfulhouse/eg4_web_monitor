@@ -1373,6 +1373,23 @@ class TestWriteTimeFamilies:
         with pytest.raises(HomeAssistantError):
             await entity.async_set_value(time(8, 0))
 
+    @pytest.mark.asyncio
+    async def test_cloud_write_time_exception_becomes_home_assistant_error(self):
+        """A raw pylxpweb exception (e.g. persistent DATAFRAME_TIMEOUT surviving
+        its retries) is wrapped in HomeAssistantError, not propagated raw out of
+        async_set_value."""
+        coordinator = _mock_coordinator(has_local=False)
+        coordinator.client.api.control.write_time_parameter = AsyncMock(
+            side_effect=RuntimeError("DATAFRAME_TIMEOUT")
+        )
+        entity = _entity(coordinator, schedule="peak_shaving", window=1, is_end=True)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="DATAFRAME_TIMEOUT"):
+            await entity.async_set_value(time(20, 59))
+        # Optimistic value cleared on write failure (falls back to cache).
+        assert entity._optimistic_value is None
+
     def test_local_read_decodes_new_family_register(self):
         """LOCAL: Generator window 2 end (reg 259) unpacks from the canonical
         packed name."""

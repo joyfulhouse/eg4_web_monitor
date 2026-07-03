@@ -186,16 +186,17 @@ class TestReadModbusParameters:
             (227, 2),
             # (231, 2) removed: PS1 is reg 206, reg 231 unknown (eg4-gfu5)
             (233, 1),
-            # (209, 4)/(256, 19) absent: Peak Shaving/Generator/Off-Grid are
-            # EG4_HYBRID-gated (pylxpweb PR #209).
+            # (209, 4)/(256, 4)/(269, 6) absent: Peak Shaving/Generator/Off-Grid
+            # are EG4_HYBRID/OFFGRID-gated (pylxpweb #209).
         ]
         assert "PARAM_A" in result
 
     async def test_hybrid_device_reads_schedule_ranges(self, hass, local_config_entry):
-        """EG4_HYBRID devices additionally poll the Peak Shaving (209-212) and
-        the combined Generator/Off-Grid (256-274) schedule windows — same
-        fails-closed family predicate as their time entities (pylxpweb #209).
-        AC First (152, 6) stays absent (EG4_OFFGRID-only)."""
+        """EG4_HYBRID devices additionally poll Peak Shaving (209-212),
+        Generator (256-259) and Off-Grid (269-274) as three separate reads —
+        the Generator read is split from Off-Grid to skip the
+        deliberately-unmapped 260-268 zone. AC First (152, 6) stays absent
+        (EG4_OFFGRID-only)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -211,8 +212,35 @@ class TestReadModbusParameters:
             call.args for call in mock_transport.read_named_parameters.call_args_list
         ]
         assert (209, 4) in called_ranges
-        assert (256, 19) in called_ranges
+        assert (256, 4) in called_ranges
+        assert (269, 6) in called_ranges
+        # Never a span that crosses the unmapped 260-268 zone.
+        assert (256, 19) not in called_ranges
         assert (152, 6) not in called_ranges
+
+    async def test_offgrid_device_reads_generator_range_only(
+        self, hass, local_config_entry
+    ):
+        """EG4_OFFGRID reads the Generator schedule (256-259) — the SNA probe
+        proves those registers exist — for Generator-entity readback, but NOT
+        Peak Shaving / Off-Grid (their params are absent on the SNA probe)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.return_value = {}
+
+        await coordinator._read_modbus_parameters(
+            mock_transport,
+            {"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+
+        called_ranges = [
+            call.args for call in mock_transport.read_named_parameters.call_args_list
+        ]
+        assert (256, 4) in called_ranges
+        assert (209, 4) not in called_ranges
+        assert (269, 6) not in called_ranges
 
     async def test_offgrid_device_reads_ac_first_range(self, hass, local_config_entry):
         """EG4_OFFGRID devices additionally poll the AC First schedule
@@ -233,8 +261,9 @@ class TestReadModbusParameters:
             call.args for call in mock_transport.read_named_parameters.call_args_list
         ]
         assert (152, 6) in called_ranges
-        assert len(called_ranges) == 14
-        # Kept in ascending register order between (125, 1) and (158, 2).
+        # 13 agnostic + AC First (152, 6) + Generator (256, 4).
+        assert len(called_ranges) == 15
+        # AC First kept in ascending register order between (125, 1) and (158, 2).
         assert called_ranges.index((152, 6)) == called_ranges.index((158, 2)) - 1
 
     @pytest.mark.parametrize(
@@ -253,11 +282,11 @@ class TestReadModbusParameters:
         """Every schedule register block is polled exactly when its LOCAL read
         gate fires, and NOT otherwise (non-matching firmware that NAKs the
         range would loop the #282 early retry). Gates: classic families always
-        (their registers sit inside the unconditional 64-89 read etc.); AC
-        First iff EG4_OFFGRID; Peak Shaving/Generator/Off-Grid iff EG4_HYBRID
-        (LOCAL read is hybrid-only — Generator's entity gate also allows
-        EG4_OFFGRID, but that path relies on cloud). The range list is rebuilt
-        per call from the per-cycle device_data."""
+        (their registers sit inside the unconditional 64-89 read etc.); AC First
+        iff EG4_OFFGRID; Peak Shaving/Off-Grid iff EG4_HYBRID; Generator iff
+        EG4_HYBRID or EG4_OFFGRID (the SNA probe proves regs 256-259 exist, so
+        the offgrid readback is polled locally). The range list is rebuilt per
+        call from the per-cycle device_data."""
         from custom_components.eg4_web_monitor.const import SCHEDULE_TIME_TYPES
 
         family = (device_data or {}).get("features", {}).get("inverter_family")
@@ -265,7 +294,9 @@ class TestReadModbusParameters:
         def local_read_expected(spec) -> bool:
             if spec.key == "ac_first":
                 return family == "EG4_OFFGRID"
-            if spec.write_via_time_api:
+            if spec.key == "gen_charge":
+                return family in ("EG4_HYBRID", "EG4_OFFGRID")
+            if spec.write_via_time_api:  # peak_shaving, off_grid
                 return family == "EG4_HYBRID"
             return True
 

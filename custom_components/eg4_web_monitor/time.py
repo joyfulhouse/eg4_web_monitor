@@ -414,10 +414,23 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             # gated on (_SUPPORTS_WRITE_TIME), but not on the older floor the
             # manifest still pins pre-release; typing the endpoint as Any keeps
             # a direct call from failing strict mypy against the installed stub.
+            #
+            # One atomic call sets both hour and minute (no partial-write /
+            # mixed-time window), so no re-read convergence is needed — but
+            # pylxpweb raises LuxpowerAPIError / LuxpowerConnectionError on
+            # failures that survive its own retries (e.g. a persistent
+            # DATAFRAME_TIMEOUT), so surface those as HomeAssistantError the
+            # same way the classic branch below does.
             control: Any = client.api.control
-            result = await control.write_time_parameter(
-                self.serial, self._cloud_time_param, value.hour, value.minute
-            )
+            try:
+                result = await control.write_time_parameter(
+                    self.serial, self._cloud_time_param, value.hour, value.minute
+                )
+            except Exception as err:
+                raise HomeAssistantError(
+                    f"Failed to set {self._cloud_time_param} to "
+                    f"{value.isoformat(timespec='minutes')} for {self.serial}: {err}"
+                ) from err
             if not result.success:
                 raise HomeAssistantError(
                     f"Failed to set {self._cloud_time_param} to "

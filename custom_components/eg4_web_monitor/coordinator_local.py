@@ -427,20 +427,35 @@ class LocalTransportMixin(_MixinBase):
             )
 
             # Peak Shaving (209-212), Generator (256-259) and Off-Grid
-            # (269-274) schedule windows: consumed only by the EG4_HYBRID-gated
-            # schedule time entities, so — like the AC First (152, 6) read above
-            # — these ranges are family-gated with the same fails-closed
-            # predicate. Non-hybrid firmware that NAKs them would otherwise mark
-            # every parameter cycle incomplete and loop the #282 early retry for
-            # registers nothing consumes. Evaluated per call (freshly-built
-            # per-cycle device_data). One combined read covers 256-274 (19 regs);
-            # 209-212 is a second small read (no adjacent gated range to fold
-            # into). pylxpweb PR #209 names these registers
-            # HOLD_{PEAK_SHAVING,GEN,OFF_GRID}_TIME_*; older releases surface the
-            # raw address keys — the entities' alias chains handle both.
-            hybrid_schedule_ranges: list[tuple[int, int]] = (
-                [(209, 4), (256, 19)] if is_hybrid_family(device_data or {}) else []
-            )
+            # (269-274) schedule windows: consumed by the EG4_HYBRID-gated
+            # schedule time entities (Generator is also created on EG4_OFFGRID).
+            # Like the AC First (152, 6) read above, the ranges are family-gated
+            # with the same fails-closed predicate — non-matching firmware that
+            # NAKs them would otherwise mark every parameter cycle incomplete and
+            # loop the #282 early retry for registers nothing consumes. Evaluated
+            # per call (freshly-built per-cycle device_data). pylxpweb #209 names
+            # these registers HOLD_{PEAK_SHAVING,GEN,OFF_GRID}_TIME_*; older
+            # releases surface the raw address keys — the alias chains handle both.
+            #
+            # Generator (256-259) is read on BOTH families: the SNA12K-US probe
+            # proves regs 256-259 carry HOLD_GEN_* names, so the NAK-risk
+            # rationale for excluding offgrid does not apply, and reading it
+            # closes the write-works-but-readback-missing gap for Generator
+            # entities on LOCAL-only SNA. Peak Shaving / Off-Grid stay hybrid-only
+            # (their params are absent on the SNA probe). The Generator read is
+            # kept separate from Off-Grid (two reads, not one 256-274 span) to
+            # skip the deliberately-unmapped 260-268 zone (model-dependent
+            # HOLD_EXPORT_LOCK_POWER etc., pylxpweb inverter_holding.py) — 9
+            # wasted reads avoided per hybrid poll.
+            is_hybrid = is_hybrid_family(device_data or {})
+            is_offgrid = is_offgrid_family(device_data or {})
+            hybrid_schedule_ranges: list[tuple[int, int]] = []
+            if is_hybrid:
+                hybrid_schedule_ranges.append((209, 4))  # Peak Shaving
+            if is_hybrid or is_offgrid:
+                hybrid_schedule_ranges.append((256, 4))  # Generator charge
+            if is_hybrid:
+                hybrid_schedule_ranges.append((269, 6))  # Off-Grid
 
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
