@@ -159,12 +159,14 @@ class LocalTransportMixin(_MixinBase):
         keys_this_poll: dict[str, int] = {}
         # Exposure record for the shifted-slot retirement sweep (#302):
         # positional keys re-claimed by a serial-less battery this poll, and
-        # every slot that reported serial-less data this poll (pending or
-        # exposed).
+        # every virtual slot the transport served this poll in ANY state
+        # (ghost, truncated, serial-less or serial) — a slot absent from the
+        # served set is an upstream reservation hole, never a transient.
         positional_keys_this_poll: set[str] = set()
-        noserial_slots_this_poll: set[int] = set()
+        slots_this_poll: set[int] = set()
 
         for batt in transport_batteries:
+            slots_this_poll.add(batt.battery_index)
             # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
             # are non-optional (default 0), so an empty slot reads 0/0 not None.
             if batt.voltage == 0 and batt.soc == 0:
@@ -188,7 +190,6 @@ class LocalTransportMixin(_MixinBase):
                 # (#252 cold start — see _NO_SERIAL_EXPOSE_POLLS).
                 seen_polls = noserial_polls.get(slot, 0) + 1
                 noserial_polls[slot] = seen_polls
-                noserial_slots_this_poll.add(slot)
                 fallback_key = f"{inverter_serial}-{slot + 1:02d}"
                 if seen_polls < _NO_SERIAL_EXPOSE_POLLS:
                     poll_slots_skipped += 1
@@ -336,16 +337,37 @@ class LocalTransportMixin(_MixinBase):
                     self._battery_carry_forward.get(inverter_serial, {}).pop(
                         stale_key, None
                     )
-                _LOGGER.debug(
-                    "RR [%s]: retired shifted positional fallback %s "
-                    "(new serial(s) %s claimed fresh virtual slots)",
+                # INFO once per key (mirrors _suppress_battery_migration): the
+                # #252 migration renames first-seen-order legacy keys, which
+                # need not match this slot-position fallback, so the retired
+                # key's HA device/entities can survive as registry orphans the
+                # user has to remove manually.  Flapping-serial repeats DEBUG.
+                level = (
+                    logging.DEBUG
+                    if stale_key in self._battery_shift_retire_logged
+                    else logging.INFO
+                )
+                self._battery_shift_retire_logged.add(stale_key)
+                _LOGGER.log(
+                    level,
+                    "RR [%s]: retired stale positional battery fallback %s — "
+                    "its serial became readable at a shifted slot (new "
+                    "serial(s): %s). If a battery device/entities keyed %r "
+                    "remain in Home Assistant, they are orphaned and can be "
+                    "removed from the device page (#302)",
                     inverter_serial,
                     stale_key,
                     new_serials,
+                    stale_key,
                 )
-            for stale_slot in [
-                s for s in noserial_polls if s not in noserial_slots_this_poll
-            ]:
+            # Debounce counters whose slot the transport did not serve AT ALL
+            # this poll belong to upstream-evicted reservation holes — pop
+            # them (a stale pending counter would otherwise inject a phantom
+            # positional key into active_keys below, permanently blocking the
+            # one-shot #252 migration).  Slots served in any state — including
+            # ghost or truncated reads that skipped the counter increment —
+            # keep their debounce progress.
+            for stale_slot in [s for s in noserial_polls if s not in slots_this_poll]:
                 noserial_polls.pop(stale_slot)
 
         if key_migrations:

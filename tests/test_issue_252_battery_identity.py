@@ -22,6 +22,7 @@ positional duplicates when the canonical entity already exists, and carrying
 device customizations (area/name/labels) to the canonical device.
 """
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -741,7 +742,7 @@ class TestShiftedSlotRetirement:
     """
 
     async def test_shifted_index_retires_exposed_fallback_immediately(
-        self, hass, mock_config_entry
+        self, hass, mock_config_entry, caplog
     ):
         """Serial arriving at a SHIFTED index still retires the exposed twin.
 
@@ -761,13 +762,26 @@ class TestShiftedSlotRetirement:
 
         # Serial becomes readable: pylxpweb evicts pos:0 and mints the serial
         # virtual slot 1; slot 0 stays a reservation hole (never served again).
-        result = coordinator._merge_round_robin_batteries(
-            INV, [_transport_battery(1, BAT_SN_1)]
-        )
+        with caplog.at_level(logging.INFO):
+            result = coordinator._merge_round_robin_batteries(
+                INV, [_transport_battery(1, BAT_SN_1)]
+            )
 
         # The exposed positional twin retired immediately — no 6h wait.
         assert set(result) == {f"{INV}-{BAT_SN_1}"}
         assert coordinator._battery_fallback_keys[INV] == set()
+        # The retirement is user-visible at INFO naming the stale key: its
+        # registry rows can survive as orphans (the #252 migration renames
+        # first-seen-order legacy keys, which need not match the
+        # slot-position fallback), so users need a discoverable trace.
+        retire_logs = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.INFO
+            and "retired stale positional battery fallback" in record.getMessage()
+            and f"{INV}-01" in record.getMessage()
+        ]
+        assert len(retire_logs) == 1
         # The stale slot-0 debounce counter is popped too.
         assert coordinator._battery_noserial_polls[INV] == {}
         # Retirement is authoritative over the carry-forward layer.
@@ -860,6 +874,61 @@ class TestShiftedSlotRetirement:
         device_registry = dr.async_get(hass)
         assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
         assert device_registry.async_get_device({(DOMAIN, new_key)}) is not None
+
+    async def test_shift_retirement_log_is_one_shot_per_key(
+        self, hass, mock_config_entry, caplog
+    ):
+        """A key already announced retires at DEBUG, not INFO (no log spam)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Simulate an earlier announcement of this key (flapping serial).
+        coordinator._battery_shift_retire_logged.add(f"{INV}-01")
+
+        no_serial = [_transport_battery(0, "")]
+        for _ in range(3):
+            coordinator._merge_round_robin_batteries(INV, no_serial)
+        with caplog.at_level(logging.INFO):
+            result = coordinator._merge_round_robin_batteries(
+                INV, [_transport_battery(1, BAT_SN_1)]
+            )
+
+        # Retirement itself still happens...
+        assert set(result) == {f"{INV}-{BAT_SN_1}"}
+        # ...but without a second INFO record.
+        assert not [
+            record
+            for record in caplog.records
+            if record.levelno == logging.INFO
+            and "retired stale positional battery fallback" in record.getMessage()
+        ]
+
+    async def test_ghost_read_sibling_keeps_debounce_counter(
+        self, hass, mock_config_entry
+    ):
+        """A ghost-read sibling slot keeps its debounce progress.
+
+        The counter sweep only pops slots the transport did not serve AT ALL
+        (upstream reservation holes).  A sibling served as a ghost this poll
+        (voltage=0, soc=0 — skipped before the counter increment) must not
+        have its pending debounce reset by an unrelated serial arrival.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        pair = [_transport_battery(0, ""), _transport_battery(1, "")]
+        for _ in range(2):  # both pending: counters {0: 2, 1: 2}
+            coordinator._merge_round_robin_batteries(INV, pair)
+        assert coordinator._battery_noserial_polls[INV] == {0: 2, 1: 2}
+
+        # Slot 0's serial arrives (shifted to virtual slot 2, hole at 0);
+        # slot 1's battery reads ghost this poll but IS served.
+        ghost = BatteryData(battery_index=1, serial_number="", voltage=0.0, soc=0)
+        coordinator._merge_round_robin_batteries(
+            INV, [_transport_battery(2, BAT_SN_1), ghost]
+        )
+
+        # Reconciled hole's stale counter popped; ghost sibling's retained.
+        assert coordinator._battery_noserial_polls[INV] == {1: 2}
 
 
 # ── Rotation trust guard (third review, LOCAL only) ───────────────────

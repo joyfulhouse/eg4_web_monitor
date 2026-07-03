@@ -360,6 +360,13 @@ class EG4DataUpdateCoordinator(
         # duplicate/misreported battery serial).  Sticky until restart;
         # positional registry rows are left untouched as orphans.
         self._battery_migration_suppressed: set[str] = set()
+        # Positional fallback keys already announced by the shifted-slot
+        # retirement sweep (#302).  The retired key's registry rows can
+        # survive as orphans (the #252 migration renames first-seen-order
+        # legacy keys, which need not match the slot-position fallback), so
+        # the retirement is logged at INFO once per key — repeats from a
+        # flapping serial fall back to DEBUG.
+        self._battery_shift_retire_logged: set[str] = set()
         # Last published battery mapping per inverter (#258 beta.18): battery
         # entity availability is key-presence in device_data["batteries"], and
         # the HYBRID/CLOUD paths rebuild that dict from the cloud payload as
