@@ -991,6 +991,10 @@
       "title": "已从 {model} {serial} 移除 Battery Backup Mode 控制",
       "description": "**Battery Backup Mode** 开关已从 **{serial}**（{model}）移除。\n\nEG4 离网系列的固件会拒绝启用该工作模式（12000XP v2 上报 “failed to enable working mode”），且 EG4 门户本身也没有为这些设备提供工作模式开关。**EPS Battery Backup** 开关不受影响。\n\n如果有自动化或仪表板引用了该实体，请移除相关引用。如果您认为您的设备确实支持此功能，请在集成的 GitHub Issues 中报告。"
     },
+    "offgrid_forced_charge_times_removed": {
+      "title": "已从 {model} {serial} 移除 Forced Charge 时间表",
+      "description": "**Forced Charge**（强制充电）时间表设置（开始/结束时间，窗口 1-3）已从 **{serial}**（{model}）移除。\n\nEG4 云端拒绝在离网系列上写入这些参数（12000XP v2 上报 REMOTE_SET_ERROR），且 EG4 门户本身也没有为这些设备提供 Forced Charge 时间表。**AC Charge** 和 **AC First** 时间表不受影响。\n\n如果有自动化或仪表板引用了这些实体，请移除相关引用。如果您认为您的设备确实支持此时间表，请在集成的 GitHub Issues 中报告。"
+    },
     "dongle_validation_disabled": {
       "title": "建议为 WiFi dongle 启用数据验证",
       "description": "已配置 WiFi dongle，但**数据验证**已禁用。WiFi dongle 共享 Modbus 总线，并发读取可能导致寄存器数据损坏（例如能量尖峰）。\n\n要修复此问题，请转到**设置 > 设备与服务 > EG4 Web Monitor > 配置**，然后启用**数据验证**。"

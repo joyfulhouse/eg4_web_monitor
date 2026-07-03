@@ -57,6 +57,7 @@ from .const import SCHEDULE_TIME_TYPES, ScheduleTimeSpec
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     async_write_with_cloud_fallback,
+    flag_offgrid_control_suppression,
     is_hybrid_family,
     is_offgrid_family,
     is_supported_control_model,
@@ -88,8 +89,11 @@ def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> 
       families verified on the FlexBOSS21. Fails closed.
     - ``control`` / ``control_grid_tied``: the family-aware control gate
       (#259/#281); ``control_grid_tied`` additionally suppresses the
-      entities on positively-identified EG4_OFFGRID hardware, matching the
-      forced discharge number controls (PR #220 / issue #197).
+      entities on positively-identified EG4_OFFGRID hardware — the forced
+      discharge schedule matches the forced discharge number controls
+      (PR #220 / issue #197) and the forced charge schedule is
+      cloud-rejected on the family (REMOTE_SET_ERROR on a 12000XP v2 plus
+      portal absence, issue #295 live report).
 
     The writeTime families are additionally skipped when the installed
     pylxpweb is too old to provide ``write_time_parameter``.
@@ -136,6 +140,27 @@ async def async_setup_entry(
             for window in range(1, spec.windows + 1)
             for is_end in (False, True)
         )
+
+        # Forced Charge schedule times were created on EG4_OFFGRID hardware in
+        # beta.20/21 before the family gate landed (#295 live report: cloud
+        # REMOTE_SET_ERROR + portal absence). One-shot Repairs notice for
+        # anyone who had one registered — same machinery as the #307 Battery
+        # Backup gate. Suffix-based probe: time unique IDs embed the model
+        # slug ({clean_model}_{serial}_{key}); all variants end with
+        # {serial}_{key}.
+        if is_offgrid_family(device_data):
+            flag_offgrid_control_suppression(
+                hass,
+                serial,
+                device_data.get("model", "Unknown"),
+                "time",
+                tuple(
+                    f"{serial.lower()}_forced_charge_{boundary}_time_{window}"
+                    for boundary in ("start", "end")
+                    for window in (1, 2, 3)
+                ),
+                issue_key="offgrid_forced_charge_times_removed",
+            )
 
     if entities:
         _LOGGER.info("Setup complete: %d time entities created", len(entities))

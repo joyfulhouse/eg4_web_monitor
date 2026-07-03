@@ -566,7 +566,13 @@ class LocalTransportMixin(_MixinBase):
                 # (82-83, GH #207) + the forced discharge schedule windows
                 # (84-89, newly covered for GH #295) — one widened read
                 # keeps the Modbus budget flat vs separate (82, 2)/(84, 6)
-                # reads.
+                # reads. Deliberately NOT family-gated: the forced charge
+                # (76-81) and forced discharge (84-89) schedule entities are
+                # suppressed on EG4_OFFGRID, but the registers sit inside the
+                # shared range consumed by ungated controls (64-67, 82-83)
+                # and READ fine on the family — only the cloud WRITE is
+                # rejected (#295); splitting the range would cost extra
+                # Modbus reads for nothing.
                 (64, 26),
                 (
                     100,

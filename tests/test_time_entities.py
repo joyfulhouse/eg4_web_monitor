@@ -8,7 +8,8 @@ window 1 unsuffixed / 2-3 ``_1``/``_2``):
 
 - AC Charge      — regs 68-73  (#277), all control-capable families
 - AC First       — regs 152-157 (#295), EG4_OFFGRID (SNA) only
-- Forced Charge  — regs 76-81  (#295), all control-capable families
+- Forced Charge  — regs 76-81  (#295), control-capable grid-tied families
+  (EG4_OFFGRID cloud-rejects the writes — REMOTE_SET_ERROR, #295 live report)
 - Forced Discharge — regs 84-89 (#295), control-capable grid-tied families
 
 writeTime (all windows suffixed ``_1..._N``, atomic ``write_time_parameter``
@@ -178,7 +179,7 @@ class TestScheduleTable:
                 "forced_charge",
                 "HOLD_FORCED_CHARGE",
                 76,
-                "control",
+                "control_grid_tied",
                 3,
                 True,
                 False,
@@ -328,9 +329,11 @@ class TestTimePlatformSetup:
     async def test_setup_sna_offgrid_family(self, hass):
         """EG4_OFFGRID (the reporter's SNA-US class hardware): AC First is
         created; forced discharge is suppressed (#197/#220 adjudication);
-        Generator charge is created (hybrid_or_offgrid gate — regs 256-259
-        carry gen params on the SNA12K-US probe); Peak Shaving/Off-Grid are
-        EG4_HYBRID-only, so absent."""
+        forced charge is suppressed too (cloud REMOTE_SET_ERROR on a
+        12000XP v2 + zero HOLD_FORCED_CHARGE params on the SNA portal page,
+        #295 live report); Generator charge is created (hybrid_or_offgrid
+        gate — regs 256-259 carry gen params on the SNA12K-US probe); Peak
+        Shaving/Off-Grid are EG4_HYBRID-only, so absent."""
         coordinator = _mock_coordinator(model="SNA-US 15K")
         coordinator.data["devices"]["1234567890"]["features"] = {
             "inverter_family": "EG4_OFFGRID"
@@ -338,9 +341,55 @@ class TestTimePlatformSetup:
 
         keys = await _setup_keys(hass, coordinator)
 
-        assert keys == _expected_keys(
-            "ac_charge", "ac_first", "forced_charge", "gen_charge"
+        assert keys == _expected_keys("ac_charge", "ac_first", "gen_charge")
+
+    @pytest.mark.asyncio
+    async def test_offgrid_repairs_issue_for_registered_forced_charge_time(self, hass):
+        """A previously-registered Forced Charge time entity (beta.20/21
+        created them on EG4_OFFGRID) raises the one-shot Repairs issue."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "time", DOMAIN, f"12000xp_{serial}_forced_charge_start_time_1"
         )
+
+        coordinator = _mock_coordinator(model="12000XP")
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+
+        await _setup_keys(hass, coordinator)
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_forced_charge_times_removed_{serial}"
+        )
+        assert issue is not None
+
+    @pytest.mark.asyncio
+    async def test_offgrid_no_repairs_issue_without_registered_entity(self, hass):
+        """No Forced Charge time entity in the registry → no Repairs issue
+        (schedule entities are disabled-by-default; most users never had one)."""
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        coordinator = _mock_coordinator(model="12000XP")
+        coordinator.data["devices"][serial]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+
+        await _setup_keys(hass, coordinator)
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_forced_charge_times_removed_{serial}"
+        )
+        assert issue is None
 
     @pytest.mark.asyncio
     async def test_setup_hybrid_family_gets_writetime_families(self, hass):
@@ -379,8 +428,8 @@ class TestTimePlatformSetup:
     async def test_setup_offgrid_model_without_family_features(self, hass):
         """A 12000XP model string WITHOUT detected features is control-capable
         but not positively EG4_OFFGRID/HYBRID: no AC First / writeTime families
-        (all fail closed on unknown family), forced discharge stays
-        (suppression also needs positive identification)."""
+        (all fail closed on unknown family), forced charge and forced
+        discharge stay (suppression also needs positive identification)."""
         coordinator = _mock_coordinator(model="12000XP")
 
         keys = await _setup_keys(hass, coordinator)

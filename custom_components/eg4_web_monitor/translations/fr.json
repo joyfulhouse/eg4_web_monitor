@@ -991,6 +991,10 @@
       "title": "Commande Battery Backup Mode retirée de {model} {serial}",
       "description": "Le commutateur **Battery Backup Mode** a été retiré de **{serial}** ({model}).\n\nL'activation de ce mode de fonctionnement est rejetée par le micrologiciel de la famille hors réseau d'EG4 (“failed to enable working mode” sur un 12000XP v2), et le portail EG4 lui-même n'expose aucun commutateur de mode de fonctionnement pour ces appareils. Le commutateur **EPS Battery Backup** n'est pas concerné.\n\nSi des automatisations ou tableaux de bord référençaient cette entité, supprimez ces références. Si vous pensez que votre appareil prend réellement en charge cette fonction, signalez-le dans les issues GitHub de l'intégration."
     },
+    "offgrid_forced_charge_times_removed": {
+      "title": "Horaires Forced Charge retirés de {model} {serial}",
+      "description": "Les réglages d'horaires **Forced Charge** (heures de début/fin, fenêtres 1-3) ont été retirés de **{serial}** ({model}).\n\nLe cloud EG4 rejette l'écriture de ces paramètres sur la famille hors réseau (REMOTE_SET_ERROR sur un 12000XP v2), et le portail EG4 lui-même n'expose aucun horaire Forced Charge pour ces appareils. Les horaires **AC Charge** et **AC First** ne sont pas concernés.\n\nSi des automatisations ou tableaux de bord référençaient ces entités, supprimez ces références. Si vous pensez que votre appareil prend réellement en charge cet horaire, signalez-le dans les issues GitHub de l'intégration."
+    },
     "dongle_validation_disabled": {
       "title": "Validation des données recommandée pour WiFi dongle",
       "description": "Un WiFi dongle est configuré mais la **Validation des données** est désactivée. Les WiFi dongles partagent un bus Modbus, et les lectures simultanées peuvent provoquer des données de registre corrompues (p. ex., pics d'énergie).\n\nPour corriger, allez dans **Paramètres > Appareils et services > EG4 Web Monitor > Configurer** et activez la **Validation des données**."
