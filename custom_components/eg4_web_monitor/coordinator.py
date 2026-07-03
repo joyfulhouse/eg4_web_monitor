@@ -104,6 +104,7 @@ from .coordinator_mixins import (
     ParameterManagementMixin,
 )
 from .const.sensors import SENSOR_TYPES
+from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -579,6 +580,29 @@ class EG4DataUpdateCoordinator(
         """
         return self.client is not None
 
+    def is_transport_link_down(self, serial: str) -> bool:
+        """Whether pylxpweb has declared this device's local transport link down.
+
+        pylxpweb keeps the transport ATTACHED while the link is down (reads
+        keep probing every cycle), so ``has_local_transport()`` stays True
+        during an outage. Control writes use this to prefer the cloud
+        immediately instead of waiting out a doomed Modbus timeout.
+        Duck-typed via ``getattr`` so MID devices and older pylxpweb versions
+        without the property simply report the link as up.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True if the device object reports ``transport_link_down``.
+        """
+        device: Any = self.get_inverter_object(serial) or self._get_device_object(
+            serial
+        )
+        if device is None:
+            device = self._mid_device_cache.get(serial)
+        return bool(getattr(device, "transport_link_down", False))
+
     def _has_modbus_transport(self) -> bool:
         """Check if any Modbus TCP/Serial transport is configured."""
         if self._modbus_transport is not None:
@@ -966,7 +990,8 @@ class EG4DataUpdateCoordinator(
 
         Sets register 179 bit 9 (charge) and bit 10 (discharge): SOC clears the
         bit, Voltage sets it. Routes through the local transport when available,
-        else the cloud function-control API.
+        falling back to the cloud function-control API on local write failure
+        (both paths set absolute bit state, so a double-write is safe).
 
         Raises:
             HomeAssistantError: If no write path is available or a write fails.
@@ -974,28 +999,39 @@ class EG4DataUpdateCoordinator(
         charge_voltage = charge_mode == CONTROL_MODE_VOLTAGE
         discharge_voltage = discharge_mode == CONTROL_MODE_VOLTAGE
 
-        if self.has_local_transport(serial):
+        async def _local_write() -> None:
             await self.write_named_parameter(
                 PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage, serial=serial
             )
             await self.write_named_parameter(
                 PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
             )
-        elif self.client is not None:
-            charge_result = await self.client.api.control.control_function(
+
+        async def _cloud_write() -> None:
+            client = self.client
+            if client is None:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available to set "
+                    "battery control mode."
+                )
+            charge_result = await client.api.control.control_function(
                 serial, PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage
             )
-            discharge_result = await self.client.api.control.control_function(
+            discharge_result = await client.api.control.control_function(
                 serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
             )
             if not (charge_result.success and discharge_result.success):
                 raise HomeAssistantError(
                     f"Failed to set battery control mode for {serial}"
                 )
-        else:
-            raise HomeAssistantError(
-                "No local transport or cloud API available to set battery control mode."
-            )
+
+        await async_write_with_cloud_fallback(
+            self,
+            serial,
+            "battery control mode",
+            local_write=_local_write,
+            cloud_write=_cloud_write,
+        )
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.

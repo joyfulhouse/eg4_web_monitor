@@ -2859,6 +2859,46 @@ class TestBatteryControlModeMethods:
         assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
         assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)
 
+    async def test_async_write_battery_control_mode_hybrid_fallback(
+        self, hass, local_config_entry
+    ):
+        """HYBRID: a failed local write falls back to the cloud
+        function-control API instead of raising (switch parity)."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(return_value=result)
+
+        await coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        calls = coordinator.client.api.control.control_function.call_args_list
+        assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", True)
+        assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", False)
+
+    async def test_async_write_battery_control_mode_local_only_failure_raises(
+        self, hass, local_config_entry
+    ):
+        """LOCAL-only: no cloud client -> the local write error propagates."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        coordinator.client = None
+
+        with pytest.raises(HomeAssistantError, match="timeout"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "soc"
+            )
+
 
 # ── Transport link-down flow (eg4-57g / #226 attached-but-dead) ──────
 

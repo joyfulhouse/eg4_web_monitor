@@ -2,14 +2,18 @@
 
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .coordinator import EG4DataUpdateCoordinator
 
 from .const import (
     BATTERY_KEY_PREFIX,
@@ -39,6 +43,77 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
         INVERTER_FAMILY_LXP,
     }
 )
+
+
+async def async_write_with_cloud_fallback(
+    coordinator: "EG4DataUpdateCoordinator",
+    serial: str,
+    action_name: str,
+    *,
+    local_write: Callable[[], Awaitable[Any]],
+    cloud_write: Callable[[], Awaitable[Any]] | None = None,
+) -> None:
+    """Attempt a local register write, falling back to the cloud API.
+
+    The non-switch counterpart of ``EG4BaseSwitch._execute_local_with_fallback``:
+    time/number/select controls used to choose the local write path purely on
+    transport ATTACHMENT, but pylxpweb keeps the transport attached while the
+    link is down (``transport_link_down`` — reads keep probing every cycle).
+    In HYBRID mode with a down local link and a healthy cloud, those writes
+    raised without ever trying their cloud branch, while switches fell back.
+
+    Semantics:
+
+    - Local transport attached, link believed up: try ``local_write`` first;
+      on ``HomeAssistantError`` retry via ``cloud_write`` when a cloud client
+      exists (both paths set absolute state, so a double-write is safe).
+      Without a cloud client the local error propagates unchanged, so
+      LOCAL-only installs keep their existing error behavior.
+    - Local transport attached but pylxpweb reports the link DOWN: go straight
+      to the cloud instead of waiting out a doomed Modbus timeout. Reads keep
+      probing the link each poll cycle, so recovery re-enables local writes.
+    - No local transport: cloud path, or the standard no-transport error.
+
+    Args:
+        coordinator: The data update coordinator (transport + cloud access).
+        serial: Device serial number the write targets.
+        action_name: Human-readable action label for log messages.
+        local_write: Coroutine factory performing the local register write.
+        cloud_write: Coroutine factory performing the equivalent cloud write,
+            or None when the action has no cloud path (raw-register-only
+            controls) — local errors then propagate unchanged.
+
+    Raises:
+        HomeAssistantError: If all available write paths fail, or none exist.
+    """
+    if coordinator.has_local_transport(serial):
+        cloud_available = cloud_write is not None and coordinator.has_http_api()
+        if cloud_available and coordinator.is_transport_link_down(serial):
+            _LOGGER.warning(
+                "Local transport link is down for device %s; writing %s via "
+                "the cloud API",
+                serial,
+                action_name,
+            )
+        else:
+            try:
+                await local_write()
+                return
+            except HomeAssistantError:
+                if not cloud_available:
+                    raise
+                _LOGGER.warning(
+                    "Local transport write failed for %s on device %s, "
+                    "falling back to cloud API",
+                    action_name,
+                    serial,
+                )
+    if cloud_write is not None and coordinator.has_http_api():
+        await cloud_write()
+        return
+    raise HomeAssistantError(
+        "No local transport or cloud API available for parameter write."
+    )
 
 
 def is_supported_control_model(device_data: dict[str, Any]) -> bool:
