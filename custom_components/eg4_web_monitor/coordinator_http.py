@@ -706,9 +706,9 @@ class HTTPUpdateMixin(_MixinBase):
         }
 
         # DST flag consumed by the Daylight Saving Time switch. Refreshes at
-        # station load, on HA-side writes (set_daylight_saving_time), and on
-        # the hourly DST sync — a portal-side toggle is picked up at the next
-        # config entry reload or DST sync.
+        # station load, on HA-side writes (set_daylight_saving_time), and is
+        # re-read from the cloud during each hourly DST sync — with DST sync
+        # disabled, portal-side toggles are only picked up on entry reload.
         processed["station"]["daylightSavingTime"] = bool(
             getattr(self.station, "daylight_saving_time", False)
         )

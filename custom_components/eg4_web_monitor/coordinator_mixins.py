@@ -2702,6 +2702,24 @@ class DSTSyncMixin(_MixinBase):
                 self._last_dst_sync = dt_util.utcnow()
                 return
 
+            # Re-read the cloud-side DST flag before syncing.
+            # sync_dst_setting() compares the detected status against the
+            # CACHED daylight_saving_time flag, which is otherwise only set
+            # at Station.load and by our own writes — without this refresh
+            # a portal-side toggle would leave the cache (and the HA
+            # switch) stale forever and turn the sync into a no-op. On
+            # fetch failure, proceed with the cached value.
+            try:
+                self.station.daylight_saving_time = bool(
+                    await self.station.get_daylight_saving_time_enabled()
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not refresh DST flag for station %s: %s",
+                    self.plant_id,
+                    err,
+                )
+
             sync_result = await self.station.sync_dst_setting()
             if sync_result:
                 _LOGGER.debug(
