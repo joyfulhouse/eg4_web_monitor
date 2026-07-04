@@ -1,5 +1,7 @@
 """Unit tests for button entity logic without HA instance."""
 
+import types
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
@@ -7,6 +9,9 @@ from custom_components.eg4_web_monitor.button import (
     EG4RefreshButton,
     EG4BatteryRefreshButton,
     EG4StationRefreshButton,
+)
+from custom_components.eg4_web_monitor.coordinator_mixins import (
+    ParameterManagementMixin,
 )
 
 
@@ -44,16 +49,12 @@ class TestEG4RefreshButton:
 
     @pytest.mark.asyncio
     async def test_async_press_refreshes_coordinator(self):
-        """Test pressing button refreshes coordinator."""
+        """Pressing the button runs the gated parameter refresh path (#322)."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
         coordinator.get_device_info.return_value = {}
         coordinator.async_request_refresh = AsyncMock()
-
-        # Mock inverter object with async refresh method
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+        coordinator._refresh_device_parameters = AsyncMock()
 
         device_data = {"type": "inverter"}
 
@@ -66,9 +67,82 @@ class TestEG4RefreshButton:
 
         await entity.async_press()
 
-        # Verify inverter refresh was called
-        mock_inverter.refresh.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        # The inverter path delegates to the coordinator's link-down-gated
+        # force refresh (which includes holding-register parameters).
+        coordinator._refresh_device_parameters.assert_awaited_once_with("1234567890")
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_forces_refresh_with_parameters(self):
+        """The button press force-refreshes the device INCLUDING parameters.
+
+        Uses the real ParameterManagementMixin._refresh_device_parameters so
+        the assertion covers the actual pylxpweb call: a bare refresh() would
+        serve cached TTL data and never read holding registers (#322).
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = types.MethodType(
+            ParameterManagementMixin._refresh_device_parameters, coordinator
+        )
+
+        mock_inverter = MagicMock()
+        mock_inverter.transport = None  # no local transport -> link not down
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.parameters = {"HOLD_110": 8}
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        await entity.async_press()
+
+        mock_inverter.refresh.assert_awaited_once_with(
+            force=True, include_parameters=True
+        )
+        # Fresh parameters are stored for entity consumption
+        assert coordinator.data["parameters"]["1234567890"] == {"HOLD_110": 8}
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_link_down_skips_device_read(self):
+        """With the local transport link down, no device read is attempted.
+
+        The is_transport_link_down gate in _refresh_device_parameters must
+        short-circuit (Python 3.11 asyncio.wait_for cannot interrupt in-flight
+        pymodbus reads on a dead link); the coordinator refresh still runs.
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = types.MethodType(
+            ParameterManagementMixin._refresh_device_parameters, coordinator
+        )
+
+        mock_inverter = MagicMock()
+        mock_inverter.transport = MagicMock()  # attached...
+        mock_inverter.transport_link_down = True  # ...but dead link
+        mock_inverter.refresh = AsyncMock()
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        await entity.async_press()
+
+        mock_inverter.refresh.assert_not_awaited()
+        coordinator.async_request_refresh.assert_awaited_once()
 
     def test_device_info(self):
         """Test device info is correctly set."""
@@ -137,9 +211,9 @@ class TestEG4BatteryRefreshButton:
 
         await entity.async_press()
 
-        # Verify parent inverter refresh was called (which refreshes batteries)
-        mock_inverter.refresh.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        # Parent inverter refresh must bypass the pylxpweb cache TTLs (#322)
+        mock_inverter.refresh.assert_awaited_once_with(force=True)
+        coordinator.async_request_refresh.assert_awaited_once()
 
     def test_unique_id(self):
         """Test unique ID includes battery key."""

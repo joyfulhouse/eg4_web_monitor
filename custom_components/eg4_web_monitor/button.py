@@ -240,16 +240,25 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
             device_type = device_data.get("type", "unknown")
 
             if device_type == "inverter":
-                # Get inverter object and refresh
-                inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
-                    _LOGGER.debug(
-                        "Refreshing inverter device object for %s", self._serial
-                    )
-                    await inverter.refresh()
-                    _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
-                else:
-                    _LOGGER.warning("Inverter object not found for %s", self._serial)
+                # Force a full refresh INCLUDING parameters (holding
+                # registers).  A bare refresh() respects pylxpweb cache TTLs
+                # (re-reads nothing shortly after a poll) and never touches
+                # parameters, so control values changed outside HA (e.g. on
+                # the EG4 portal) took until the hourly parameter cycle to
+                # appear (#322).  The coordinator helper calls
+                # inverter.refresh(force=True, include_parameters=True),
+                # stores the fresh parameters, and is gated on
+                # is_transport_link_down (a dead local link would otherwise
+                # hang uninterruptibly).  The private method is used instead
+                # of async_refresh_device_parameters() because the public
+                # wrapper swallows exceptions (this button must log + raise)
+                # and triggers its own coordinator refresh (double-read).
+                _LOGGER.debug(
+                    "Force-refreshing inverter %s including parameters",
+                    self._serial,
+                )
+                await self.coordinator._refresh_device_parameters(self._serial)
+                _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
 
             # For other device types or as fallback, trigger coordinator refresh
             await self.coordinator.async_request_refresh()
@@ -317,10 +326,14 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
                 self._battery_key,
             )
 
-            # Get parent inverter object and refresh (which refreshes all batteries)
+            # Get parent inverter object and refresh (which refreshes all
+            # batteries).  force=True bypasses the pylxpweb cache TTLs so a
+            # press actually re-reads instead of serving cached data (#322);
+            # parameters are not needed here (battery data lives in input
+            # registers).
             inverter = self.coordinator.get_inverter_object(self._parent_serial)
             if inverter:
-                await inverter.refresh()
+                await inverter.refresh(force=True)
             else:
                 _LOGGER.warning(
                     "Parent inverter object not found for %s", self._parent_serial
