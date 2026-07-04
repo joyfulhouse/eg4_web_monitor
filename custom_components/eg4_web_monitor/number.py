@@ -52,6 +52,7 @@ from .const import (
     GRID_SELL_BACK_POWER_MAX,
     GRID_SELL_BACK_POWER_MIN,
     GRID_SELL_BACK_POWER_STEP,
+    PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
@@ -1106,6 +1107,14 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
     register encoding (presumed deci-kW) is unverified. The cloud write goes
     by parameter NAME, so the server resolves the true register and accepts
     float kW — local transport name-writes are never used for this control.
+
+    Firmware coupling to Peak Shaving mode (#328, live-verified 2026-07):
+    the inverter only accepts this setpoint while Peak Shaving mode
+    (FUNC_GRID_PEAK_SHAVING, reg 179 bit 7) is enabled — writes with the
+    mode off fail param-specifically with DATAFRAME_TIMEOUT — and the
+    firmware ZEROES the stored setpoint whenever the mode deactivates. A
+    0 readback right after the mode turns off is therefore firmware
+    behavior, not a read bug.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1151,6 +1160,13 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         unverified, so local raw writes cannot be constructed safely. The
         cloud name-write works in CLOUD and HYBRID modes; in pure-LOCAL mode
         this control cannot be written.
+
+        Pre-check (#328): the firmware rejects this write (DATAFRAME_TIMEOUT)
+        while Peak Shaving mode is disabled, and clears the setpoint whenever
+        the mode deactivates — so a write with the mode known-off is refused
+        up front with a clear message. When the mode state is unknown (the
+        parameter is absent from coordinator data) the write proceeds
+        fail-open rather than blocking on missing data.
         """
         if value < 0.0 or value > 25.5:
             raise HomeAssistantError(
@@ -1162,6 +1178,14 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 "register encoding is unverified (the previous local write "
                 "path targeted the wrong register). Add cloud credentials to "
                 "this integration entry to use this control."
+            )
+        mode_state = self._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+        if mode_state is not None and not mode_state:
+            raise ServiceValidationError(
+                "Peak Shaving mode is disabled — enable it first: the "
+                "inverter rejects the power setpoint while the mode is off, "
+                "and the firmware clears the setpoint whenever the mode "
+                "deactivates."
             )
         _LOGGER.info(
             "Setting grid peak shaving power to %.1f kW for %s", value, self.serial

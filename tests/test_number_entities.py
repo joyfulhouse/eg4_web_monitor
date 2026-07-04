@@ -1234,6 +1234,73 @@ class TestGridPeakShavingPowerNumber:
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.set_grid_peak_shaving_power.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_write_mode_disabled_raises(self):
+        """#328: Peak Shaving mode known-OFF refuses the write up front —
+        the firmware rejects it (DATAFRAME_TIMEOUT) and clears the setpoint
+        while the mode is off, so a silent attempt would misreport success."""
+        coordinator = _mock_coordinator(
+            has_local=False,
+            has_http=True,
+            parameters={"FUNC_GRID_PEAK_SHAVING": False},
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(ServiceValidationError, match="Peak Shaving mode"):
+            await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_mode_disabled_int_zero_raises(self):
+        """#328: local param refreshes report FUNC bits as 0/1 ints — a raw
+        0 must gate exactly like False."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={"FUNC_GRID_PEAK_SHAVING": 0},
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(ServiceValidationError, match="Peak Shaving mode"):
+            await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_mode_enabled_proceeds(self):
+        """#328: Peak Shaving mode ON — the write goes through normally."""
+        coordinator = _mock_coordinator(
+            has_local=False,
+            has_http=True,
+            parameters={"FUNC_GRID_PEAK_SHAVING": True},
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_called_once_with(power_kw=5.0)
+
+    @pytest.mark.asyncio
+    async def test_write_mode_unknown_fails_open(self):
+        """#328: mode param absent from coordinator data (e.g. params not
+        yet fetched) — proceed with the write rather than blocking on
+        missing data (fail-open)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_called_once_with(power_kw=5.0)
+
     def test_native_value_from_inverter_attr(self):
         """Cloud modes read the kW value from the pylxpweb property."""
         coordinator = _mock_coordinator(
