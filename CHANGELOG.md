@@ -5,6 +5,21 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.24] - 2026-07-04
+
+> Requires [pylxpweb 0.9.36b25](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b25)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **Daylight Saving Time switch always showed OFF** ([#324](https://github.com/joyfulhouse/eg4_web_monitor/pull/324), closes [#323](https://github.com/joyfulhouse/eg4_web_monitor/issues/323)): the station DST switch read a key the coordinator never populated, so it was pinned OFF regardless of the portal state — since the feature was introduced. Two further bugs fixed in the same pass: the hourly DST auto-sync misread the detected-DST semantics and never corrected a stale cloud flag during summer (exactly the reported season), and the sync compared against a cached flag that nothing ever re-read — portal-side DST changes were invisible forever. The switch now mirrors the cloud flag, and the hourly sync re-reads it from the cloud before comparing, so portal-side changes converge within an hour.
+- **Refresh Data button now forces a genuinely full refresh** ([#325](https://github.com/joyfulhouse/eg4_web_monitor/pull/325), closes [#322](https://github.com/joyfulhouse/eg4_web_monitor/issues/322)): the button previously issued a cache-respecting refresh (a no-op within ~30 s of a poll) and never touched holding-register parameters, so a control value changed on the EG4 portal (e.g. Share Battery) could take until the hourly parameter cycle — minutes to an hour — to appear in HA. A press now forces runtime + energy + battery + **parameters**, bypassing all caches. Two review-round hardenings: the coordinator's obsolete link-down skip was removed so a HYBRID system with a dead local link now refreshes parameters via the cloud fallback (pylxpweb's own guard handles routing safely, no hang risk), and a press that reads nothing (device unreachable) now raises a visible error instead of silently reporting success. The per-battery Refresh Data button also forces its read now.
+- **Fast block-size mode no longer permanently reverts on a misrouted dongle frame** ([#320](https://github.com/joyfulhouse/eg4_web_monitor/issues/320), pylxpweb [#211](https://github.com/joyfulhouse/pylxpweb/pull/211)): with the Modbus Read Block Size option on Fast, a single misrouted WiFi-dongle response (a frame meant for the EG4 cloud, or an unsolicited heartbeat) tripped the "old firmware" probe latch and silently reverted the connection to conservative grouped reads until reload. Misrouted/unsolicited frames — now including heartbeat and proxied parameter frames, which previously slipped past validation — are classified as transient: the cycle falls back to grouped reads and Fast mode re-probes after a ~5-minute cooldown. Genuine firmware refusals (Modbus exceptions, timeouts, short responses) still latch permanently as designed.
+
+### Review
+
+Every PR passed a dual review gate (Opus code review + adversarial second review). The adversarial pass found three confirmed P1s after Opus passed both integration PRs clean — all fixed in review rounds before merge. Codex quota was exhausted this cycle; Antigravity served as the adversarial reviewer.
+
 ## [3.4.0-beta.23] - 2026-07-03
 
 > Requires [pylxpweb 0.9.36b24](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b24)
