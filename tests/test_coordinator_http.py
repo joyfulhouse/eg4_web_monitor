@@ -360,6 +360,36 @@ class TestProcessStationData:
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_station_dst_flag_true(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Station dict mirrors station.daylight_saving_time=True (#323)."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.station = _mock_station()
+        coordinator.station.daylight_saving_time = True
+
+        result = await coordinator._process_station_data()
+
+        assert result["station"]["daylightSavingTime"] is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_station_dst_flag_false(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """Station dict mirrors station.daylight_saving_time=False (#323)."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.station = _mock_station()
+        coordinator.station.daylight_saving_time = False
+
+        result = await coordinator._process_station_data()
+
+        assert result["station"]["daylightSavingTime"] is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
     async def test_no_station_raises(
         self, mock_aiohttp, mock_client_cls, hass, http_config_entry
     ):

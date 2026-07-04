@@ -331,6 +331,92 @@ class TestDSTSynchronization:
         ):
             assert coordinator._should_sync_dst() is False
 
+    async def test_perform_dst_sync_syncs_when_dst_active(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=True must still call sync_dst_setting (#323).
+
+        The old code treated True as "already correct" and never synced,
+        leaving an API flag stuck at False all summer.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+        # Reporter's state: API flag stuck at False during summer
+        mock_station_object.daylight_saving_time = False
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_syncs_when_dst_inactive(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=False also calls sync_dst_setting."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=False)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_skips_when_undeterminable(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=None skips sync but stamps the timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=None)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_not_awaited()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_failure_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """A failed sync (returns False) still stamps _last_dst_sync."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=False)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_exception_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """An exception during sync still stamps _last_dst_sync (no hot loop)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(
+            side_effect=RuntimeError("api error")
+        )
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_noop_when_no_station(self, hass, mock_config_entry):
+        """No station loaded -> no sync attempt, no timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = None
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is None
+
 
 class TestParameterRefresh:
     """Test hourly parameter refresh."""

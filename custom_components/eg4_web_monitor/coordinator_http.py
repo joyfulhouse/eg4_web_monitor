@@ -705,6 +705,14 @@ class HTTPUpdateMixin(_MixinBase):
             "station_last_polled": dt_util.utcnow(),
         }
 
+        # DST flag consumed by the Daylight Saving Time switch. Refreshes at
+        # station load, on HA-side writes (set_daylight_saving_time), and on
+        # the hourly DST sync — a portal-side toggle is picked up at the next
+        # config entry reload or DST sync.
+        processed["station"]["daylightSavingTime"] = bool(
+            getattr(self.station, "daylight_saving_time", False)
+        )
+
         if timezone := getattr(self.station, "timezone", None):
             processed["station"]["timezone"] = timezone
 
