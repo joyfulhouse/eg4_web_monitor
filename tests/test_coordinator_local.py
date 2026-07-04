@@ -3344,11 +3344,14 @@ class TestBatteryControlModeMethods:
 
 
 class TestLinkDownParameterRefreshGate:
-    """Parameter refreshes must skip attached-but-dead links (codex P1 on
-    PR #301): pylxpweb's parameter fetch has no transport_link_down gate
-    (unlike runtime/energy/battery), so a local param read on a down link
-    hangs for minutes (Python 3.11 asyncio.wait_for cannot interrupt
-    in-flight pymodbus reads)."""
+    """Link-down handling is delegated to pylxpweb's _fetch_parameters guard
+    (pylxpweb#206, in the 0.9.36b24 floor pinned by manifest.json): it skips
+    the local Modbus read on a dead link (no uninterruptible pymodbus hang)
+    and falls back to cloud named-parameter reads in HYBRID, or skips
+    cleanly in LOCAL (parameters_complete=False).  The coordinator-side hard
+    skip that preceded it (codex P1 on PR #301) blocked exactly that cloud
+    fallback and was removed in #322 — down-link serials must still be
+    refreshed with force + parameters."""
 
     @staticmethod
     def _fake_inverter(*, link_down: bool, parameters: dict | None = None):
@@ -3359,14 +3362,15 @@ class TestLinkDownParameterRefreshGate:
         inv.parameters = parameters or {}
         return inv
 
-    async def test_refresh_all_skips_only_down_link_serials(
+    async def test_refresh_all_includes_down_link_serials(
         self, hass, local_config_entry
     ):
-        """refresh_all_device_parameters: the down serial is skipped, the
-        healthy sibling is still refreshed."""
+        """refresh_all_device_parameters: the down serial is refreshed too —
+        pylxpweb routes it via cloud fallback (HYBRID) or skips internally
+        (LOCAL); the healthy sibling refreshes as before."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-        down = self._fake_inverter(link_down=True)
+        down = self._fake_inverter(link_down=True, parameters={"HOLD_Y": 2})
         up = self._fake_inverter(link_down=False, parameters={"HOLD_X": 1})
         coordinator._inverter_cache = {"DOWN1": down, "UP1": up}
         coordinator.data = {
@@ -3378,14 +3382,15 @@ class TestLinkDownParameterRefreshGate:
 
         await coordinator.refresh_all_device_parameters()
 
-        down.refresh.assert_not_awaited()
+        down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
         up.refresh.assert_awaited_once_with(force=True, include_parameters=True)
         assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
+        assert coordinator.data["parameters"]["DOWN1"] == {"HOLD_Y": 2}
 
-    async def test_async_refresh_device_parameters_skips_down_link(
+    async def test_async_refresh_device_parameters_refreshes_down_link(
         self, hass, local_config_entry
     ):
-        """The single-serial public refresh path is gated the same way."""
+        """The single-serial public refresh path delegates the same way."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
         down = self._fake_inverter(link_down=True)
@@ -3395,7 +3400,7 @@ class TestLinkDownParameterRefreshGate:
 
         await coordinator.async_refresh_device_parameters("DOWN1")
 
-        down.refresh.assert_not_awaited()
+        down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
 
     async def test_note_parameters_written_merges_and_notifies(
         self, hass, local_config_entry

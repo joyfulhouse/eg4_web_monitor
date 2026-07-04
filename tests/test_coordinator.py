@@ -7228,8 +7228,9 @@ class TestQuickChargeOffgridCloudStatus:
     ):
         """Codex round-3: an attached-but-dead transport link must not be
         touched — a raw read_parameters on it is the uninterruptible
-        multi-minute pymodbus hang class (same gate as
-        _refresh_device_parameters). No transport read is attempted; minute
+        multi-minute pymodbus hang class (not covered by pylxpweb's
+        _fetch_parameters link-down guard). No transport read is attempted;
+        minute
         degrades to None (stored-preference fallback); the cloud active flag
         is unaffected."""
         mock_config_entry.add_to_hass(hass)

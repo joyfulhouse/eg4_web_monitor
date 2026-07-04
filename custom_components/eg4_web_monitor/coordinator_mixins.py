@@ -786,10 +786,11 @@ class DeviceProcessingMixin(_MixinBase):
 
         Skipped while the transport link is down: a raw ``read_parameters``
         on an attached-but-dead link is the multi-minute pymodbus hang class
-        that Python 3.11's ``asyncio.wait_for`` cannot interrupt (same gate
-        as ``_refresh_device_parameters``) — and this read fires on every
-        30s-throttled status poll, in exactly the HYBRID configuration where
-        the link can be down. Degrades to None like a failed read.
+        that Python 3.11's ``asyncio.wait_for`` cannot interrupt (pylxpweb's
+        ``_fetch_parameters`` link-down guard does not cover raw transport
+        reads like this one) — and this read fires on every 30s-throttled
+        status poll, in exactly the HYBRID configuration where the link can
+        be down. Degrades to None like a failed read.
         """
         transport = getattr(inverter, "transport", None)
         if transport is None:
@@ -2524,26 +2525,19 @@ class ParameterManagementMixin(_MixinBase):
     async def _refresh_device_parameters(self, serial: str) -> None:
         """Refresh parameters for a specific device using device object.
 
-        Skipped while the device's local transport link is down: pylxpweb's
-        parameter fetch has no ``transport_link_down`` gate (unlike its
-        runtime/energy/battery reads), so an attached-but-dead link would
-        attempt local Modbus reads that Python 3.11's ``asyncio.wait_for``
-        cannot interrupt (multi-minute hangs). The regular poll re-probes
-        the link every cycle and parameters refresh on recovery; entities
-        converge on written values via ``note_parameters_written()``.
+        Link-down handling is delegated to pylxpweb's ``_fetch_parameters``
+        guard (pylxpweb#206, shipped in the 0.9.36b24 floor pinned by
+        manifest.json): while the local transport link is down it skips the
+        local Modbus read (no uninterruptible pymodbus hang) and falls back
+        to cloud named-parameter reads in HYBRID, or skips cleanly in LOCAL
+        with ``parameters_complete`` set False.  Gating here would BLOCK
+        that cloud fallback — in HYBRID with a dead link parameters could
+        refresh via cloud but never would (#322 review).
         """
         try:
             inverter = self.get_inverter_object(serial)
             if not inverter:
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
-                return
-
-            if is_transport_link_down(inverter):
-                _LOGGER.debug(
-                    "Skipping parameter refresh for %s: local transport link "
-                    "is down (re-probed by the regular poll cycle)",
-                    serial,
-                )
                 return
 
             # Use force=True to bypass cache when refreshing parameters after changes

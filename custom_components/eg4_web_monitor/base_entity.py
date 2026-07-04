@@ -1102,11 +1102,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             )
 
             # Seed the acknowledged value BEFORE the refresh/optimistic-clear
-            # (#310): under a down local link the parameter refresh below is a
-            # no-op, so without the seed this method would publish the STALE
-            # pre-write state when it clears the optimistic value — a
-            # wrong-then-corrected double transition (recorder pollution,
-            # automation misfires on the intermediate value).
+            # (#310): under a down local link the parameter refresh below
+            # cannot read the device locally (LOCAL-only: no data at all;
+            # HYBRID: cloud re-read can lag or fail), so without the seed
+            # this method could publish the STALE pre-write state when it
+            # clears the optimistic value — a wrong-then-corrected double
+            # transition (recorder pollution, automation misfires on the
+            # intermediate value).
             if seed_param_key is not None:
                 self._seed_cloud_written_parameter(seed_param_key, turn_on)
 
@@ -1257,10 +1259,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         Convergence for cloud-fallback writes while a local transport is
         attached (GH #310, the switch counterpart of
         :func:`utils.async_write_with_cloud_fallback` seeding): under a down
-        local link the post-write parameter refresh is skipped
-        (``_refresh_device_parameters``), so without the seed ``is_on`` would
-        revert to the stale pre-write cache value once the optimistic state
-        clears, until link recovery. The seed is the local-raw representation
+        local link the post-write parameter refresh cannot read the device
+        locally (pylxpweb skips the local read — LOCAL-only installs get no
+        data at all, and a HYBRID cloud re-read can lag or fail), so without
+        the seed ``is_on`` could revert to the stale pre-write cache value
+        once the optimistic state clears. The seed is the local-raw representation
         (bit params read back as ``bool``), and a later successful parameter
         read overwrites it with fresh device data.
 
@@ -1335,9 +1338,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             )
 
             # Seed the acknowledged value BEFORE the refresh/optimistic-clear:
-            # under a down local link the parameter refresh below is skipped,
-            # and is_on would otherwise revert to the stale pre-write cache
-            # value once the optimistic state clears (#310).
+            # under a down local link the parameter refresh below cannot read
+            # the device locally (LOCAL-only: skipped; HYBRID: cloud re-read
+            # can lag or fail), and is_on would otherwise revert to the stale
+            # pre-write cache value once the optimistic state clears (#310).
             if seed_param_key is not None:
                 self._seed_cloud_written_parameter(seed_param_key, value)
 
