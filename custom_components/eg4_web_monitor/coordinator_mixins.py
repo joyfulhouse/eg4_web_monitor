@@ -2688,36 +2688,51 @@ class DSTSyncMixin(_MixinBase):
             return
 
         try:
+            # detect_dst_status() returns the ACTUAL DST state for the
+            # configured IANA timezone (True=DST in effect, False=not,
+            # None=cannot determine). It says nothing about whether the
+            # API flag matches — sync_dst_setting() performs that
+            # comparison itself and no-ops when already correct.
             dst_status = self.station.detect_dst_status()
-            if dst_status is False:
-                _LOGGER.info(
-                    "DST mismatch detected for station %s, syncing DST setting",
-                    self.plant_id,
-                )
-                sync_result = await self.station.sync_dst_setting()
-                if sync_result:
-                    _LOGGER.info(
-                        "DST setting synchronized successfully for station %s",
-                        self.plant_id,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to synchronize DST setting for station %s",
-                        self.plant_id,
-                    )
-                self._last_dst_sync = dt_util.utcnow()
-            elif dst_status is True:
-                _LOGGER.debug(
-                    "DST setting is already correct for station %s",
-                    self.plant_id,
-                )
-                self._last_dst_sync = dt_util.utcnow()
-            else:
+            if dst_status is None:
                 _LOGGER.debug(
                     "DST status could not be determined for station %s",
                     self.plant_id,
                 )
                 self._last_dst_sync = dt_util.utcnow()
+                return
+
+            # Re-read the cloud-side DST flag before syncing.
+            # sync_dst_setting() compares the detected status against the
+            # CACHED daylight_saving_time flag, which is otherwise only set
+            # at Station.load and by our own writes — without this refresh
+            # a portal-side toggle would leave the cache (and the HA
+            # switch) stale forever and turn the sync into a no-op. On
+            # fetch failure, proceed with the cached value.
+            try:
+                self.station.daylight_saving_time = bool(
+                    await self.station.get_daylight_saving_time_enabled()
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not refresh DST flag for station %s: %s",
+                    self.plant_id,
+                    err,
+                )
+
+            sync_result = await self.station.sync_dst_setting()
+            if sync_result:
+                _LOGGER.debug(
+                    "DST setting verified/synchronized for station %s (actual DST: %s)",
+                    self.plant_id,
+                    dst_status,
+                )
+            else:
+                _LOGGER.warning(
+                    "Failed to synchronize DST setting for station %s",
+                    self.plant_id,
+                )
+            self._last_dst_sync = dt_util.utcnow()
         except Exception as e:
             _LOGGER.warning(
                 "Error during DST sync for station %s: %s", self.plant_id, e

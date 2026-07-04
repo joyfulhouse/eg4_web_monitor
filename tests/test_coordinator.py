@@ -149,6 +149,8 @@ def mock_station_object(mock_inverter):
     mock.refresh_all_data = AsyncMock()
     mock.detect_dst_status = MagicMock(return_value=True)
     mock.sync_dst_setting = AsyncMock(return_value=True)
+    mock.daylight_saving_time = True
+    mock.get_daylight_saving_time_enabled = AsyncMock(return_value=True)
     return mock
 
 
@@ -330,6 +332,167 @@ class TestDSTSynchronization:
             return_value=time_mid_hour,
         ):
             assert coordinator._should_sync_dst() is False
+
+    async def test_perform_dst_sync_syncs_when_dst_active(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=True must still call sync_dst_setting (#323).
+
+        The old code treated True as "already correct" and never synced,
+        leaving an API flag stuck at False all summer.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+        # Reporter's state: API flag stuck at False during summer
+        mock_station_object.daylight_saving_time = False
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_syncs_when_dst_inactive(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=False also calls sync_dst_setting."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=False)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_skips_when_undeterminable(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=None skips sync but stamps the timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=None)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_not_awaited()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_failure_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """A failed sync (returns False) still stamps _last_dst_sync."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=False)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_exception_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """An exception during sync still stamps _last_dst_sync (no hot loop)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(
+            side_effect=RuntimeError("api error")
+        )
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_noop_when_no_station(self, hass, mock_config_entry):
+        """No station loaded -> no sync attempt, no timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = None
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is None
+
+    async def test_perform_dst_sync_noop_when_disabled(self, hass, mock_station_object):
+        """DST sync disabled -> immediate return, no sync, no timestamp."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Web Monitor - Test Plant",
+            data={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "test_pass",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test Plant",
+            },
+            entry_id="dst_disabled_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.station = mock_station_object
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_not_awaited()
+        mock_station_object.get_daylight_saving_time_enabled.assert_not_awaited()
+        assert coordinator._last_dst_sync is None
+
+    async def test_perform_dst_sync_refreshes_cached_flag_from_cloud(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """Cached flag True, cloud says False -> flag updated BEFORE sync (#323).
+
+        The cached daylight_saving_time flag is otherwise only set at
+        Station.load and by our own writes, so portal-side toggles would
+        stay invisible forever without this re-read.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.daylight_saving_time = True
+        mock_station_object.get_daylight_saving_time_enabled = AsyncMock(
+            return_value=False
+        )
+
+        flag_at_sync_time: list[bool] = []
+
+        async def record_sync() -> bool:
+            flag_at_sync_time.append(mock_station_object.daylight_saving_time)
+            return True
+
+        mock_station_object.sync_dst_setting = AsyncMock(side_effect=record_sync)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.get_daylight_saving_time_enabled.assert_awaited_once()
+        # Flag was refreshed from the cloud before sync_dst_setting ran
+        assert mock_station_object.daylight_saving_time is False
+        assert flag_at_sync_time == [False]
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_flag_fetch_failure_uses_cached(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """Cloud flag fetch failure -> proceed with cached value, still sync."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.daylight_saving_time = True
+        mock_station_object.get_daylight_saving_time_enabled = AsyncMock(
+            side_effect=RuntimeError("api error")
+        )
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert mock_station_object.daylight_saving_time is True
+        assert coordinator._last_dst_sync is not None
 
 
 class TestParameterRefresh:
