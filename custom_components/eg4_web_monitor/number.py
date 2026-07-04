@@ -1164,15 +1164,19 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         Pre-check (#328): the firmware rejects this write (DATAFRAME_TIMEOUT)
         while Peak Shaving mode is disabled, and clears the setpoint whenever
         the mode deactivates — so a write with the mode known-off is refused
-        up front with a clear message. When the mode state is unknown (the
-        parameter is absent from coordinator data) the write proceeds
+        up front with a clear message. Because the parameter cache refreshes
+        ~hourly, a cached False is confirmed with a live reg-179 cloud read
+        before blocking (verify-then-block) so a mode just enabled on the
+        portal/LCD isn't wrongly refused. When the mode state is unknown
+        (parameter absent, or the live read fails) the write proceeds
         fail-open rather than blocking on missing data.
         """
         if value < 0.0 or value > 25.5:
             raise HomeAssistantError(
                 f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
             )
-        if self.coordinator.client is None:
+        client = self.coordinator.client
+        if client is None:
             raise HomeAssistantError(
                 "Grid peak shaving power requires the cloud API: the local "
                 "register encoding is unverified (the previous local write "
@@ -1181,12 +1185,40 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
             )
         mode_state = self._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
         if mode_state is not None and not mode_state:
-            raise ServiceValidationError(
-                "Peak Shaving mode is disabled — enable it first: the "
-                "inverter rejects the power setpoint while the mode is off, "
-                "and the firmware clears the setpoint whenever the mode "
-                "deactivates."
-            )
+            # Verify-then-block: the parameter cache refreshes ~hourly, so a
+            # user who just enabled Peak Shaving mode on the EG4 portal or
+            # the inverter LCD would otherwise be locked out by a stale
+            # cached False until the next refresh. Confirm with a live
+            # single-register cloud read (reg 179 carries the FUNC bit)
+            # before refusing; if the read fails or omits the bit, fail
+            # open — the firmware is the final arbiter of the write.
+            try:
+                response = await client.api.control.read_parameters(
+                    self.serial, start_register=179, point_number=1
+                )
+                mode_state = response.parameters.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+            except Exception as err:
+                _LOGGER.debug(
+                    "Live Peak Shaving mode check for %s failed (%s); "
+                    "proceeding fail-open",
+                    self.serial,
+                    err,
+                )
+                mode_state = None
+            if mode_state is not None and not mode_state:
+                raise ServiceValidationError(
+                    "Peak Shaving mode is disabled — enable it first: the "
+                    "inverter rejects the power setpoint while the mode is "
+                    "off, and the firmware clears the setpoint whenever the "
+                    "mode deactivates."
+                )
+            if mode_state:
+                # The cache said off but the device says ON — seed the
+                # fresh truth so the mode switch stops showing stale state
+                # until the next scheduled parameter refresh.
+                self.coordinator.note_parameters_written(
+                    self.serial, {PARAM_FUNC_GRID_PEAK_SHAVING: True}
+                )
         _LOGGER.info(
             "Setting grid peak shaving power to %.1f kW for %s", value, self.serial
         )
