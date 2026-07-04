@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -239,6 +240,7 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
             )
             device_type = device_data.get("type", "unknown")
 
+            incomplete = False
             if device_type == "inverter":
                 # Force a full refresh INCLUDING parameters (holding
                 # registers).  A bare refresh() respects pylxpweb cache TTLs
@@ -246,22 +248,38 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
                 # parameters, so control values changed outside HA (e.g. on
                 # the EG4 portal) took until the hourly parameter cycle to
                 # appear (#322).  The coordinator helper calls
-                # inverter.refresh(force=True, include_parameters=True),
-                # stores the fresh parameters, and is gated on
-                # is_transport_link_down (a dead local link would otherwise
-                # hang uninterruptibly).  The private method is used instead
-                # of async_refresh_device_parameters() because the public
-                # wrapper swallows exceptions (this button must log + raise)
-                # and triggers its own coordinator refresh (double-read).
+                # inverter.refresh(force=True, include_parameters=True) and
+                # stores the fresh parameters; link-down handling lives in
+                # pylxpweb's _fetch_parameters guard (cloud fallback in
+                # HYBRID, clean skip in LOCAL — no hang risk).  The private
+                # method is used instead of async_refresh_device_parameters()
+                # because the public wrapper triggers its own coordinator
+                # refresh (double-read) and this button does its own
+                # completeness check: refresh() gathers its fetch tasks with
+                # return_exceptions=True, so read failures never raise — they
+                # surface only as parameters_complete=False.
                 _LOGGER.debug(
                     "Force-refreshing inverter %s including parameters",
                     self._serial,
                 )
                 await self.coordinator._refresh_device_parameters(self._serial)
-                _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
+                inverter = self.coordinator.get_inverter_object(self._serial)
+                incomplete = inverter is not None and not getattr(
+                    inverter, "parameters_complete", True
+                )
 
-            # For other device types or as fallback, trigger coordinator refresh
+            # Publish whatever was read (partial data plus sticky
+            # carry-forward); also the fallback path for other device types.
             await self.coordinator.async_request_refresh()
+
+            if incomplete:
+                # The device read silently came up short (dead link with no
+                # cloud fallback, failed register ranges, ...) — surface it
+                # in the UI instead of reporting a successful refresh.
+                raise HomeAssistantError(
+                    f"Parameter refresh incomplete for {self._serial}: device"
+                    " unreachable or link degraded; showing last known values"
+                )
             _LOGGER.debug("Successfully refreshed data for device %s", self._serial)
 
         except Exception as e:

@@ -1088,12 +1088,13 @@ class EG4DataUpdateCoordinator(
         179 holds a MIXED regime (same convergence pattern as the schedule
         time entities' partial hour/minute cloud writes). A best-effort
         parameter refresh re-reads the device so entities reflect the actual
-        state. When the local link is DOWN the re-read is impossible
-        (``_refresh_device_parameters`` skips it), so the KNOWN-succeeded
-        charge bit is seeded into the cache instead — the failed discharge
-        bit is left untouched (the device still holds its previous value) —
-        so the cache converges on what actually landed while the error still
-        surfaces.
+        state. When the local link is DOWN the KNOWN-succeeded charge bit is
+        seeded into the cache instead of a full re-read (pylxpweb would route
+        the re-read via its cloud fallback, but this write just came over the
+        cloud path anyway — seeding the acknowledged bit converges instantly
+        without a 3-range cloud read) — the failed discharge bit is left
+        untouched (the device still holds its previous value) — so the cache
+        converges on what actually landed while the error still surfaces.
         """
         _LOGGER.warning(
             "Battery control mode write for %s partially applied (discharge "

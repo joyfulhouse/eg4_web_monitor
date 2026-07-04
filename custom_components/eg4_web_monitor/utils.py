@@ -151,10 +151,11 @@ async def async_write_with_cloud_fallback(
             cloud path while a local transport is attached, these are merged
             into the coordinator's parameter cache
             (:meth:`EG4DataUpdateCoordinator.note_parameters_written`) so the
-            entity converges on the written value — the follow-up local
-            parameter refresh is skipped on a down link, and without the
-            seed the entity would revert to the stale pre-write cache value
-            once its optimistic state clears.
+            entity converges on the written value — the follow-up parameter
+            refresh cannot read locally on a down link (LOCAL-only: skipped
+            by pylxpweb; HYBRID: cloud re-read can lag or fail), and without
+            the seed the entity would revert to the stale pre-write cache
+            value once its optimistic state clears.
 
     Raises:
         HomeAssistantError: If all available write paths fail, or none exist.

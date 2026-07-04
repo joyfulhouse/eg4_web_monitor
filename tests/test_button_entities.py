@@ -5,6 +5,8 @@ import types
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.eg4_web_monitor.button import (
     EG4RefreshButton,
     EG4BatteryRefreshButton,
@@ -67,8 +69,8 @@ class TestEG4RefreshButton:
 
         await entity.async_press()
 
-        # The inverter path delegates to the coordinator's link-down-gated
-        # force refresh (which includes holding-register parameters).
+        # The inverter path delegates to the coordinator's force refresh
+        # (which includes holding-register parameters).
         coordinator._refresh_device_parameters.assert_awaited_once_with("1234567890")
         coordinator.async_request_refresh.assert_awaited_once()
 
@@ -92,6 +94,7 @@ class TestEG4RefreshButton:
         mock_inverter.transport = None  # no local transport -> link not down
         mock_inverter.refresh = AsyncMock()
         mock_inverter.parameters = {"HOLD_110": 8}
+        mock_inverter.parameters_complete = True
         coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
         entity = EG4RefreshButton(
@@ -111,12 +114,15 @@ class TestEG4RefreshButton:
         coordinator.async_request_refresh.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_async_press_link_down_skips_device_read(self):
-        """With the local transport link down, no device read is attempted.
+    async def test_async_press_link_down_still_refreshes(self):
+        """A down local link does NOT block the button refresh.
 
-        The is_transport_link_down gate in _refresh_device_parameters must
-        short-circuit (Python 3.11 asyncio.wait_for cannot interrupt in-flight
-        pymodbus reads on a dead link); the coordinator refresh still runs.
+        Link-down handling is delegated to pylxpweb's _fetch_parameters
+        guard (pylxpweb#206, in the b24 floor pinned by manifest.json):
+        it skips the local Modbus read (no hang risk) and falls back to
+        cloud named-parameter reads in HYBRID.  A coordinator-side gate
+        would block exactly that fallback, so refresh() must still be
+        awaited with force + parameters even when the link is down.
         """
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
@@ -130,6 +136,8 @@ class TestEG4RefreshButton:
         mock_inverter.transport = MagicMock()  # attached...
         mock_inverter.transport_link_down = True  # ...but dead link
         mock_inverter.refresh = AsyncMock()
+        mock_inverter.parameters = {"HOLD_110": 8}  # served via cloud fallback
+        mock_inverter.parameters_complete = True
         coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
         entity = EG4RefreshButton(
@@ -141,7 +149,42 @@ class TestEG4RefreshButton:
 
         await entity.async_press()
 
-        mock_inverter.refresh.assert_not_awaited()
+        mock_inverter.refresh.assert_awaited_once_with(
+            force=True, include_parameters=True
+        )
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_incomplete_parameters_raises(self):
+        """A silently-failed read surfaces as HomeAssistantError.
+
+        refresh() gathers its fetch tasks with return_exceptions=True and
+        _fetch_parameters records failures only as parameters_complete=False,
+        so the button must check completeness itself: partial data is still
+        published (coordinator refresh runs) but the press reports failure
+        instead of pretending the values are fresh.
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        mock_inverter = MagicMock()
+        mock_inverter.parameters_complete = False
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        with pytest.raises(HomeAssistantError, match="incomplete"):
+            await entity.async_press()
+
+        # Partial data + sticky carry-forward still published first
         coordinator.async_request_refresh.assert_awaited_once()
 
     def test_device_info(self):
