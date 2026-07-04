@@ -5,6 +5,21 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.25] - 2026-07-04
+
+> Requires [pylxpweb 0.9.36b27](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b27)
+> (installed automatically; the manifest requirement is bumped — also delivers the b26
+> proven-capable Fast-mode improvement below).
+
+### Fixed
+
+- **Grid Peak Shaving Power fully working across all modes** ([#329](https://github.com/joyfulhouse/eg4_web_monitor/pull/329) + pylxpweb [#214](https://github.com/joyfulhouse/pylxpweb/pull/214), closes [#328](https://github.com/joyfulhouse/eg4_web_monitor/issues/328)): the number entity blanked to *unknown* in LOCAL/HYBRID because the local register map deliberately excluded the register while its raw encoding was unverified. @DoubleDoc's hardware write test (pylxpweb [#158](https://github.com/joyfulhouse/pylxpweb/issues/158)) plus a live cloud write/readback correlation settled it: **register 206 is 0.1 kW units**. The whole Peak Shaving family (PS1/PS2 power, both SOC and voltage setpoints) is now mapped for local reads with cloud-identical values, and the power setpoint writes directly over Modbus/dongle when a local transport is attached.
+- **Writing the setpoint with Peak Shaving mode disabled now gives a clear error** instead of a cryptic timeout: live testing confirmed the firmware rejects the write (and zeroes the setpoint) while `FUNC_GRID_PEAK_SHAVING` is off. The entity pre-checks the mode — with a live single-register confirmation read when the cached state says *off*, so enabling the mode on the EG4 portal is honored immediately rather than after the hourly parameter cycle.
+
+### Improved
+
+- **Fast block-size mode: proven-capable transports never permanently degrade** (pylxpweb [#212](https://github.com/joyfulhouse/pylxpweb/pull/212) / 0.9.36b26, from @ivanfmartinez's suggestion on [#320](https://github.com/joyfulhouse/eg4_web_monitor/issues/320)): once a transport has completed a >40-register coalesced read, any later failure — misroute, CRC, timeout, short frame — is treated as transient with the ~5-minute cooldown re-probe; the permanent latch is reserved for transports that never proved large-read support. Two new DEBUG lines make the Fast-mode lifecycle explicit (first-success confirmation + cooldown-expiry re-probe).
+
 ## [3.4.0-beta.24] - 2026-07-04
 
 > Requires [pylxpweb 0.9.36b25](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b25)
