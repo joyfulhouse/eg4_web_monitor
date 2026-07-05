@@ -64,6 +64,13 @@ AC_CHARGE_SOC_LIMIT_MIN = 0
 AC_CHARGE_SOC_LIMIT_MAX = 101
 AC_CHARGE_SOC_LIMIT_STEP = 1
 
+# Off-grid AC-charge SOC window (regs 160/161, GH #331): whole-percent
+# start/end thresholds for the EG4_OFFGRID family's AC Charge working mode.
+# No 101 top-balance sentinel here — the portal fields are plain 0-100 %.
+AC_CHARGE_BATTERY_SOC_MIN = 0
+AC_CHARGE_BATTERY_SOC_MAX = 100
+AC_CHARGE_BATTERY_SOC_STEP = 1
+
 # =============================================================================
 # Forced Discharge (regs 82/83, GH #207 / PR #249)
 # Reg 82 is kW (raw 100W units, 0-255 = 0-25.5 kW — hardware-verified in

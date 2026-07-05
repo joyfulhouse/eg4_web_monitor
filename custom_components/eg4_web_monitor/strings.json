@@ -991,6 +991,10 @@
       "title": "Battery Backup Mode control removed from {model} {serial}",
       "description": "The **Battery Backup Mode** switch has been removed from **{serial}** ({model}).\n\nEnabling this working mode is rejected by the firmware on EG4's off-grid family (“failed to enable working mode” on a 12000XP v2), and EG4's own portal does not expose a working-mode toggle for these units. The **EPS Battery Backup** switch is unaffected.\n\nIf any automation or dashboard referenced this entity, remove those references. If you believe your device genuinely supports this function, please report it on the integration's GitHub issues."
     },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "AC Charge SOC Limit replaced on {model} {serial}",
+      "description": "The **AC Charge SOC Limit** setting has been removed from **{serial}** ({model}).\n\nThe EG4 cloud rejects writes to that parameter on the off-grid family (REMOTE_SET_ERROR on a 12000XP v2), and EG4's own portal does not carry it for these units. The family's actual AC-charge SOC window is exposed by the new **AC Charge Start Battery SOC** and **AC Charge End Battery SOC** settings, which match the portal's off-grid working-mode page.\n\nUpdate any automation or dashboard that referenced the old entity to use the new ones. If you believe your device genuinely supports the old parameter, please report it on the integration's GitHub issues."
+    },
     "offgrid_forced_charge_times_removed": {
       "title": "Forced Charge schedule times removed from {model} {serial}",
       "description": "The **Forced Charge** schedule time settings (start/end times, windows 1-3) have been removed from **{serial}** ({model}).\n\nThe EG4 cloud rejects writes to these parameters on the off-grid family (REMOTE_SET_ERROR on a 12000XP v2), and EG4's own portal exposes no Forced Charge schedule for these units. The **AC Charge** and **AC First** schedules are unaffected.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports this schedule, please report it on the integration's GitHub issues."

@@ -13,8 +13,10 @@ from custom_components.eg4_web_monitor.const import (
 )
 from custom_components.eg4_web_monitor.number import (
     async_setup_entry,
+    ACChargeEndBatterySOCNumber,
     ACChargePowerNumber,
     ACChargeSOCLimitNumber,
+    ACChargeStartBatterySOCNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
     ForcedDischargePowerNumber,
@@ -64,6 +66,7 @@ def _mock_coordinator(
     coordinator.async_refresh = AsyncMock()
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
+    coordinator.write_raw_parameter = AsyncMock()
     coordinator.async_write_battery_control_mode = AsyncMock()
     # Live quick-charge active check (reg 233 bit 0). Default idle; the
     # QuickChargeDurationNumber gates its reg 234 write on this.
@@ -162,6 +165,11 @@ class TestNumberPlatformSetup:
         assert "ACChargeEndVoltageNumber" in type_names
         # Forced-discharge stop voltage (reg 202, bead eg4-aa3t)
         assert "StopDischargeVoltageNumber" in type_names
+        # Reg 67 keeps working on grid-tied families (GH #331)
+        assert "ACChargeSOCLimitNumber" in type_names
+        # The off-grid AC-charge SOC window (regs 160/161) is offgrid-only
+        assert "ACChargeStartBatterySOCNumber" not in type_names
+        assert "ACChargeEndBatterySOCNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):
@@ -280,6 +288,11 @@ class TestNumberPlatformSetup:
         assert "ForcedDischargePowerNumber" not in type_names
         assert "StartDischargePowerNumber" not in type_names
         assert "StartChargePowerNumber" not in type_names
+        # ... and swaps the family-rejected reg-67 AC Charge SOC Limit for
+        # the reg-160/161 AC-charge SOC window (GH #331)
+        assert "ACChargeSOCLimitNumber" not in type_names
+        assert "ACChargeStartBatterySOCNumber" in type_names
+        assert "ACChargeEndBatterySOCNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_lxp_creates_start_thresholds(self, hass):
@@ -1965,11 +1978,18 @@ class TestOffgridGridTiedNumberSuppression:
         assert "GridPeakShavingPowerNumber" not in type_names
         assert "ForcedDischargePowerNumber" not in type_names
         assert "ForcedDischargeSOCLimitNumber" not in type_names
+        # AC Charge SOC Limit (reg 67) is family-rejected on offgrid (GH #331)
+        assert "ACChargeSOCLimitNumber" not in type_names
+        # ... replaced by the family's real AC-charge SOC window (regs 160/161)
+        assert "ACChargeStartBatterySOCNumber" in type_names
+        assert "ACChargeEndBatterySOCNumber" in type_names
         # The rest of the control set is unaffected: 19 grid-tied (incl. Stop
         # Discharge Voltage, eg4-aa3t) minus the 3 suppressed grid-tied controls
-        # minus Grid Sell Back (no sell-back on offgrid, GH #135) = 15, plus the
-        # HTTP-only Quick Charge Duration preference (#251) = 16.
-        assert len(entities) == 16
+        # minus Grid Sell Back (no sell-back on offgrid, GH #135) minus the
+        # reg-67 AC Charge SOC Limit (GH #331) = 14, plus the HTTP-only Quick
+        # Charge Duration preference (#251) and the two reg-160/161 AC-charge
+        # SOC window numbers (GH #331) = 17.
+        assert len(entities) == 17
         assert "ACChargePowerNumber" in type_names
         assert "OffGridSOCCutoffNumber" in type_names
         assert "SystemChargeVoltLimitNumber" in type_names
@@ -1989,6 +2009,12 @@ class TestOffgridGridTiedNumberSuppression:
         assert "GridPeakShavingPowerNumber" in type_names
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
+        # Fail-open keeps the reg-67 AC Charge SOC Limit too (GH #331), and
+        # the offgrid-only reg-160/161 window is NOT created without a
+        # positive family ID.
+        assert "ACChargeSOCLimitNumber" in type_names
+        assert "ACChargeStartBatterySOCNumber" not in type_names
+        assert "ACChargeEndBatterySOCNumber" not in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
         # XP-model gate (GH #135) fires on the model name alone = 18, plus the
         # HTTP-only Quick Charge Duration preference (#251) = 19
@@ -2057,6 +2083,293 @@ class TestOffgridGridTiedNumberSuppression:
             DOMAIN, f"offgrid_grid_controls_removed_{serial}"
         )
         assert issue is not None
+
+
+# ── Off-grid AC-charge SOC window (regs 160/161, GH #331) ─────────────
+
+
+class TestOffgridACChargeSOCWindow:
+    """Reg 67 is family-rejected on EG4_OFFGRID; regs 160/161 replace it.
+
+    GH #331 (12000XP v2, CLOUD): writing HOLD_AC_CHARGE_SOC_LIMIT returns
+    REMOTE_SET_ERROR, reg 67 reads 0 on the reference dump and the off-grid
+    portal page omits it. The family's real AC-charge SOC window is
+    HOLD_AC_CHARGE_START_BATTERY_SOC (160) / HOLD_AC_CHARGE_END_BATTERY_SOC
+    (161), portal-verified writable holdParams.
+    """
+
+    @staticmethod
+    def _offgrid_coordinator(**kwargs):
+        coordinator = _mock_coordinator(model="12000XP", **kwargs)
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        return coordinator
+
+    # ── Repairs issue (one-shot, previously-registered only) ──────────
+
+    @pytest.mark.asyncio
+    async def test_repairs_issue_for_previously_registered_soc_limit(self, hass):
+        """A previously-registered reg-67 number raises the #331 Repairs issue."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "number", DOMAIN, f"12000xp_{serial}_ac_charge_soc_limit"
+        )
+
+        coordinator = self._offgrid_coordinator(serial=serial)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+        )
+        assert issue is not None
+
+    @pytest.mark.asyncio
+    async def test_no_repairs_issue_without_prior_registration(self, hass):
+        """Fresh installs (nothing registered) get no Repairs noise."""
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        coordinator = self._offgrid_coordinator(serial=serial)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+        )
+        assert issue is None
+
+    @pytest.mark.asyncio
+    async def test_system_charge_soc_limit_does_not_trigger_issue(self, hass):
+        """The suffix probe must not match the System Charge SOC Limit."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "number", DOMAIN, f"12000xp_{serial}_system_charge_soc_limit"
+        )
+
+        coordinator = self._offgrid_coordinator(serial=serial)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+        )
+        assert issue is None
+
+    # ── Reads (parameter data, both key spellings) ────────────────────
+
+    def test_start_soc_reads_named_param(self):
+        coordinator = self._offgrid_coordinator(
+            parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": 90}
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        assert entity.native_value == 90
+
+    def test_end_soc_reads_named_param(self):
+        coordinator = self._offgrid_coordinator(
+            parameters={"HOLD_AC_CHARGE_END_BATTERY_SOC": 100}
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        assert entity.native_value == 100
+
+    def test_end_soc_reads_raw_161_fallback_key(self):
+        """Local register reads surface reg 161 under the raw "161" key
+        (pylxpweb's transport name map has no entry for it)."""
+        coordinator = self._offgrid_coordinator(
+            has_local=True, local_only=True, has_http=False, parameters={"161": 95}
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        assert entity.native_value == 95
+
+    def test_start_soc_out_of_range_reads_none(self):
+        coordinator = self._offgrid_coordinator(
+            parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": 150}
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
+    def test_missing_params_read_none(self):
+        coordinator = self._offgrid_coordinator(parameters={})
+        assert (
+            ACChargeStartBatterySOCNumber(coordinator, "1234567890").native_value
+            is None
+        )
+        assert (
+            ACChargeEndBatterySOCNumber(coordinator, "1234567890").native_value is None
+        )
+
+    # ── Writes (named local for 160, raw local for 161, cloud named) ──
+
+    @pytest.mark.asyncio
+    async def test_start_soc_local_write_uses_named_param(self):
+        coordinator = self._offgrid_coordinator(has_local=True)
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(85)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_START_BATTERY_SOC", 85, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_end_soc_local_write_uses_raw_register_161(self):
+        """Reg 161 has no transport-map name — local writes go raw."""
+        coordinator = self._offgrid_coordinator(has_local=True)
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(95)
+
+        coordinator.write_raw_parameter.assert_awaited_once_with(
+            161, 95, serial="1234567890"
+        )
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_start_soc_cloud_write_uses_named_holdparam(self):
+        """CLOUD mode (the #331 reporter's): the portal's own holdParam write."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(85)
+
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_START_BATTERY_SOC", "85"
+        )
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_end_soc_cloud_write_uses_named_holdparam(self):
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(100)
+
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_END_BATTERY_SOC", "100"
+        )
+        coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_end_soc_hybrid_local_failure_falls_back_to_cloud(self):
+        """HYBRID: a failed raw local write retries via the cloud named write
+        and seeds BOTH parameter-cache spellings (named + raw "161")."""
+        coordinator = self._offgrid_coordinator(has_local=True, has_http=True)
+        coordinator.write_raw_parameter = AsyncMock(
+            side_effect=HomeAssistantError("boom")
+        )
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(95)
+
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_END_BATTERY_SOC", "95"
+        )
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890",
+            {"HOLD_AC_CHARGE_END_BATTERY_SOC": 95, "161": 95},
+        )
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_failure_raises(self):
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=False)
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(85)
+
+    # ── Range / integer validation ─────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_value", [-1, 101, 150])
+    async def test_start_soc_rejects_out_of_range(self, bad_value):
+        coordinator = self._offgrid_coordinator()
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="between 0-100"):
+            await entity.async_set_native_value(bad_value)
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_value", [-1, 101, 150])
+    async def test_end_soc_rejects_out_of_range(self, bad_value):
+        coordinator = self._offgrid_coordinator()
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="between 0-100"):
+            await entity.async_set_native_value(bad_value)
+        coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_integer_values(self):
+        coordinator = self._offgrid_coordinator()
+        for entity in (
+            ACChargeStartBatterySOCNumber(coordinator, "1234567890"),
+            ACChargeEndBatterySOCNumber(coordinator, "1234567890"),
+        ):
+            _prep(entity)
+            with pytest.raises(HomeAssistantError, match="integer value"):
+                await entity.async_set_native_value(85.5)
+
+    # ── Entity attributes ─────────────────────────────────────────────
+
+    def test_entity_attributes(self):
+        coordinator = self._offgrid_coordinator()
+        start = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        end = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        assert start.unique_id == "12000xp_1234567890_ac_charge_start_battery_soc"
+        assert end.unique_id == "12000xp_1234567890_ac_charge_end_battery_soc"
+        for entity in (start, end):
+            assert entity.native_min_value == 0
+            assert entity.native_max_value == 100
+            assert entity.native_step == 1
+            # ENABLED by default: the family's primary AC-charge SOC control
+            # (the #331 reporter's automation target).
+            assert entity.registry_entry is None
+            assert entity.entity_registry_enabled_default is True
 
 
 # ── QuickChargeDurationNumber (preference, no register) ───────────────
