@@ -263,8 +263,12 @@ class TestReadModbusParameters:
         assert (152, 6) in called_ranges
         # 13 agnostic + AC First (152, 6) + Generator (256, 4).
         assert len(called_ranges) == 15
-        # AC First kept in ascending register order between (125, 1) and (158, 2).
-        assert called_ranges.index((152, 6)) == called_ranges.index((158, 2)) - 1
+        # The (158, N) read widens on this family to also cover the AC-charge
+        # SOC window (160-161, GH #331) — still one Modbus read.
+        assert (158, 4) in called_ranges
+        assert (158, 2) not in called_ranges
+        # AC First kept in ascending register order between (125, 1) and (158, 4).
+        assert called_ranges.index((152, 6)) == called_ranges.index((158, 4)) - 1
 
     @pytest.mark.parametrize(
         "device_data",
@@ -351,6 +355,48 @@ class TestReadModbusParameters:
         assert 117 in read_registers
         assert result["HOLD_PTOUSER_START_DISCHARGE"] == 100
         assert result["117"] == 65486
+
+    async def test_ac_charge_soc_window_registers_offgrid_only(
+        self, hass, local_config_entry
+    ):
+        """GH #331: regs 160-161 are polled on EG4_OFFGRID (widened 158-161
+        read) and NOT on other/unknown families, which keep the (158, 2)
+        voltage-only read. Both registers surface under pylxpweb's name-map
+        keys (reg 161 named from 0.9.36b28).
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        async def mock_read(start: int, count: int) -> dict[str, Any]:
+            if start == 158:
+                assert count == 4
+                return {
+                    "HOLD_AC_CHARGE_START_BATTERY_SOC": 90,
+                    "HOLD_AC_CHARGE_END_BATTERY_SOC": 100,
+                }
+            return {}
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = mock_read
+
+        result = await coordinator._read_modbus_parameters(
+            mock_transport,
+            {"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        assert result["HOLD_AC_CHARGE_START_BATTERY_SOC"] == 90
+        assert result["HOLD_AC_CHARGE_END_BATTERY_SOC"] == 100
+
+        # Non-offgrid families (and the family-agnostic default) keep (158, 2).
+        for device_data in (None, {"features": {"inverter_family": "EG4_HYBRID"}}):
+            mock_transport = make_transport_spec()
+            mock_transport.read_named_parameters.return_value = {}
+            await coordinator._read_modbus_parameters(mock_transport, device_data)
+            called_ranges = [
+                call.args
+                for call in mock_transport.read_named_parameters.call_args_list
+            ]
+            assert (158, 2) in called_ranges
+            assert (158, 4) not in called_ranges
 
     async def test_peak_shaving_registers_not_read_locally(
         self, hass, local_config_entry

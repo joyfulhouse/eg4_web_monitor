@@ -94,6 +94,17 @@ PARAM_HOLD_P_TO_USER_START_DISCHG = "HOLD_P_TO_USER_START_DISCHG"
 PARAM_RAW_PTOUSER_START_CHARGE = "117"
 PARAM_HOLD_AC_CHARGE_POWER = "HOLD_AC_CHARGE_POWER_CMD"
 PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
+# Off-grid AC-charge SOC window (regs 160/161, GH #331): the EG4_OFFGRID
+# family's REAL AC-charge SOC controls — portal-verified writable holdParams
+# on the off-grid working-mode page (reference dump reads 90/100, matching
+# the reporter's portal config). Reg 67 (HOLD_AC_CHARGE_SOC_LIMIT above) is
+# family-REJECTED there: live REMOTE_SET_ERROR on a 12000XP v2, reads 0 on
+# the reference dump, and the off-grid portal page does not carry it. Whole
+# percent (SCALE_NONE) on both paths; both registers are in pylxpweb's
+# transport name map (reg 161 from 0.9.36b28), so named reads/writes work
+# on every path.
+PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC = "HOLD_AC_CHARGE_START_BATTERY_SOC"  # reg 160
+PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC = "HOLD_AC_CHARGE_END_BATTERY_SOC"  # reg 161
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
 PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"

@@ -310,7 +310,11 @@ def flag_offgrid_control_suppression(
     model slug (``{clean_model}_{serial}_{key}``), and devices that were once
     misdetected (e.g. the pre-beta.2 ``unknown`` model era, #219/#222) carry
     legacy prefixes in the registry. All variants end with
-    ``{serial}_{control_key}``, which is what the suffixes pin.
+    ``{serial}_{control_key}``, which is what the suffixes pin. The serial
+    boundary is enforced (PR #332 review): a suffix matches only as the
+    whole unique ID or preceded by ``_``, so a serial that happens to be
+    the tail of a longer sibling's serial (``1234567890`` vs
+    ``91234567890``) cannot false-positive another device's entities.
 
     Args:
         hass: Home Assistant instance.
@@ -329,12 +333,20 @@ def flag_offgrid_control_suppression(
     registry = er.async_get(hass)
     suffixes = tuple(suffix.lower() for suffix in unique_id_suffixes)
 
+    def _matches(unique_id: str) -> bool:
+        # Whole-ID match (bare ``{serial}_{key}``) or an ``_`` boundary
+        # before the serial (``{any_prefix}_{serial}_{key}``) — never a
+        # partial-serial tail match.
+        return any(
+            unique_id == suffix or unique_id.endswith(f"_{suffix}")
+            for suffix in suffixes
+        )
+
     def _was_registered() -> bool:
         for entry in registry.entities.values():
             if entry.domain != platform or entry.platform != DOMAIN:
                 continue
-            unique_id = str(entry.unique_id).lower()
-            if any(unique_id.endswith(suffix) for suffix in suffixes):
+            if _matches(str(entry.unique_id).lower()):
                 return True
         return False
 

@@ -98,9 +98,11 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
     PARAM_FUNC_RUN_WITHOUT_GRID,
+    PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+    PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_CHG_POWER_PERCENT,
@@ -1341,6 +1343,14 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_OFFGRID_DISCHG_SOC: (125, None),
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE: (158, None),
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE: (159, None),
+    # Off-grid AC-charge SOC window (GH #331): portal-verified writable
+    # holdParams on the off-grid working-mode page (reference dump reads
+    # 90/100 — the reporter's live config); the family-rejected reg 67 is
+    # gated off EG4_OFFGRID in number.py. Reg 160 is in BOTH pylxpweb
+    # tables; reg 161 joins the transport name map in 0.9.36b28 (canonical
+    # table has always pinned it, which is what this contract checks).
+    PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC: (160, None),
+    PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC: (161, None),
     PARAM_HOLD_ONGRID_EOD_VOLTAGE: (169, None),
     # Stop discharge voltage (bead eg4-aa3t): located by single-register
     # cloud window bisection AND raw-verified live 2026-06-11 (raw 400 ==

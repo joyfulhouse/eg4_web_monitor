@@ -991,6 +991,10 @@
       "title": "{model} {serial} から Battery Backup Mode 制御が削除されました",
       "description": "**Battery Backup Mode** スイッチが **{serial}**（{model}）から削除されました。\n\nEG4 のオフグリッドファミリーのファームウェアは、この動作モードの有効化を拒否します（12000XP v2 で “failed to enable working mode”）。また、EG4 のポータル自体もこれらの機器には動作モードの切り替えを提供していません。**EPS Battery Backup** スイッチには影響ありません。\n\nこのエンティティを参照していたオートメーションやダッシュボードがある場合は、その参照を削除してください。お使いのデバイスがこの機能を実際にサポートしていると思われる場合は、インテグレーションの GitHub Issues に報告してください。"
     },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "{model} {serial} の AC Charge SOC Limit が置き換えられました",
+      "description": "**AC Charge SOC Limit** 設定は **{serial}**（{model}）から削除されました。\n\nEG4 クラウドはオフグリッド系列でこのパラメータへの書き込みを拒否し（12000XP v2 で REMOTE_SET_ERROR）、EG4 ポータル自体もこれらの機種には表示しません。この系列の実際の AC 充電 SOC ウィンドウは、ポータルのオフグリッド動作モードページに対応する新しい **AC Charge Start Battery SOC** と **AC Charge End Battery SOC** 設定で提供されます。\n\n旧エンティティを参照していたオートメーションやダッシュボードは新しいエンティティを使うよう更新してください。お使いのデバイスが旧パラメータを実際にサポートしていると思われる場合は、インテグレーションの GitHub Issues に報告してください。"
+    },
     "offgrid_forced_charge_times_removed": {
       "title": "{model} {serial} から Forced Charge スケジュール時刻が削除されました",
       "description": "**Forced Charge** のスケジュール時刻設定（開始/終了時刻、ウィンドウ 1〜3）が **{serial}**（{model}）から削除されました。\n\nEG4 クラウドはオフグリッドファミリーでこれらのパラメータへの書き込みを拒否します（12000XP v2 で REMOTE_SET_ERROR）。また、EG4 のポータル自体もこれらの機器には Forced Charge スケジュールを提供していません。**AC Charge** と **AC First** のスケジュールには影響ありません。\n\nこれらのエンティティを参照していたオートメーションやダッシュボードがある場合は、その参照を削除してください。お使いのデバイスがこのスケジュールを実際にサポートしていると思われる場合は、インテグレーションの GitHub Issues に報告してください。"

@@ -588,7 +588,16 @@ class LocalTransportMixin(_MixinBase):
                 (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
                 *ac_first_range,  # (152, 6) on EG4_OFFGRID only (GH #295)
-                (158, 2),  # AC charge start/stop voltage (158-159)
+                # AC charge start/stop voltage (158-159); on EG4_OFFGRID the
+                # read widens to cover the AC-charge SOC window (160-161,
+                # GH #331) consumed by the family's AC Charge Start/End
+                # Battery SOC numbers — same widen-don't-split rationale as
+                # (64, 26): one Modbus read either way. Both registers
+                # surface under pylxpweb's name-map keys
+                # (HOLD_AC_CHARGE_{START,END}_BATTERY_SOC; reg 161 named
+                # from 0.9.36b28 — older releases emit the raw "161"
+                # fallback key, which nothing consumes until the pin bump).
+                (158, 4 if is_offgrid else 2),
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
                 (
                     179,

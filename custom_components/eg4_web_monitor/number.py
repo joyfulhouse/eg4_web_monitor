@@ -53,9 +53,11 @@ from .const import (
     GRID_SELL_BACK_POWER_MIN,
     GRID_SELL_BACK_POWER_STEP,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+    PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
     PARAM_HOLD_CHARGE_CURRENT,
     PARAM_HOLD_DISCHARGE_CURRENT,
@@ -88,6 +90,9 @@ from .const import (
     QUICK_CHARGE_DURATION_STEP,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
+    AC_CHARGE_BATTERY_SOC_MAX,
+    AC_CHARGE_BATTERY_SOC_MIN,
+    AC_CHARGE_BATTERY_SOC_STEP,
     AC_CHARGE_SOC_LIMIT_MAX,
     AC_CHARGE_SOC_LIMIT_MIN,
     AC_CHARGE_SOC_LIMIT_STEP,
@@ -581,12 +586,34 @@ async def async_setup_entry(
                             f"{serial.lower()}_forced_discharge_soc_limit",
                         ),
                     )
+                    # AC Charge SOC Limit (reg 67) is family-rejected on
+                    # EG4_OFFGRID (GH #331: live REMOTE_SET_ERROR on a
+                    # 12000XP v2, reads 0 on the reference dump, absent from
+                    # the off-grid portal page). The family's real AC-charge
+                    # SOC window is regs 160/161, created below instead.
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        model,
+                        "number",
+                        (f"{serial.lower()}_ac_charge_soc_limit",),
+                        issue_key="offgrid_ac_charge_soc_limit_removed",
+                    )
+                    entities.extend(
+                        [
+                            ACChargeStartBatterySOCNumber(coordinator, serial),
+                            ACChargeEndBatterySOCNumber(coordinator, serial),
+                        ]
+                    )
                 else:
                     entities.extend(
                         [
                             GridPeakShavingPowerNumber(coordinator, serial),
                             ForcedDischargePowerNumber(coordinator, serial),
                             ForcedDischargeSOCLimitNumber(coordinator, serial),
+                            # Reg 67 keeps working on grid-tied/unknown
+                            # families — fail-open, matching the other gates.
+                            ACChargeSOCLimitNumber(coordinator, serial),
                         ]
                     )
 
@@ -601,7 +628,6 @@ async def async_setup_entry(
                         # SOC limit controls (enabled when the matching control
                         # mode is SOC — default)
                         SystemChargeSOCLimitNumber(coordinator, serial),
-                        ACChargeSOCLimitNumber(coordinator, serial),
                         OnGridSOCCutoffNumber(coordinator, serial),
                         OffGridSOCCutoffNumber(coordinator, serial),
                         # Voltage limit controls (enabled when the matching
@@ -1235,7 +1261,15 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
 
 
 class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
-    """Number entity for AC Charge SOC Limit control."""
+    """Number entity for AC Charge SOC Limit control (reg 67).
+
+    Grid-tied families only: on EG4_OFFGRID (SNA/12000XP/6000XP) the cloud
+    REJECTS writes to HOLD_AC_CHARGE_SOC_LIMIT (GH #331: live
+    REMOTE_SET_ERROR on a 12000XP v2), reg 67 reads 0 on the reference dump
+    and the off-grid portal page does not carry the field — that family's
+    AC-charge SOC window is regs 160/161 (ACChargeStartBatterySOCNumber /
+    ACChargeEndBatterySOCNumber), so this entity is not created there.
+    """
 
     _control_key = "ac_charge_soc_limit"
 
@@ -1285,6 +1319,179 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_kwargs={"soc_percent": int_value},
             label=f"AC charge SOC limit to {int_value}%",
         )
+
+
+class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
+    """AC Charge Start Battery SOC (reg 160, EG4_OFFGRID only, GH #331).
+
+    Battery SOC at which the off-grid family's AC Charge working mode starts
+    charging from the grid — with reg 161 the family's PRIMARY AC-charge SOC
+    window, a portal-verified writable holdParam on the off-grid working-mode
+    page (the reference dump reads 90, the reporter's live config). Reg 67
+    (AC Charge SOC Limit) is family-rejected there (REMOTE_SET_ERROR + portal
+    absence + reads 0), so this entity replaces it on EG4_OFFGRID. Whole
+    percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's transport
+    name map, so local named reads/writes work as-is.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge Start Battery SOC"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_charge_start_battery_soc"
+        )
+        self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
+        self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
+        self._attr_native_step = AC_CHARGE_BATTERY_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-low"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartBatterySOCNumber, ACChargeEndBatterySOCNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the SOC that starts AC charging (whole percent, both paths)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
+            value_min=AC_CHARGE_BATTERY_SOC_MIN,
+            value_max=AC_CHARGE_BATTERY_SOC_MAX,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the SOC that starts AC charging (local named write or cloud)."""
+        int_value = int(value)
+        if (
+            int_value < AC_CHARGE_BATTERY_SOC_MIN
+            or int_value > AC_CHARGE_BATTERY_SOC_MAX
+        ):
+            raise HomeAssistantError(
+                f"AC charge start battery SOC must be between "
+                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
+                f"got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"AC charge start battery SOC must be an integer value, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
+            # The named-param cloud writer is BOTH the cloud-mode path and
+            # the HYBRID local-failure fallback — the portal's own
+            # holdParam write (GH #331).
+            cloud_write=lambda: _write_cloud_named_soc(
+                self, PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC, int_value
+            ),
+            label=f"AC charge start battery SOC to {int_value}%",
+        )
+
+
+class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
+    """AC Charge End Battery SOC (reg 161, EG4_OFFGRID only, GH #331).
+
+    Battery SOC at which the off-grid family's AC Charge working mode stops
+    charging from the grid — with reg 160 the family's PRIMARY AC-charge SOC
+    window, a portal-verified writable holdParam on the off-grid working-mode
+    page (the reference dump reads 100, the reporter's live config). Reg 67
+    (AC Charge SOC Limit) is family-rejected there (REMOTE_SET_ERROR + portal
+    absence + reads 0), so this entity replaces it on EG4_OFFGRID.
+
+    Whole percent, SCALE_NONE on both paths; reg 161 is in pylxpweb's
+    transport name map from 0.9.36b28, so this entity mirrors the Start
+    entity exactly (named reads/writes on every path).
+
+    NOTE (PR #332 review): LOCAL Modbus writes to reg 161 are
+    hardware-UNVERIFIED on the off-grid family — all #331 write evidence is
+    the cloud holdParam path, and on grid-tied hardware reg 161 was observed
+    read-only. A silently-ignored local write is covered by the named write
+    path's post-write parameter readback plus the HYBRID cloud fallback, but
+    flag this if a LOCAL-only off-grid report ever shows the value not
+    sticking.
+    """
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_name = "AC Charge End Battery SOC"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_charge_end_battery_soc"
+        )
+        self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
+        self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
+        self._attr_native_step = AC_CHARGE_BATTERY_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 0
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACChargeStartBatterySOCNumber, ACChargeEndBatterySOCNumber)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the SOC that stops AC charging (whole percent, both paths)."""
+        return self._read_param_value(
+            param_key=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
+            value_min=AC_CHARGE_BATTERY_SOC_MIN,
+            value_max=AC_CHARGE_BATTERY_SOC_MAX,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the SOC that stops AC charging (local named write or cloud)."""
+        int_value = int(value)
+        if (
+            int_value < AC_CHARGE_BATTERY_SOC_MIN
+            or int_value > AC_CHARGE_BATTERY_SOC_MAX
+        ):
+            raise HomeAssistantError(
+                f"AC charge end battery SOC must be between "
+                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
+                f"got {int_value}"
+            )
+        if abs(value - int_value) > 0.01:
+            raise HomeAssistantError(
+                f"AC charge end battery SOC must be an integer value, got {value}"
+            )
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
+            # The named-param cloud writer is BOTH the cloud-mode path and
+            # the HYBRID local-failure fallback — the portal's own
+            # holdParam write (GH #331).
+            cloud_write=lambda: _write_cloud_named_soc(
+                self, PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC, int_value
+            ),
+            label=f"AC charge end battery SOC to {int_value}%",
+        )
+
+
+async def _write_cloud_named_soc(
+    entity: EG4BaseNumberEntity, param: str, soc: int
+) -> None:
+    """Write an off-grid AC-charge SOC holdParam via the cloud named write.
+
+    The portal's own call for the off-grid working-mode page (GH #331):
+    remoteSet/write with the holdParam name and the whole-percent value as
+    text. Bare writer — logging, optimistic state and the related-entity
+    refresh are provided by the callers' write wrappers.
+    """
+    client = entity.coordinator.client
+    if client is None:
+        raise HomeAssistantError(
+            "No local transport or cloud API available for parameter write."
+        )
+    result = await client.api.control.write_parameter(entity.serial, param, str(soc))
+    if not result.success:
+        raise HomeAssistantError(f"Failed to set {param} to {soc}%")
+    inverter = entity.coordinator.get_inverter_object(entity.serial)
+    if inverter and not entity.coordinator.is_transport_link_down(entity.serial):
+        # Skipped on a down link: the local parameter reads would hang;
+        # the cache seed (local_values) converges the entity.
+        await inverter.refresh(force=True, include_parameters=True)
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):

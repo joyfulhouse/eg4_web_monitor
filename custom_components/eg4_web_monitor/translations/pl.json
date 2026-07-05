@@ -991,6 +991,10 @@
       "title": "Usunięto sterowanie Battery Backup Mode z {model} {serial}",
       "description": "Przełącznik **Battery Backup Mode** został usunięty z **{serial}** ({model}).\n\nOprogramowanie układowe rodziny off-grid EG4 odrzuca włączenie tego trybu pracy (“failed to enable working mode” na 12000XP v2), a sam portal EG4 nie udostępnia przełącznika trybu pracy dla tych urządzeń. Przełącznik **EPS Battery Backup** pozostaje bez zmian.\n\nJeśli jakiekolwiek automatyzacje lub pulpity odwoływały się do tej encji, usuń te odwołania. Jeśli uważasz, że Twoje urządzenie rzeczywiście obsługuje tę funkcję, zgłoś to w GitHub Issues integracji."
     },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "AC Charge SOC Limit zastąpiony na {model} {serial}",
+      "description": "Ustawienie **AC Charge SOC Limit** zostało usunięte z **{serial}** ({model}).\n\nChmura EG4 odrzuca zapis tego parametru w rodzinie off-grid (REMOTE_SET_ERROR na 12000XP v2), a sam portal EG4 nie udostępnia go dla tych urządzeń. Rzeczywiste okno SOC ładowania AC tej rodziny udostępniają nowe ustawienia **AC Charge Start Battery SOC** i **AC Charge End Battery SOC**, odpowiadające stronie trybu pracy off-grid w portalu.\n\nZaktualizuj automatyzacje lub pulpity odwołujące się do starej encji, aby używały nowych. Jeśli uważasz, że Twoje urządzenie rzeczywiście obsługuje stary parametr, zgłoś to w GitHub Issues integracji."
+    },
     "offgrid_forced_charge_times_removed": {
       "title": "Usunięto czasy harmonogramu Forced Charge z {model} {serial}",
       "description": "Ustawienia czasów harmonogramu **Forced Charge** (czasy rozpoczęcia/zakończenia, okna 1-3) zostały usunięte z **{serial}** ({model}).\n\nChmura EG4 odrzuca zapis tych parametrów w rodzinie off-grid (REMOTE_SET_ERROR na 12000XP v2), a sam portal EG4 nie udostępnia harmonogramu Forced Charge dla tych urządzeń. Harmonogramy **AC Charge** i **AC First** pozostają bez zmian.\n\nJeśli jakiekolwiek automatyzacje lub pulpity odwoływały się do tych encji, usuń te odwołania. Jeśli uważasz, że Twoje urządzenie rzeczywiście obsługuje ten harmonogram, zgłoś to w GitHub Issues integracji."
