@@ -5,6 +5,20 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.26] - 2026-07-05
+
+> Requires [pylxpweb 0.9.36b28](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b28)
+> (installed automatically; the manifest requirement is bumped).
+
+### Fixed
+
+- **AC Charge SOC on the off-grid family (12000XP/SNA/6000XP)** ([#332](https://github.com/joyfulhouse/eg4_web_monitor/pull/332), closes [#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331)): setting the *AC Charge SOC Limit* failed every time with `REMOTE_SET_ERROR` — that entity writes register 67, which is the grid-tied family's control; the off-grid firmware rejects it (and the off-grid portal doesn't offer it). The off-grid family's real AC-charge window controls are registers 160/161, portal-verified: two new numbers — **AC Charge Start Battery SOC** and **AC Charge End Battery SOC** — are created on off-grid devices (enabled by default), and the inapplicable *AC Charge SOC Limit* entity is removed there with a one-shot Repairs notice. Grid-tied and LXP devices are unchanged. Automations just need to target the new End SOC entity. (pylxpweb [#216](https://github.com/joyfulhouse/pylxpweb/pull/216) maps register 161 for local access; the canonical note is now family-scoped.)
+- **Repairs notices for family-gated entities can no longer false-positive across inverters whose serial is a suffix of another's** (hardening from the #332 review, applies to all gated-entity cleanup paths).
+
+### Improved
+
+- **Multi-device log analysis** (pylxpweb [#215](https://github.com/joyfulhouse/pylxpweb/pull/215), closes pylxpweb [#213](https://github.com/joyfulhouse/pylxpweb/issues/213), thanks @ivanfmartinez): every dongle validation-failure and retry log line now carries the `[serial]` prefix and a uniform `expected [...], received [...]` frame-context block.
+
 ## [3.4.0-beta.25] - 2026-07-04
 
 > Requires [pylxpweb 0.9.36b27](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b27)
