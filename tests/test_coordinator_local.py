@@ -186,8 +186,9 @@ class TestReadModbusParameters:
             (227, 2),
             # (231, 2) removed: PS1 is reg 206, reg 231 unknown (eg4-gfu5)
             (233, 1),
-            # (209, 4)/(256, 4)/(269, 6) absent: Peak Shaving/Generator/Off-Grid
-            # are EG4_HYBRID/OFFGRID-gated (pylxpweb #209).
+            # (209, 4)/(256, 4)/(269, 6)/(206, 1) absent: Peak Shaving/
+            # Generator/Off-Grid schedules and the PS power register are
+            # EG4_HYBRID/OFFGRID-gated (pylxpweb #209, #328).
         ]
         assert "PARAM_A" in result
 
@@ -214,6 +215,9 @@ class TestReadModbusParameters:
         assert (209, 4) in called_ranges
         assert (256, 4) in called_ranges
         assert (269, 6) in called_ranges
+        # Grid Peak Shaving Power (reg 206, #328): without this read the
+        # PS power number sat unknown in LOCAL mode (3.4.0-final sweep).
+        assert (206, 1) in called_ranges
         # Never a span that crosses the unmapped 260-268 zone.
         assert (256, 19) not in called_ranges
         assert (152, 6) not in called_ranges
@@ -241,6 +245,8 @@ class TestReadModbusParameters:
         assert (256, 4) in called_ranges
         assert (209, 4) not in called_ranges
         assert (269, 6) not in called_ranges
+        # PS power (206) params are likewise absent on the SNA probe.
+        assert (206, 1) not in called_ranges
 
     async def test_offgrid_device_reads_ac_first_range(self, hass, local_config_entry):
         """EG4_OFFGRID devices additionally poll the AC First schedule
@@ -701,7 +707,9 @@ class TestStickyParameterCarryForward:
 # Off-Grid (269,6) — added by the beta.22 schedule families (GH #295 / PR
 # #312).  PR #313 landed these tests with the pre-#312 count of 13; both PRs
 # were green alone but the merged branch reads 16 (merge skew, not a bug).
-_EXPECTED_HYBRID_READS = 16
+# 17th read: Grid Peak Shaving Power (206,1), hybrid-family-gated (#328 —
+# the 3.4.0-final sweep found the PS number unknown in LOCAL mode).
+_EXPECTED_HYBRID_READS = 17
 
 
 class TestLinkDownParameterGateCycle:
