@@ -100,10 +100,9 @@ PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 # the reporter's portal config). Reg 67 (HOLD_AC_CHARGE_SOC_LIMIT above) is
 # family-REJECTED there: live REMOTE_SET_ERROR on a 12000XP v2, reads 0 on
 # the reference dump, and the off-grid portal page does not carry it. Whole
-# percent (SCALE_NONE) on both paths. Reg 160 is in pylxpweb's transport name
-# map (local named reads/writes work); reg 161 is only in the canonical
-# holding table, so local reads surface the raw "161" fallback key and local
-# writes go through the raw register address (REG_AC_CHARGE_END_BATTERY_SOC).
+# percent (SCALE_NONE) on both paths; both registers are in pylxpweb's
+# transport name map (reg 161 from 0.9.36b28), so named reads/writes work
+# on every path.
 PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC = "HOLD_AC_CHARGE_START_BATTERY_SOC"  # reg 160
 PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC = "HOLD_AC_CHARGE_END_BATTERY_SOC"  # reg 161
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
@@ -155,10 +154,6 @@ REG_AC_CHARGE_START_VOLTAGE = 158
 REG_AC_CHARGE_END_VOLTAGE = 159
 # Start-charge threshold (GH #272): no name anywhere, LOCAL raw writes only.
 REG_PTOUSER_START_CHARGE = 117
-# Off-grid AC-charge end SOC (GH #331): named by the cloud and pylxpweb's
-# canonical holding table, but absent from the transport name map — local
-# reads surface the raw "161" key and local writes use this raw address.
-REG_AC_CHARGE_END_BATTERY_SOC = 161
 
 # =============================================================================
 # AC charge time schedule (registers 68-73, issue #277)

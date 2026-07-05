@@ -125,7 +125,6 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
     PARAM_RAW_PTOUSER_START_CHARGE,
     PARAM_SNA_QUICK_CHARGE_MINUTE,
-    REG_AC_CHARGE_END_BATTERY_SOC,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     REG_OFFGRID_EOD_VOLTAGE,
@@ -1347,9 +1346,9 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # Off-grid AC-charge SOC window (GH #331): portal-verified writable
     # holdParams on the off-grid working-mode page (reference dump reads
     # 90/100 — the reporter's live config); the family-rejected reg 67 is
-    # gated off EG4_OFFGRID in number.py. Reg 160 is in BOTH pylxpweb tables;
-    # reg 161 is canonical-only (no transport-map name), so its local path is
-    # the raw "161" read key + raw-register write.
+    # gated off EG4_OFFGRID in number.py. Reg 160 is in BOTH pylxpweb
+    # tables; reg 161 joins the transport name map in 0.9.36b28 (canonical
+    # table has always pinned it, which is what this contract checks).
     PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC: (160, None),
     PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC: (161, None),
     PARAM_HOLD_ONGRID_EOD_VOLTAGE: (169, None),
@@ -1592,11 +1591,6 @@ def test_raw_register_constants_match_contract() -> None:
             "REG_AC_CHARGE_END_VOLTAGE",
             REG_AC_CHARGE_END_VOLTAGE,
             PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
-        ),
-        (
-            "REG_AC_CHARGE_END_BATTERY_SOC",
-            REG_AC_CHARGE_END_BATTERY_SOC,
-            PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
         ),
     )
     offenders = [

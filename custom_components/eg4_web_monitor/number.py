@@ -88,7 +88,6 @@ from .const import (
     QUICK_CHARGE_DURATION_MAX,
     QUICK_CHARGE_DURATION_MIN,
     QUICK_CHARGE_DURATION_STEP,
-    REG_AC_CHARGE_END_BATTERY_SOC,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     AC_CHARGE_BATTERY_SOC_MAX,
@@ -1401,12 +1400,17 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
     (AC Charge SOC Limit) is family-rejected there (REMOTE_SET_ERROR + portal
     absence + reads 0), so this entity replaces it on EG4_OFFGRID.
 
-    Whole percent, SCALE_NONE on both paths. Unlike reg 160, reg 161 is only
-    in pylxpweb's CANONICAL holding table, not the transport name map — so
-    local reads surface the raw "161" fallback key read_named_parameters
-    emits for unmapped registers, and local writes go through the raw
-    register address (the canonical table pins 161, so the raw write targets
-    the same register the cloud name resolves to).
+    Whole percent, SCALE_NONE on both paths; reg 161 is in pylxpweb's
+    transport name map from 0.9.36b28, so this entity mirrors the Start
+    entity exactly (named reads/writes on every path).
+
+    NOTE (PR #332 review): LOCAL Modbus writes to reg 161 are
+    hardware-UNVERIFIED on the off-grid family — all #331 write evidence is
+    the cloud holdParam path, and on grid-tied hardware reg 161 was observed
+    read-only. A silently-ignored local write is covered by the named write
+    path's post-write parameter readback plus the HYBRID cloud fallback, but
+    flag this if a LOCAL-only off-grid report ever shows the value not
+    sticking.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1428,29 +1432,16 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the SOC that stops AC charging (whole percent, both paths).
-
-        Cloud-populated caches hold the server-named
-        HOLD_AC_CHARGE_END_BATTERY_SOC key; local register caches surface
-        reg 161 under the raw "161" fallback key (no transport-map name).
-        """
-        value = self._read_param_value(
-            param_key=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
-            value_min=AC_CHARGE_BATTERY_SOC_MIN,
-            value_max=AC_CHARGE_BATTERY_SOC_MAX,
-            params_first=True,
-        )
-        if value is not None:
-            return value
+        """Return the SOC that stops AC charging (whole percent, both paths)."""
         return self._read_param_value(
-            param_key=str(REG_AC_CHARGE_END_BATTERY_SOC),
+            param_key=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
             value_min=AC_CHARGE_BATTERY_SOC_MIN,
             value_max=AC_CHARGE_BATTERY_SOC_MAX,
             params_first=True,
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the SOC that stops AC charging (local raw write or cloud named)."""
+        """Set the SOC that stops AC charging (local named write or cloud)."""
         int_value = int(value)
         if (
             int_value < AC_CHARGE_BATTERY_SOC_MIN
@@ -1465,36 +1456,17 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
             raise HomeAssistantError(
                 f"AC charge end battery SOC must be an integer value, got {value}"
             )
-        label = f"AC charge end battery SOC to {int_value}%"
-        _LOGGER.info("Setting %s for %s", label, self.serial)
-
-        async def _local_write() -> None:
-            # Raw register write: pylxpweb's transport name map has no
-            # reg-161 entry (write_named_parameters would raise Unknown
-            # parameter name); the canonical holding table pins the address.
-            await self.coordinator.write_raw_parameter(
-                REG_AC_CHARGE_END_BATTERY_SOC, int_value, serial=self.serial
-            )
-            await asyncio.sleep(0.5)
-
-        with optimistic_value_context(self, value):
-            await async_write_with_cloud_fallback(
-                self.coordinator,
-                self.serial,
-                label,
-                local_write=_local_write,
-                cloud_write=lambda: _write_cloud_named_soc(
-                    self, PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC, int_value
-                ),
-                # Seed BOTH spellings: the raw "161" key is what local
-                # register reads surface; the named key covers
-                # cloud-populated caches.
-                local_values={
-                    PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC: int_value,
-                    str(REG_AC_CHARGE_END_BATTERY_SOC): int_value,
-                },
-            )
-            await self._refresh_related_entities()
+        await self._write_parameter(
+            value,
+            local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
+            # The named-param cloud writer is BOTH the cloud-mode path and
+            # the HYBRID local-failure fallback — the portal's own
+            # holdParam write (GH #331).
+            cloud_write=lambda: _write_cloud_named_soc(
+                self, PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC, int_value
+            ),
+            label=f"AC charge end battery SOC to {int_value}%",
+        )
 
 
 async def _write_cloud_named_soc(

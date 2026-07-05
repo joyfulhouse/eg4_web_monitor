@@ -361,8 +361,8 @@ class TestReadModbusParameters:
     ):
         """GH #331: regs 160-161 are polled on EG4_OFFGRID (widened 158-161
         read) and NOT on other/unknown families, which keep the (158, 2)
-        voltage-only read. Reg 160 surfaces under pylxpweb's name-map key;
-        reg 161 has no transport-map name and falls back to the raw "161" key.
+        voltage-only read. Both registers surface under pylxpweb's name-map
+        keys (reg 161 named from 0.9.36b28).
         """
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -370,7 +370,10 @@ class TestReadModbusParameters:
         async def mock_read(start: int, count: int) -> dict[str, Any]:
             if start == 158:
                 assert count == 4
-                return {"HOLD_AC_CHARGE_START_BATTERY_SOC": 90, "161": 100}
+                return {
+                    "HOLD_AC_CHARGE_START_BATTERY_SOC": 90,
+                    "HOLD_AC_CHARGE_END_BATTERY_SOC": 100,
+                }
             return {}
 
         mock_transport = make_transport_spec()
@@ -381,7 +384,7 @@ class TestReadModbusParameters:
             {"features": {"inverter_family": "EG4_OFFGRID"}},
         )
         assert result["HOLD_AC_CHARGE_START_BATTERY_SOC"] == 90
-        assert result["161"] == 100
+        assert result["HOLD_AC_CHARGE_END_BATTERY_SOC"] == 100
 
         # Non-offgrid families (and the family-agnostic default) keep (158, 2).
         for device_data in (None, {"features": {"inverter_family": "EG4_HYBRID"}}):

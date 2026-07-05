@@ -2155,6 +2155,60 @@ class TestOffgridACChargeSOCWindow:
         assert issue is None
 
     @pytest.mark.asyncio
+    async def test_suffix_collision_serial_does_not_trigger_issue(self, hass):
+        """Serial-boundary hardening (PR #332 review): a sibling device whose
+        serial merely ENDS with this device's serial must not trip the probe
+        ("1234567890" vs "91234567890" — endswith alone would match)."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        # The SIBLING's reg-67 entity — longer serial ending in ours.
+        registry.async_get_or_create(
+            "number", DOMAIN, f"12000xp_9{serial}_ac_charge_soc_limit"
+        )
+
+        coordinator = self._offgrid_coordinator(serial=serial)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+        )
+        assert issue is None
+
+    @pytest.mark.asyncio
+    async def test_bare_unique_id_still_triggers_issue(self, hass):
+        """The boundary check keeps matching a bare {serial}_{key} unique ID
+        (no model prefix at all) — the whole-ID branch of the probe."""
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers import issue_registry as ir
+
+        from custom_components.eg4_web_monitor.const import DOMAIN
+
+        serial = "1234567890"
+        registry = er.async_get(hass)
+        registry.async_get_or_create("number", DOMAIN, f"{serial}_ac_charge_soc_limit")
+
+        coordinator = self._offgrid_coordinator(serial=serial)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+        )
+        assert issue is not None
+
+    @pytest.mark.asyncio
     async def test_system_charge_soc_limit_does_not_trigger_issue(self, hass):
         """The suffix probe must not match the System Charge SOC Limit."""
         from homeassistant.helpers import entity_registry as er
@@ -2196,11 +2250,14 @@ class TestOffgridACChargeSOCWindow:
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         assert entity.native_value == 100
 
-    def test_end_soc_reads_raw_161_fallback_key(self):
-        """Local register reads surface reg 161 under the raw "161" key
-        (pylxpweb's transport name map has no entry for it)."""
+    def test_end_soc_reads_named_param_local_only(self):
+        """LOCAL register reads surface reg 161 under the same named key
+        (pylxpweb >= 0.9.36b28 maps 161 in the transport name map)."""
         coordinator = self._offgrid_coordinator(
-            has_local=True, local_only=True, has_http=False, parameters={"161": 95}
+            has_local=True,
+            local_only=True,
+            has_http=False,
+            parameters={"HOLD_AC_CHARGE_END_BATTERY_SOC": 95},
         )
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         assert entity.native_value == 95
@@ -2222,7 +2279,7 @@ class TestOffgridACChargeSOCWindow:
             ACChargeEndBatterySOCNumber(coordinator, "1234567890").native_value is None
         )
 
-    # ── Writes (named local for 160, raw local for 161, cloud named) ──
+    # ── Writes (named local + named cloud holdParam, both registers) ──
 
     @pytest.mark.asyncio
     async def test_start_soc_local_write_uses_named_param(self):
@@ -2237,18 +2294,19 @@ class TestOffgridACChargeSOCWindow:
         )
 
     @pytest.mark.asyncio
-    async def test_end_soc_local_write_uses_raw_register_161(self):
-        """Reg 161 has no transport-map name — local writes go raw."""
+    async def test_end_soc_local_write_uses_named_param(self):
+        """Reg 161 is in the transport name map (pylxpweb >= 0.9.36b28) —
+        the End entity mirrors Start's named write path exactly."""
         coordinator = self._offgrid_coordinator(has_local=True)
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
         await entity.async_set_native_value(95)
 
-        coordinator.write_raw_parameter.assert_awaited_once_with(
-            161, 95, serial="1234567890"
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_END_BATTERY_SOC", 95, serial="1234567890"
         )
-        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.write_raw_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_start_soc_cloud_write_uses_named_holdparam(self):
@@ -2281,14 +2339,14 @@ class TestOffgridACChargeSOCWindow:
         coordinator.client.api.control.write_parameter.assert_awaited_once_with(
             "1234567890", "HOLD_AC_CHARGE_END_BATTERY_SOC", "100"
         )
-        coordinator.write_raw_parameter.assert_not_awaited()
+        coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_end_soc_hybrid_local_failure_falls_back_to_cloud(self):
-        """HYBRID: a failed raw local write retries via the cloud named write
-        and seeds BOTH parameter-cache spellings (named + raw "161")."""
+        """HYBRID: a failed local named write retries via the cloud named
+        write and seeds the named parameter-cache key (#301 pattern)."""
         coordinator = self._offgrid_coordinator(has_local=True, has_http=True)
-        coordinator.write_raw_parameter = AsyncMock(
+        coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("boom")
         )
         coordinator.client.api.control.write_parameter = AsyncMock(
@@ -2304,7 +2362,7 @@ class TestOffgridACChargeSOCWindow:
         )
         coordinator.note_parameters_written.assert_called_once_with(
             "1234567890",
-            {"HOLD_AC_CHARGE_END_BATTERY_SOC": 95, "161": 95},
+            {"HOLD_AC_CHARGE_END_BATTERY_SOC": 95},
         )
 
     @pytest.mark.asyncio
@@ -2341,7 +2399,7 @@ class TestOffgridACChargeSOCWindow:
 
         with pytest.raises(HomeAssistantError, match="between 0-100"):
             await entity.async_set_native_value(bad_value)
-        coordinator.write_raw_parameter.assert_not_awaited()
+        coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_rejects_non_integer_values(self):

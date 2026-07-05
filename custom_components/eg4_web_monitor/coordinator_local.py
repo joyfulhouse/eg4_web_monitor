@@ -592,10 +592,11 @@ class LocalTransportMixin(_MixinBase):
                 # read widens to cover the AC-charge SOC window (160-161,
                 # GH #331) consumed by the family's AC Charge Start/End
                 # Battery SOC numbers — same widen-don't-split rationale as
-                # (64, 26): one Modbus read either way. Reg 160 surfaces
-                # under pylxpweb's name-map key
-                # (HOLD_AC_CHARGE_START_BATTERY_SOC); reg 161 has no
-                # transport-map name and surfaces under the raw "161" key.
+                # (64, 26): one Modbus read either way. Both registers
+                # surface under pylxpweb's name-map keys
+                # (HOLD_AC_CHARGE_{START,END}_BATTERY_SOC; reg 161 named
+                # from 0.9.36b28 — older releases emit the raw "161"
+                # fallback key, which nothing consumes until the pin bump).
                 (158, 4 if is_offgrid else 2),
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
                 (
