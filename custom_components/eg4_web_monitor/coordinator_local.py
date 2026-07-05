@@ -553,6 +553,16 @@ class LocalTransportMixin(_MixinBase):
                 hybrid_schedule_ranges.append((256, 4))  # Generator charge
             if is_hybrid:
                 hybrid_schedule_ranges.append((269, 6))  # Off-Grid
+                # Grid Peak Shaving Power (PS1, reg 206, deci-kW — encoding
+                # hardware-verified in #328): consumed by the Grid Peak
+                # Shaving Power number, which was cloud/hybrid-only until
+                # pylxpweb 0.9.36b27 mapped the register; without this read
+                # the entity sat unknown in LOCAL mode (3.4.0-final sweep).
+                # Family-gated like the (209, 4) schedule read above — the
+                # SNA probe shows the PS params absent from the offgrid
+                # template. Older pylxpweb surfaces the raw "206" key,
+                # which nothing consumes until the pin bump.
+                hybrid_schedule_ranges.append((206, 1))
 
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
@@ -608,11 +618,11 @@ class LocalTransportMixin(_MixinBase):
                 # mapping surfaces this read under the raw key "202" (unused).
                 (202, 1),
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
-                # Registers 231-232 were read here as "grid peak shaving power"
-                # — removed (eg4-gfu5): PS1 actually lives at reg 206 (231 is an
-                # unknown, unnamed register) and the PS power raw encoding is
-                # unverified, so there is nothing useful to read locally yet.
-                # Grid Peak Shaving Power is cloud-sourced only.
+                # Registers 231-232 were once read here as "grid peak shaving
+                # power" — removed (eg4-gfu5): PS1 actually lives at reg 206
+                # (231 is an unknown, unnamed register). Since #328 verified
+                # the deci-kW encoding, reg 206 is read via the family-gated
+                # (206, 1) entry in hybrid_schedule_ranges above.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
                 # Peak Shaving / Generator / Off-Grid schedules — EG4_HYBRID
                 # only (209-212, 256-274). See hybrid_schedule_ranges above.

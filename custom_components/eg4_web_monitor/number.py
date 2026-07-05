@@ -1157,10 +1157,11 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:chart-bell-curve-cumulative"
         self._attr_native_precision = 1
         if coordinator.is_local_only():
-            # Pure-LOCAL can neither read nor write this control (cloud-only
-            # until the reg-206 raw encoding is verified) — register it
-            # disabled instead of shipping a permanently-dead config entity.
-            # Users who later attach cloud credentials can enable it.
+            # Pure-LOCAL reads this control since #328 (reg 206, deci-kW
+            # encoding verified; hybrid-family-gated targeted read) but the
+            # write path is still cloud-routed — register it disabled so a
+            # write-less config entity is opt-in. Users who attach cloud
+            # credentials (or want the read-only view) can enable it.
             self._attr_entity_registry_enabled_default = False
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
