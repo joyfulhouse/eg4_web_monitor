@@ -144,23 +144,13 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:power-plug",
     },
-    # Per-phase EPS load power (input regs 129/130, W) + L1+L2 sum.
-    # EG4_OFFGRID only (12000XP/6000XP) — confirmed via live Modbus sweep,
-    # matches the cloud epsLoadPower field within timing skew (issue #197).
-    "eps_load_power_l1": {
-        "name": "EPS Load Power L1",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:home-lightning-bolt",
-    },
-    "eps_load_power_l2": {
-        "name": "EPS Load Power L2",
-        "unit": UnitOfPower.WATT,
-        "device_class": "power",
-        "state_class": "measurement",
-        "icon": "mdi:home-lightning-bolt",
-    },
+    # EPS-loads subset of the backup output — cloud epsLoadPower field (W),
+    # the EPS leg of the 6000XP/12000XP load split (#222: consumption =
+    # epsLoadPower + smartLoadPower + gridLoadPower).  EG4_OFFGRID only,
+    # CLOUD/HYBRID supplemental — regs 129/130 are the COMBINED backup legs
+    # (eps_power_l1/l2), NOT this subset, and no per-leg epsLoad fields exist;
+    # the former eps_load_power_l1/l2 sensors fabricated from them duplicated
+    # eps_power_l1/l2 and were retired (#335).
     "eps_load_power": {
         "name": "EPS Load Power",
         "unit": UnitOfPower.WATT,

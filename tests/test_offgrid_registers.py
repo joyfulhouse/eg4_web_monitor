@@ -1,22 +1,33 @@
-"""Confirmed EG4_OFFGRID registers (issue #197).
+"""Confirmed EG4_OFFGRID registers and the backup-output split (#197/#222/#335).
 
 Live-validated on a 12000XP (EG4_OFFGRID, device type 54) via Modbus sweep +
 cloud cross-reference (see GH issue #197 for the reporter's tables):
 
-  * Input regs 129/130 — per-phase EPS load power (W, SCALE_NONE).  Zero when
-    grid-tied, non-zero in EPS/discharge mode (L1=1031 / L2=296 vs cloud
-    epsLoadPower=1338, 11 W timing skew).
   * Input reg 170 — load power (W, SCALE_NONE).  The 6kXP Modbus PDF labels it
     ``Pload``; valid grid-tied (3788 W) AND in EPS mode (1324 W).  The cloud
     zeroes its mirror field for EG4_OFFGRID, so the LOCAL register is the only
     trustworthy source — never the cloud.
   * Input reg 11 — battery discharge power (W, SCALE_NONE).  Already mapped in
     cloud as ``pDisCharge``; the LOCAL register agrees (1415 vs 1401, timing).
+  * Input regs 129/130 — per-leg COMBINED backup-path output (W, SCALE_NONE),
+    the local mirror of cloud pEpsL1N/pEpsL2N → ``eps_power_l1/l2`` ONLY.
 
-These tests pin the issue-#197 contract: sensor keys exist in SENSOR_TYPES and
-the static key set, both data paths (LOCAL mapping + cloud/hybrid property map
-or transport overlay) populate them, and entity creation is gated to the
-EG4_OFFGRID family.
+CORRECTED by #335: the former ``eps_load_power_l1/_l2`` sensors (#197) aliased
+regs 129/130 and the L1+L2 sum masqueraded as ``eps_load_power`` — but those
+values are the COMBINED backup output (smart load + EPS loads), so the
+sensors duplicated ``eps_power_l1/l2`` exactly.  The #197 "sum 1327 ≈ cloud
+epsLoadPower 1338" validation was a smart-load-idle coincidence (#222
+evidence: GEN port active → L1+L2 3371 W = smartLoadPower 2999 +
+epsLoadPower 365).  The per-leg keys are RETIRED (no per-leg EPS-loads
+source exists) and ``eps_load_power`` now maps the real cloud
+``epsLoadPower`` field — CLOUD-ONLY like its #222 siblings
+smart_load_power/grid_load_power, via the pylxpweb ``eps_load_power``
+property (shipped in 0.9.36, pylxpweb #219; returns None when no cloud
+runtime is attached, so the key stays absent in pure-LOCAL operation).
+
+These tests pin that contract: sensor keys in SENSOR_TYPES and the static
+key sets, both data paths, EG4_OFFGRID entity gating, and the retirement of
+the fabricated per-leg keys.
 """
 
 from __future__ import annotations
@@ -50,7 +61,6 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     INVERTER_RUNTIME_KEYS,
     _build_runtime_sensor_mapping,
-    apply_eps_load_power_sensors,
     drop_offgrid_cloud_output_power,
 )
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
@@ -80,19 +90,34 @@ def mock_config_entry():
     )
 
 
-# The five sensor keys introduced/enabled by issue #197.
-_NEW_KEYS = (
-    "eps_load_power_l1",
-    "eps_load_power_l2",
-    "eps_load_power",
+# The LOCAL-register-backed keys introduced by issue #197 (regs 170 / 11).
+_LOCAL_KEYS = (
     "load_power",
     "battery_discharge_power",
 )
 
-# The two CLOUD-ONLY smart-load split keys introduced by issue #222
-# (6000XP GEN-port smart load).  Unlike the #197 keys these have NO local
-# register source, so they are deliberately absent from the LOCAL static
-# key sets and flow exclusively through the HTTP property map.
+# The CLOUD-ONLY backup-output split keys (#222/#335: consumption =
+# epsLoadPower + smartLoadPower + gridLoadPower on this family).  These have
+# NO validated local register source, so they are deliberately absent from
+# the LOCAL static key sets and flow exclusively through the HTTP property
+# map — all three pylxpweb properties shipped as of 0.9.36 (eps_load_power
+# via pylxpweb #219) and return None without cloud runtime data.
+_CLOUD_ONLY_KEYS = (
+    "smart_load_power",
+    "grid_load_power",
+    "eps_load_power",
+)
+
+# Retired by #335: fabricated aliases of eps_power_l1/l2 (regs 129/130 /
+# cloud pEpsL1N/L2N carry the COMBINED backup output — no per-leg source
+# for the EPS-loads subset exists on any path).
+_RETIRED_KEYS = (
+    "eps_load_power_l1",
+    "eps_load_power_l2",
+)
+
+# The #222 GEN-port subset of _CLOUD_ONLY_KEYS — used by the
+# TestSmartLoadSensors specifics below (eps_load_power is the #335 member).
 _SMART_LOAD_KEYS = (
     "smart_load_power",
     "grid_load_power",
@@ -105,26 +130,50 @@ _SMART_LOAD_KEYS = (
 
 
 class TestSensorDefinitions:
-    """SENSOR_TYPES and static key-set membership for the #197 keys."""
+    """SENSOR_TYPES and static key-set membership for the offgrid keys."""
 
-    @pytest.mark.parametrize("key", _NEW_KEYS)
+    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
     def test_sensor_types_defined_as_power(self, key: str) -> None:
-        """Every #197 key is a W power measurement sensor."""
+        """Every surviving offgrid key is a W power measurement sensor."""
         assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
         assert SENSOR_TYPES[key]["device_class"] == "power"
         assert SENSOR_TYPES[key]["state_class"] == "measurement"
         assert SENSOR_TYPES[key]["unit"] == "W"
 
-    @pytest.mark.parametrize("key", _NEW_KEYS)
-    def test_keys_in_static_sets(self, key: str) -> None:
-        """#197 keys are in the static key sets (zero-read first refresh)."""
+    @pytest.mark.parametrize("key", _LOCAL_KEYS)
+    def test_local_keys_in_static_sets(self, key: str) -> None:
+        """Register-backed keys are in the static sets (zero-read refresh)."""
         assert key in INVERTER_RUNTIME_KEYS, f"{key} missing from runtime keys"
         assert key in ALL_INVERTER_SENSOR_KEYS, f"{key} missing from static set"
 
+    @pytest.mark.parametrize("key", _CLOUD_ONLY_KEYS + _RETIRED_KEYS)
+    def test_cloud_only_and_retired_keys_not_in_static_sets(self, key: str) -> None:
+        """Cloud-only + retired keys must NOT be statically created in LOCAL.
+
+        There is no local source for any of them; pre-creating the entities
+        would leave them permanently unknown in pure-LOCAL mode (#335).
+        """
+        assert key not in INVERTER_RUNTIME_KEYS, f"{key} leaked into runtime keys"
+        assert key not in ALL_INVERTER_SENSOR_KEYS, f"{key} leaked into static set"
+
+    @pytest.mark.parametrize("key", _RETIRED_KEYS)
+    def test_retired_keys_fully_removed(self, key: str) -> None:
+        """The fabricated per-leg keys are gone from every creation surface
+        and their orphaned registry entries are covered by the setup purge
+        (#335)."""
+        from custom_components.eg4_web_monitor import (
+            _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES,
+        )
+
+        assert key not in SENSOR_TYPES
+        property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+        assert key not in property_map.values()
+        assert f"_{key}" in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+
     def test_offgrid_only_set_matches_issue_scope(self) -> None:
-        """OFFGRID_ONLY_SENSORS is exactly the #197 + #222 key set (drift guard)."""
-        assert OFFGRID_ONLY_SENSORS == frozenset(_NEW_KEYS) | frozenset(
-            _SMART_LOAD_KEYS
+        """OFFGRID_ONLY_SENSORS is exactly the surviving key set (drift guard)."""
+        assert OFFGRID_ONLY_SENSORS == frozenset(_LOCAL_KEYS) | frozenset(
+            _CLOUD_ONLY_KEYS
         )
 
 
@@ -134,14 +183,14 @@ class TestSensorDefinitions:
 
 
 class TestOffgridGating:
-    """#197 sensors are created for EG4_OFFGRID only."""
+    """Offgrid-only sensors are created for EG4_OFFGRID only."""
 
-    @pytest.mark.parametrize("key", _NEW_KEYS)
+    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
     def test_created_for_offgrid(self, key: str) -> None:
         features = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
         assert _should_create_sensor(key, features) is True
 
-    @pytest.mark.parametrize("key", _NEW_KEYS)
+    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
     @pytest.mark.parametrize(
         "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP]
     )
@@ -149,7 +198,7 @@ class TestOffgridGating:
         features = {"inverter_family": family}
         assert _should_create_sensor(key, features) is False
 
-    @pytest.mark.parametrize("key", _NEW_KEYS)
+    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
     def test_no_features_is_fail_closed(self, key: str) -> None:
         """No detected features → DO NOT create (review: fail-closed).
 
@@ -170,14 +219,14 @@ class TestOffgridGating:
         assert _should_create_sensor("load_power", None, "parallel_group") is True
 
     def test_static_path_gating_offgrid_vs_hybrid(self) -> None:
-        """Static-config features gate the 5 keys per family (review F5)."""
+        """Static-config features gate the offgrid keys per family (review F5)."""
         from custom_components.eg4_web_monitor.coordinator_mappings import (
             _features_from_family,
         )
 
         offgrid = _features_from_family("EG4_OFFGRID", None)
         hybrid = _features_from_family("EG4_HYBRID", None)
-        for key in _NEW_KEYS:
+        for key in _LOCAL_KEYS + _CLOUD_ONLY_KEYS:
             assert _should_create_sensor(key, offgrid) is True
             assert _should_create_sensor(key, hybrid) is False
 
@@ -190,40 +239,33 @@ class TestOffgridGating:
 class TestLocalRuntimeMapping:
     """_build_runtime_sensor_mapping carries the #197 register values."""
 
-    def test_eps_load_power_per_leg_and_sum(self) -> None:
-        """Regs 129/130 → eps_load_power_l1/_l2 + L1+L2 sum.
+    def test_regs_129_130_map_to_eps_power_legs_only(self) -> None:
+        """Regs 129/130 → eps_power_l1/_l2 and NOTHING else (#335).
 
-        Values from the reporter's EPS-discharge sweep: L1=1031, L2=296,
-        sum=1327 (cloud epsLoadPower read 1338 — 11 W timing skew).
+        The registers carry the COMBINED backup-path legs; the former
+        eps_load_power_l1/_l2 aliases and the L1+L2 eps_load_power sum
+        fabricated duplicates of eps_power_l1/l2 and are retired.  There is
+        no LOCAL source for the cloud epsLoadPower (EPS-loads subset) field.
         """
         runtime = InverterRuntimeData(eps_l1_power=1031, eps_l2_power=296)
         mapping = _build_runtime_sensor_mapping(runtime)
-        assert mapping["eps_load_power_l1"] == 1031
-        assert mapping["eps_load_power_l2"] == 296
-        assert mapping["eps_load_power"] == 1327
+        assert mapping["eps_power_l1"] == 1031
+        assert mapping["eps_power_l2"] == 296
+        assert "eps_load_power_l1" not in mapping
+        assert "eps_load_power_l2" not in mapping
+        assert "eps_load_power" not in mapping
 
-    def test_eps_load_power_sum_none_semantics(self) -> None:
-        """No leg values → no derived keys; one leg aliases alone, no sum.
-
-        The runtime mapping always materializes eps_power_l1/l2 KEYS (values
-        may be None) — presence for the derived keys means a non-None VALUE
-        (review round 2), so a lone leg can never publish a one-leg total.
-        """
-        empty = _build_runtime_sensor_mapping(InverterRuntimeData())
-        assert "eps_load_power_l1" not in empty
-        assert "eps_load_power_l2" not in empty
-        assert "eps_load_power" not in empty
-
-        l1_only = _build_runtime_sensor_mapping(InverterRuntimeData(eps_l1_power=1031))
-        assert l1_only["eps_load_power_l1"] == 1031
-        assert "eps_load_power_l2" not in l1_only
-        assert "eps_load_power" not in l1_only
-
-    def test_eps_load_power_zero_when_grid_tied(self) -> None:
-        """Grid-tied: regs 129/130 read 0 — the sum is 0, not None."""
-        runtime = InverterRuntimeData(eps_l1_power=0, eps_l2_power=0)
-        mapping = _build_runtime_sensor_mapping(runtime)
-        assert mapping["eps_load_power"] == 0
+    def test_no_eps_load_keys_even_when_legs_zero_or_absent(self) -> None:
+        """The retired keys never materialize, whatever regs 129/130 read."""
+        for runtime in (
+            InverterRuntimeData(),
+            InverterRuntimeData(eps_l1_power=0, eps_l2_power=0),
+            InverterRuntimeData(eps_l1_power=1031),
+        ):
+            mapping = _build_runtime_sensor_mapping(runtime)
+            assert "eps_load_power_l1" not in mapping
+            assert "eps_load_power_l2" not in mapping
+            assert "eps_load_power" not in mapping
 
     def test_load_power_from_reg_170(self) -> None:
         """Reg 170 (output_power field) feeds load_power — grid-tied 3788 W."""
@@ -264,60 +306,91 @@ class TestCloudHybridPath:
         assert "load_power" not in property_map
         assert "load_power" not in property_map.values()
 
-    def test_apply_eps_load_power_sensors_aliases_and_sums(self) -> None:
-        sensors = {"eps_power_l1": 1031, "eps_power_l2": 296}
-        apply_eps_load_power_sensors(sensors)
-        assert sensors["eps_load_power_l1"] == 1031
-        assert sensors["eps_load_power_l2"] == 296
-        assert sensors["eps_load_power"] == 1327
+    def test_eps_load_power_in_property_map(self) -> None:
+        """CLOUD maps eps_load_power from the pylxpweb ``eps_load_power``
+        property (cloud epsLoadPower — the EPS-loads subset, #335; shipped
+        in pylxpweb 0.9.36, #219).  The property returns None when no cloud
+        runtime is attached, so the key stays absent in pure-LOCAL
+        operation (fail-closed)."""
+        property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
+        assert property_map.get("eps_load_power") == "eps_load_power"
 
-    def test_apply_eps_load_power_sensors_absent_sources_write_nothing(
-        self,
+    async def test_cloud_eps_load_power_is_the_subset_not_the_combined_legs(
+        self, hass, mock_config_entry
     ) -> None:
-        """No source keys → no derived keys (review: presence semantics).
+        """#335 contract: epsLoadPower=365 / pEpsL1N=1000 / pEpsL2N=300 →
+        eps_power legs 1000/300, eps_load_power=365, and NO fabricated
+        eps_load_power_l1/_l2 keys (they were duplicates of the legs).
 
-        Fabricating None keys here would create permanently-unknown entities
-        for cloud responses that lack pEpsL1N/pEpsL2N entirely.
+        Exercises the REAL resolution path end-to-end: a genuine cloud
+        runtime payload on the real pylxpweb class — pEpsL1N/pEpsL2N via
+        the eps_power_l1/_l2 properties and epsLoadPower via the
+        eps_load_power property (pylxpweb >=0.9.36) — no property patches.
         """
-        sensors: dict[str, object] = {"pv1_power": 100}
-        apply_eps_load_power_sensors(sensors)
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._runtime = InverterRuntime.model_construct(
+            epsLoadPower=365,
+            pEpsL1N=1000,
+            pEpsL2N=300,
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+
+        assert sensors["eps_power_l1"] == 1000
+        assert sensors["eps_power_l2"] == 300
+        assert sensors["eps_load_power"] == 365
         assert "eps_load_power_l1" not in sensors
         assert "eps_load_power_l2" not in sensors
-        assert "eps_load_power" not in sensors
 
-    def test_apply_eps_load_power_sensors_single_phase_no_sum(self) -> None:
-        """One phase present → that alias only; no half-truth sum."""
-        sensors: dict[str, object] = {"eps_power_l1": 1031}
-        apply_eps_load_power_sensors(sensors)
-        assert sensors["eps_load_power_l1"] == 1031
-        assert "eps_load_power_l2" not in sensors
-        assert "eps_load_power" not in sensors
+    async def test_no_cloud_runtime_leaves_eps_load_power_absent(
+        self, hass, mock_config_entry
+    ) -> None:
+        """No cloud runtime → no eps_load_power key (and never the
+        fabricated legs/sum) even with the combined legs present.
 
-    def test_apply_eps_none_valued_keys_are_not_presence(self) -> None:
-        """A key carrying None (LOCAL mapping shape) is NOT presence.
-
-        The LOCAL runtime mapping materializes eps_power_l1/l2 keys
-        unconditionally; only non-None VALUES may alias or contribute to
-        the sum (review round 2 MAJOR).
+        The shipped pylxpweb eps_load_power property returns None when
+        ``_runtime`` is unset — the transport carries no EPS-loads-subset
+        register — so the sensor stays absent (never wrong) whenever the
+        cloud payload is unavailable.  The eps_power legs are patched to
+        prove their presence alone can no longer fabricate anything.
         """
-        sensors: dict[str, object] = {"eps_power_l1": 1031, "eps_power_l2": None}
-        apply_eps_load_power_sensors(sensors)
-        assert sensors["eps_load_power_l1"] == 1031
-        assert "eps_load_power_l2" not in sensors
-        assert "eps_load_power" not in sensors
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
-        both_none: dict[str, object] = {"eps_power_l1": None, "eps_power_l2": None}
-        apply_eps_load_power_sensors(both_none)
-        assert "eps_load_power_l1" not in both_none
-        assert "eps_load_power_l2" not in both_none
-        assert "eps_load_power" not in both_none
+        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(cls, "eps_power_l1", property(lambda s: 1000)),
+            patch.object(cls, "eps_power_l2", property(lambda s: 300)),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+
+        assert sensors["eps_power_l1"] == 1000
+        assert sensors["eps_power_l2"] == 300
+        assert "eps_load_power" not in sensors
+        assert "eps_load_power_l1" not in sensors
+        assert "eps_load_power_l2" not in sensors
 
     async def test_hybrid_overlay_populates_offgrid_sensors(
         self, hass, mock_config_entry
     ) -> None:
         """HYBRID trusts the local registers: reg 170 → load_power via the
-        transport overlay, regs 129/130 → eps_load_power_* via the property
-        map alias, reg 11 → battery_discharge_power via the property map."""
+        transport overlay, regs 129/130 → eps_power_l1/_l2 via the property
+        map, reg 11 → battery_discharge_power via the property map.  The
+        transport carries NO EPS-loads-subset value, so with no cloud
+        runtime attached the real eps_load_power property returns None and
+        the key (plus the retired per-leg keys) stays absent (#335) — in a
+        real HYBRID session it populates from cloud-supplemental runtime."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -336,10 +409,12 @@ class TestCloudHybridPath:
         sensors = result["sensors"]
 
         assert sensors["load_power"] == 1324.0
-        assert sensors["eps_load_power_l1"] == 1031
-        assert sensors["eps_load_power_l2"] == 296
-        assert sensors["eps_load_power"] == 1327
+        assert sensors["eps_power_l1"] == 1031
+        assert sensors["eps_power_l2"] == 296
         assert sensors["battery_discharge_power"] == 1415
+        assert "eps_load_power" not in sensors
+        assert "eps_load_power_l1" not in sensors
+        assert "eps_load_power_l2" not in sensors
 
     async def test_pure_cloud_has_no_load_power(self, hass, mock_config_entry) -> None:
         """No transport → no load_power key (cloud zero is never trusted).
@@ -373,10 +448,12 @@ class TestCloudHybridPath:
             result = await coordinator._process_inverter_object(inverter)
         sensors = result["sensors"]
         assert "load_power" not in sensors
-        # The legitimately cloud-mapped #197 sensors still flow with data.
+        # The legitimately cloud-mapped sensors still flow with data.
         assert sensors["battery_discharge_power"] == 1415
-        assert sensors["eps_load_power_l1"] == 1031
-        assert sensors["eps_load_power"] == 1327
+        assert sensors["eps_power_l1"] == 1031
+        # The fabricated #197 aliases are retired (#335).
+        assert "eps_load_power_l1" not in sensors
+        assert "eps_load_power" not in sensors
 
 
 # =========================================================================
@@ -574,6 +651,59 @@ class TestDeprecatedCleanupSuffixes:
             new_uid.endswith(suffix) for suffix in _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES
         )
 
+    def test_eps_load_purge_suffixes_spare_surviving_keys(self) -> None:
+        """#335: the retired-leg suffixes never match the surviving
+        eps_load_power (total) or eps_power_l1/l2 unique_ids."""
+        from custom_components.eg4_web_monitor import (
+            _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES,
+        )
+
+        assert "_eps_load_power_l1" in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+        assert "_eps_load_power_l2" in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+        for surviving_uid in (
+            "1111111111_runtime_eps_load_power",
+            "1111111111_runtime_eps_power_l1",
+            "1111111111_runtime_eps_power_l2",
+            # GridBOSS per-leg load keys share the ..._load_power_l1 shape.
+            "4524850115_midbox_runtime_load_power_l1",
+        ):
+            assert not any(
+                surviving_uid.endswith(suffix)
+                for suffix in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+            ), surviving_uid
+
+    async def test_retired_eps_load_leg_entities_purged(
+        self, hass, mock_config_entry
+    ) -> None:
+        """#335: orphaned eps_load_power_l1/_l2 registry entries are removed
+        by the duplicate-sensor cleanup; the eps_load_power (total) entry —
+        which now carries the real cloud epsLoadPower field — survives."""
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.eg4_web_monitor import (
+            _async_cleanup_duplicate_runtime_data_entities,
+        )
+
+        mock_config_entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+
+        uid_l1 = "1111111111_runtime_eps_load_power_l1"
+        uid_l2 = "1111111111_runtime_eps_load_power_l2"
+        uid_total = "1111111111_runtime_eps_load_power"
+        uid_leg = "1111111111_runtime_eps_power_l1"
+        for uid in (uid_l1, uid_l2, uid_total, uid_leg):
+            registry.async_get_or_create(
+                "sensor", DOMAIN, uid, config_entry=mock_config_entry
+            )
+
+        _async_cleanup_duplicate_runtime_data_entities(hass, mock_config_entry)
+
+        get_eid = registry.async_get_entity_id
+        assert get_eid("sensor", DOMAIN, uid_l1) is None
+        assert get_eid("sensor", DOMAIN, uid_l2) is None
+        assert get_eid("sensor", DOMAIN, uid_total) is not None
+        assert get_eid("sensor", DOMAIN, uid_leg) is not None
+
     async def test_conditional_cleanup_by_family(self, hass, mock_config_entry) -> None:
         """The conditional registry cleanup removes stale per-inverter
         _battery_discharge_power entries ONLY for known non-OFFGRID families.
@@ -648,44 +778,12 @@ class TestSmartLoadSensors:
     on the off-grid family — so the keys flow exclusively through the HTTP
     property map (CLOUD + HYBRID supplemental) and must stay out of the
     LOCAL static key sets.
+
+    SENSOR_TYPES shape, static-set exclusion and family gating for these
+    keys are covered generically above (they parametrize _CLOUD_ONLY_KEYS,
+    which #335 extended with eps_load_power); this class keeps the
+    GEN-port-specific contracts.
     """
-
-    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
-    def test_sensor_types_defined_as_power(self, key: str) -> None:
-        """Every #222 key is a W power measurement sensor."""
-        assert key in SENSOR_TYPES, f"{key} missing from SENSOR_TYPES"
-        assert SENSOR_TYPES[key]["device_class"] == "power"
-        assert SENSOR_TYPES[key]["state_class"] == "measurement"
-        assert SENSOR_TYPES[key]["unit"] == "W"
-
-    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
-    def test_keys_not_in_local_static_sets(self, key: str) -> None:
-        """Cloud-only contract: NOT in the LOCAL static/runtime key sets.
-
-        Putting these in ALL_INVERTER_SENSOR_KEYS would create permanently
-        unavailable entities in pure-LOCAL mode, where no data source exists.
-        """
-        assert key not in ALL_INVERTER_SENSOR_KEYS, f"{key} leaked into static set"
-        assert key not in INVERTER_RUNTIME_KEYS, f"{key} leaked into runtime keys"
-
-    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
-    def test_created_for_offgrid(self, key: str) -> None:
-        features = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
-        assert _should_create_sensor(key, features) is True
-
-    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
-    @pytest.mark.parametrize(
-        "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP]
-    )
-    def test_not_created_for_other_families(self, key: str, family: str) -> None:
-        features = {"inverter_family": family}
-        assert _should_create_sensor(key, features) is False
-
-    @pytest.mark.parametrize("key", _SMART_LOAD_KEYS)
-    def test_no_features_is_fail_closed(self, key: str) -> None:
-        """No detected features → DO NOT create (same rule as the #197 set)."""
-        assert _should_create_sensor(key, None) is False
-        assert _should_create_sensor(key, {}) is False
 
     def test_gridboss_smart_load_power_unaffected(self) -> None:
         """ "smart_load_power" is a SHARED key (like "load_power"): GridBOSS
@@ -707,12 +805,15 @@ class TestSmartLoadSensors:
         self, hass, mock_config_entry
     ) -> None:
         """HYBRID: transport regs feed the #197 sensors while the cloud-only
-        smart-load split flows through the property map — and the existing
-        eps sensors keep their combined-output semantics (entity stability).
+        backup-output split flows through the property map — and the
+        eps_power sensors keep their combined-output semantics.
 
-        The smart-load properties land in pylxpweb (cloud-read even when a
-        transport is attached); they are patched onto the real class here so
-        the integration contract is testable against the released library.
+        Fully-real resolution path (pylxpweb >=0.9.36, no property patches):
+        the smart_load_power / grid_load_power / eps_load_power properties
+        read the attached cloud runtime even with a transport present
+        (HYBRID cloud-supplemental).  This very scenario (GEN port active)
+        is where the old fabricated L1+L2 "EPS load" sum (3330 W) diverged
+        from the real cloud epsLoadPower subset (365 W) — the #335 bug.
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -727,24 +828,27 @@ class TestSmartLoadSensors:
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
-        cls = type(inverter)
-        with (
-            patch.object(
-                cls, "smart_load_power", property(lambda s: 2999), create=True
-            ),
-            patch.object(cls, "grid_load_power", property(lambda s: 0), create=True),
-        ):
-            result = await coordinator._process_inverter_object(inverter)
+        inverter._runtime = InverterRuntime.model_construct(
+            smartLoadPower=2999,
+            gridLoadPower=0,
+            epsLoadPower=365,
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
         sensors = result["sensors"]
 
-        # New cloud-supplemental split (#222)
+        # Cloud-supplemental split (#222/#335)
         assert sensors["smart_load_power"] == 2999
         assert sensors["grid_load_power"] == 0
-        # Existing eps sensors unchanged: combined backup output from the
-        # per-leg registers (1590 + 1740 = 3330 ≈ web UI 3371 W timing skew).
-        assert sensors["eps_load_power_l1"] == 1590
-        assert sensors["eps_load_power_l2"] == 1740
-        assert sensors["eps_load_power"] == 3330
+        assert sensors["eps_load_power"] == 365
+        # eps_power legs: combined backup output from the per-leg registers
+        # (1590 + 1740 = 3330 ≈ web UI 3371 W timing skew) — NOT the 365 W
+        # EPS-loads subset.
+        assert sensors["eps_power_l1"] == 1590
+        assert sensors["eps_power_l2"] == 1740
+        # The fabricated per-leg aliases no longer exist.
+        assert "eps_load_power_l1" not in sensors
+        assert "eps_load_power_l2" not in sensors
 
     @pytest.mark.asyncio
     async def test_smart_port_cleanup_spares_inverter_entity(

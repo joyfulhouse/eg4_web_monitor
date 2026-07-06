@@ -40,8 +40,10 @@ KNOWN_SEAM_GAPS: dict[tuple[str, str], str] = {
     # battery_bank.cycle_count) were closed in eg4-ohz by exposing honest
     # device properties on pylxpweb, so the device-object path now resolves
     # them for real — as were the eg4-1d0 smart-load split properties once
-    # the type-38 pylxpweb branch merged.  Keep this set SHRINKING — add an
-    # entry only with a tracking issue, and
+    # the type-38 pylxpweb branch merged, and the GH #335 eps_load_power
+    # property (cloud epsLoadPower, sibling of smart_load_power /
+    # grid_load_power) once pylxpweb #219 shipped in 0.9.36.  Keep this set
+    # SHRINKING — add an entry only with a tracking issue, and
     # `test_known_seam_gaps_are_still_gaps` guards against stale entries
     # pylxpweb has since provided.
 }

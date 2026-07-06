@@ -1985,13 +1985,10 @@ class TestStaticLocalData:
     def test_static_keys_match_runtime_mapping(self):
         """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys.
 
-        The EPS load aliases are value-conditional (#197 review round 2):
-        they only materialize when regs 129/130 carry non-None values, so
-        the drift guard feeds both legs to exercise the full key surface.
+        The mapping's key surface is unconditional since the #197 EPS load
+        aliases were retired (#335) — an empty runtime exercises it fully.
         """
-        mapping = _build_runtime_sensor_mapping(
-            InverterRuntimeData(eps_l1_power=0, eps_l2_power=0)
-        )
+        mapping = _build_runtime_sensor_mapping(InverterRuntimeData())
         assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
 
     def test_static_keys_match_energy_mapping(self):
@@ -4246,11 +4243,13 @@ class TestMappingKeyConsistency:
             "ac_couple_power",
             "max_charge_current",
             "max_discharge_current",
-            # Smart load split (#222): cloud smartLoadPower/gridLoadPower —
-            # no validated local register on EG4_OFFGRID, so deliberately
-            # absent from the LOCAL static set (CLOUD/HYBRID supplemental).
+            # Backup-output split (#222/#335): cloud smartLoadPower/
+            # gridLoadPower/epsLoadPower — no validated local register on
+            # EG4_OFFGRID, so deliberately absent from the LOCAL static set
+            # (CLOUD/HYBRID supplemental).
             "smart_load_power",
             "grid_load_power",
+            "eps_load_power",
         }
 
         property_map = DeviceProcessingMixin._get_inverter_property_map()
