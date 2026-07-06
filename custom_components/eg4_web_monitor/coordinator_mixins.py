@@ -52,7 +52,6 @@ from .coordinator_mappings import (
     _safe_float,
     _write_charge_rate,
     alias_common_voltage_sensors,
-    apply_eps_load_power_sensors,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
     drop_offgrid_cloud_output_power,
@@ -1110,12 +1109,6 @@ class DeviceProcessingMixin(_MixinBase):
             inverter.transport_runtime is not None,
         )
 
-        # Per-phase EPS load power (regs 129/130 / cloud pEpsL1N/pEpsL2N) +
-        # L1+L2 sum — same shared helper as the LOCAL mapping (issue #197).
-        # The eps_power_l1/_l2 properties prefer the transport registers in
-        # HYBRID and fall back to the cloud fields in pure CLOUD.
-        apply_eps_load_power_sensors(processed["sensors"])
-
         # Load Energy (Eload, regs 171/172) — the inverter-served load.  This is
         # a SEPARATE meter from whole-home `consumption` (overridden below).
         # energy_today_usage/energy_lifetime_usage return the transport register
@@ -1447,6 +1440,18 @@ class DeviceProcessingMixin(_MixinBase):
             # source (no validated register) and never creates the keys.
             "smart_load_power": "smart_load_power",
             "grid_load_power": "grid_load_power",
+            # EPS-loads subset of the backup output — cloud-only epsLoadPower
+            # field, the third leg of the #222 split (consumption =
+            # epsLoadPower + smartLoadPower + gridLoadPower).  NOT the same
+            # quantity as eps_power/peps/pEpsL1N, which carry the COMBINED
+            # backup output — the former eps_power_l1+l2 aliasing was a #197
+            # coincidence (smart load idle) and produced duplicate sensors
+            # (#335).  No per-leg epsLoad fields exist, and regs 129/130 are
+            # the combined legs, so there is no LOCAL source (needs XP
+            # hardware probing).  Same HYBRID cloud-supplemental behavior as
+            # its siblings above.  Requires a pylxpweb eps_load_power
+            # property (getattr resolves None → key absent until then).
+            "eps_load_power": "eps_load_power",
             # US split-phase per-leg power
             "inverter_power_l1": "inverter_power_l1",
             "inverter_power_l2": "inverter_power_l2",

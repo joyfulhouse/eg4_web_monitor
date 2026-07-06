@@ -603,14 +603,19 @@ _METADATA_INVERTER_PROPERTIES: frozenset[str] = frozenset(
         # (identical value + display name) and is no longer in the property map.
         "ac_couple_power",  # cloud acCouplePower; transport field is
         # populated only via the canonical ac_couple_power register on LXP
-        # Smart-load split (eg4-1d0 / GH #222): cloud smartLoadPower /
-        # gridLoadPower only — NO register exists on the off-grid family
-        # (18kPV firmware RE names input reg 232 but it is unvalidated on
-        # EG4_OFFGRID hardware), so there is no canonical triangle to
-        # compare.  The pylxpweb properties read the HTTP runtime even in
-        # HYBRID by design (cloud-supplemental data).
+        # Backup-output split (eg4-1d0 / GH #222, #335): cloud
+        # smartLoadPower / gridLoadPower / epsLoadPower only — NO register
+        # exists on the off-grid family (18kPV firmware RE names input reg
+        # 232 but it is unvalidated on EG4_OFFGRID hardware, and regs
+        # 129/130 are the COMBINED backup legs, not the epsLoadPower
+        # subset), so there is no canonical triangle to compare.  The
+        # pylxpweb properties read the HTTP runtime even in HYBRID by
+        # design (cloud-supplemental data); the eps_load_power property is
+        # still PENDING in pylxpweb (#335) — the map entry resolves None
+        # until it ships.
         "smart_load_power",
         "grid_load_power",
+        "eps_load_power",
     }
 )
 
@@ -637,18 +642,20 @@ def test_inverter_triangle_exclusion_lists_are_current() -> None:
     assert not overlap, (
         "Property classified as BOTH derived and metadata: " + ", ".join(overlap)
     )
-    # Anchored counts: 9 derived + 8 metadata = 17 excluded entries today.
+    # Anchored counts: 9 derived + 9 metadata = 18 excluded entries today.
     # (metadata dropped from 9 to 8 in #253 — duplicate ``has_runtime_data``
-    # removed.)  A failure here means triangle coverage changed — verify the
-    # new classification is correct, then update the anchor.
+    # removed — and grew back to 9 in #335: cloud-only ``eps_load_power``
+    # joined the backup-output split.)  A failure here means triangle
+    # coverage changed — verify the new classification is correct, then
+    # update the anchor.
     assert len(_DERIVED_INVERTER_PROPERTIES) == 9, (
         f"derived exclusion list changed size "
         f"({len(_DERIVED_INVERTER_PROPERTIES)} != 9) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
-    assert len(_METADATA_INVERTER_PROPERTIES) == 8, (
+    assert len(_METADATA_INVERTER_PROPERTIES) == 9, (
         f"metadata exclusion list changed size "
-        f"({len(_METADATA_INVERTER_PROPERTIES)} != 8) — triangle coverage "
+        f"({len(_METADATA_INVERTER_PROPERTIES)} != 9) — triangle coverage "
         f"shrinks/grows with it; re-verify and update this anchor"
     )
 
@@ -768,13 +775,9 @@ _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
     # NOTE: inverter_energy/_lifetime need no entry either — regs 31/46 carry
     # no cloud_api_field anymore (todayYielding/totalYielding are PV yield,
     # not Einv; eg4-bc0), so the keys are cloud-impossible by table.
-    # DELIBERATE (#197): the eps_load_power_* aliases are populated by the
-    # SHARED apply_eps_load_power_sensors() helper on BOTH paths (called
-    # inside the LOCAL runtime table AND in _process_inverter_object), not by
-    # the cloud property map — the helper exists precisely so the alias+sum
-    # logic cannot drift between modes.
-    "eps_load_power_l1": "deliberate (#197): shared helper feeds both paths",
-    "eps_load_power_l2": "deliberate (#197): shared helper feeds both paths",
+    # NOTE: eps_load_power_l1/_l2 need no entry anymore — the #197 aliases of
+    # the combined regs 129/130 legs were RETIRED in #335 (they duplicated
+    # eps_power_l1/l2; the cloud epsLoadPower subset has no per-leg fields).
 }
 
 

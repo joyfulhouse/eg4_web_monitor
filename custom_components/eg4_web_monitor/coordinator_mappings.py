@@ -149,50 +149,14 @@ def alias_common_voltage_sensors(
         sensors["eps_voltage"] = v
 
 
-def _sum_optional_watts(l1: Any, l2: Any) -> int | None:
-    """Sum two optional per-leg watt values (L1+L2 pattern).
-
-    Returns ``None`` only when BOTH legs are ``None`` (no data); a single
-    available leg carries the total — the same semantics as the GridBOSS
-    ``sum_l1_l2`` aggregation.
-    """
-    if l1 is None and l2 is None:
-        return None
-    return int(l1 or 0) + int(l2 or 0)
-
-
-def apply_eps_load_power_sensors(sensors: dict[str, Any]) -> None:
-    """Populate per-phase EPS load power sensors + L1+L2 sum (issue #197).
-
-    Input regs 129/130 (LOCAL/HYBRID transport) and the cloud pEpsL1N/pEpsL2N
-    fields land on the ``eps_power_l1``/``eps_power_l2`` keys in both data
-    paths.  This aliases them onto the EG4_OFFGRID ``eps_load_power_*`` keys
-    and computes the combined ``eps_load_power`` following the existing
-    L1+L2 sum pattern.  Live-validated on 12000XP: L1=1031 + L2=296 = 1327 W
-    vs cloud epsLoadPower=1338 W (timing skew).
-
-    Called from BOTH the LOCAL runtime mapping and the cloud/hybrid device
-    processing path so the sum logic cannot drift between modes.
-
-    Args:
-        sensors: Mutable sensor dict to update.
-    """
-    # Presence means a NON-None VALUE (review round 2): the LOCAL runtime
-    # mapping materializes eps_power_l1/l2 keys unconditionally (values may
-    # be None), while pure-CLOUD responses omit the keys entirely — value
-    # presence is the only test that means the same thing on both paths.
-    # A single available phase aliases alone; the combined sum requires
-    # BOTH phases so a lone leg can never publish a half-truth total.
-    l1 = sensors.get("eps_power_l1")
-    l2 = sensors.get("eps_power_l2")
-    if l1 is None and l2 is None:
-        return
-    if l1 is not None:
-        sensors["eps_load_power_l1"] = l1
-    if l2 is not None:
-        sensors["eps_load_power_l2"] = l2
-    if l1 is not None and l2 is not None:
-        sensors["eps_load_power"] = _sum_optional_watts(l1, l2)
+# NOTE (#335): the former apply_eps_load_power_sensors() helper (#197) that
+# aliased eps_power_l1/l2 onto eps_load_power_l1/l2 and summed them into
+# eps_load_power was DELETED.  Regs 129/130 / cloud pEpsL1N/pEpsL2N are the
+# COMBINED backup-path output (smart load + EPS loads) — the #197 "sum matches
+# cloud epsLoadPower" validation was a coincidence (smart load idle).  The
+# eps_load_power_l1/l2 keys are retired (no per-leg EPS-load source exists on
+# any path) and eps_load_power now maps the real cloud epsLoadPower field via
+# the HTTP property map (cloud-only; see _get_inverter_property_map()).
 
 
 # Families whose cloud pLoad170 mirror is trustworthy for output_power:
@@ -323,13 +287,15 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "eps_power_l2",
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",
-        # EG4_OFFGRID confirmed registers (issue #197): per-phase EPS load
-        # power (regs 129/130 + L1+L2 sum), load power (reg 170) and battery
-        # discharge power (reg 11).  Entity creation is family-gated via
-        # OFFGRID_ONLY_SENSORS in sensor.py.
-        "eps_load_power_l1",
-        "eps_load_power_l2",
-        "eps_load_power",
+        # EG4_OFFGRID confirmed registers (issue #197): load power (reg 170)
+        # and battery discharge power (reg 11).  Entity creation is
+        # family-gated via OFFGRID_ONLY_SENSORS in sensor.py.
+        # NOTE (#335): eps_load_power is NOT here — it is a CLOUD-ONLY sensor
+        # (cloud epsLoadPower field) like smart_load_power/grid_load_power;
+        # regs 129/130 carry the COMBINED backup output (eps_power_l1/l2
+        # above), and no local register for the EPS-loads subset is known
+        # (needs XP hardware probing).  The former eps_load_power_l1/l2
+        # aliases were retired for the same reason.
         "load_power",
         "battery_discharge_power",
         # US split-phase per-leg power (regs 195-204)
@@ -828,9 +794,14 @@ def _build_runtime_sensor_mapping(
         "max_charge_current": runtime_data.bms_charge_current_limit,
         "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
-    # Per-phase EPS load power (regs 129/130) + L1+L2 sum — shared helper so
-    # the LOCAL and cloud/hybrid paths cannot drift (issue #197).
-    apply_eps_load_power_sensors(mapping)
+    # NOTE (#335): eps_load_power (the EPS-loads subset of the backup output)
+    # is deliberately NOT mapped here.  Regs 129/130 are the COMBINED
+    # backup-path legs (already on eps_power_l1/l2 above) — with a GEN-port
+    # smart load active they include the smart-load draw (#222: 6000XP live,
+    # L1+L2 3371 W = smartLoadPower 2999 + epsLoadPower 365).  No local
+    # register for the subset is validated (needs XP hardware probing), so
+    # the sensor is CLOUD-ONLY for now: absent in pure LOCAL, populated in
+    # CLOUD/HYBRID whenever cloud runtime is fetched (HTTP property map).
     return mapping
 
 

@@ -88,18 +88,30 @@ _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
+# Sensor keys removed because they duplicated another sensor's value; the
+# suffixes purge their orphaned registry entries at setup.  Matching uses the
+# literal ``_{sensor_key}`` unique_id tail so surviving keys are never touched.
+#
 # Issue #253: the per-inverter "Has Runtime Data" sensor was created twice —
 # from the inverter ``has_data`` property (key ``has_data``) and from the
 # redundant ``has_runtime_data``/cloud ``hasRuntimeData`` field (key
 # ``inverter_has_runtime_data``).  Both rendered the identical name and
 # collided onto one entity_id slug, so installs accumulated two active
-# entities per inverter.  The duplicate key has been removed; this suffix
-# purges its orphaned registry entries.  Matching requires the literal
-# ``_inverter_has_runtime_data`` tail so the surviving ``_has_data`` entity
-# (and any ``_runtime_..._has_data`` variant) is never touched.
+# entities per inverter.  The ``_inverter_has_runtime_data`` tail never
+# matches the surviving ``_has_data`` entity (or any ``_runtime_..._has_data``
+# variant).
+#
+# Issue #335: the EG4_OFFGRID "EPS Load Power L1/L2" sensors (#197) aliased
+# the eps_power_l1/l2 values (regs 129/130 / cloud pEpsL1N/L2N — the COMBINED
+# backup-path legs), so they were exact duplicates of "EPS Power L1/L2".  The
+# keys are retired: no per-leg source for the EPS-loads subset exists.  The
+# ``..._l1``/``..._l2`` tails never match the surviving ``_eps_load_power``
+# (total) entity, which now carries the real cloud ``epsLoadPower`` field.
 _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES: frozenset[str] = frozenset(
     {
         "_inverter_has_runtime_data",
+        "_eps_load_power_l1",
+        "_eps_load_power_l2",
     }
 )
 
@@ -307,15 +319,14 @@ def _async_cleanup_duplicate_runtime_data_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
 ) -> None:
-    """Remove orphaned duplicate "Has Runtime Data" sensor entities (#253).
+    """Remove orphaned entities of retired duplicate sensor keys (#253, #335).
 
-    Earlier versions exposed the same inverter runtime-data flag as two
-    sensors sharing the name "Has Runtime Data": the canonical ``has_data``
-    key and the redundant ``inverter_has_runtime_data`` key.  Both mapped the
-    identical underlying value and collided onto one entity_id slug, so
-    installs accumulated two active entities per inverter.  The
-    ``inverter_has_runtime_data`` sensor has been removed; purge its stale
-    registry entries so the duplicate disappears without manual deletion.
+    Earlier versions exposed the same underlying value under two sensor keys
+    (see ``_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES``): the redundant
+    ``inverter_has_runtime_data`` twin of ``has_data`` (#253) and the
+    ``eps_load_power_l1``/``_l2`` aliases of ``eps_power_l1``/``_l2`` (#335).
+    The duplicate keys have been removed; purge their stale registry entries
+    so the dead entities disappear without manual deletion.
     """
     entity_registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
@@ -327,7 +338,7 @@ def _async_cleanup_duplicate_runtime_data_entities(
         ):
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info(
-                "Removed duplicate Has Runtime Data sensor (#253): %s",
+                "Removed retired duplicate sensor (#253/#335): %s",
                 entity.entity_id,
             )
 
@@ -603,7 +614,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
 
-    # One-time cleanup: remove the duplicate "Has Runtime Data" sensor (#253).
+    # One-time cleanup: purge retired duplicate sensor keys — the "Has
+    # Runtime Data" twin (#253) and the fabricated EPS Load Power L1/L2
+    # aliases of EPS Power L1/L2 (#335).
     _async_cleanup_duplicate_runtime_data_entities(hass, entry)
 
     # Conditional cleanup: per-inverter "_battery_discharge_power" was

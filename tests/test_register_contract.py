@@ -44,6 +44,18 @@ KNOWN_SEAM_GAPS: dict[tuple[str, str], str] = {
     # entry only with a tracking issue, and
     # `test_known_seam_gaps_are_still_gaps` guards against stale entries
     # pylxpweb has since provided.
+    #
+    # GH #335: eps_load_power maps the cloud epsLoadPower field (the
+    # EPS-loads subset of the off-grid backup output; the InverterRuntime
+    # model already carries it) but pylxpweb does not yet expose an
+    # ``eps_load_power`` property mirroring its shipped smart_load_power /
+    # grid_load_power siblings.  Until it ships, the map entry resolves
+    # None and the sensor stays absent — never wrong.  The staleness guard
+    # below forces this entry's removal the moment the property lands.
+    ("inverter", "eps_load_power"): (
+        "GH #335: awaiting pylxpweb eps_load_power property "
+        "(cloud epsLoadPower, sibling of smart_load_power/grid_load_power)"
+    ),
 }
 
 # (label, property_map, target pylxpweb class the map is applied to)

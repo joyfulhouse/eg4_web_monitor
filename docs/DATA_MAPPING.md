@@ -151,37 +151,38 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 |-----|----------------|-------|------|----------------|---------------|
 | 127 | `eps_l1_voltage` | ÷10 | V | `eps_l1_voltage` | `eps_voltage_l1` |
 | 128 | `eps_l2_voltage` | ÷10 | V | `eps_l2_voltage` | `eps_voltage_l2` |
-| 129 | `eps_l1_power` | 1 | W | `eps_l1_power` | `eps_power_l1`; also `eps_load_power_l1` (EG4_OFFGRID-only, #197) |
-| 130 | `eps_l2_power` | 1 | W | `eps_l2_power` | `eps_power_l2`; also `eps_load_power_l2` (EG4_OFFGRID-only, #197) |
+| 129 | `eps_l1_power` | 1 | W | `eps_l1_power` | `eps_power_l1` (COMBINED backup-path leg — see #335 note) |
+| 130 | `eps_l2_power` | 1 | W | `eps_l2_power` | `eps_power_l2` (COMBINED backup-path leg — see #335 note) |
 | 170 | `output_power` | 1 | W | `output_power` | `output_power`; also `load_power` (EG4_OFFGRID-only, #197) |
 | 193 | `grid_l1_voltage` | ÷10 | V | `grid_l1_voltage` | `grid_voltage_l1` (suppressed when 0) |
 | 194 | `grid_l2_voltage` | ÷10 | V | `grid_l2_voltage` | `grid_voltage_l2` (suppressed when 0) |
 
 > **EG4_OFFGRID confirmed registers (issue #197):** live Modbus sweep + cloud
-> cross-reference on a 12000XP (device type 54) validated regs 129/130 as
-> per-phase EPS load power (zero grid-tied, non-zero in EPS mode; L1+L2 sum
-> matches cloud `epsLoadPower` within timing skew) and reg 170 as load power
-> (`Pload` in the 6kXP Modbus PDF — valid both grid-tied AND in EPS mode).
-> The cloud zeroes its reg-170 mirror for EG4_OFFGRID, so `load_power` comes
-> from the LOCAL register only (LOCAL mapping + HYBRID `_TRANSPORT_OVERLAY`;
-> absent in pure CLOUD).  The derived `eps_load_power` sensor is the L1+L2 sum
-> (`apply_eps_load_power_sensors()` in `coordinator_mappings.py`, shared by
-> both data paths).  All `eps_load_power_*`, `load_power` and
-> `battery_discharge_power` inverter entities are gated to EG4_OFFGRID via
-> `OFFGRID_ONLY_SENSORS` in `const/device_types.py`.
+> cross-reference on a 12000XP (device type 54) validated reg 170 as load
+> power (`Pload` in the 6kXP Modbus PDF — valid both grid-tied AND in EPS
+> mode).  The cloud zeroes its reg-170 mirror for EG4_OFFGRID, so
+> `load_power` comes from the LOCAL register only (LOCAL mapping + HYBRID
+> `_TRANSPORT_OVERLAY`; absent in pure CLOUD).  `load_power`,
+> `battery_discharge_power` and the backup-output-split sensors below are
+> gated to EG4_OFFGRID via `OFFGRID_ONLY_SENSORS` in
+> `const/device_types.py`.
 >
-> **GEN-port smart load caveat (issue #222):** on the 6000XP the GEN terminal
-> can be a smart-load output, and regs 129/130 then carry the COMBINED
-> backup-path output (smart load + EPS loads) — live evidence: L1+L2 = 3371 W
-> = cloud `smartLoadPower` 2999 W + `epsLoadPower` 365 W.  The cloud-only
-> split is exposed as `smart_load_power` / `grid_load_power` sensors
+> **Backup-output split (issues #222/#335):** on the 6000XP/12000XP the GEN
+> terminal can be a smart-load output, and `peps`/`pEpsL1N`/`pEpsL2N` (regs
+> 129/130 locally) carry the COMBINED backup-path output (smart load + EPS
+> loads) — live evidence: L1+L2 = 3371 W = cloud `smartLoadPower` 2999 W +
+> `epsLoadPower` 365 W.  The cloud-only split is exposed as
+> `smart_load_power` / `grid_load_power` / `eps_load_power` sensors
 > (CLOUD/HYBRID supplemental, EG4_OFFGRID-gated; no validated local register
 > — the 18kPV firmware RE names input reg 232 `smart_load_power` but it has
-> never been observed non-zero and is unvalidated on off-grid hardware).
-> The cloud `epsLoadPower` (EPS-only) field is intentionally NOT given its
-> own sensor: the `eps_load_power` key already carries the combined L1+L2
-> semantics and renaming/repurposing it would break entity stability —
-> EPS-only load = `eps_load_power` − `smart_load_power`.
+> never been observed non-zero and is unvalidated on off-grid hardware, and
+> regs 129/130 are the combined legs, not the `epsLoadPower` subset).
+> The former `eps_load_power_l1/_l2` sensors and the L1+L2
+> `eps_load_power` sum (#197) were RETIRED in #335: they aliased the
+> combined regs 129/130 values and so exactly duplicated `eps_power_l1/l2` —
+> the #197 "sum ≈ cloud epsLoadPower" validation was a smart-load-idle
+> coincidence.  `eps_load_power` now maps the real cloud `epsLoadPower`
+> field (pending a pylxpweb `eps_load_power` property).
 
 > **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
 > firmware-zero on EG4 US split-phase inverters — confirmed live across the full
@@ -1233,8 +1234,11 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `grid_import_power` | From register 27 (`power_to_user`) | coordinator_local.py |
 | `eps_power_l1` | Direct reg 129 (pylxpweb ≥0.9.36b1); voltage-ratio split `eps_power * (V_l1 / (V_l1 + V_l2))` as fallback | pylxpweb `eps_power_l1` |
 | `eps_power_l2` | Direct reg 130 (pylxpweb ≥0.9.36b1); voltage-ratio split as fallback | pylxpweb `eps_power_l2` |
-| `eps_load_power` | `eps_load_power_l1 + eps_load_power_l2` (None only when both legs None) | `apply_eps_load_power_sensors()` in coordinator_mappings.py (#197) |
 | `operating_state` | Friendly decode of `status_code` (see below) | `operating_state_slug()` in `const/operating_state.py`; injected in both paths |
+
+> `eps_load_power` is no longer computed: the former L1+L2 sum (#197) was the
+> COMBINED backup output and duplicated `eps_power` (#335).  It now maps the
+> cloud `epsLoadPower` field via the HTTP property map (cloud-only).
 
 ### Operating State Decode (Table 9, issue #262)
 
@@ -1359,9 +1363,8 @@ value; the `status_code` sensor retains it for diagnosis).
 | `consumption` (energy) | Computed | API (÷10) | API (÷10) | `_energy_balance()` vs `todayLoad` |
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
 | `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
-| `eps_load_power_l1/_l2/` sum | Yes | API (pEpsL1N/L2N) | Yes (transport) | Regs 129/130; EG4_OFFGRID-only entities (#197) |
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
-| `smart_load_power` / `grid_load_power` | No | API (smartLoadPower/gridLoadPower) | API (cloud supplemental) | Cloud-only GEN-port smart-load split; EG4_OFFGRID-only entities (#222) |
+| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); `eps_load_power` pending a pylxpweb property. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
 | `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 
 ---
@@ -1743,32 +1746,27 @@ CLOUD mode reads the `pEpsL1N` / `pEpsL2N` API fields.
 **Source:** `inverter.eps_power_l1` / `inverter.eps_power_l2` properties in
 pylxpweb. Set in `coordinator_local.py` `_build_local_device_data()`.
 
-#### `eps_load_power_l1` / `eps_load_power_l2` / `eps_load_power` (Inverter, EG4_OFFGRID only, #197)
+#### `eps_load_power_l1` / `eps_load_power_l2` — RETIRED (#335)
 
-Per-phase EPS load power aliased from the reg-129/130 values plus the L1+L2
-sum, populated by `apply_eps_load_power_sensors()` in
-`coordinator_mappings.py` (shared by the LOCAL mapping and the cloud/hybrid
-device path):
+The #197 sensors aliased `eps_power_l1`/`eps_power_l2` (regs 129/130 / cloud
+`pEpsL1N`/`pEpsL2N`) onto `eps_load_power_l1/_l2` and published the L1+L2 sum
+as `eps_load_power`.  Those source values are the COMBINED backup-path output
+(smart load + EPS loads), so the sensors were exact duplicates of
+`eps_power_l1/l2` — the #197 "sum 1327 ≈ cloud `epsLoadPower` 1338"
+validation was a smart-load-idle coincidence (#222 evidence: with the GEN
+port active, L1+L2 = 3371 W = `smartLoadPower` 2999 + `epsLoadPower` 365).
+No per-leg fields for the EPS-loads subset exist on any path.  The keys were
+removed from `SENSOR_TYPES`/key sets and orphaned registry entries are purged
+at setup (`_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES` in `__init__.py`).
 
-```python
-eps_load_power_l1 = eps_power_l1          # reg 129 / pEpsL1N
-eps_load_power_l2 = eps_power_l2          # reg 130 / pEpsL2N
-eps_load_power    = l1 + l2               # None only when BOTH legs are None
-```
+#### `smart_load_power` / `grid_load_power` / `eps_load_power` (Inverter, EG4_OFFGRID only, #222/#335)
 
-Entities are created only for EG4_OFFGRID (`OFFGRID_ONLY_SENSORS`).
-Live-validated on 12000XP: 1031 + 296 = 1327 W vs cloud `epsLoadPower`
-1338 W (timing skew).
-
-**Smart-load caveat (#222):** with a GEN-port smart load active (6000XP) the
-reg-129/130 values include the smart-load draw, so `eps_load_power` is the
-combined backup output, not the cloud `epsLoadPower` (EPS-only) field.
-
-#### `smart_load_power` / `grid_load_power` (Inverter, EG4_OFFGRID only, #222)
-
-Cloud-only GEN-port smart-load split, mapped from the pylxpweb
-`smart_load_power` / `grid_load_power` properties (cloud `smartLoadPower` /
-`gridLoadPower` runtime fields, raw W):
+Cloud-only backup-output split, mapped from the pylxpweb `smart_load_power` /
+`grid_load_power` properties (cloud `smartLoadPower` / `gridLoadPower`
+runtime fields, raw W) — plus `eps_load_power` for the cloud `epsLoadPower`
+(EPS-loads subset) field, wired in the HTTP property map but **pending a
+pylxpweb `eps_load_power` property** (the map's getattr resolves None → key
+absent until the library exposes it):
 
 | Mode | Source |
 |------|--------|
