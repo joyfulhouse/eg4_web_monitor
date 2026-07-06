@@ -5,6 +5,21 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-beta.27] - 2026-07-05
+
+> Requires [pylxpweb 0.9.36](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36)
+> — the first **stable** release of the 0.9.36 line (installed automatically).
+
+### Fixed
+
+- **EPS Load Power was a duplicate of EPS Power** ([#336](https://github.com/joyfulhouse/eg4_web_monitor/pull/336), closes [#335](https://github.com/joyfulhouse/eg4_web_monitor/issues/335)): on the off-grid family the *EPS Load* sensors were aliases of the combined EPS output — the original off-grid enablement validated the alias at a moment when the smart load was idle, the one state where the two quantities match. **EPS Load Power** now reads the cloud's real `epsLoadPower` field: the always-connected-loads **subset** of the backup output, diverging from *EPS Power* exactly when the smart load runs (matching the EG4 portal).
+- **Grid Peak Shaving Power read `unknown` in LOCAL mode** ([#334](https://github.com/joyfulhouse/eg4_web_monitor/pull/334), found by the 3.4.0 three-mode validation sweep): the beta.25 fix reached cloud and hybrid but the LOCAL-mode targeted register poll still skipped register 206 from before its encoding was verified. LOCAL now reads it like the other modes.
+
+### Breaking / Behavior Changes
+
+- **`EPS Load Power L1` / `EPS Load Power L2` sensors are retired** (off-grid family): EG4 provides no per-leg load values — these two were never real measurements, only copies of *EPS Power L1/L2*. Registry entries are cleaned up automatically; update any dashboards or automations to use **EPS Power L1/L2** (the identical values those sensors always showed).
+- **`EPS Load Power` (total) changes meaning**: previously the fabricated combined sum (identical to EPS Power), now the true EPS-loads subset. The entity and its unique ID are unchanged, so long-term statistics carry over — but expect a level shift in the history if your smart load runs regularly. On pure-LOCAL installs this sensor now reads unknown (EG4 exposes the subset only via the cloud; no local register is known — cloud and hybrid populate it).
+
 ## [3.4.0-beta.26] - 2026-07-05
 
 > Requires [pylxpweb 0.9.36b28](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36b28)
