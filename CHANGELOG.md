@@ -5,6 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0-rc.1] - 2026-07-05
+
+> Requires [pylxpweb 0.9.36](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36) (stable, unchanged from beta.27).
+
+**Release candidate for 3.4.0** — identical source to 3.4.0-beta.27; version promotion only. The full
+3.4.0 changelog will consolidate the beta.18–beta.27 train. Validation state at this cut: three-mode
+entity-parity sweep passed (cloud/local/hybrid, registry-level), 1949 tests, docker hybrid live-validated,
+production soaking on the beta line since beta.18.
+
 ## [3.4.0-beta.27] - 2026-07-05
 
 > Requires [pylxpweb 0.9.36](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36)
