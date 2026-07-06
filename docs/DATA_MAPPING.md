@@ -182,7 +182,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > combined regs 129/130 values and so exactly duplicated `eps_power_l1/l2` —
 > the #197 "sum ≈ cloud epsLoadPower" validation was a smart-load-idle
 > coincidence.  `eps_load_power` now maps the real cloud `epsLoadPower`
-> field (pending a pylxpweb `eps_load_power` property).
+> field via the pylxpweb `eps_load_power` property (pylxpweb ≥0.9.36).
 
 > **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
 > firmware-zero on EG4 US split-phase inverters — confirmed live across the full
@@ -1364,7 +1364,7 @@ value; the `status_code` sensor retains it for diagnosis).
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
 | `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
-| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); `eps_load_power` pending a pylxpweb property. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
+| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); pylxpweb ≥0.9.36 properties. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
 | `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 
 ---
@@ -1762,11 +1762,10 @@ at setup (`_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES` in `__init__.py`).
 #### `smart_load_power` / `grid_load_power` / `eps_load_power` (Inverter, EG4_OFFGRID only, #222/#335)
 
 Cloud-only backup-output split, mapped from the pylxpweb `smart_load_power` /
-`grid_load_power` properties (cloud `smartLoadPower` / `gridLoadPower`
-runtime fields, raw W) — plus `eps_load_power` for the cloud `epsLoadPower`
-(EPS-loads subset) field, wired in the HTTP property map but **pending a
-pylxpweb `eps_load_power` property** (the map's getattr resolves None → key
-absent until the library exposes it):
+`grid_load_power` / `eps_load_power` properties (cloud `smartLoadPower` /
+`gridLoadPower` / `epsLoadPower` runtime fields, raw W; `eps_load_power`
+shipped in pylxpweb 0.9.36, pylxpweb #219 — the property returns None when no
+cloud runtime is attached, so the key stays absent in pure-LOCAL operation):
 
 | Mode | Source |
 |------|--------|

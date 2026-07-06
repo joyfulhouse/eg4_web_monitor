@@ -21,8 +21,9 @@ evidence: GEN port active → L1+L2 3371 W = smartLoadPower 2999 +
 epsLoadPower 365).  The per-leg keys are RETIRED (no per-leg EPS-loads
 source exists) and ``eps_load_power`` now maps the real cloud
 ``epsLoadPower`` field — CLOUD-ONLY like its #222 siblings
-smart_load_power/grid_load_power, pending a pylxpweb ``eps_load_power``
-property (absent until then).
+smart_load_power/grid_load_power, via the pylxpweb ``eps_load_power``
+property (shipped in 0.9.36, pylxpweb #219; returns None when no cloud
+runtime is attached, so the key stays absent in pure-LOCAL operation).
 
 These tests pin that contract: sensor keys in SENSOR_TYPES and the static
 key sets, both data paths, EG4_OFFGRID entity gating, and the retirement of
@@ -99,8 +100,8 @@ _LOCAL_KEYS = (
 # epsLoadPower + smartLoadPower + gridLoadPower on this family).  These have
 # NO validated local register source, so they are deliberately absent from
 # the LOCAL static key sets and flow exclusively through the HTTP property
-# map.  eps_load_power additionally awaits a pylxpweb ``eps_load_power``
-# property — the map entry resolves to None (key absent) until it ships.
+# map — all three pylxpweb properties shipped as of 0.9.36 (eps_load_power
+# via pylxpweb #219) and return None without cloud runtime data.
 _CLOUD_ONLY_KEYS = (
     "smart_load_power",
     "grid_load_power",
@@ -115,9 +116,8 @@ _RETIRED_KEYS = (
     "eps_load_power_l2",
 )
 
-# The #222 GEN-port subset of _CLOUD_ONLY_KEYS whose pylxpweb properties
-# already SHIPPED (eps_load_power's is still pending, #335) — used by the
-# TestSmartLoadSensors specifics below.
+# The #222 GEN-port subset of _CLOUD_ONLY_KEYS — used by the
+# TestSmartLoadSensors specifics below (eps_load_power is the #335 member).
 _SMART_LOAD_KEYS = (
     "smart_load_power",
     "grid_load_power",
@@ -308,9 +308,10 @@ class TestCloudHybridPath:
 
     def test_eps_load_power_in_property_map(self) -> None:
         """CLOUD maps eps_load_power from the pylxpweb ``eps_load_power``
-        property (cloud epsLoadPower — the EPS-loads subset, #335).  The
-        property does not exist in pylxpweb yet; until it ships, the map's
-        getattr resolves None and the key stays absent (fail-closed)."""
+        property (cloud epsLoadPower — the EPS-loads subset, #335; shipped
+        in pylxpweb 0.9.36, #219).  The property returns None when no cloud
+        runtime is attached, so the key stays absent in pure-LOCAL
+        operation (fail-closed)."""
         property_map = EG4DataUpdateCoordinator._get_inverter_property_map()
         assert property_map.get("eps_load_power") == "eps_load_power"
 
@@ -321,9 +322,10 @@ class TestCloudHybridPath:
         eps_power legs 1000/300, eps_load_power=365, and NO fabricated
         eps_load_power_l1/_l2 keys (they were duplicates of the legs).
 
-        The eps_load_power property is patched onto the class with
-        ``create=True`` because pylxpweb does not expose it yet — this pins
-        the integration's mapping contract for when the library ships it.
+        Exercises the REAL resolution path end-to-end: a genuine cloud
+        runtime payload on the real pylxpweb class — pEpsL1N/pEpsL2N via
+        the eps_power_l1/_l2 properties and epsLoadPower via the
+        eps_load_power property (pylxpweb >=0.9.36) — no property patches.
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -331,14 +333,13 @@ class TestCloudHybridPath:
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
-        cls = type(inverter)
-        with (
-            patch.object(cls, "has_data", property(lambda s: True)),
-            patch.object(cls, "eps_power_l1", property(lambda s: 1000)),
-            patch.object(cls, "eps_power_l2", property(lambda s: 300)),
-            patch.object(cls, "eps_load_power", property(lambda s: 365), create=True),
-        ):
-            result = await coordinator._process_inverter_object(inverter)
+        inverter._runtime = InverterRuntime.model_construct(
+            epsLoadPower=365,
+            pEpsL1N=1000,
+            pEpsL2N=300,
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
         sensors = result["sensors"]
 
         assert sensors["eps_power_l1"] == 1000
@@ -347,15 +348,17 @@ class TestCloudHybridPath:
         assert "eps_load_power_l1" not in sensors
         assert "eps_load_power_l2" not in sensors
 
-    async def test_cloud_without_eps_load_power_leaves_key_absent(
+    async def test_no_cloud_runtime_leaves_eps_load_power_absent(
         self, hass, mock_config_entry
     ) -> None:
-        """No epsLoadPower source → no eps_load_power key (and never the
-        fabricated legs/sum) even with pEpsL1N/pEpsL2N present.
+        """No cloud runtime → no eps_load_power key (and never the
+        fabricated legs/sum) even with the combined legs present.
 
-        This is also the CURRENT pylxpweb behavior: the class has no
-        ``eps_load_power`` property, so the sensor stays absent — never
-        wrong — until the library exposes the field.
+        The shipped pylxpweb eps_load_power property returns None when
+        ``_runtime`` is unset — the transport carries no EPS-loads-subset
+        register — so the sensor stays absent (never wrong) whenever the
+        cloud payload is unavailable.  The eps_power legs are patched to
+        prove their presence alone can no longer fabricate anything.
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -384,10 +387,10 @@ class TestCloudHybridPath:
         """HYBRID trusts the local registers: reg 170 → load_power via the
         transport overlay, regs 129/130 → eps_power_l1/_l2 via the property
         map, reg 11 → battery_discharge_power via the property map.  The
-        transport carries NO EPS-loads-subset value, so eps_load_power and
-        the retired per-leg keys stay absent (#335) — in a real HYBRID
-        session the key populates only from cloud-supplemental runtime once
-        pylxpweb exposes the property."""
+        transport carries NO EPS-loads-subset value, so with no cloud
+        runtime attached the real eps_load_power property returns None and
+        the key (plus the retired per-leg keys) stays absent (#335) — in a
+        real HYBRID session it populates from cloud-supplemental runtime."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -802,15 +805,15 @@ class TestSmartLoadSensors:
         self, hass, mock_config_entry
     ) -> None:
         """HYBRID: transport regs feed the #197 sensors while the cloud-only
-        smart-load split flows through the property map — and the eps_power
-        sensors keep their combined-output semantics.
+        backup-output split flows through the property map — and the
+        eps_power sensors keep their combined-output semantics.
 
-        The smart-load properties land in pylxpweb (cloud-read even when a
-        transport is attached); they are patched onto the real class here so
-        the integration contract is testable against the released library.
-        The fabricated eps_load_* duplicates of the combined legs are gone
-        (#335): this very scenario (GEN port active) is where the old L1+L2
-        "EPS load" sum diverged from the cloud epsLoadPower subset.
+        Fully-real resolution path (pylxpweb >=0.9.36, no property patches):
+        the smart_load_power / grid_load_power / eps_load_power properties
+        read the attached cloud runtime even with a transport present
+        (HYBRID cloud-supplemental).  This very scenario (GEN port active)
+        is where the old fabricated L1+L2 "EPS load" sum (3330 W) diverged
+        from the real cloud epsLoadPower subset (365 W) — the #335 bug.
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -825,28 +828,27 @@ class TestSmartLoadSensors:
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
-        cls = type(inverter)
-        with (
-            patch.object(
-                cls, "smart_load_power", property(lambda s: 2999), create=True
-            ),
-            patch.object(cls, "grid_load_power", property(lambda s: 0), create=True),
-        ):
-            result = await coordinator._process_inverter_object(inverter)
+        inverter._runtime = InverterRuntime.model_construct(
+            smartLoadPower=2999,
+            gridLoadPower=0,
+            epsLoadPower=365,
+        )
+
+        result = await coordinator._process_inverter_object(inverter)
         sensors = result["sensors"]
 
-        # Cloud-supplemental split (#222)
+        # Cloud-supplemental split (#222/#335)
         assert sensors["smart_load_power"] == 2999
         assert sensors["grid_load_power"] == 0
+        assert sensors["eps_load_power"] == 365
         # eps_power legs: combined backup output from the per-leg registers
-        # (1590 + 1740 = 3330 ≈ web UI 3371 W timing skew).
+        # (1590 + 1740 = 3330 ≈ web UI 3371 W timing skew) — NOT the 365 W
+        # EPS-loads subset.
         assert sensors["eps_power_l1"] == 1590
         assert sensors["eps_power_l2"] == 1740
-        # The fabricated aliases/sum no longer exist; eps_load_power would
-        # only appear from the cloud epsLoadPower field (property pending).
+        # The fabricated per-leg aliases no longer exist.
         assert "eps_load_power_l1" not in sensors
         assert "eps_load_power_l2" not in sensors
-        assert "eps_load_power" not in sensors
 
     @pytest.mark.asyncio
     async def test_smart_port_cleanup_spares_inverter_entity(

@@ -609,10 +609,9 @@ _METADATA_INVERTER_PROPERTIES: frozenset[str] = frozenset(
         # 232 but it is unvalidated on EG4_OFFGRID hardware, and regs
         # 129/130 are the COMBINED backup legs, not the epsLoadPower
         # subset), so there is no canonical triangle to compare.  The
-        # pylxpweb properties read the HTTP runtime even in HYBRID by
-        # design (cloud-supplemental data); the eps_load_power property is
-        # still PENDING in pylxpweb (#335) — the map entry resolves None
-        # until it ships.
+        # pylxpweb properties (all three shipped as of 0.9.36; eps_load_power
+        # via pylxpweb #219 for #335) read the HTTP runtime even in HYBRID
+        # by design (cloud-supplemental data).
         "smart_load_power",
         "grid_load_power",
         "eps_load_power",

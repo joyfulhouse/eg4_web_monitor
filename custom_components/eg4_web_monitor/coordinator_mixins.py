@@ -1449,8 +1449,8 @@ class DeviceProcessingMixin(_MixinBase):
             # (#335).  No per-leg epsLoad fields exist, and regs 129/130 are
             # the combined legs, so there is no LOCAL source (needs XP
             # hardware probing).  Same HYBRID cloud-supplemental behavior as
-            # its siblings above.  Requires a pylxpweb eps_load_power
-            # property (getattr resolves None → key absent until then).
+            # its siblings above.  Backed by the pylxpweb eps_load_power
+            # property (>=0.9.36); no cloud runtime → None → key absent.
             "eps_load_power": "eps_load_power",
             # US split-phase per-leg power
             "inverter_power_l1": "inverter_power_l1",
