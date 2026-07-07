@@ -521,28 +521,36 @@ if reg1 & 0x100:
 > `str(addr)` for unmapped registers); writes use the raw register address
 > with two's-complement masking (-50 → 65486).
 
-### Schedule Time Window Registers ([#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277) + [#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295))
+### Schedule Time Window Registers ([#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277) + [#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295) + [#312](https://github.com/joyfulhouse/eg4_web_monitor/pull/312))
 
-Four schedule types share one packed-time layout, declared once in the
+Seven schedule types share one packed-time layout, declared once in the
 `SCHEDULE_TIME_TYPES` table (const/modbus.py, mirroring pylxpweb's
 `SCHEDULE_CONFIGS`) and consumed by a single `time` entity class
-(`EG4ScheduleTimeEntity`). Per type: three daily windows × (start, end) =
-six consecutive holding registers from the base. Each 16-bit register
-**packs both time fields**: hour in the **low byte**, minute in the **high
-byte** (`value = hour | (minute << 8)`, pylxpweb
-`pack_time()`/`unpack_time()`; e.g. 23:30 → `7703`).
+(`EG4ScheduleTimeEntity`). Per type: up to three daily windows × (start, end) =
+two consecutive holding registers per window from the base (AC Charge, AC First,
+Forced Charge, Forced Discharge, Off-Grid expose 3 windows; Peak Shaving and
+Generator Charge expose 2). Each 16-bit register **packs both time fields**:
+hour in the **low byte**, minute in the **high byte** (`value = hour | (minute
+<< 8)`, pylxpweb `pack_time()`/`unpack_time()`; e.g. 23:30 → `7703`).
 
-| Schedule | Regs | Cloud param prefix | Entities (gating) |
-|----------|------|--------------------|-------------------|
-| AC Charge | 68-73 | `HOLD_AC_CHARGE` | all control-capable families (#277) |
-| AC First | 152-157 | `HOLD_AC_FIRST` | **EG4_OFFGRID (SNA) only** — the portal shows the AC First section only on the SNA working-mode page (`/WManage/web/maintain/workingMode/sna`) |
-| Forced Charge | 76-81 | `HOLD_FORCED_CHARGE` | all control-capable families |
-| Forced Discharge | 84-89 | `HOLD_FORCED_DISCHARGE` | control-capable **grid-tied** families — suppressed on EG4_OFFGRID like the forced discharge power/SOC numbers (PR #220 / #197) |
+| Schedule | Regs | Windows | Cloud param prefix | Entities (gating) |
+|----------|------|---------|--------------------|-------------------|
+| AC Charge | 68-73 | 3 | `HOLD_AC_CHARGE` | all control-capable families (#277) |
+| AC First | 152-157 | 3 | `HOLD_AC_FIRST` | **EG4_OFFGRID (SNA) only** — the portal shows the AC First section only on the SNA working-mode page (`/WManage/web/maintain/workingMode/sna`) |
+| Forced Charge | 76-81 | 3 | `HOLD_FORCED_CHARGE` | control-capable **grid-tied** families — suppressed on EG4_OFFGRID (cloud rejects `HOLD_FORCED_CHARGE_*`, no portal params on the SNA page; #316) |
+| Forced Discharge | 84-89 | 3 | `HOLD_FORCED_DISCHARGE` | control-capable **grid-tied** families — suppressed on EG4_OFFGRID like the forced discharge power/SOC numbers (PR #220 / #197) |
+| Peak Shaving | 209-212 | 2 | `HOLD_PEAK_SHAVING` (cloud reads via interleaved `LSP_HOLD_DIS_CHG_POWER_TIME_37..44`) | EG4_HYBRID only (absent on the SNA probe); #312 |
+| Generator Charge | 256-259 | 2 | `HOLD_GEN` | EG4_HYBRID **and** EG4_OFFGRID (SNA probe carries the same names); #312 |
+| Off-Grid | 269-274 | 3 | `HOLD_OFF_GRID` | EG4_HYBRID only; #312 |
 
 Within each block: reg base+0/1 = window 1 start/end, +2/3 = window 2,
 +4/5 = window 3. HA entity keys are `{schedule}_{start|end}_time_{1|2|3}`
-(e.g. `ac_first_start_time_1`); window 1 is enabled by default, windows 2/3
-are created registry-disabled. Cloud param names take the window suffix
+(e.g. `ac_first_start_time_1`); **all schedule time windows are created
+disabled by default** (changed in #312 / beta.22 — beta.18–.20 created window 1
+enabled; already-enabled entities keep their state, the default only affects new
+registrations). Peak Shaving, Generator Charge and Off-Grid write their windows
+through the portal's atomic writeTime endpoint (`write_via_time_api`; one call
+per boundary). Cloud param names take the window suffix
 `""`/`_1`/`_2`: e.g. reg 72 (AC charge window 3 start) ↔
 `HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2`.
 
@@ -554,9 +562,12 @@ are created registry-disabled. Cloud param names take the window suffix
 > suffixed `_1`/`_2`. This matches pylxpweb's `SCHEDULE_CONFIGS` (bases
 > 68/76/84/152) and its Modbus schedule helpers, which write
 > `pack_time(hour, minute)` per register. All probed families (12kPV,
-> FlexBOSS18/21, LXP-US, SNA12K-US) report the named cloud params for all
-> four schedules; the family gates above reflect the portal UI (which page
-> shows the section) and the #197 off-grid adjudication, not param absence.
+> FlexBOSS18/21, LXP-US, SNA12K-US) report the named cloud params for the
+> AC Charge, AC First and Forced Charge/Discharge schedules; the Peak Shaving,
+> Generator Charge and Off-Grid families (bases 209/256/269) were pinned by the
+> #312 live cloud-write ↔ local-register correlation on a FlexBOSS21. The family
+> gates above reflect the portal UI (which page shows the section) and the #197
+> off-grid adjudication, not param absence.
 >
 > **LOCAL parameter-cache naming caveat (AC charge only)**: pylxpweb's
 > `REGISTER_TO_PARAM_KEYS` still carries a stale pre-probe interpretation of

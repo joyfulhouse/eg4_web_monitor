@@ -23,8 +23,9 @@ WiFi dongle, and serial RS485). A single config entry maps to one station/plant.
 - **Base entities** (`base_entity.py`) — shared base classes for device,
   battery, station, sensor, switch, and battery-bank entities to eliminate
   duplication.
-- **Entity platforms** — `sensor.py`, `switch.py`, `number.py`, `select.py`,
-  `button.py`, and `update.py`.
+- **Entity platforms** — `sensor.py`, `binary_sensor.py`, `switch.py`,
+  `number.py`, `select.py`, `button.py`, `time.py` (schedule windows), and
+  `update.py`, plus service actions in `services.py`.
 - **Constants** (`const/`) — typed configuration (e.g. `SensorConfig`),
   `SENSOR_TYPES`, and config keys.
 
@@ -54,8 +55,9 @@ SoC/SoH, temperature, cycle count, and per-cell metrics.
   from config metadata (zero Modbus reads); real values fill in on the next
   refresh.
 - **Hybrid:** local transports drive fast sensor updates while the cloud API
-  supplies cloud-only features (DST sync, quick charge) and any
-  transport-exclusive overlays. pylxpweb handles transport routing.
+  supplies cloud-only features (DST sync) and any transport-exclusive overlays.
+  Controls fall back to the cloud when the local link is down. pylxpweb handles
+  transport routing.
 
 ## Key Design Decisions
 
