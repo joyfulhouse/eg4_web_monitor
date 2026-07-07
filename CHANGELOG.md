@@ -5,6 +5,92 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-07-07
+
+Stable release consolidating the `3.4.0-beta.1`–`3.4.0-beta.27` and `3.4.0-rc.1`
+cycle. Detailed beta notes are retained below.
+
+> Requires [pylxpweb 0.9.37](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.37)
+> (installed automatically). 0.9.37 fixes the cloud raw-register write path —
+> without it the five new voltage-limit numbers cannot write in pure-cloud
+> mode (the final-release review found the cloud endpoint had been silently
+> dropping raw register values since before this release train).
+
+### Added
+
+**New controls & configuration**
+
+- **Battery Control Mode — SOC vs Voltage** ([#48](https://github.com/joyfulhouse/eg4_web_monitor/issues/48)): two new **select** entities per inverter — **Battery Charge Control** and **Battery Discharge Control** (`SOC` / `Voltage`) — mirroring the inverter's register-179 regime bits, plus five open-loop **voltage-limit numbers**: **System Charge Voltage Limit** (reg 228), **On-Grid Cut-Off Voltage** (reg 169), **Off-Grid Cut-Off Voltage** (reg 100), **AC Charge Start Voltage** (reg 158), **AC Charge End Voltage** (reg 159). A **Configure → Battery Charge/Discharge Control Mode** option pre-fills from the live regime and gates which limit entities are enabled by default. Works in all modes; in a parallel group the regime is written to and refreshed across all inverters together.
+- **Charge Last switch** ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)): toggle the battery *Charge Last* function (register 110 bit 4) in cloud, local, and hybrid modes.
+- **Forced Discharge Power and Forced Discharge SOC Limit numbers** ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207), with [@DevTodd](https://github.com/DevTodd)): holding registers 82/83; the power command is kW (0–25.5), the SOC limit percent. Grid-tied families only (suppressed on the off-grid family, whose topology doesn't blend grid export/import).
+- **Stop Discharge Voltage number** (register 202, decivolts): the voltage-regime counterpart of the Forced Discharge SOC Limit, in all modes.
+- **Grid Sell Back switch, Export PV Only switch, and Grid Sell Back Power number** ([#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)): the web UI's grid-sell controls, gated to grid-tied families (EG4_HYBRID / LXP). **Grid Sell Back** (register 21 bit 15) and **Export PV Only** (register 179 bit 3) work in all modes; **Grid Sell Back Power** is a kW cap (register 103, 100 W raw units; 0–25.5 kW).
+- **Fast Zero Export switch** ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)): the Grid Sell tab's fast zero-export toggle (register 110 bit 1), grid-tied families, all modes.
+- **Share Battery switch** ([#306](https://github.com/joyfulhouse/eg4_web_monitor/pull/306), closes [#288](https://github.com/joyfulhouse/eg4_web_monitor/issues/288)): the per-inverter shared-bank toggle (register 110 bit 3) for multi-inverter systems; disabled by default (niche).
+- **Start Discharge / Start Charge Power Threshold numbers** ([#272](https://github.com/joyfulhouse/eg4_web_monitor/issues/272)): CT-equipped grid-tied inverters get **Start Discharge Power Threshold** (register 116, whole watts, all modes) and its companion **Start Charge Power Threshold** (register 117, signed watts, LOCAL/HYBRID-only, disabled by default — the cloud has no parameter name for it).
+- **AC Charge Start/End Battery SOC numbers — off-grid family** ([#332](https://github.com/joyfulhouse/eg4_web_monitor/pull/332), closes [#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331)): the off-grid family's real AC-charge window controls (registers 160/161), enabled by default. (The grid-tied *AC Charge SOC Limit*, register 67, is correctly removed on this family — see Fixed.)
+
+**Quick Charge in LOCAL/HYBRID** ([#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251))
+
+- The **Quick Charge** switch and **Quick Charge Duration** number now work over a local transport, not just the cloud API. Duration faithfully mirrors holding register 234 live (idle and while charging): raising it while a charge runs extends the charge; setting it while idle returns a clear error rather than silently storing a rejected value (cloud-only installs keep it as a start-minute preference). A new **Quick Charge Remaining** sensor reports the live countdown in **seconds** (input register 210, holding-234 fallback; cloud reads the API).
+- **AC Charge SOC Limit accepts 101%** ([#158](https://github.com/joyfulhouse/eg4_web_monitor/issues/158)): the "never stop AC charging" cell-balancing setting no longer reads back unavailable or rejects a 101 write.
+
+**Schedule time entities**
+
+- Native Home Assistant **time** entities for the portal's working-mode schedule windows: **AC Charge** (registers 68-73, [#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277)), **AC First** (152-157, off-grid family only), **Forced Charge** (76-81), **Forced Discharge** (84-89, grid-tied families), **Peak Shaving** (209-212), **Generator Charge** (256-259), and **Off-Grid** (269-274) ([#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295), [#312](https://github.com/joyfulhouse/eg4_web_monitor/pull/312)). Each schedule exposes up to three windows; values follow parameter polling so portal-made changes appear in HA, and LOCAL/HYBRID write the packed register directly while CLOUD uses the portal's named parameters. **All schedule time entities are created disabled by default** — enable the windows you automate from the entity registry.
+
+**New sensors & diagnostics**
+
+- **Operating State sensor and Off-Grid binary sensor** ([#262](https://github.com/joyfulhouse/eg4_web_monitor/issues/262)): the operating-mode code, previously only a raw numeric Status Code, is now decoded into a friendly enum (e.g. `Battery → Grid`, `Off-Grid (Battery)`) in all modes, plus a boolean **Off-Grid** sensor. The cloud connection/health string is renamed **Cloud Status** (entity ID unchanged).
+- **Fault Code and Warning Code diagnostic sensors** (input registers 60-63): surfaced per inverter in LOCAL and HYBRID modes (the cloud API doesn't carry these fields).
+- **Smart Load Power and Grid Load Power sensors — off-grid family** ([#222](https://github.com/joyfulhouse/eg4_web_monitor/issues/222)): on 6000XP/12000XP the GEN terminal doubles as a smart-load output; the cloud's `smartLoadPower`/`gridLoadPower` split is surfaced in CLOUD and HYBRID modes.
+- **Off-grid family register set** ([#197](https://github.com/joyfulhouse/eg4_web_monitor/issues/197)): live-validated **Load Power** (input register 170) and a per-inverter **Battery Discharge Power** sensor for the EG4_OFFGRID family (12000XP/6000XP).
+
+**Other**
+
+- **New service `eg4_web_monitor.import_historical_data`** ([#73](https://github.com/joyfulhouse/eg4_web_monitor/issues/73)): opt-in, idempotent import of plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) into external long-term statistics selectable in the Energy dashboard. Bounded to 2 years per call, with `dry_run` preview and DST-correct day alignment.
+- **Configurable Modbus read block size** ([#254](https://github.com/joyfulhouse/eg4_web_monitor/issues/254)): a new option (shown when a local transport is configured) with **Conservative** (default, unchanged behavior) and **Fast** (up to 120 registers per request, ~4 fewer round-trips per poll) presets. Older dongle firmware that only supports ~40-register reads automatically latches back to conservative reads without interrupting polling.
+
+### Changed / Behavior notes
+
+- **`Output Power` now means load output in every connection mode**: previously an exact duplicate of `AC Power` in cloud/hybrid (both `pinv`) while LOCAL read the load register. It now carries register-170 load-output semantics everywhere. Pure-cloud values change from inverter AC output to load output; the entity is no longer split-phase-gated; and pure-cloud off-grid systems get no `output_power` entity (the cloud zeroes its mirror there) rather than a false 0.
+- **`EPS Load Power` (off-grid family) reflects the real always-connected-loads subset** ([#336](https://github.com/joyfulhouse/eg4_web_monitor/pull/336), closes [#335](https://github.com/joyfulhouse/eg4_web_monitor/issues/335)): on the off-grid family this sensor now reads the cloud's `epsLoadPower` field — the load subset of the backup output — diverging from *EPS Power* when the smart load runs (matching the EG4 portal). On pure-LOCAL installs it reads unknown (no local register carries the subset; cloud and hybrid populate it). No per-leg EPS load values exist — use **EPS Power L1/L2** for per-leg readings.
+
+### Fixed
+
+**Battery reporting**
+
+- **Systems with more than 4 batteries now report every battery reliably in all modes** ([#258](https://github.com/joyfulhouse/eg4_web_monitor/issues/258), [#170](https://github.com/joyfulhouse/eg4_web_monitor/issues/170)): inverters rotate >4 batteries through 4 fixed Modbus slots and the inverter's reported battery count (register 96) is unreliable on parallel systems. Battery data now accumulates by serial number and ignores register 96, so every battery appears and stays. Several related root causes were also fixed: cloud login no longer fails on parallel-group systems (the login model treated informational last-visit fields as required), the HYBRID merge carries batteries forward across transient cloud omissions and keeps the fresher of the local/cloud reading per battery (with a 6-hour staleness bound so a physically removed pack still disappears without a restart), and transient duplicate-serial register reads can no longer mint a lasting phantom battery.
+- **One battery identity across Cloud/Local/Hybrid** ([#252](https://github.com/joyfulhouse/eg4_web_monitor/issues/252)): all modes now derive the same serial-first device key, so switching connection mode no longer duplicates battery devices. Existing installs are migrated in place (automations, dashboards, area, name and history preserved).
+- **Battery Bank aggregates no longer flicker unavailable** ([#261](https://github.com/joyfulhouse/eg4_web_monitor/issues/261)): the bank sensors dropped out whenever the local battery count momentarily read 0; they now fall back to the cloud reading, and the local decode preserves the last-good value when only the BMS register block drops.
+- **Battery cell-number sensors uncrossed in LOCAL/HYBRID**: the Max/Min Cell Temperature/Voltage Number sensors were swapped on the local path; they now match cloud.
+- **Battery bank Full/Remaining Capacity no longer double-counted in cloud mode**, and **battery firmware version no longer flaps between "1.3" and "1.03" in HYBRID** ([#287](https://github.com/joyfulhouse/eg4_web_monitor/issues/287)).
+
+**Device & control detection**
+
+- **12000XP and other SNA-platform units get their full control set in Cloud mode** ([#259](https://github.com/joyfulhouse/eg4_web_monitor/issues/259)): the control gate matched the cloud model string against known substrings, so a unit reporting `SNA-US 15K` was created with no Controls or Configuration at all. The gate now also accepts any device whose detected inverter family is one the integration drives, available in every mode.
+- **Family-UNKNOWN devices regain their real sensor profile** ([#219](https://github.com/joyfulhouse/eg4_web_monitor/issues/219)) and **6000XP units reporting device-type code 38 are positively identified as off-grid** ([#222](https://github.com/joyfulhouse/eg4_web_monitor/issues/222)).
+- **An offline inverter no longer blacks out all of its entities** ([#256](https://github.com/joyfulhouse/eg4_web_monitor/issues/256)): the cloud's partial "offline" payload failed validation and made every entity unavailable, even on the online sibling in the same station. It now reports `Status = offline` with live metrics unknown.
+- **Multi-station cloud accounts can be added again** ([#275](https://github.com/joyfulhouse/eg4_web_monitor/issues/275)): the station-selection dropdown rejected every choice on accounts with more than one station (int-keyed ids vs the frontend's string submission).
+- **Duplicate "Has Runtime Data" sensor removed** ([#253](https://github.com/joyfulhouse/eg4_web_monitor/issues/253)).
+
+**Local transport reliability** ([#226](https://github.com/joyfulhouse/eg4_web_monitor/issues/226))
+
+- A local transport that dies mid-run, drops silently (VPN/NAT timeout with no TCP reset), or fails to attach at startup no longer freezes entities on stale data or parks a HYBRID device on cloud data forever. After 3 failed reads the link is declared down (one warning plus a self-clearing Repairs issue); HYBRID falls back to cloud at the normal cadence, LOCAL goes honestly unavailable, and everything self-restores on reconnection. Loads on the off-grid family also rides out an outage now (falls back to the cloud EPS/smart/grid split).
+- **Parameter-backed controls no longer go unknown for an hour after one bad read** ([#282](https://github.com/joyfulhouse/eg4_web_monitor/issues/282)): a failed holding-register range read replaced the full parameter set and armed the hourly throttle; partial reads now carry forward last-known values and retry early.
+- **Targeted Modbus parameter reads are link-down-gated** and **RS485 serial devices in HYBRID are refreshed sequentially** ([#233](https://github.com/joyfulhouse/eg4_web_monitor/issues/233)) so a shared bus isn't corrupted by concurrent reads.
+
+**GridBOSS & registers**
+
+- **GridBOSS smart-load automations no longer break on every restart in LOCAL mode** ([#217](https://github.com/joyfulhouse/eg4_web_monitor/issues/217)): the boot-time cleanup deleted and re-created smart-port entities under new registry IDs; it's now deferred until real port data lands.
+- **Smart Port Status no longer errors when all four ports are Unused** ([#248](https://github.com/joyfulhouse/eg4_web_monitor/issues/248)).
+- **Cloud/HYBRID GridBOSS now surfaces Consumption Power and Generator Frequency**, and **LOCAL `Grid Power` computes net grid flow** instead of reading the rectifier-power register.
+- **Grid Peak Shaving Power reads and writes correctly in all modes** ([#328](https://github.com/joyfulhouse/eg4_web_monitor/issues/328), [#329](https://github.com/joyfulhouse/eg4_web_monitor/pull/329), [#334](https://github.com/joyfulhouse/eg4_web_monitor/pull/334)): the setpoint lives at register 206 (0.1 kW units, hardware-confirmed), not the earlier-mapped register 231 that silently discarded writes. Writing the setpoint with Peak Shaving mode disabled now gives a clear error instead of a cryptic timeout.
+
+**Config flow**
+
+- **Dongle/Modbus discovery failures now show a clear connection error** instead of "Unexpected error" ([#250](https://github.com/joyfulhouse/eg4_web_monitor/issues/250)).
+
 ## [3.4.0-rc.1] - 2026-07-05
 
 > Requires [pylxpweb 0.9.36](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.36) (stable, unchanged from beta.27).

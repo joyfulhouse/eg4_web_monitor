@@ -792,7 +792,7 @@ jobs:
           # stable (bare "pylxpweb" -> 0.9.35, which lacks new attributes such
           # as InverterRuntimeData.rectifier_power). The pre-release marker lets
           # uv resolve the latest 0.9.36 beta.
-          uv pip install --system 'homeassistant>=2025.11.0' mypy 'pylxpweb>=0.9.36b9'
+          uv pip install --system 'homeassistant>=2025.11.0' mypy 'pylxpweb>=0.9.37'
 
       - name: Verify strict typing configuration
         run: |
