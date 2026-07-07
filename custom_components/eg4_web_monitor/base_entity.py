@@ -258,6 +258,26 @@ def _get_model_from_coordinator(
     return "Unknown"
 
 
+def device_present_and_healthy(
+    coordinator: EG4DataUpdateCoordinator, serial: str
+) -> bool:
+    """Whether the device is present in coordinator data without an error.
+
+    The sensor-level availability rule (stricter than
+    ``EG4DeviceEntity.available``): present-but-unknown when the device is
+    online without data, unavailable only when the device is gone or errored
+    (#256). Shared by :attr:`EG4BaseSensor.available` and the off-grid binary
+    sensor so the two cannot drift.
+    """
+    return (
+        coordinator.last_update_success
+        and coordinator.data is not None
+        and "devices" in coordinator.data
+        and serial in coordinator.data["devices"]
+        and "error" not in coordinator.data["devices"][serial]
+    )
+
+
 # HA's recorder treats a drop greater than 10% as a meter reset (silent);
 # smaller dips trigger a "state is not strictly increasing" warning
 # (homeassistant/components/sensor/recorder.py). We suppress dips that fall
@@ -475,13 +495,7 @@ class EG4BaseSensor(EG4DeviceEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return (
-            self.coordinator.last_update_success
-            and self.coordinator.data is not None
-            and "devices" in self.coordinator.data
-            and self._serial in self.coordinator.data["devices"]
-            and "error" not in self.coordinator.data["devices"][self._serial]
-        )
+        return device_present_and_healthy(self.coordinator, self._serial)
 
 
 class EG4BaseBatterySensor(EG4BatteryEntity):

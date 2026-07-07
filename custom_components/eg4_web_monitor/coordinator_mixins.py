@@ -500,7 +500,6 @@ if TYPE_CHECKING:
         _last_available_state: bool
         _last_parameter_refresh: datetime | None
         _last_parameter_attempt: datetime | None
-        _last_param_read_complete: bool
         _param_retry_pending: set[str]
         _param_retry_due: bool
         _param_completed_this_cycle: set[str]

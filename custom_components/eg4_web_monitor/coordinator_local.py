@@ -465,7 +465,7 @@ class LocalTransportMixin(_MixinBase):
         transport: Any,
         device_data: dict[str, Any] | None = None,
         device: Any = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], bool]:
         """Read configuration parameters using library's named parameter mapping.
 
         Uses pylxpweb's read_named_parameters() which maps Modbus registers
@@ -479,7 +479,13 @@ class LocalTransportMixin(_MixinBase):
                 gate below; None skips the gate (direct-transport callers).
 
         Returns:
-            Dictionary of parameter keys to values matching HTTP API format
+            Tuple of (parameter dict matching HTTP API format, completeness
+            flag). The flag is False when any register range failed or the
+            link-down gate skipped the read — returned per call rather than
+            stored on the instance because endpoint groups poll concurrently
+            via ``asyncio.gather`` and a shared attribute lets one device's
+            outcome clobber a sibling's before it is consumed (#282 would
+            silently regress on multi-endpoint installs).
         """
         params: dict[str, Any] = {}
         # Link-down gate (pylxpweb#206/#208 parity): these targeted range
@@ -494,18 +500,17 @@ class LocalTransportMixin(_MixinBase):
         # cycle's refresh() probe ran, so the first cycle after link
         # recovery reads immediately.
         if device is not None and is_transport_link_down(device):
-            self._last_param_read_complete = False
             _LOGGER.debug(
                 "Skipping targeted parameter read for %s: local transport "
                 "link is down (re-probed by the regular poll cycle)",
                 getattr(device, "serial_number", "unknown"),
             )
-            return params
+            return params, False
         failed_ranges: list[str] = []
         # Completeness flag for the caller's sticky carry-forward + throttle
         # re-arm (#282): a partial read must not blank known parameter values
         # or arm the refresh throttle.
-        self._last_param_read_complete = True
+        complete = True
 
         try:
             # AC First schedule windows (152-157, GH #295): consumed only by
@@ -643,7 +648,7 @@ class LocalTransportMixin(_MixinBase):
                     )
 
             if failed_ranges:
-                self._last_param_read_complete = False
+                complete = False
                 _LOGGER.info(
                     "Parameter read incomplete (register range(s) %s failed); "
                     "keeping last-known values for those parameters and "
@@ -673,10 +678,10 @@ class LocalTransportMixin(_MixinBase):
                 _LOGGER.debug("Number entity params: %s", key_params)
 
         except Exception as err:
-            self._last_param_read_complete = False
+            complete = False
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
-        return params
+        return params, complete
 
     def _build_local_device_data(
         self,
@@ -855,10 +860,10 @@ class LocalTransportMixin(_MixinBase):
             }
 
             if include_params:
-                param_data = await self._read_modbus_parameters(
+                param_data, param_read_complete = await self._read_modbus_parameters(
                     transport, device_data, device=inverter
                 )
-                if not self._last_param_read_complete:
+                if not param_read_complete:
                     # Sticky carry-forward (#282): keep last-known values for
                     # the failed range(s); only re-read ranges change.
                     previous = (self.data or {}).get("parameters", {}).get(serial) or {}
@@ -1479,10 +1484,13 @@ class LocalTransportMixin(_MixinBase):
                 param_transport = inverter.transport
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
-                    param_data = await self._read_modbus_parameters(
+                    (
+                        param_data,
+                        param_read_complete,
+                    ) = await self._read_modbus_parameters(
                         param_transport, device_data, device=inverter
                     )
-                    if self._last_param_read_complete:
+                    if param_read_complete:
                         self._param_completed_this_cycle.add(serial)
                         self._param_retry_pending.discard(serial)
                     else:

@@ -400,23 +400,13 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
 
             async def _cloud_write() -> None:
                 # Cloud API: write via generic parameter write
-                client = self.coordinator.client
-                if client is None:
-                    raise HomeAssistantError(
-                        "No local transport or cloud API available for parameter write."
-                    )
+                client = self.coordinator.require_client()
                 result = await client.api.control.write_parameter(
                     self._serial, "HOLD_PV_INPUT_MODE", str(int_value)
                 )
                 if not result.success:
                     raise HomeAssistantError(f"Failed to set PV input mode to {option}")
-                inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter and not self.coordinator.is_transport_link_down(
-                    self._serial
-                ):
-                    # Skipped on a down link: the local parameter reads would
-                    # hang; the cache seed (local_values) converges the entity.
-                    await inverter.refresh(force=True, include_parameters=True)
+                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
 
             await async_write_with_cloud_fallback(
                 self.coordinator,
@@ -545,11 +535,7 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
                 )
 
             async def _cloud_write() -> None:
-                client = self.coordinator.client
-                if client is None:
-                    raise HomeAssistantError(
-                        "No local transport or cloud API available for parameter write."
-                    )
+                client = self.coordinator.require_client()
                 result = await client.api.control.set_smart_port_mode(
                     self._serial, self._port, int_value
                 )
@@ -686,11 +672,7 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                 )
 
             async def _cloud_write() -> None:
-                client = self.coordinator.client
-                if client is None:
-                    raise HomeAssistantError(
-                        "No local transport or cloud API available for parameter write."
-                    )
+                client = self.coordinator.require_client()
                 result = await client.api.control.control_function(
                     self._serial, self._param_key, voltage_mode
                 )
@@ -698,13 +680,7 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                     raise HomeAssistantError(
                         f"Failed to set {self._control_name} to {option}"
                     )
-                inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter and not self.coordinator.is_transport_link_down(
-                    self._serial
-                ):
-                    # Skipped on a down link: the local parameter reads would
-                    # hang; the cache seed (local_values) converges the entity.
-                    await inverter.refresh(force=True, include_parameters=True)
+                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
 
             await async_write_with_cloud_fallback(
                 self.coordinator,

@@ -484,3 +484,62 @@ class TestOptionsBatteryControlMode:
             }
         )
         coordinator.async_write_battery_control_mode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unrelated_save_does_not_rewrite_mixed_regimes(self):
+        """An options save with UNTOUCHED regime pickers must not write any
+        inverter — even one whose live regime differs from the first
+        inverter's prefill (codex HIGH, 3.4.0 final review)."""
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        flow, coordinator = self._make_flow(
+            options={},
+            parameters={
+                "FUNC_BAT_CHARGE_CONTROL": True,
+                "FUNC_BAT_DISCHARGE_CONTROL": True,
+            },
+        )
+        coordinator.async_write_battery_control_mode = AsyncMock()
+        # Show the form: prefill captured from the first inverter (voltage).
+        await flow.async_step_init(user_input=None)
+        assert flow._control_mode_prefill == ("voltage", "voltage")
+        # Submit with the pickers untouched (plus an unrelated change).
+        result = await flow.async_step_init(
+            user_input={
+                CONF_CHARGE_CONTROL_MODE: "voltage",
+                CONF_DISCHARGE_CONTROL_MODE: "voltage",
+                "sensor_update_interval": 30,
+            }
+        )
+        coordinator.async_write_battery_control_mode.assert_not_called()
+        assert str(result["type"]) == "create_entry"
+
+    @pytest.mark.asyncio
+    async def test_changed_picker_applies_regime(self):
+        """Changing a picker from its prefill DOES write the regime."""
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CHARGE_CONTROL_MODE,
+            CONF_DISCHARGE_CONTROL_MODE,
+        )
+
+        flow, coordinator = self._make_flow(
+            options={},
+            parameters={
+                "FUNC_BAT_CHARGE_CONTROL": True,
+                "FUNC_BAT_DISCHARGE_CONTROL": True,
+            },
+        )
+        coordinator.async_write_battery_control_mode = AsyncMock()
+        await flow.async_step_init(user_input=None)  # prefill = voltage/voltage
+        await flow.async_step_init(
+            user_input={
+                CONF_CHARGE_CONTROL_MODE: "soc",
+                CONF_DISCHARGE_CONTROL_MODE: "voltage",
+            }
+        )
+        coordinator.async_write_battery_control_mode.assert_called_once_with(
+            "INV1", "soc", "voltage"
+        )

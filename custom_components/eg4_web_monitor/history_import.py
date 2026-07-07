@@ -464,6 +464,13 @@ async def _fetch_daily_values(
                 try:
                     day = date(year, month, int(entry.day))
                 except (TypeError, ValueError):
+                    _LOGGER.debug(
+                        "Skipping history entry with unparseable day %r for %s %d-%02d",
+                        getattr(entry, "day", None),
+                        serial,
+                        year,
+                        month,
+                    )
                     continue
                 if day < start_date or day > end_date or day > today:
                     continue

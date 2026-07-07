@@ -241,20 +241,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
     def _params_are_local_raw(self) -> bool:
         """Whether this serial's parameter cache holds raw register values.
 
-        True in local-only modes (the coordinator reads registers itself)
-        and when the pylxpweb inverter object has a local transport
-        attached (HYBRID ``local_transports``) — pylxpweb routes the
-        parameter read through that transport, so ``inverter.parameters``
-        and the coordinator cache hold raw values. The deprecated
-        global-transport fallback inside ``has_local_transport()``
-        deliberately does NOT count: legacy flat HYBRID entries populate
-        the cache from the cloud (kW-scaled), and treating them as raw
-        would mis-scale the display (12 kW would show 1.2).
+        Thin wrapper over :meth:`EG4DataUpdateCoordinator.params_are_local_raw`
+        (the single implementation): a HYBRID transport surfaces raw register
+        values, so treating cloud-populated (kW-scaled) caches as raw would
+        mis-scale the display (12 kW would show 1.2).
         """
-        if self.coordinator.is_local_only():
-            return True
-        inverter = self.coordinator.get_inverter_object(self.serial)
-        return getattr(inverter, "transport", None) is not None
+        return self.coordinator.params_are_local_raw(self.serial)
 
     @staticmethod
     def _volts_from_param(raw: Any) -> float:
@@ -476,22 +468,13 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             await asyncio.sleep(0.5)
 
         async def _cloud_write() -> None:
-            client = self.coordinator.client
-            if client is None:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+            client = self.coordinator.require_client()
             result = await client.api.control.write_parameters(
                 self.serial, {register: raw_value}
             )
             if not result.success:
                 raise HomeAssistantError(f"Failed to set {label}")
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter and not self.coordinator.is_transport_link_down(self.serial):
-                # Skipped on a down link: pylxpweb's parameter fetch has no
-                # link gate and the local reads would hang; the cache seed
-                # (local_values) converges the entity instead.
-                await inverter.refresh(force=True, include_parameters=True)
+            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
         with optimistic_value_context(self, value):
             await async_write_with_cloud_fallback(
@@ -726,21 +709,13 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             )
 
         async def _cloud_write() -> None:
-            client = self.coordinator.client
-            if client is None:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+            client = self.coordinator.require_client()
             result = await client.api.control.set_system_charge_soc_limit(
                 self.serial, int_value
             )
             if not result.success:
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter and not self.coordinator.is_transport_link_down(self.serial):
-                # Skipped on a down link: the local parameter reads would
-                # hang; the cache seed (local_values) converges the entity.
-                await inverter.refresh(force=True, include_parameters=True)
+            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
         with optimistic_value_context(self, value):
             await async_write_with_cloud_fallback(
@@ -1095,11 +1070,7 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
 
         async def _cloud_write() -> None:
             # Cloud API: write human-readable volts
-            client = self.coordinator.client
-            if client is None:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+            client = self.coordinator.require_client()
             result = await client.api.control.write_parameter(
                 self.serial, "HOLD_START_PV_VOLT", str(int_value)
             )
@@ -1107,11 +1078,7 @@ class PVStartVoltageNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(
                     f"Failed to set PV start voltage to {int_value} V"
                 )
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter and not self.coordinator.is_transport_link_down(self.serial):
-                # Skipped on a down link: the local parameter reads would
-                # hang; the cache seed (local_values) converges the entity.
-                await inverter.refresh(force=True, include_parameters=True)
+            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
         with optimistic_value_context(self, value):
             await async_write_with_cloud_fallback(
@@ -1480,19 +1447,11 @@ async def _write_cloud_named_soc(
     text. Bare writer — logging, optimistic state and the related-entity
     refresh are provided by the callers' write wrappers.
     """
-    client = entity.coordinator.client
-    if client is None:
-        raise HomeAssistantError(
-            "No local transport or cloud API available for parameter write."
-        )
+    client = entity.coordinator.require_client()
     result = await client.api.control.write_parameter(entity.serial, param, str(soc))
     if not result.success:
         raise HomeAssistantError(f"Failed to set {param} to {soc}%")
-    inverter = entity.coordinator.get_inverter_object(entity.serial)
-    if inverter and not entity.coordinator.is_transport_link_down(entity.serial):
-        # Skipped on a down link: the local parameter reads would hang;
-        # the cache seed (local_values) converges the entity.
-        await inverter.refresh(force=True, include_parameters=True)
+    await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):
@@ -1585,11 +1544,7 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
 
     async def _write_cloud_named_parameter_kw(self, value: float) -> None:
         """Write the kW value via the generic cloud named-parameter API."""
-        client = self.coordinator.client
-        if client is None:
-            raise HomeAssistantError(
-                "No local transport or cloud API available for parameter write."
-            )
+        client = self.coordinator.require_client()
         _LOGGER.info(
             "Setting grid sell back power for %s to %.1f kW", self.serial, value
         )
@@ -1714,11 +1669,7 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         Bare writer: logging, ineffective-regime warning, optimistic state
         and the related-entity refresh are provided by ``_write_parameter``.
         """
-        client = self.coordinator.client
-        if client is None:
-            raise HomeAssistantError(
-                "No local transport or cloud API available for parameter write."
-            )
+        client = self.coordinator.require_client()
         result = await client.api.control.write_parameter(
             self.serial,
             PARAM_HOLD_P_TO_USER_START_DISCHG,
@@ -1728,11 +1679,7 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
             raise HomeAssistantError(
                 f"Failed to set start discharge power threshold to {watts} W"
             )
-        inverter = self.coordinator.get_inverter_object(self.serial)
-        if inverter and not self.coordinator.is_transport_link_down(self.serial):
-            # Skipped on a down link: the local parameter reads would hang;
-            # _write_parameter's cache seed (local_values) converges the entity.
-            await inverter.refresh(force=True, include_parameters=True)
+        await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
 
 class StartChargePowerNumber(EG4BaseNumberEntity):

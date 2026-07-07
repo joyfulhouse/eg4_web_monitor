@@ -14,6 +14,7 @@ from custom_components.eg4_web_monitor.select import (
     OPERATING_MODE_OPTIONS,
     SMART_PORT_MODE_OPTIONS,
 )
+from tests.conftest import wire_coordinator_write_helpers
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ def _mock_coordinator(
     mock_inverter.refresh = AsyncMock()
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 
@@ -268,6 +270,7 @@ def _mock_gridboss_coordinator(
     coordinator.client = MagicMock()
     coordinator.client.api.control.set_smart_port_mode = AsyncMock()
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 

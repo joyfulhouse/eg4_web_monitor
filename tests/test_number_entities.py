@@ -31,6 +31,7 @@ from custom_components.eg4_web_monitor.number import (
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
 )
+from tests.conftest import wire_coordinator_write_helpers
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ def _mock_coordinator(
     mock_inverter.set_feed_in_grid_power_percent = AsyncMock(return_value=True)
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 

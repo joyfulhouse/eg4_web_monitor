@@ -1461,7 +1461,7 @@ class TestDeferredLocalParameters:
             coordinator,
             "_read_modbus_parameters",
             new_callable=AsyncMock,
-            return_value={"FUNC_EPS_EN": True},
+            return_value=({"FUNC_EPS_EN": True}, True),
         ) as mock_params:
             config = local_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
             await coordinator._process_single_local_device(
@@ -4882,7 +4882,7 @@ class TestParameterPreComputation:
                 coordinator,
                 "_read_modbus_parameters",
                 new_callable=AsyncMock,
-                return_value={},
+                return_value=({}, True),
             ),
             patch.object(
                 coordinator,

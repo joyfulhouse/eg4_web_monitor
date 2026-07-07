@@ -87,6 +87,11 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
     - Always: Parameter refresh interval, Library debug
     """
 
+    # Battery-control-mode picker values the form was pre-filled with, set
+    # when the form is built; the submit handler compares against these so an
+    # untouched picker never triggers an inverter write.
+    _control_mode_prefill: tuple[str, str] | None = None
+
     def _has_transport_type(self, transport_type: str) -> bool:
         """Check if a specific transport type exists in local_transports config."""
         transports: list[dict[str, Any]] = self.config_entry.data.get(
@@ -126,11 +131,27 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         """
         errors: dict[str, str] = {}
         if user_input is not None:
-            try:
-                await self._apply_battery_control_mode(user_input)
-            except Exception as err:
-                _LOGGER.warning("Failed to apply battery control mode: %s", err)
-                errors["base"] = "control_mode_write_failed"
+            # Only write the regime when the user actually CHANGED a picker
+            # from the value the form pre-filled. The pickers are always
+            # present, pre-filled from the FIRST inverter's live regime, so an
+            # unconditional apply would let an unrelated options save (e.g. a
+            # polling-interval tweak) silently rewrite any other inverter
+            # whose regime differs from inverter #1's. When no form was shown
+            # (prefill is None — a programmatic submit), nothing can be
+            # "untouched": treat the payload as intentional and apply it (the
+            # per-inverter live-regime check inside the apply still skips
+            # no-op writes).
+            prefill = self._control_mode_prefill
+            submitted = (
+                user_input.get(CONF_CHARGE_CONTROL_MODE, CONTROL_MODE_SOC),
+                user_input.get(CONF_DISCHARGE_CONTROL_MODE, CONTROL_MODE_SOC),
+            )
+            if prefill is None or submitted != prefill:
+                try:
+                    await self._apply_battery_control_mode(user_input)
+                except Exception as err:
+                    _LOGGER.warning("Failed to apply battery control mode: %s", err)
+                    errors["base"] = "control_mode_write_failed"
 
             if not errors:
                 _LOGGER.debug(
@@ -306,6 +327,9 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         # the inverter's live regime so the user sees their actual setting.
         # Changing it reconfigures the inverter (see field description).
         charge_default, discharge_default = self._current_control_modes()
+        # Remember the pre-filled values so the submit handler can tell an
+        # intentional regime change apart from an untouched picker.
+        self._control_mode_prefill = (charge_default, discharge_default)
         schema_fields[
             vol.Required(CONF_CHARGE_CONTROL_MODE, default=charge_default)
         ] = self._control_mode_selector()

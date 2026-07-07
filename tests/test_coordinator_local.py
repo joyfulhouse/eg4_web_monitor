@@ -160,7 +160,7 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
 
-        result = await coordinator._read_modbus_parameters(
+        result, _ = await coordinator._read_modbus_parameters(
             mock_transport,
             {"features": {"inverter_family": "LXP"}},
         )
@@ -351,7 +351,7 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.side_effect = mock_read
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result, _ = await coordinator._read_modbus_parameters(mock_transport)
 
         read_registers: set[int] = set()
         for call in mock_transport.read_named_parameters.call_args_list:
@@ -385,7 +385,7 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.side_effect = mock_read
 
-        result = await coordinator._read_modbus_parameters(
+        result, _ = await coordinator._read_modbus_parameters(
             mock_transport,
             {"features": {"inverter_family": "EG4_OFFGRID"}},
         )
@@ -447,7 +447,7 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.side_effect = mock_read
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result, _ = await coordinator._read_modbus_parameters(mock_transport)
 
         # All 13 family-agnostic ranges attempted despite first failure
         assert call_count == 13
@@ -462,7 +462,7 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.side_effect = RuntimeError("all fail")
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result, _ = await coordinator._read_modbus_parameters(mock_transport)
 
         assert result == {}
 
@@ -474,7 +474,7 @@ class TestReadModbusParameters:
         # Transport without read_named_parameters
         mock_transport = MagicMock(spec=[])
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result, _ = await coordinator._read_modbus_parameters(mock_transport)
 
         assert result == {}
 
@@ -495,9 +495,9 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.side_effect = mock_read
 
-        result = await coordinator._read_modbus_parameters(mock_transport)
+        result, complete = await coordinator._read_modbus_parameters(mock_transport)
 
-        assert coordinator._last_param_read_complete is False
+        assert complete is False
         assert "param_20" in result  # healthy ranges still contribute
 
     async def test_full_success_marks_read_complete(self, hass, local_config_entry):
@@ -508,9 +508,9 @@ class TestReadModbusParameters:
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.return_value = {"PARAM_A": True}
 
-        await coordinator._read_modbus_parameters(mock_transport)
+        _, complete = await coordinator._read_modbus_parameters(mock_transport)
 
-        assert coordinator._last_param_read_complete is True
+        assert complete is True
 
     async def test_outer_exception_marks_read_incomplete(
         self, hass, local_config_entry
@@ -521,9 +521,9 @@ class TestReadModbusParameters:
 
         mock_transport = MagicMock(spec=[])
 
-        await coordinator._read_modbus_parameters(mock_transport)
+        _, complete = await coordinator._read_modbus_parameters(mock_transport)
 
-        assert coordinator._last_param_read_complete is False
+        assert complete is False
 
     async def test_link_down_device_skips_read_and_marks_incomplete(
         self, hass, local_config_entry
@@ -544,13 +544,13 @@ class TestReadModbusParameters:
         device.transport_link_down = True
         device.serial_number = "INV001"
 
-        result = await coordinator._read_modbus_parameters(
+        result, complete = await coordinator._read_modbus_parameters(
             mock_transport, None, device=device
         )
 
         assert result == {}
         mock_transport.read_named_parameters.assert_not_called()
-        assert coordinator._last_param_read_complete is False
+        assert complete is False
 
     async def test_healthy_link_device_reads_normally(self, hass, local_config_entry):
         """Passing the device does not change behavior on a healthy link."""
@@ -564,13 +564,13 @@ class TestReadModbusParameters:
         device.transport_link_down = False
         device.serial_number = "INV001"
 
-        result = await coordinator._read_modbus_parameters(
+        result, complete = await coordinator._read_modbus_parameters(
             mock_transport, None, device=device
         )
 
         assert mock_transport.read_named_parameters.call_count == 13
         assert "PARAM_A" in result
-        assert coordinator._last_param_read_complete is True
+        assert complete is True
 
     async def test_detached_transport_device_is_not_gated(
         self, hass, local_config_entry
@@ -587,10 +587,12 @@ class TestReadModbusParameters:
         device.transport_link_down = True  # meaningless without a transport
         device.serial_number = "INV001"
 
-        await coordinator._read_modbus_parameters(mock_transport, None, device=device)
+        _, complete = await coordinator._read_modbus_parameters(
+            mock_transport, None, device=device
+        )
 
         assert mock_transport.read_named_parameters.call_count == 13
-        assert coordinator._last_param_read_complete is True
+        assert complete is True
 
 
 # ── #282 sticky parameters: carry-forward + throttle re-arm ─────────
@@ -647,9 +649,8 @@ class TestStickyParameterCarryForward:
             transport: Any,
             device_data: dict[str, Any] | None = None,
             device: Any = None,
-        ) -> dict[str, Any]:
-            coordinator._last_param_read_complete = False
-            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+        ) -> tuple[dict[str, Any], bool]:
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}, False
 
         with (
             patch.object(coordinator, "_should_poll_transport", return_value=True),
@@ -682,9 +683,8 @@ class TestStickyParameterCarryForward:
             transport: Any,
             device_data: dict[str, Any] | None = None,
             device: Any = None,
-        ) -> dict[str, Any]:
-            coordinator._last_param_read_complete = True
-            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+        ) -> tuple[dict[str, Any], bool]:
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}, True
 
         with (
             patch.object(coordinator, "_should_poll_transport", return_value=True),
@@ -787,7 +787,6 @@ class TestLinkDownParameterGateCycle:
             "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,  # carried forward, NOT blanked
             "HOLD_CHG_POWER_PERCENT_CMD": 80,
         }
-        assert coordinator._last_param_read_complete is False
         assert self.SERIAL in coordinator._param_retry_pending
 
     async def test_link_recovery_reads_on_next_retry_cycle(
@@ -817,7 +816,6 @@ class TestLinkDownParameterGateCycle:
         assert inv._transport.read_named_parameters.call_count == _EXPECTED_HYBRID_READS
         assert result["parameters"][self.SERIAL] == {"PARAM": 1}
         assert coordinator._param_retry_pending == set()
-        assert coordinator._last_param_read_complete is True
 
     async def test_healthy_link_cycle_reads_unchanged(self, hass, local_config_entry):
         """A healthy link is untouched by the gate: the param-due cycle reads
@@ -936,10 +934,9 @@ class TestPerDeviceParamRetry:
             transport: Any,
             device_data: dict[str, Any] | None = None,
             device: Any = None,
-        ) -> dict[str, Any]:
+        ) -> tuple[dict[str, Any], bool]:
             read_calls.append(transport)
-            coordinator._last_param_read_complete = True
-            return {"PARAM": 1}
+            return {"PARAM": 1}, True
 
         # Cycle 1 (param-due): only modbus polls; dongle-B is interval-skipped.
         await self._run_cycle(coordinator, lambda tt: tt == "modbus_tcp", complete_read)
@@ -970,13 +967,10 @@ class TestPerDeviceParamRetry:
             transport: Any,
             device_data: dict[str, Any] | None = None,
             device: Any = None,
-        ) -> dict[str, Any]:
+        ) -> tuple[dict[str, Any], bool]:
             read_calls.append(transport)
             # B's read is permanently partial; A's is complete.
-            coordinator._last_param_read_complete = (
-                transport is transports[self.SERIAL_A]
-            )
-            return {"PARAM": 1}
+            return {"PARAM": 1}, transport is transports[self.SERIAL_A]
 
         # Cycle 1 (param-due, both pollable): A completes, B partial.
         await self._run_cycle(coordinator, lambda tt: True, read_by_device)
@@ -3302,6 +3296,31 @@ class TestBatteryControlModeMethods:
             await coordinator.async_write_battery_control_mode(
                 "INV001", "voltage", "soc"
             )
+
+    async def test_battery_control_mode_partial_local_write_seeds_charge_bit(
+        self, hass, local_config_entry
+    ):
+        """LOCAL-only partial write: charge bit lands, discharge bit fails ->
+        the KNOWN-succeeded charge bit is seeded into the parameter cache
+        (cloud-path convergence parity) before the error propagates, so
+        entities do not revert to the stale pre-write regime."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=[True, HomeAssistantError("Failed to write: NAK")]
+        )
+        coordinator.note_parameters_written = MagicMock()
+        coordinator.client = None
+
+        with pytest.raises(HomeAssistantError, match="NAK"):
+            await coordinator.async_write_battery_control_mode(
+                "INV001", "voltage", "soc"
+            )
+
+        coordinator.note_parameters_written.assert_called_once_with(
+            "INV001", {"FUNC_BAT_CHARGE_CONTROL": True}
+        )
 
     async def test_battery_control_mode_partial_cloud_write_converges(
         self, hass, local_config_entry

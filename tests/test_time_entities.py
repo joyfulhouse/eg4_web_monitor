@@ -41,6 +41,7 @@ from custom_components.eg4_web_monitor.time import (
     EG4ScheduleTimeEntity,
     async_setup_entry,
 )
+from tests.conftest import wire_coordinator_write_helpers
 
 SCHEDULE_KEYS = tuple(spec.key for spec in SCHEDULE_TIME_TYPES)
 
@@ -95,6 +96,7 @@ def _mock_coordinator(
     else:
         coordinator.client = None
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 

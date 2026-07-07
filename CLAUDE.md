@@ -438,7 +438,7 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | Forced Discharge | 21, bit 10 | Bit field |
 | Green/Off-Grid Mode | 110, bit 8 | Bit field |
 | Charge Last | 110, bit 4 | Bit field |
-| PV Charge Power | 64 | 0-100% |
+| PV Charge Power | 74 | 100 W units (reg 64 is the legacy percent command; the entity reads/writes 74) |
 | Discharge Power | 65 | 0-100% |
 | AC Charge Power | 66 | 0-100% |
 | AC Charge SOC Limit | 67 | 0-100% |

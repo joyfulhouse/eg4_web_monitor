@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EG4ConfigEntry
-from .base_entity import EG4DeviceEntity
+from .base_entity import EG4DeviceEntity, device_present_and_healthy
 from .const import DEVICE_TYPE_INVERTER, ENTITY_PREFIX, is_off_grid
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import clean_model_name
@@ -100,12 +100,6 @@ class EG4OffGridBinarySensor(EG4DeviceEntity, BinarySensorEntity):
         ``EG4DeviceEntity.available``) so the off-grid sensor follows the same
         availability rules as the inverter's other sensors: present-but-unknown
         when the device is online without a status code (#256), unavailable only
-        when the device is gone or errored. Keep in sync with EG4BaseSensor.
+        when the device is gone or errored.
         """
-        return (
-            self.coordinator.last_update_success
-            and self.coordinator.data is not None
-            and "devices" in self.coordinator.data
-            and self._serial in self.coordinator.data["devices"]
-            and "error" not in self.coordinator.data["devices"][self._serial]
-        )
+        return device_present_and_healthy(self.coordinator, self._serial)

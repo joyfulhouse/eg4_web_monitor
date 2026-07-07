@@ -292,9 +292,6 @@ class EG4DataUpdateCoordinator(
         # Sticky-parameter retry tracking (#282): ``_last_parameter_attempt``
         # rate-floors the early retries a failed/partial/missed read re-arms.
         self._last_parameter_attempt: datetime | None = None
-        # Whether the most recent _read_modbus_parameters() call read every
-        # register range (LOCAL/HYBRID targeted entity-parameter reads).
-        self._last_param_read_complete: bool = True
         # Per-device parameter retry queue (#282 P1-A): inverters that did not
         # COMPLETE their targeted parameter read on a due cycle (transport-
         # interval skip, pre-param failure, or partial read).  Retried on
@@ -615,6 +612,64 @@ class EG4DataUpdateCoordinator(
         if device is None:
             device = self._mid_device_cache.get(serial)
         return _device_transport_link_down(device)
+
+    def require_client(self) -> LuxpowerClient:
+        """Return the cloud API client or raise if no write path is available.
+
+        Cloud-leg parameter writes need the HTTP client; when neither a local
+        transport nor a cloud session is configured there is nowhere to write.
+
+        Raises:
+            HomeAssistantError: If no cloud API client is configured.
+        """
+        client = self.client
+        if client is None:
+            raise HomeAssistantError(
+                "No local transport or cloud API available for parameter write."
+            )
+        return client
+
+    async def refresh_inverter_params_if_linked(self, serial: str) -> None:
+        """Refresh a device's parameters after a cloud write, unless link is down.
+
+        Skipped on a down link: pylxpweb's parameter fetch has no link gate and
+        the local reads would hang; the cloud-fallback cache seed (local_values)
+        converges the entity instead.
+        """
+        inverter = self.get_inverter_object(serial)
+        if inverter and not self.is_transport_link_down(serial):
+            await inverter.refresh(force=True, include_parameters=True)
+
+    def params_are_local_raw(
+        self, serial: str, *, include_configured: bool = False
+    ) -> bool:
+        """Whether this serial's parameter cache holds raw register values.
+
+        True in local-only modes (the coordinator reads registers itself) and
+        when the pylxpweb inverter object has a local transport attached
+        (HYBRID ``local_transports``) — pylxpweb routes the parameter read
+        through that transport, so the cache holds raw register values instead
+        of the cloud's already-scaled/separated fields. The deprecated
+        global-transport fallback inside ``has_local_transport()`` deliberately
+        does NOT count: legacy flat HYBRID entries populate the cache from the
+        cloud (scaled/decoded), and treating them as raw would mis-scale the
+        display (12 kW would show 1.2) or hide packed schedule registers.
+
+        Args:
+            serial: Device serial to check.
+            include_configured: Also treat a CONFIGURED-but-not-yet-attached
+                local transport as local-raw. Used by setup-time gates
+                (evaluated once, before a hybrid attach that fails at startup
+                can recover) so a cloud-param-only entity is not slipped
+                through; per-update entity reads leave this False and rely on
+                the live transport instead.
+        """
+        if self.is_local_only():
+            return True
+        if include_configured and self.has_configured_local_transport(serial):
+            return True
+        inverter = self.get_inverter_object(serial)
+        return getattr(inverter, "transport", None) is not None
 
     def note_parameters_written(self, serial: str, values: dict[str, Any]) -> None:
         """Merge acknowledged written parameter values into the cache and notify.
@@ -1035,9 +1090,23 @@ class EG4DataUpdateCoordinator(
             await self.write_named_parameter(
                 PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage, serial=serial
             )
-            await self.write_named_parameter(
-                PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
-            )
+            try:
+                await self.write_named_parameter(
+                    PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
+                )
+            except HomeAssistantError:
+                # Charge bit landed but the discharge bit did not — register
+                # 179 holds a MIXED regime (cloud-path parity with
+                # _raise_partial_battery_mode_write). Seed the cache with the
+                # KNOWN-succeeded charge bit so entities converge on what
+                # actually landed instead of reverting to the stale pre-write
+                # value, then re-raise: in HYBRID the cloud fallback rewrites
+                # BOTH bits (absolute state) and fully converges the partial;
+                # LOCAL-only surfaces the error with an accurate cache.
+                self.note_parameters_written(
+                    serial, {PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage}
+                )
+                raise
 
         async def _cloud_write() -> None:
             client = self.client

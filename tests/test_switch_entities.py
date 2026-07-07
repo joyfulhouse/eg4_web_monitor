@@ -107,6 +107,17 @@ def _mock_coordinator(
     coordinator.has_configured_local_transport = MagicMock(
         return_value=transport_attached
     )
+    # Mirror the real EG4DataUpdateCoordinator.params_are_local_raw so the
+    # switch delegation exercises the actual predicate shape instead of bare
+    # MagicMock truthiness (codex LOW, 3.4.0 final review).
+    coordinator.params_are_local_raw = MagicMock(
+        side_effect=lambda s, include_configured=False: (
+            coordinator.is_local_only()
+            or (include_configured and coordinator.has_configured_local_transport(s))
+            or getattr(coordinator.get_inverter_object(s), "transport", None)
+            is not None
+        )
+    )
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
     # Cloud client (function-control API) for FUNC_ params without

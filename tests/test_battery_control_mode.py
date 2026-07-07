@@ -32,6 +32,7 @@ from custom_components.eg4_web_monitor.select import (
     EG4BatteryChargeControlSelect,
     EG4BatteryDischargeControlSelect,
 )
+from tests.conftest import wire_coordinator_write_helpers
 
 
 def _mock_coordinator(
@@ -73,6 +74,7 @@ def _mock_coordinator(
     mock_inverter.refresh = AsyncMock()
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
     coordinator.client = MagicMock()
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 

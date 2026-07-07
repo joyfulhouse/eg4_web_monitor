@@ -254,16 +254,12 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
     def _params_are_local_raw(self) -> bool:
         """Whether this serial's parameter cache holds raw register values.
 
-        Mirrors the number-platform helper: true in local-only modes and
-        when the pylxpweb inverter object has a local transport attached
-        (HYBRID) — both populate the cache via ``read_named_parameters``,
-        which surfaces the raw packed schedule registers. Cloud-populated
-        caches hold the separated hour/minute values instead.
+        Thin wrapper over :meth:`EG4DataUpdateCoordinator.params_are_local_raw`
+        (the single implementation): a local-raw cache surfaces the raw packed
+        schedule registers, while cloud-populated caches hold the separated
+        hour/minute values instead.
         """
-        if self.coordinator.is_local_only():
-            return True
-        inverter = self.coordinator.get_inverter_object(self.serial)
-        return getattr(inverter, "transport", None) is not None
+        return self.coordinator.params_are_local_raw(self.serial)
 
     def _decode_packed(self, params: dict[str, Any]) -> time | None:
         """Decode the packed register value from a local parameter cache."""
@@ -429,11 +425,7 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
           actually holds instead of hiding the partial write behind the stale
           cached value (PR #283 review P1).
         """
-        client = self.coordinator.client
-        if client is None:  # pragma: no cover - guarded by caller
-            raise HomeAssistantError(
-                "No local transport or cloud API available for parameter write."
-            )
+        client = self.coordinator.require_client()
         if self._spec.write_via_time_api:
             # write_time_parameter exists on the pylxpweb release this family is
             # gated on (_SUPPORTS_WRITE_TIME), but not on the older floor the

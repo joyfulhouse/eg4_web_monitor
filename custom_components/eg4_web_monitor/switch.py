@@ -125,23 +125,17 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
 def _params_are_local_raw(coordinator: EG4DataUpdateCoordinator, serial: str) -> bool:
     """Whether this serial's parameter cache is (or will become) local-raw.
 
-    Mirrors ``EG4BaseNumberEntity._params_are_local_raw()``: in local-only
-    mode and with a HYBRID local transport the parameter cache is decoded
-    from registers, so a key the installed pylxpweb cannot decode from a
-    register (see ``_local_params_can_carry``) can never appear and a
-    switch reading it would permanently report OFF.
+    Thin wrapper over :meth:`EG4DataUpdateCoordinator.params_are_local_raw`
+    (the single implementation). A key the installed pylxpweb cannot decode
+    from a register (see ``_local_params_can_carry``) can never appear in a
+    local-raw cache, so a switch reading it would permanently report OFF.
 
-    Unlike the number-entity property this is evaluated once at setup, so
-    it also consults the CONFIGURED transports: a hybrid attach that fails
-    at startup and recovers later (eg4-05l) must not slip a
-    cloud-param-only switch through the gate.
+    Unlike the number-entity property this is evaluated once at setup, so it
+    passes ``include_configured=True`` to also consult the CONFIGURED
+    transports: a hybrid attach that fails at startup and recovers later
+    (eg4-05l) must not slip a cloud-param-only switch through the gate.
     """
-    if coordinator.is_local_only():
-        return True
-    if coordinator.has_configured_local_transport(serial):
-        return True
-    inverter = coordinator.get_inverter_object(serial)
-    return getattr(inverter, "transport", None) is not None
+    return coordinator.params_are_local_raw(serial, include_configured=True)
 
 
 def _local_params_can_carry(param: str) -> bool:
