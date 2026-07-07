@@ -531,6 +531,202 @@ class TestReconfigureCloudAdd:
         assert updated_entry.data[CONF_PLANT_ID] == "222"
         assert updated_entry.data[CONF_PLANT_NAME] == "Plant B"
 
+    async def test_add_cloud_multi_station_string_submission_int_ids(
+        self, hass: HomeAssistant
+    ):
+        """Reconfigure station selection accepts string submission for int ids (#275).
+
+        Mirrors production: pylxpweb returns Station.id as int, while the HA
+        frontend submits the selected option as a string.
+        """
+        from tests.conftest import create_mock_station
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Local Setup",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1234567890",
+                        "model": "FlexBOSS21",
+                        "inverter_family": "EG4_HYBRID",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    }
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_local_setup",
+        )
+        entry.add_to_hass(hass)
+
+        stations = [
+            create_mock_station(111, "Plant A"),
+            create_mock_station(222, "Plant B"),
+        ]
+        with _mock_luxpower_client(stations=stations):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_cloud_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    CONF_USERNAME: "test@example.com",
+                    CONF_PASSWORD: "testpassword",
+                    CONF_BASE_URL: DEFAULT_BASE_URL,
+                    CONF_VERIFY_SSL: True,
+                    CONF_DST_SYNC: True,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "reconfigure_cloud_station"
+
+            # The frontend submits the selected station id as a string
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {CONF_PLANT_ID: "222"},
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.ABORT
+            assert result["reason"] == "reconfigure_successful"
+
+        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+        assert updated_entry is not None
+        assert updated_entry.data[CONF_PLANT_ID] == "222"
+        assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
+        assert updated_entry.data[CONF_PLANT_NAME] == "Plant B"
+        # Reconfigure must never change the unique_id
+        assert updated_entry.unique_id == "local_local_setup"
+
+    async def test_add_cloud_single_station_int_id_stores_str(
+        self, hass: HomeAssistant
+    ):
+        """Single-station auto-select during reconfigure stores str plant id (#275)."""
+        from tests.conftest import create_mock_station
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Local Setup",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1234567890",
+                        "model": "FlexBOSS21",
+                        "inverter_family": "EG4_HYBRID",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    }
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_local_setup",
+        )
+        entry.add_to_hass(hass)
+
+        with _mock_luxpower_client(stations=[create_mock_station(789, "Cloud Plant")]):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_cloud_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    CONF_USERNAME: "test@example.com",
+                    CONF_PASSWORD: "testpassword",
+                    CONF_BASE_URL: DEFAULT_BASE_URL,
+                    CONF_VERIFY_SSL: True,
+                    CONF_DST_SYNC: True,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.ABORT
+            assert result["reason"] == "reconfigure_successful"
+
+        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+        assert updated_entry is not None
+        assert updated_entry.data[CONF_PLANT_ID] == "789"
+        assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
+        assert updated_entry.data[CONF_PLANT_NAME] == "Cloud Plant"
+
+    async def test_reconfigure_normalizes_legacy_int_plant_id(
+        self, hass: HomeAssistant
+    ):
+        """Entries created pre-fix with an int plant id keep working (#275).
+
+        Pre-fix versions stored CONF_PLANT_ID as int on the single-station
+        auto-select path. Reconfiguring such an entry must normalize the stored
+        value to str WITHOUT changing the unique_id.
+        """
+        from tests.conftest import create_mock_station
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Test Plant",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "testpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                # Stored as int by pre-fix versions
+                CONF_PLANT_ID: 123,
+                CONF_PLANT_NAME: "Test Plant",
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="test@example.com_123",
+        )
+        entry.add_to_hass(hass)
+
+        with _mock_luxpower_client(stations=[create_mock_station(123, "Test Plant")]):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_cloud_update"},
+            )
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "reconfigure_cloud_update"
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    CONF_USERNAME: "test@example.com",
+                    CONF_PASSWORD: "newpassword",
+                    CONF_BASE_URL: DEFAULT_BASE_URL,
+                    CONF_VERIFY_SSL: True,
+                    CONF_DST_SYNC: True,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.ABORT
+            assert result["reason"] == "reconfigure_successful"
+
+        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+        assert updated_entry is not None
+        assert updated_entry.data[CONF_PLANT_ID] == "123"
+        assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
+        # Unique ID must be untouched for existing installs
+        assert updated_entry.unique_id == "test@example.com_123"
+
     async def test_add_cloud_invalid_auth(self, hass: HomeAssistant):
         """Test adding cloud with invalid auth shows error."""
         entry = MockConfigEntry(
@@ -994,6 +1190,74 @@ class TestReconfigureDeviceManagement:
         with patch(
             "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
             new=AsyncMock(side_effect=OSError("Connection failed")),
+        ):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_devices"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_device_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_add_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.200",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ55555555",
+                    "inverter_serial": "5555555555",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "reconfigure_add_dongle"
+            assert result["errors"] == {"base": "dongle_connection_failed"}
+
+    async def test_reconfigure_add_dongle_transport_error(self, hass: HomeAssistant):
+        """pylxpweb TransportError in reconfigure maps to dongle_connection_failed.
+
+        Regression for #250 on the reconfigure path: transport exceptions are
+        LuxpowerError subclasses (not OSError) and previously fell through to
+        the generic handler, showing "unknown".
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from pylxpweb.transports import TransportReadError
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Single",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1111111111",
+                        "model": "FlexBOSS21",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    },
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_single_dongle_transport_err",
+        )
+        entry.add_to_hass(hass)
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(
+                side_effect=TransportReadError("Empty response from dongle.")
+            ),
         ):
             result = await _init_reconfigure(hass, entry)
 

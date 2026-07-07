@@ -374,7 +374,10 @@
           "parameter_refresh_interval": "Parameterverversingsinterval (minuten)",
           "library_debug": "Bibliotheek-debuglogboekregistratie",
           "data_validation": "Registerdata Validatie",
-          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen"
+          "modbus_block_size": "Modbus-leesblokgrootte",
+          "include_ac_couple_pv": "AC-gekoppelde PV opnemen in totalen",
+          "charge_control_mode": "Batterijlaadbesturing",
+          "discharge_control_mode": "Batterijontlaadbesturing"
         },
         "data_description": {
           "sensor_update_interval": "Hoe vaak te pollen voor sensorupdates ({min_sensor_interval}-{max_sensor_interval} seconden). Lagere waarden bieden snellere updates maar verhogen de API-belasting.",
@@ -384,9 +387,15 @@
           "parameter_refresh_interval": "Hoe vaak omvormerparameters zoals SOC-limieten en laadinstellingen te verversen ({min_param_interval}-{max_param_interval} minuten).",
           "library_debug": "DEBUG-logboekregistratie inschakelen voor de pylxpweb-bibliotheek (toont API-verzoeken, -antwoorden en interne bibliotheekoperaties)",
           "data_validation": "Corruptiedetectie voor lokale registerlezingen inschakelen. Valideert fysieke grenzen (SoC, frequentie, smartpoortstatus) en energiemonotoniteit. Alleen inschakelen bij instabiele registerlezingen (spookentiteiten, energiepieken, ongeldige waarden).",
-          "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep"
+          "modbus_block_size": "Hoeveel registers per Modbus-verzoek worden gelezen bij lokale polling. Conservatief gebruikt kleine gegroepeerde uitlezingen die elke dongle en firmware ondersteunt. Snel leest tot 120 registers tegelijk voor snellere polling, maar oudere dongle-firmware ondersteunt alleen uitlezingen van ~40 registers — mislukt een grote uitlezing, dan valt de integratie automatisch (met een waarschuwing) terug op Conservatief tot de volgende herlaadbeurt.",
+          "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep",
+          "charge_control_mode": "Hoe uw batterij bepaalt wanneer het laden STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde limietbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer.",
+          "discharge_control_mode": "Hoe uw batterij bepaalt wanneer het ontladen STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde afschakelbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Kan de batterijbesturingsmodus niet toepassen op de omvormer. Controleer de apparaatverbinding en probeer het opnieuw."
     }
   },
   "selector": {
@@ -394,6 +403,12 @@
       "options": {
         "normal": "Normaal",
         "standby": "Stand-by"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservatief (compatibel met alle firmware)",
+        "fast": "Snel (120 registers, vereist nieuwere dongle-firmware)"
       }
     }
   },
@@ -405,6 +420,9 @@
           "on": "Verbonden",
           "off": "Niet verbonden"
         }
+      },
+      "off_grid": {
+        "name": "Off-grid"
       }
     },
     "sensor": {
@@ -468,11 +486,37 @@
       "bt_temperature": {
         "name": "BT-temperatuur"
       },
+      "operating_state": {
+        "name": "Bedrijfstoestand",
+        "state": {
+          "standby": "Stand-by",
+          "fault": "Storing",
+          "programming": "Programmeren",
+          "pv_to_grid": "PV → Net",
+          "pv_charging": "PV → Batterij",
+          "pv_charging_to_grid": "PV → Batterij + Net",
+          "battery_to_grid": "Batterij → Net",
+          "pv_battery_to_grid": "PV + Batterij → Net",
+          "ac_charging": "AC → Batterij",
+          "pv_ac_charging": "PV + AC → Batterij",
+          "off_grid_battery": "Off-grid (Batterij)",
+          "ac_coupled_charging": "Off-grid (AC Couple laden)",
+          "pv_off_grid": "Off-grid (PV, instabiel)",
+          "pv_charging_off_grid": "Off-grid (PV + laden)",
+          "pv_battery_off_grid": "Off-grid (PV + Batterij)"
+        }
+      },
       "status_code": {
         "name": "Statuscode"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Cloud-status"
+      },
+      "fault_code": {
+        "name": "Foutcode"
+      },
+      "warning_code": {
+        "name": "Waarschuwingscode"
       },
       "grid_power": {
         "name": "Netvermogen"
@@ -652,6 +696,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "Batterij laadsnelheid"
+      },
+      "quick_charge_remaining": {
+        "name": "Snelladen resterend"
       }
     },
     "switch": {
@@ -663,6 +710,12 @@
       },
       "off_grid_mode": {
         "name": "Off-grid modus"
+      },
+      "fast_zero_export": {
+        "name": "Snelle nul-export"
+      },
+      "share_battery": {
+        "name": "Batterij delen"
       }
     },
     "number": {
@@ -681,8 +734,20 @@
       "ac_charge_soc_limit": {
         "name": "AC-laad-SOC-limiet"
       },
+      "quick_charge_duration": {
+        "name": "Snel laden duur"
+      },
       "soc_cutoff": {
         "name": "SOC-uitschakeling"
+      },
+      "grid_sell_back_power": {
+        "name": "Terugleververmogen"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Vermogensdrempel start ontladen"
+      },
+      "start_charge_power_threshold": {
+        "name": "Vermogensdrempel start opladen"
       }
     },
     "button": {
@@ -710,6 +775,122 @@
           "pv2_pv3": "PV2 & PV3",
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
+      }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "Starttijd AC-laden 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "Eindtijd AC-laden 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "Starttijd AC-laden 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "Eindtijd AC-laden 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "Starttijd AC-laden 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "Eindtijd AC-laden 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Starttijd AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Eindtijd AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Starttijd AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Eindtijd AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Starttijd AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Eindtijd AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Starttijd geforceerd laden 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Eindtijd geforceerd laden 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Starttijd geforceerd laden 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Eindtijd geforceerd laden 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Starttijd geforceerd laden 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Eindtijd geforceerd laden 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Starttijd geforceerd ontladen 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Eindtijd geforceerd ontladen 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Starttijd geforceerd ontladen 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Eindtijd geforceerd ontladen 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Starttijd geforceerd ontladen 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Eindtijd geforceerd ontladen 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Starttijd Piekafvlakking 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Eindtijd Piekafvlakking 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Starttijd Piekafvlakking 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Eindtijd Piekafvlakking 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Starttijd Generator laden 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Eindtijd Generator laden 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Starttijd Generator laden 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Eindtijd Generator laden 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Starttijd Off-grid 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Eindtijd Off-grid 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Starttijd Off-grid 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Eindtijd Off-grid 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Starttijd Off-grid 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Eindtijd Off-grid 3"
       }
     }
   },
@@ -745,6 +926,28 @@
           "description": "De configuratie-invoer-ID om af te stemmen. Indien niet opgegeven worden alle {brand_name} Web Monitor-integraties met cloud-inloggegevens afgestemd."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Historische gegevens importeren",
+      "description": "Importeert de dagelijkse energiegeschiedenis op installatieniveau (PV-opbrengst, verbruik, netimport/-export, batterijladen/-ontladen) uit de {brand_name}-cloud naar de langetermijnstatistieken van Home Assistant. De gegevens worden weggeschreven als afzonderlijke externe statistieken die in het Energiedashboard te selecteren zijn; bestaande sensorgeschiedenis wordt nooit gewijzigd. Dezelfde of overlappende periodes opnieuw uitvoeren is veilig.",
+      "fields": {
+        "config_entry": {
+          "name": "Configuratie-item",
+          "description": "Het {brand_name} Web Monitor-configuratie-item (installatie) waarvoor de geschiedenis wordt geïmporteerd."
+        },
+        "dry_run": {
+          "name": "Proefrun",
+          "description": "Bekijk wat er zou worden geïmporteerd zonder statistieken weg te schrijven."
+        },
+        "start_date": {
+          "name": "Startdatum",
+          "description": "Eerste dag om te importeren (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Einddatum",
+          "description": "Laatste dag om te importeren (YYYY-MM-DD). Standaard vandaag. Maximaal bereik: 2 jaar."
+        }
+      }
     }
   },
   "exceptions": {
@@ -759,12 +962,62 @@
     },
     "invalid_date_format": {
       "message": "Ongeldig datumformaat. Gebruik het formaat JJJJ-MM-DD."
+    },
+    "cloud_required": {
+      "message": "Historische import vereist cloudreferenties (HTTP- of hybride verbindingsmodus)."
+    },
+    "date_range_too_large": {
+      "message": "Het datumbereik van {range_days} dagen overschrijdt het maximum van {max_days} dagen (2 jaar). Importeer de geschiedenis in kleinere delen."
+    },
+    "history_api_unavailable": {
+      "message": "De geïnstalleerde pylxpweb-bibliotheek biedt niet de energiegeschiedenis-API die deze service vereist. Werk de integratie bij zodat de vereiste pylxpweb-versie wordt geïnstalleerd."
+    },
+    "invalid_date_range": {
+      "message": "Ongeldig datumbereik: {start_date} tot {end_date}. De startdatum mag niet in de toekomst of na de einddatum liggen."
+    },
+    "no_devices": {
+      "message": "Er zijn geen omvormers gevonden voor deze installatie."
+    },
+    "station_not_ready": {
+      "message": "De cloudstationgegevens zijn nog niet geladen. Wacht tot de integratie de eerste vernieuwing heeft voltooid en probeer het opnieuw."
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "Netgekoppelde bedieningen verwijderd van {model} {serial}",
+      "description": "De bedieningen **Peak Shaving** en **Forced Discharge** (de modusschakelaars plus de instellingen Grid Peak Shaving Power, Forced Discharge Power en Forced Discharge SOC Limit) zijn verwijderd van **{serial}** ({model}).\n\nDeze functies werken op netparallelle export/import-menging, wat EG4 off-grid modellen (12000XP/6000XP) niet ondersteunen — de registers bestaan, maar de functies zijn inert op deze hardware.\n\nAls een automatisering of dashboard naar deze entiteiten verwees, verwijder die verwijzingen. Als u denkt dat uw apparaat deze functies wél ondersteunt, meld dit dan in de GitHub-issues van de integratie."
+    },
+    "offgrid_battery_backup_removed": {
+      "title": "Battery Backup Mode-bediening verwijderd van {model} {serial}",
+      "description": "De schakelaar **Battery Backup Mode** is verwijderd van **{serial}** ({model}).\n\nHet inschakelen van deze werkmodus wordt geweigerd door de firmware van EG4's off-grid-familie (“failed to enable working mode” op een 12000XP v2), en het EG4-portaal zelf biedt geen werkmodusschakelaar voor deze apparaten. De schakelaar **EPS Battery Backup** is niet getroffen.\n\nAls automatiseringen of dashboards naar deze entiteit verwezen, verwijder die verwijzingen dan. Denkt u dat uw apparaat deze functie wél ondersteunt, meld dit dan via de GitHub-issues van de integratie."
+    },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "AC Charge SOC Limit vervangen op {model} {serial}",
+      "description": "De instelling **AC Charge SOC Limit** is verwijderd van **{serial}** ({model}).\n\nDe EG4-cloud weigert schrijfacties naar die parameter op de off-grid-familie (REMOTE_SET_ERROR op een 12000XP v2), en het EG4-portaal zelf toont hem niet voor deze apparaten. Het werkelijke AC-laad-SOC-venster van de familie wordt geboden door de nieuwe instellingen **AC Charge Start Battery SOC** en **AC Charge End Battery SOC**, die overeenkomen met de off-grid werkmoduspagina van het portaal.\n\nWerk automatiseringen of dashboards die naar de oude entiteit verwezen bij naar de nieuwe entiteiten. Denkt u dat uw apparaat de oude parameter wél ondersteunt, meld dit dan in de GitHub Issues van de integratie."
+    },
+    "offgrid_forced_charge_times_removed": {
+      "title": "Forced Charge-schematijden verwijderd van {model} {serial}",
+      "description": "De **Forced Charge**-schematijdinstellingen (start-/eindtijden, vensters 1-3) zijn verwijderd van **{serial}** ({model}).\n\nDe EG4-cloud weigert schrijfacties naar deze parameters bij de off-grid-familie (REMOTE_SET_ERROR op een 12000XP v2), en het EG4-portaal zelf biedt geen Forced Charge-schema voor deze apparaten. De schema's **AC Charge** en **AC First** zijn niet getroffen.\n\nAls automatiseringen of dashboards naar deze entiteiten verwezen, verwijder die verwijzingen dan. Denkt u dat uw apparaat dit schema wél ondersteunt, meld dit dan via de GitHub-issues van de integratie."
+    },
     "dongle_validation_disabled": {
       "title": "Datavalidatie aanbevolen voor WiFi dongle",
       "description": "Een WiFi dongle is geconfigureerd maar **Datavalidatie** is uitgeschakeld. WiFi dongles delen een Modbus-bus, en gelijktijdig lezen kan corrupte registerdata veroorzaken (bijv. energiepieken).\n\nGa naar **Instellingen > Apparaten & diensten > EG4 Web Monitor > Configureren** en schakel **Datavalidatie** in."
+    },
+    "serial_attach_failed": {
+      "title": "Seriële verbinding mislukt voor apparaat {serial}",
+      "description": "De seriële Modbus-verbinding (USB/RS485) op **{serial_port}** kon niet worden geopend voor apparaat **{serial}**. Het apparaat gebruikt tijdelijk alleen cloudgegevens.\n\nControleer of de adapter is aangesloten, het poortpad klopt en geen andere software de poort gebruikt, en herlaad daarna de integratie."
+    },
+    "transport_attach_failed": {
+      "title": "Lokale verbinding mislukt voor apparaat {serial}",
+      "description": "De lokale verbinding met **{host}** kon niet tot stand worden gebracht voor apparaat **{serial}** — dit gebeurt vaak direct na een herstart van Home Assistant, zolang de wifi-dongle de verbinding van de vorige sessie nog vasthoudt. Het apparaat gebruikt tijdelijk cloudgegevens.\n\nDe integratie probeert het automatisch ongeveer één keer per minuut opnieuw; dit probleem verdwijnt vanzelf zodra de lokale verbinding is hersteld. Blijft het bestaan, controleer dan of het apparaat is ingeschakeld en bereikbaar is op **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Lokale verbinding met apparaat {serial} verbroken",
+      "description": "De lokale verbinding met **{host}** voor apparaat **{serial}** reageert niet meer na meerdere opeenvolgende leesfouten — meestal een netwerkonderbreking, een weggevallen VPN of een herstarte dongle/gateway. Zolang de verbinding weg is, valt het apparaat terug op cloudgegevens als er cloudreferenties zijn geconfigureerd; anders worden de entiteiten niet-beschikbaar in plaats van verouderde waarden te tonen.\n\nDe integratie blijft de lokale verbinding elke updatecyclus opnieuw proberen; dit probleem verdwijnt vanzelf zodra de verbinding herstelt. Blijft het bestaan, controleer dan of het apparaat is ingeschakeld en bereikbaar is op **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Omvormerfamilie afgeleid van het model voor {serial}",
+      "description": "Apparaat **{serial}** rapporteerde geen herkende omvormerfamilie, dus zijn de mogelijkheden afgeleid van de modelnaam **{model}** (familie **{family}**). Fasespecifieke sensoren die nooit gegevens hadden (bijv. driefasige R/S/T-sensoren op split-phase-hardware) worden niet meer aangemaakt.\n\nAls een automatisering naar die sensoren verwees, werk deze dan bij. Is dit apparaat werkelijk driefasig, stel dan **Nettype** in bij de integratieopties. Meld ook de apparaattypecode van uw firmware (zie de diagnostische sensor 'Device Type Code'), zodat deze kan worden toegevoegd."
     }
   }
 }

@@ -460,6 +460,150 @@ async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
     assert result["data"][CONF_PLANT_NAME] == "Test Plant 2"
 
 
+# =====================================================================
+# Issue #275 regression: the API returns station ids as INT, but the HA
+# frontend submits the selected option as a STRING. These tests mirror
+# production exactly (int station ids + string form submissions).
+# =====================================================================
+
+
+@pytest.fixture
+def mock_api_int_ids():
+    """Mock LuxpowerClient with multiple plants using int ids (real API shape)."""
+    from tests.conftest import create_mock_station
+
+    stations = [
+        create_mock_station(12345, "Plant A"),
+        create_mock_station(67890, "Plant B"),
+    ]
+    with _mock_luxpower_client(stations=stations):
+        yield None
+
+
+async def _submit_cloud_credentials(hass: HomeAssistant, result):
+    """Submit valid cloud credentials on the cloud_credentials form."""
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+
+async def test_multi_station_string_submission_with_int_station_ids(
+    hass: HomeAssistant, mock_api_int_ids
+):
+    """Selecting a station must accept the string value the frontend submits (#275)."""
+    result = await _init_and_select_cloud(hass)
+    result = await _submit_cloud_credentials(hass, result)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_station"
+
+    # The HA frontend serializes the selected option as a string
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_PLANT_ID: "67890"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "cloud_add_local"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PLANT_ID] == "67890"
+    assert isinstance(result["data"][CONF_PLANT_ID], str)
+    assert result["data"][CONF_PLANT_NAME] == "Plant B"
+    # Unique ID must match the pre-fix format (f-string over the plant id)
+    assert result["result"].unique_id == "test@example.com_67890"
+
+    await hass.async_block_till_done()
+
+
+async def test_single_station_auto_select_with_int_station_id(hass: HomeAssistant):
+    """Single-station auto-select must store the plant id as a string (#275)."""
+    from tests.conftest import create_mock_station
+
+    with _mock_luxpower_client(stations=[create_mock_station(12345, "Solo Plant")]):
+        result = await _init_and_select_cloud(hass)
+        result = await _submit_cloud_credentials(hass, result)
+
+        # Single plant is auto-selected; no station form shown
+        assert result["type"] == data_entry_flow.FlowResultType.MENU
+        assert result["step_id"] == "cloud_add_local"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "cloud_finish"},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_PLANT_ID] == "12345"
+    assert isinstance(result["data"][CONF_PLANT_ID], str)
+    assert result["data"][CONF_PLANT_NAME] == "Solo Plant"
+    assert result["result"].unique_id == "test@example.com_12345"
+
+    await hass.async_block_till_done()
+
+
+async def test_duplicate_station_aborts_for_entry_created_before_fix(
+    hass: HomeAssistant, mock_api_int_ids
+):
+    """Unique IDs must be stable: entries created pre-fix still deduplicate (#275).
+
+    Pre-fix entries could store CONF_PLANT_ID as an int (auto-select path) with a
+    unique_id built via f-string. Selecting the same station post-fix must still
+    abort with already_configured, proving the unique_id derivation is unchanged.
+    """
+    MockConfigEntry(
+        version=1,
+        domain=DOMAIN,
+        title="EG4 Electronics - Plant A",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            # Stored as int by pre-fix versions (single-station auto-select)
+            CONF_PLANT_ID: 12345,
+            CONF_PLANT_NAME: "Plant A",
+            CONF_LOCAL_TRANSPORTS: [],
+        },
+        source=config_entries.SOURCE_USER,
+        unique_id="test@example.com_12345",
+    ).add_to_hass(hass)
+
+    result = await _init_and_select_cloud(hass)
+    result = await _submit_cloud_credentials(hass, result)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_station"
+
+    # Select the already-configured station (frontend submits a string)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_PLANT_ID: "12345"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "cloud_finish"},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_flow_with_custom_base_url(hass: HomeAssistant, mock_api_single_plant):
     """Test flow with custom base URL."""
     result = await _init_and_select_cloud(hass)
@@ -1064,6 +1208,105 @@ class TestLocalDongleFlow:
             assert result["step_id"] == "local_dongle"
             assert result["errors"] == {"base": "dongle_connection_failed"}
 
+    async def test_dongle_transport_error_maps_to_connection_failed(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportError maps to dongle_connection_failed, not unknown.
+
+        Regression for #250: a dongle RST during discovery surfaces from
+        pylxpweb as TransportConnectionError/TransportReadError (LuxpowerError
+        subclasses, NOT OSError), which previously fell through to the generic
+        Exception handler and showed "unknown" plus a full traceback.
+        """
+        from pylxpweb.transports import TransportReadError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(
+                side_effect=TransportReadError("Empty response from dongle.")
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.150",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ12345678",
+                    "inverter_serial": "9876543210",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_dongle"
+            assert result["errors"] == {"base": "dongle_connection_failed"}
+
+    async def test_dongle_transport_timeout_maps_to_dongle_timeout(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportTimeoutError maps to dongle_timeout (#250)."""
+        from pylxpweb.transports import TransportTimeoutError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
+            new=AsyncMock(side_effect=TransportTimeoutError("read timed out")),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_dongle"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "dongle_host": "192.168.1.150",
+                    "dongle_port": 8000,
+                    "dongle_serial": "BJ12345678",
+                    "inverter_serial": "9876543210",
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_dongle"
+            assert result["errors"] == {"base": "dongle_timeout"}
+
+    async def test_modbus_transport_error_maps_to_connection_failed(
+        self, hass: HomeAssistant
+    ):
+        """pylxpweb TransportError maps to modbus_connection_failed (#250)."""
+        from pylxpweb.transports import TransportConnectionError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(
+                side_effect=TransportConnectionError("Connection reset by peer")
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.100",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_modbus"
+            assert result["errors"] == {"base": "modbus_connection_failed"}
+
     async def test_dongle_unknown_error(self, hass: HomeAssistant):
         """Test dongle unexpected error shows unknown error."""
         with patch(
@@ -1623,7 +1866,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=TimeoutError("Timeout")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1656,7 +1899,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=PermissionError("Access denied")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1691,7 +1934,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 ),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1724,7 +1967,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=OSError("No such device")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1759,7 +2002,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(return_value=device),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
                 return_value=[],
             ),
         ):
@@ -1786,7 +2029,7 @@ class TestDiscoverSerialDeviceWithErrors:
     async def test_serial_manual_entry_redirect(self, hass: HomeAssistant):
         """Test selecting manual_entry redirects to serial_manual step."""
         with patch(
-            "custom_components.eg4_web_monitor._config_flow.serial_ports.list_serial_ports",
+            "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
             return_value=[],
         ):
             result = await _init_and_select_local(hass)

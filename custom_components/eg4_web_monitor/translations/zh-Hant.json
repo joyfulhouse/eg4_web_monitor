@@ -374,7 +374,10 @@
           "parameter_refresh_interval": "參數重新整理間隔（分鐘）",
           "library_debug": "程式庫偵錯日誌",
           "data_validation": "暫存器資料驗證",
-          "include_ac_couple_pv": "將交流耦合光伏納入總量"
+          "modbus_block_size": "Modbus 讀取區塊大小",
+          "include_ac_couple_pv": "將交流耦合光伏納入總量",
+          "charge_control_mode": "電池充電控制",
+          "discharge_control_mode": "電池放電控制"
         },
         "data_description": {
           "sensor_update_interval": "輪詢感測器更新的頻率（{min_sensor_interval}-{max_sensor_interval} 秒）。較低的值提供更快的更新，但會增加 API 負載。",
@@ -384,9 +387,15 @@
           "parameter_refresh_interval": "重新整理逆變器參數（如 SOC 限制和充電設定）的頻率（{min_param_interval}-{max_param_interval} 分鐘）。",
           "library_debug": "啟用 pylxpweb 程式庫的 DEBUG 日誌（顯示 API 請求、回應和內部程式庫作業）",
           "data_validation": "啟用本地暫存器讀取的損壞偵測。驗證物理邊界（SoC、頻率、智慧埠狀態）和能量單調性。僅在出現不穩定的暫存器讀取時啟用（幽靈實體、能量尖峰、無效值）。",
-          "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中"
+          "modbus_block_size": "本地輪詢時每個 Modbus 請求讀取的暫存器數量。保守模式使用所有採集棒和韌體都支援的小分組讀取。快速模式一次讀取最多 120 個暫存器以加快輪詢，但舊版採集棒韌體僅支援約 40 個暫存器的讀取——如果大區塊讀取失敗，整合會自動回退到保守模式（並發出警告），直到下次重新載入。",
+          "include_ac_couple_pv": "將GridBOSS智慧端口的交流耦合太陽能逆變器功率新增到並聯組光伏總量中",
+          "charge_control_mode": "電池如何決定何時停止充電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的限制控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。",
+          "discharge_control_mode": "電池如何決定何時停止放電：SOC（閉迴路，含 BMS 的鋰電池）或電壓（開迴路，鉛酸／無 BMS）。未選取的截止控制項預設為隱藏。⚠️ 變更此設定也會重新設定逆變器。"
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "無法將電池控制模式套用到逆變器。請檢查裝置連線後再試一次。"
     }
   },
   "selector": {
@@ -394,6 +403,12 @@
       "options": {
         "normal": "正常",
         "standby": "待機"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "保守（相容所有韌體）",
+        "fast": "快速（120 個暫存器，需要較新的採集棒韌體）"
       }
     }
   },
@@ -405,6 +420,9 @@
           "on": "已連線",
           "off": "已斷線"
         }
+      },
+      "off_grid": {
+        "name": "離網"
       }
     },
     "sensor": {
@@ -468,11 +486,37 @@
       "bt_temperature": {
         "name": "BT溫度"
       },
+      "operating_state": {
+        "name": "運作狀態",
+        "state": {
+          "standby": "待機",
+          "fault": "故障",
+          "programming": "編程中",
+          "pv_to_grid": "PV → 電網",
+          "pv_charging": "PV → 電池",
+          "pv_charging_to_grid": "PV → 電池 + 電網",
+          "battery_to_grid": "電池 → 電網",
+          "pv_battery_to_grid": "PV + 電池 → 電網",
+          "ac_charging": "AC → 電池",
+          "pv_ac_charging": "PV + AC → 電池",
+          "off_grid_battery": "離網（電池）",
+          "ac_coupled_charging": "離網（AC 耦合充電）",
+          "pv_off_grid": "離網（PV，不穩定）",
+          "pv_charging_off_grid": "離網（PV + 充電）",
+          "pv_battery_off_grid": "離網（PV + 電池）"
+        }
+      },
       "status_code": {
         "name": "狀態代碼"
       },
       "status_text": {
-        "name": "狀態"
+        "name": "雲端狀態"
+      },
+      "fault_code": {
+        "name": "故障代碼"
+      },
+      "warning_code": {
+        "name": "警告代碼"
       },
       "grid_power": {
         "name": "電網功率"
@@ -652,6 +696,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "電池充電速率"
+      },
+      "quick_charge_remaining": {
+        "name": "快速充電剩餘時間"
       }
     },
     "switch": {
@@ -663,6 +710,12 @@
       },
       "off_grid_mode": {
         "name": "離網模式"
+      },
+      "fast_zero_export": {
+        "name": "快速零輸出"
+      },
+      "share_battery": {
+        "name": "電池共享"
       }
     },
     "number": {
@@ -681,8 +734,20 @@
       "ac_charge_soc_limit": {
         "name": "交流充電 SOC 限制"
       },
+      "quick_charge_duration": {
+        "name": "快速充電時長"
+      },
       "soc_cutoff": {
         "name": "SOC 截止"
+      },
+      "grid_sell_back_power": {
+        "name": "併網售電功率"
+      },
+      "start_discharge_power_threshold": {
+        "name": "啟動放電功率閾值"
+      },
+      "start_charge_power_threshold": {
+        "name": "啟動充電功率閾值"
       }
     },
     "button": {
@@ -710,6 +775,122 @@
           "pv2_pv3": "PV2 & PV3",
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
+      }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "交流充電開始時間 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "交流充電結束時間 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "交流充電開始時間 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "交流充電結束時間 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "交流充電開始時間 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "交流充電結束時間 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "交流優先開始時間 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "交流優先結束時間 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "交流優先開始時間 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "交流優先結束時間 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "交流優先開始時間 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "交流優先結束時間 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "強制充電開始時間 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "強制充電結束時間 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "強制充電開始時間 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "強制充電結束時間 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "強制充電開始時間 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "強制充電結束時間 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "強制放電開始時間 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "強制放電結束時間 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "強制放電開始時間 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "強制放電結束時間 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "強制放電開始時間 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "強制放電結束時間 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "削峰開始時間 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "削峰結束時間 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "削峰開始時間 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "削峰結束時間 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "發電機充電開始時間 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "發電機充電結束時間 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "發電機充電開始時間 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "發電機充電結束時間 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "離網開始時間 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "離網結束時間 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "離網開始時間 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "離網結束時間 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "離網開始時間 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "離網結束時間 3"
       }
     }
   },
@@ -745,6 +926,28 @@
           "description": "要核對的設定項目ID。如果未提供，將核對所有具有雲端憑據的{brand_name} Web Monitor整合。"
         }
       }
+    },
+    "import_historical_data": {
+      "name": "匯入歷史資料",
+      "description": "將電站層級的每日能源歷史（太陽能發電、用電量、電網買電/賣電、電池充電/放電）從 {brand_name} 雲端匯入 Home Assistant 長期統計。資料會寫入為可在能源儀表板中選取的獨立外部統計；現有感測器歷史絕不會被修改。重複執行相同或重疊的範圍是安全的。",
+      "fields": {
+        "config_entry": {
+          "name": "設定項目",
+          "description": "要匯入歷史資料的 {brand_name} Web Monitor 設定項目（電站）。"
+        },
+        "dry_run": {
+          "name": "試執行",
+          "description": "預覽將匯入的內容，而不寫入任何統計資料。"
+        },
+        "start_date": {
+          "name": "開始日期",
+          "description": "要匯入的第一天（YYYY-MM-DD）。"
+        },
+        "end_date": {
+          "name": "結束日期",
+          "description": "要匯入的最後一天（YYYY-MM-DD）。預設為今天。最大範圍：2 年。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -759,12 +962,62 @@
     },
     "invalid_date_format": {
       "message": "日期格式無效。請使用YYYY-MM-DD格式。"
+    },
+    "cloud_required": {
+      "message": "歷史資料匯入需要雲端憑證（HTTP 或混合連線模式）。"
+    },
+    "date_range_too_large": {
+      "message": "{range_days} 天的日期範圍超過 {max_days} 天（2 年）的上限。請分成較小的區間匯入歷史資料。"
+    },
+    "history_api_unavailable": {
+      "message": "已安裝的 pylxpweb 程式庫未提供此服務所需的能源歷史 API。請更新整合，以安裝所需的 pylxpweb 版本。"
+    },
+    "invalid_date_range": {
+      "message": "無效的日期範圍：{start_date} 至 {end_date}。開始日期不可在未來，也不可晚於結束日期。"
+    },
+    "no_devices": {
+      "message": "找不到此電站的任何逆變器。"
+    },
+    "station_not_ready": {
+      "message": "雲端電站資料尚未載入。請等待整合完成首次更新後再試一次。"
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "已從 {model} {serial} 移除併網控制",
+      "description": "**Peak Shaving**(削峰)與 **Forced Discharge**(強制放電)控制(模式開關以及 Grid Peak Shaving Power、Forced Discharge Power 和 Forced Discharge SOC Limit 設定)已從 **{serial}**({model})移除。\n\n這些功能作用於併網的輸出/輸入混合控制,EG4 離網型號(12000XP/6000XP)不支援此能力——暫存器雖然存在,但功能在該硬體上無效。\n\n如有自動化或儀表板引用了這些實體,請移除相關引用。如果您認為您的裝置確實支援這些功能,請在整合的 GitHub Issues 中回報。"
+    },
+    "offgrid_battery_backup_removed": {
+      "title": "已從 {model} {serial} 移除 Battery Backup Mode 控制",
+      "description": "**Battery Backup Mode** 開關已從 **{serial}**（{model}）移除。\n\nEG4 離網系列的韌體會拒絕啟用此工作模式（12000XP v2 回報 “failed to enable working mode”），且 EG4 入口網站本身也未為這些裝置提供工作模式開關。**EPS Battery Backup** 開關不受影響。\n\n若有自動化或儀表板引用了此實體，請移除相關引用。若您認為您的裝置確實支援此功能，請在整合的 GitHub Issues 回報。"
+    },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "已在 {model} {serial} 上取代 AC Charge SOC Limit",
+      "description": "**AC Charge SOC Limit** 設定已從 **{serial}**（{model}）移除。\n\nEG4 雲端拒絕在離網系列上寫入該參數（12000XP v2 回報 REMOTE_SET_ERROR），且 EG4 入口網站本身也沒有為這些裝置提供該項目。此系列真正的交流充電 SOC 區間由新的 **AC Charge Start Battery SOC** 與 **AC Charge End Battery SOC** 設定提供，與入口網站的離網工作模式頁面一致。\n\n請將引用舊實體的自動化或儀表板更新為使用新實體。如果您認為您的裝置確實支援舊參數，請在整合的 GitHub Issues 中回報。"
+    },
+    "offgrid_forced_charge_times_removed": {
+      "title": "已從 {model} {serial} 移除 Forced Charge 排程時間",
+      "description": "**Forced Charge**（強制充電）排程時間設定（開始/結束時間，視窗 1-3）已從 **{serial}**（{model}）移除。\n\nEG4 雲端會拒絕在離網系列上寫入這些參數（12000XP v2 回報 REMOTE_SET_ERROR），且 EG4 入口網站本身也未為這些裝置提供 Forced Charge 排程。**AC Charge** 與 **AC First** 排程不受影響。\n\n若有自動化或儀表板引用了這些實體，請移除相關引用。若您認為您的裝置確實支援此排程，請在整合的 GitHub Issues 回報。"
+    },
     "dongle_validation_disabled": {
       "title": "建議為 WiFi dongle 啟用資料驗證",
       "description": "已設定 WiFi dongle，但**資料驗證**已停用。WiFi dongle 共用 Modbus 匯流排，同時讀取可能導致暫存器資料損壞（例如能量尖峰）。\n\n若要修正，請前往**設定 > 裝置與服務 > EG4 Web Monitor > 設定**，然後啟用**資料驗證**。"
+    },
+    "serial_attach_failed": {
+      "title": "裝置 {serial} 的序列連線失敗",
+      "description": "無法在 **{serial_port}** 上為裝置 **{serial}** 開啟 Modbus 序列（USB/RS485）連線。此裝置暫時僅使用雲端資料。\n\n請檢查轉接器是否已插入、連接埠路徑是否正確、是否有其他軟體佔用該連接埠，然後重新載入整合。"
+    },
+    "transport_attach_failed": {
+      "title": "裝置 {serial} 的本地連線失敗",
+      "description": "無法為裝置 **{serial}** 建立到 **{host}** 的本地連線——這通常發生在 Home Assistant 重新啟動後不久，此時 WiFi 收集棒仍保持上一工作階段的連線。此裝置暫時使用雲端資料。\n\n整合大約每分鐘自動重試一次；本地連線恢復後此問題會自行解除。若問題持續，請檢查裝置是否通電並可透過 **{host}** 存取。"
+    },
+    "transport_link_down": {
+      "title": "與裝置 {serial} 的本地連線已中斷",
+      "description": "裝置 **{serial}** 到 **{host}** 的本地連線在連續多次讀取失敗後停止回應——常見原因是網路中斷、VPN 斷線或收集棒/閘道器重新啟動。連線中斷期間，若已設定雲端憑證，裝置會改用雲端資料；否則其實體將變為無法使用，而不是顯示過期數值。\n\n整合會在每個更新週期持續重試本地連線；連線恢復後此問題會自行解除。若問題持續，請檢查裝置是否通電並可透過 **{host}** 存取。"
+    },
+    "unknown_family_fallback": {
+      "title": "已依型號推斷 {serial} 的逆變器系列",
+      "description": "裝置 **{serial}** 未回報可辨識的逆變器系列，因此其功能已依型號名稱 **{model}** 推導（系列 **{family}**）。從未有資料的相位類感測器（例如分相硬體上的三相 R/S/T 感測器）將不再建立。\n\n若有自動化引用了這些感測器，請更新。若此裝置確實為三相，請在整合選項中設定**電網類型**。也請回報韌體的裝置類型代碼（見診斷感測器「Device Type Code」），以便正式納入對應。"
     }
   }
 }

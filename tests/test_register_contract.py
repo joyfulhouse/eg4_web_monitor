@@ -36,12 +36,16 @@ from custom_components.eg4_web_monitor.coordinator_mixins import DeviceProcessin
 # keep this set SHRINKING.  Tracked in beads (see issue refs).
 # -------------------------------------------------------------------------
 KNOWN_SEAM_GAPS: dict[tuple[str, str], str] = {
-    # Empty: the prior gaps (inverter.power_rating_text / has_runtime_data,
+    # The prior gaps (inverter.power_rating_text / has_runtime_data,
     # battery_bank.cycle_count) were closed in eg4-ohz by exposing honest
     # device properties on pylxpweb, so the device-object path now resolves
-    # them for real.  Keep this set SHRINKING — add an entry only with a
-    # tracking issue, and `test_known_seam_gaps_are_still_gaps` guards against
-    # stale entries pylxpweb has since provided.
+    # them for real — as were the eg4-1d0 smart-load split properties once
+    # the type-38 pylxpweb branch merged, and the GH #335 eps_load_power
+    # property (cloud epsLoadPower, sibling of smart_load_power /
+    # grid_load_power) once pylxpweb #219 shipped in 0.9.36.  Keep this set
+    # SHRINKING — add an entry only with a tracking issue, and
+    # `test_known_seam_gaps_are_still_gaps` guards against stale entries
+    # pylxpweb has since provided.
 }
 
 # (label, property_map, target pylxpweb class the map is applied to)
@@ -58,7 +62,16 @@ _PROPERTY_MAP_TARGETS = [
         DeviceProcessingMixin._get_parallel_group_property_map(),
         ParallelGroup,
     ),
-    ("mid_device", DeviceProcessingMixin._get_mid_device_property_map(), MIDDevice),
+    (
+        "mid_device",
+        # Merge the alias pairs so their source properties are seam-checked
+        # too (only the KEYS — source attrs — matter in this test).
+        {
+            **DeviceProcessingMixin._get_mid_device_property_map(),
+            **DeviceProcessingMixin._get_mid_device_property_aliases(),
+        },
+        MIDDevice,
+    ),
 ]
 
 

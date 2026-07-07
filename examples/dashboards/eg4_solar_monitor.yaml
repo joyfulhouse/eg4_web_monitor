@@ -16,9 +16,7 @@ views:
           - type: custom:power-flow-card-plus
             entities:
               battery:
-                entity:
-                  consumption: sensor.18kpv_1234567890_battery_discharge_power
-                  production: sensor.18kpv_1234567890_battery_charge_power
+                entity: sensor.18kpv_1234567890_battery_power
                 state_of_charge: sensor.18kpv_1234567890_state_of_charge
                 name: Battery Bank
                 icon: mdi:battery-high
@@ -569,7 +567,7 @@ views:
                       action: toggle
                     fill_container: true
                   - type: custom:mushroom-entity-card
-                    entity: switch.18kpv_1234567890_battery_backup
+                    entity: switch.18kpv_1234567890_eps_battery_backup
                     name: EPS Backup
                     icon: mdi:battery-lock
                     tap_action:
@@ -585,7 +583,7 @@ views:
                       action: toggle
                     fill_container: true
                   - type: custom:mushroom-entity-card
-                    entity: switch.18kpv_1234567890_peak_shaving_mode
+                    entity: switch.18kpv_1234567890_grid_peak_shaving_mode
                     name: Peak Shaving
                     icon: mdi:chart-bell-curve-cumulative
                     tap_action:
@@ -646,11 +644,11 @@ views:
                 name: Overall SOC
               - entity: sensor.18kpv_1234567890_battery_voltage
                 name: Pack Voltage
-              - entity: sensor.battery_1234567890_01_state_of_health
+              - entity: sensor.18kpv_battery_1234567890_01_state_of_health
                 name: Battery 1 SOH
-              - entity: sensor.battery_1234567890_02_state_of_health
+              - entity: sensor.18kpv_battery_1234567890_02_state_of_health
                 name: Battery 2 SOH
-              - entity: sensor.battery_1234567890_03_state_of_health
+              - entity: sensor.18kpv_battery_1234567890_03_state_of_health
                 name: Battery 3 SOH
             columns: 5
         column_span: 1
@@ -683,37 +681,37 @@ views:
           - type: entities
             title: State of Charge
             entities:
-              - entity: sensor.battery_1234567890_01_state_of_charge
+              - entity: sensor.18kpv_battery_1234567890_01_relative_soc
                 name: Battery 1 SOC
                 icon: mdi:battery
-              - entity: sensor.battery_1234567890_02_state_of_charge
+              - entity: sensor.18kpv_battery_1234567890_02_relative_soc
                 name: Battery 2 SOC
                 icon: mdi:battery
-              - entity: sensor.battery_1234567890_03_state_of_charge
+              - entity: sensor.18kpv_battery_1234567890_03_relative_soc
                 name: Battery 3 SOC
                 icon: mdi:battery
           - type: entities
             title: Cycle Count
             entities:
-              - entity: sensor.battery_1234567890_01_cycle_count
+              - entity: sensor.18kpv_battery_1234567890_01_cycle_count
                 name: Battery 1 Cycles
                 icon: mdi:counter
-              - entity: sensor.battery_1234567890_02_cycle_count
+              - entity: sensor.18kpv_battery_1234567890_02_cycle_count
                 name: Battery 2 Cycles
                 icon: mdi:counter
-              - entity: sensor.battery_1234567890_03_cycle_count
+              - entity: sensor.18kpv_battery_1234567890_03_cycle_count
                 name: Battery 3 Cycles
                 icon: mdi:counter
           - type: entities
             title: Cell Voltage Delta
             entities:
-              - entity: sensor.battery_1234567890_01_cell_voltage_delta
+              - entity: sensor.18kpv_battery_1234567890_01_cell_voltage_delta
                 name: Battery 1 Delta
                 icon: mdi:delta
-              - entity: sensor.battery_1234567890_02_cell_voltage_delta
+              - entity: sensor.18kpv_battery_1234567890_02_cell_voltage_delta
                 name: Battery 2 Delta
                 icon: mdi:delta
-              - entity: sensor.battery_1234567890_03_cell_voltage_delta
+              - entity: sensor.18kpv_battery_1234567890_03_cell_voltage_delta
                 name: Battery 3 Delta
                 icon: mdi:delta
         column_span: 4
@@ -728,53 +726,53 @@ views:
               - type: horizontal-stack
                 cards:
                   - type: tile
-                    entity: sensor.battery_1234567890_01_state_of_charge
+                    entity: sensor.18kpv_battery_1234567890_01_relative_soc
                     name: SOC
                     icon: mdi:battery-80
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_01_state_of_health
+                    entity: sensor.18kpv_battery_1234567890_01_state_of_health
                     name: SOH
                     icon: mdi:battery-heart
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_01_cycle_count
+                    entity: sensor.18kpv_battery_1234567890_01_cycle_count
                     name: Cycles
                     icon: mdi:counter
                     vertical: true
               - type: entities
                 entities:
-                  - entity: sensor.battery_1234567890_01_voltage
+                  - entity: sensor.18kpv_battery_1234567890_01_voltage
                     name: Voltage
                     icon: mdi:flash
-                  - entity: sensor.battery_1234567890_01_current
+                  - entity: sensor.18kpv_battery_1234567890_01_current
                     name: Current
                     icon: mdi:current-dc
-                  - entity: sensor.battery_1234567890_01_remaining_capacity
+                  - entity: sensor.18kpv_battery_1234567890_01_remaining_capacity
                     name: Remaining Capacity
                     icon: mdi:battery-medium
-                  - entity: sensor.battery_1234567890_01_full_capacity
+                  - entity: sensor.18kpv_battery_1234567890_01_full_capacity
                     name: Full Capacity
                     icon: mdi:battery
-                  - entity: sensor.battery_1234567890_01_firmware_version
+                  - entity: sensor.18kpv_battery_1234567890_01_firmware_version
                     name: Firmware Version
                     icon: mdi:chip
               - type: glance
                 title: Cell Voltages
                 entities:
-                  - entity: sensor.battery_1234567890_01_cell_voltage_max
+                  - entity: sensor.18kpv_battery_1234567890_01_max_cell_voltage
                     name: Max Cell
-                  - entity: sensor.battery_1234567890_01_cell_voltage_min
+                  - entity: sensor.18kpv_battery_1234567890_01_min_cell_voltage
                     name: Min Cell
-                  - entity: sensor.battery_1234567890_01_cell_voltage_delta
+                  - entity: sensor.18kpv_battery_1234567890_01_cell_voltage_delta
                     name: Delta
                 columns: 3
               - type: glance
                 title: Cell Temperatures
                 entities:
-                  - entity: sensor.battery_1234567890_01_max_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_01_max_cell_temperature
                     name: Max Temp
-                  - entity: sensor.battery_1234567890_01_min_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_01_min_cell_temperature
                     name: Min Temp
                 columns: 2
           - type: vertical-stack
@@ -786,53 +784,53 @@ views:
               - type: horizontal-stack
                 cards:
                   - type: tile
-                    entity: sensor.battery_1234567890_02_state_of_charge
+                    entity: sensor.18kpv_battery_1234567890_02_relative_soc
                     name: SOC
                     icon: mdi:battery-80
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_02_state_of_health
+                    entity: sensor.18kpv_battery_1234567890_02_state_of_health
                     name: SOH
                     icon: mdi:battery-heart
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_02_cycle_count
+                    entity: sensor.18kpv_battery_1234567890_02_cycle_count
                     name: Cycles
                     icon: mdi:counter
                     vertical: true
               - type: entities
                 entities:
-                  - entity: sensor.battery_1234567890_02_voltage
+                  - entity: sensor.18kpv_battery_1234567890_02_voltage
                     name: Voltage
                     icon: mdi:flash
-                  - entity: sensor.battery_1234567890_02_current
+                  - entity: sensor.18kpv_battery_1234567890_02_current
                     name: Current
                     icon: mdi:current-dc
-                  - entity: sensor.battery_1234567890_02_remaining_capacity
+                  - entity: sensor.18kpv_battery_1234567890_02_remaining_capacity
                     name: Remaining Capacity
                     icon: mdi:battery-medium
-                  - entity: sensor.battery_1234567890_02_full_capacity
+                  - entity: sensor.18kpv_battery_1234567890_02_full_capacity
                     name: Full Capacity
                     icon: mdi:battery
-                  - entity: sensor.battery_1234567890_02_firmware_version
+                  - entity: sensor.18kpv_battery_1234567890_02_firmware_version
                     name: Firmware Version
                     icon: mdi:chip
               - type: glance
                 title: Cell Voltages
                 entities:
-                  - entity: sensor.battery_1234567890_02_cell_voltage_max
+                  - entity: sensor.18kpv_battery_1234567890_02_max_cell_voltage
                     name: Max Cell
-                  - entity: sensor.battery_1234567890_02_cell_voltage_min
+                  - entity: sensor.18kpv_battery_1234567890_02_min_cell_voltage
                     name: Min Cell
-                  - entity: sensor.battery_1234567890_02_cell_voltage_delta
+                  - entity: sensor.18kpv_battery_1234567890_02_cell_voltage_delta
                     name: Delta
                 columns: 3
               - type: glance
                 title: Cell Temperatures
                 entities:
-                  - entity: sensor.battery_1234567890_02_max_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_02_max_cell_temperature
                     name: Max Temp
-                  - entity: sensor.battery_1234567890_02_min_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_02_min_cell_temperature
                     name: Min Temp
                 columns: 2
           - type: vertical-stack
@@ -844,53 +842,53 @@ views:
               - type: horizontal-stack
                 cards:
                   - type: tile
-                    entity: sensor.battery_1234567890_03_state_of_charge
+                    entity: sensor.18kpv_battery_1234567890_03_relative_soc
                     name: SOC
                     icon: mdi:battery-80
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_03_state_of_health
+                    entity: sensor.18kpv_battery_1234567890_03_state_of_health
                     name: SOH
                     icon: mdi:battery-heart
                     vertical: true
                   - type: tile
-                    entity: sensor.battery_1234567890_03_cycle_count
+                    entity: sensor.18kpv_battery_1234567890_03_cycle_count
                     name: Cycles
                     icon: mdi:counter
                     vertical: true
               - type: entities
                 entities:
-                  - entity: sensor.battery_1234567890_03_voltage
+                  - entity: sensor.18kpv_battery_1234567890_03_voltage
                     name: Voltage
                     icon: mdi:flash
-                  - entity: sensor.battery_1234567890_03_current
+                  - entity: sensor.18kpv_battery_1234567890_03_current
                     name: Current
                     icon: mdi:current-dc
-                  - entity: sensor.battery_1234567890_03_remaining_capacity
+                  - entity: sensor.18kpv_battery_1234567890_03_remaining_capacity
                     name: Remaining Capacity
                     icon: mdi:battery-medium
-                  - entity: sensor.battery_1234567890_03_full_capacity
+                  - entity: sensor.18kpv_battery_1234567890_03_full_capacity
                     name: Full Capacity
                     icon: mdi:battery
-                  - entity: sensor.battery_1234567890_03_firmware_version
+                  - entity: sensor.18kpv_battery_1234567890_03_firmware_version
                     name: Firmware Version
                     icon: mdi:chip
               - type: glance
                 title: Cell Voltages
                 entities:
-                  - entity: sensor.battery_1234567890_03_cell_voltage_max
+                  - entity: sensor.18kpv_battery_1234567890_03_max_cell_voltage
                     name: Max Cell
-                  - entity: sensor.battery_1234567890_03_cell_voltage_min
+                  - entity: sensor.18kpv_battery_1234567890_03_min_cell_voltage
                     name: Min Cell
-                  - entity: sensor.battery_1234567890_03_cell_voltage_delta
+                  - entity: sensor.18kpv_battery_1234567890_03_cell_voltage_delta
                     name: Delta
                 columns: 3
               - type: glance
                 title: Cell Temperatures
                 entities:
-                  - entity: sensor.battery_1234567890_03_max_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_03_max_cell_temperature
                     name: Max Temp
-                  - entity: sensor.battery_1234567890_03_min_cell_temperature
+                  - entity: sensor.18kpv_battery_1234567890_03_min_cell_temperature
                     name: Min Temp
                 columns: 2
         column_span: 3

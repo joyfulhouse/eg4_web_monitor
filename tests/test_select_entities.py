@@ -9,10 +9,12 @@ from pylxpweb import OperatingMode
 from custom_components.eg4_web_monitor.select import (
     async_setup_entry,
     EG4OperatingModeSelect,
+    EG4PVInputModeSelect,
     EG4SmartPortModeSelect,
     OPERATING_MODE_OPTIONS,
     SMART_PORT_MODE_OPTIONS,
 )
+from tests.conftest import wire_coordinator_write_helpers
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -27,6 +29,8 @@ def _mock_coordinator(
     """Build a mock EG4DataUpdateCoordinator for select tests."""
     coordinator = MagicMock()
     coordinator.last_update_success = True
+    coordinator.has_http_api = MagicMock(return_value=True)
+    coordinator.is_transport_link_down = MagicMock(return_value=False)
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_refresh_device_parameters = AsyncMock()
 
@@ -42,6 +46,7 @@ def _mock_coordinator(
     mock_inverter.refresh = AsyncMock()
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 
@@ -53,7 +58,7 @@ class TestSelectPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_setup_with_inverter(self, hass):
-        """FlexBOSS inverter creates OperatingModeSelect and PVInputModeSelect."""
+        """FlexBOSS inverter creates operating, PV input, and battery control selects."""
         coordinator = _mock_coordinator()
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -61,10 +66,12 @@ class TestSelectPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 2
+        assert len(entities) == 4
         type_names = [type(e).__name__ for e in entities]
         assert "EG4OperatingModeSelect" in type_names
         assert "EG4PVInputModeSelect" in type_names
+        assert "EG4BatteryChargeControlSelect" in type_names
+        assert "EG4BatteryDischargeControlSelect" in type_names
 
     @pytest.mark.asyncio
     async def test_setup_creates_gridboss_selects(self, hass):
@@ -94,6 +101,27 @@ class TestSelectPlatformSetup:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len(entities) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_sna_15k_offgrid_creates_mode_select(self, hass):
+        """#259: cloud "SNA-US 15K" (EG4_OFFGRID) gets the operating-mode select.
+
+        This is the "set mode" action the issue explicitly asked for; the
+        model string matches no substring, so the family backstops the gate.
+        """
+        coordinator = _mock_coordinator(model="SNA-US 15K")
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "EG4OperatingModeSelect" in type_names
+        assert "EG4PVInputModeSelect" in type_names
 
 
 # ── OperatingModeSelect ──────────────────────────────────────────────
@@ -146,6 +174,15 @@ class TestOperatingModeSelect:
         device_data = coordinator.data["devices"]["1234567890"]
         select = EG4OperatingModeSelect(coordinator, "1234567890", device_data)
         assert select.available is True
+
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the select unavailable (parity with
+        number/time entities)."""
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4OperatingModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is False
 
     @pytest.mark.asyncio
     async def test_select_normal(self):
@@ -212,6 +249,8 @@ def _mock_gridboss_coordinator(
     """Build a mock coordinator with a GridBOSS device for smart port tests."""
     coordinator = MagicMock()
     coordinator.last_update_success = True
+    coordinator.has_http_api = MagicMock(return_value=True)
+    coordinator.is_transport_link_down = MagicMock(return_value=False)
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_request_refresh = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
@@ -231,6 +270,7 @@ def _mock_gridboss_coordinator(
     coordinator.client = MagicMock()
     coordinator.client.api.control.set_smart_port_mode = AsyncMock()
 
+    wire_coordinator_write_helpers(coordinator)
     return coordinator
 
 
@@ -299,6 +339,15 @@ class TestSmartPortModeSelect:
         """Unavailable when device type is not gridboss."""
         coordinator = _mock_gridboss_coordinator()
         coordinator.data["devices"]["gb123"]["type"] = "inverter"
+        device_data = coordinator.data["devices"]["gb123"]
+        select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
+        assert select.available is False
+
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the smart port select unavailable
+        (parity with number/time entities)."""
+        coordinator = _mock_gridboss_coordinator()
+        coordinator.last_update_success = False
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         assert select.available is False
@@ -388,6 +437,7 @@ class TestSmartPortModeSelect:
         """No transport raises HomeAssistantError."""
         coordinator = _mock_gridboss_coordinator()
         coordinator.has_local_transport = MagicMock(return_value=False)
+        coordinator.has_http_api = MagicMock(return_value=False)
         coordinator.client = None
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
@@ -397,3 +447,144 @@ class TestSmartPortModeSelect:
 
         with pytest.raises(HomeAssistantError, match="No local transport"):
             await select.async_select_option("Smart Load")
+
+    @pytest.mark.asyncio
+    async def test_select_hybrid_local_failure_falls_back_to_cloud(self):
+        """HYBRID: local write fails -> cloud set_smart_port_mode used."""
+        coordinator = _mock_gridboss_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client.api.control.set_smart_port_mode = AsyncMock(
+            return_value=result_mock
+        )
+        device_data = coordinator.data["devices"]["gb123"]
+        select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=2)
+        select.hass = MagicMock()
+        select.entity_id = "select.test_smart_port_2_mode"
+        select.async_write_ha_state = MagicMock()
+
+        await select.async_select_option("AC Couple")
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.set_smart_port_mode.assert_called_once_with(
+            "gb123", 2, 2
+        )
+
+
+class TestPVInputModeSelectAvailability:
+    """PV input select availability gates on coordinator health."""
+
+    def test_available_on_healthy_coordinator(self):
+        """Available with healthy coordinator + inverter device."""
+        coordinator = _mock_coordinator()
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4PVInputModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is True
+
+    def test_unavailable_on_coordinator_failure(self):
+        """Coordinator failure makes the select unavailable (parity with
+        number/time entities)."""
+        coordinator = _mock_coordinator()
+        coordinator.last_update_success = False
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4PVInputModeSelect(coordinator, "1234567890", device_data)
+        assert select.available is False
+
+
+class TestPVInputModeSelectFallback:
+    """PV input mode writes: local path, HYBRID cloud fallback, LOCAL-only
+    error propagation (GH hybrid link-down parity with switches)."""
+
+    def _select(self, coordinator) -> EG4PVInputModeSelect:
+        device_data = coordinator.data["devices"]["1234567890"]
+        select = EG4PVInputModeSelect(coordinator, "1234567890", device_data)
+        select.hass = MagicMock()
+        select.entity_id = "select.test_pv_input_mode"
+        select.async_write_ha_state = MagicMock()
+        return select
+
+    @pytest.mark.asyncio
+    async def test_local_write_success(self):
+        """Local path writes the named register parameter."""
+        coordinator = _mock_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock()
+        select = self._select(coordinator)
+
+        await select.async_select_option("PV1 & PV2")
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_PV_INPUT_MODE", 4, serial="1234567890"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_local_failure_falls_back_to_cloud(self):
+        """HYBRID: local write fails -> cloud write_parameter used."""
+        coordinator = _mock_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=result_mock
+        )
+        select = self._select(coordinator)
+
+        await select.async_select_option("PV1")
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_PV_INPUT_MODE", "1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_only_failure_still_raises(self):
+        """LOCAL-only: no cloud client -> the local error propagates."""
+        coordinator = _mock_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.has_http_api = MagicMock(return_value=False)
+        coordinator.client = None
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Failed to write parameter: timeout")
+        )
+        select = self._select(coordinator)
+
+        with pytest.raises(HomeAssistantError, match="timeout"):
+            await select.async_select_option("PV1")
+
+    @pytest.mark.asyncio
+    async def test_link_down_skips_local_write_and_param_refresh_seeds_cache(self):
+        """Known-down link: the local write AND the follow-up local
+        parameter read are both skipped (pylxpweb's param fetch has no link
+        gate and would hang, codex P1 on PR #301); the acknowledged cloud
+        value is seeded into the cache so the entity converges."""
+        coordinator = _mock_coordinator()
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        coordinator.write_named_parameter = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=result_mock
+        )
+        select = self._select(coordinator)
+
+        await select.async_select_option("PV2")
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_called_once_with(
+            "1234567890", "HOLD_PV_INPUT_MODE", "2"
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.refresh.assert_not_awaited()
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {"HOLD_PV_INPUT_MODE": 2}
+        )

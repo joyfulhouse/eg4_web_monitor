@@ -33,6 +33,7 @@ from custom_components.eg4_web_monitor.const import (
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
     DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
 )
 from custom_components.eg4_web_monitor.coordinator import (
     EG4DataUpdateCoordinator,
@@ -148,6 +149,8 @@ def mock_station_object(mock_inverter):
     mock.refresh_all_data = AsyncMock()
     mock.detect_dst_status = MagicMock(return_value=True)
     mock.sync_dst_setting = AsyncMock(return_value=True)
+    mock.daylight_saving_time = True
+    mock.get_daylight_saving_time_enabled = AsyncMock(return_value=True)
     return mock
 
 
@@ -330,6 +333,167 @@ class TestDSTSynchronization:
         ):
             assert coordinator._should_sync_dst() is False
 
+    async def test_perform_dst_sync_syncs_when_dst_active(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=True must still call sync_dst_setting (#323).
+
+        The old code treated True as "already correct" and never synced,
+        leaving an API flag stuck at False all summer.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+        # Reporter's state: API flag stuck at False during summer
+        mock_station_object.daylight_saving_time = False
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_syncs_when_dst_inactive(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=False also calls sync_dst_setting."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=False)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_skips_when_undeterminable(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """detect_dst_status()=None skips sync but stamps the timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=None)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=True)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_not_awaited()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_failure_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """A failed sync (returns False) still stamps _last_dst_sync."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(return_value=False)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_exception_still_stamps(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """An exception during sync still stamps _last_dst_sync (no hot loop)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.detect_dst_status = MagicMock(return_value=True)
+        mock_station_object.sync_dst_setting = AsyncMock(
+            side_effect=RuntimeError("api error")
+        )
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_noop_when_no_station(self, hass, mock_config_entry):
+        """No station loaded -> no sync attempt, no timestamp."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = None
+
+        await coordinator._perform_dst_sync()
+
+        assert coordinator._last_dst_sync is None
+
+    async def test_perform_dst_sync_noop_when_disabled(self, hass, mock_station_object):
+        """DST sync disabled -> immediate return, no sync, no timestamp."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Web Monitor - Test Plant",
+            data={
+                CONF_USERNAME: "test_user",
+                CONF_PASSWORD: "test_pass",
+                CONF_BASE_URL: "https://monitor.eg4electronics.com",
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_PLANT_ID: "12345",
+                CONF_PLANT_NAME: "Test Plant",
+            },
+            entry_id="dst_disabled_test",
+        )
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator.station = mock_station_object
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_not_awaited()
+        mock_station_object.get_daylight_saving_time_enabled.assert_not_awaited()
+        assert coordinator._last_dst_sync is None
+
+    async def test_perform_dst_sync_refreshes_cached_flag_from_cloud(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """Cached flag True, cloud says False -> flag updated BEFORE sync (#323).
+
+        The cached daylight_saving_time flag is otherwise only set at
+        Station.load and by our own writes, so portal-side toggles would
+        stay invisible forever without this re-read.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.daylight_saving_time = True
+        mock_station_object.get_daylight_saving_time_enabled = AsyncMock(
+            return_value=False
+        )
+
+        flag_at_sync_time: list[bool] = []
+
+        async def record_sync() -> bool:
+            flag_at_sync_time.append(mock_station_object.daylight_saving_time)
+            return True
+
+        mock_station_object.sync_dst_setting = AsyncMock(side_effect=record_sync)
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.get_daylight_saving_time_enabled.assert_awaited_once()
+        # Flag was refreshed from the cloud before sync_dst_setting ran
+        assert mock_station_object.daylight_saving_time is False
+        assert flag_at_sync_time == [False]
+        assert coordinator._last_dst_sync is not None
+
+    async def test_perform_dst_sync_flag_fetch_failure_uses_cached(
+        self, hass, mock_config_entry, mock_station_object
+    ):
+        """Cloud flag fetch failure -> proceed with cached value, still sync."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.station = mock_station_object
+        mock_station_object.daylight_saving_time = True
+        mock_station_object.get_daylight_saving_time_enabled = AsyncMock(
+            side_effect=RuntimeError("api error")
+        )
+
+        await coordinator._perform_dst_sync()
+
+        mock_station_object.sync_dst_setting.assert_awaited_once()
+        assert mock_station_object.daylight_saving_time is True
+        assert coordinator._last_dst_sync is not None
+
 
 class TestParameterRefresh:
     """Test hourly parameter refresh."""
@@ -463,6 +627,59 @@ class TestCoordinatorCleanup:
 
         mock_modbus.disconnect.assert_awaited_once()
         mock_dongle.disconnect.assert_awaited_once()
+
+    async def test_async_shutdown_disconnects_station_only_transports(
+        self, hass, mock_config_entry
+    ):
+        """Test async_shutdown disconnects transports reachable only via the station.
+
+        A serial-attached GridBOSS lives on station.all_mid_devices but NOT in
+        _mid_device_cache (_rebuild_inverter_cache only caches inverters), so a
+        cache-only walk leaked its open serial port across reloads (#233).
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        assert not coordinator._inverter_cache
+        assert not coordinator._mid_device_cache
+
+        serial_transport = make_transport_spec(is_connected=True)
+        serial_transport.disconnect = AsyncMock()
+        mock_mid = make_real_mid("MID001", "GridBOSS")
+        mock_mid._transport = serial_transport
+
+        station = MagicMock()
+        station.all_inverters = []
+        station.all_mid_devices = [mock_mid]
+        coordinator.station = station
+
+        await coordinator.async_shutdown()
+
+        serial_transport.disconnect.assert_awaited_once()
+
+    async def test_async_shutdown_dedups_station_and_cache_transports(
+        self, hass, mock_config_entry
+    ):
+        """A transport shared between a cache entry and the station walk closes once.
+
+        The station walk's seen-set is seeded from both caches; without it the
+        same transport object would get a second disconnect() (mock transports
+        never flip is_connected, so this asserts the de-dup, not luck).
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+
+        shared_transport = make_transport_spec(is_connected=True)
+        shared_transport.disconnect = AsyncMock()
+        mock_inv = make_real_inverter("INV001", "FlexBOSS21")
+        mock_inv._transport = shared_transport
+        coordinator._inverter_cache["INV001"] = mock_inv
+
+        station = MagicMock()
+        station.all_inverters = [mock_inv]
+        station.all_mid_devices = []
+        coordinator.station = station
+
+        await coordinator.async_shutdown()
+
+        shared_transport.disconnect.assert_awaited_once()
 
 
 class TestDeviceInfo:
@@ -1184,7 +1401,7 @@ class TestDeferredLocalParameters:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -1224,7 +1441,7 @@ class TestDeferredLocalParameters:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -1244,7 +1461,7 @@ class TestDeferredLocalParameters:
             coordinator,
             "_read_modbus_parameters",
             new_callable=AsyncMock,
-            return_value={"FUNC_EPS_EN": True},
+            return_value=({"FUNC_EPS_EN": True}, True),
         ) as mock_params:
             config = local_config_entry.data[CONF_LOCAL_TRANSPORTS][0]
             await coordinator._process_single_local_device(
@@ -1477,7 +1694,7 @@ class TestCacheTTLAdherence:
             runtime=InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -1766,7 +1983,11 @@ class TestStaticLocalData:
         assert device["features"]["supports_split_phase"] is True
 
     def test_static_keys_match_runtime_mapping(self):
-        """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys."""
+        """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys.
+
+        The mapping's key surface is unconditional since the #197 EPS load
+        aliases were retired (#335) — an empty runtime exercises it fully.
+        """
         mapping = _build_runtime_sensor_mapping(InverterRuntimeData())
         assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
 
@@ -3933,7 +4154,8 @@ class TestMappingKeyConsistency:
         }
 
         property_map = DeviceProcessingMixin._get_mid_device_property_map()
-        http_keys = set(property_map.values())
+        alias_map = DeviceProcessingMixin._get_mid_device_property_aliases()
+        http_keys = set(property_map.values()) | set(alias_map.values())
         allowed = (
             GRIDBOSS_SENSOR_KEYS
             | GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
@@ -3954,7 +4176,9 @@ class TestMappingKeyConsistency:
 
         mock_mid = make_real_mid("0987654321", "GridBOSS", runtime=MidboxRuntimeData())
         local_keys = set(_build_gridboss_sensor_mapping(mock_mid).keys())
-        http_keys = set(DeviceProcessingMixin._get_mid_device_property_map().values())
+        http_keys = set(
+            DeviceProcessingMixin._get_mid_device_property_map().values()
+        ) | set(DeviceProcessingMixin._get_mid_device_property_aliases().values())
 
         overlap = local_keys & http_keys
         # Both paths should share at least 40 sensor keys (the core set)
@@ -3962,6 +4186,31 @@ class TestMappingKeyConsistency:
             f"Only {len(overlap)} shared keys between LOCAL and HTTP GridBOSS "
             f"mappings — expected >= 40"
         )
+        # eg4-7uz regression: these two were LOCAL-only before the cloud map
+        # gained generator_frequency and the load_power -> consumption_power
+        # alias — they must stay on BOTH paths.
+        assert {"consumption_power", "generator_frequency"} <= overlap
+
+    def test_gridboss_http_map_sources_for_eg4_7uz_keys(self):
+        """eg4-7uz: cloud MID map sources match the LOCAL table semantics.
+
+        ``generator_frequency`` reads the dual-source MIDDevice property of
+        the same name; ``consumption_power`` aliases the ``load_power``
+        property (load CT measurement), exactly like the LOCAL table in
+        ``_build_gridboss_sensor_mapping()``.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        property_map = DeviceProcessingMixin._get_mid_device_property_map()
+        alias_map = DeviceProcessingMixin._get_mid_device_property_aliases()
+
+        assert property_map["generator_frequency"] == "generator_frequency"
+        assert alias_map["load_power"] == "consumption_power"
+        # Alias keys must not shadow keys the main map already feeds
+        # (the alias pass runs dict.update() over the main map's output).
+        assert not set(alias_map.values()) & set(property_map.values())
 
     def test_inverter_local_runtime_keys_subset_of_static(self):
         """LOCAL _build_runtime_sensor_mapping() keys ⊆ INVERTER_RUNTIME_KEYS."""
@@ -3991,10 +4240,16 @@ class TestMappingKeyConsistency:
             "status_text",
             "has_data",
             "inverter_lost_status",
-            "inverter_has_runtime_data",
             "ac_couple_power",
             "max_charge_current",
             "max_discharge_current",
+            # Backup-output split (#222/#335): cloud smartLoadPower/
+            # gridLoadPower/epsLoadPower — no validated local register on
+            # EG4_OFFGRID, so deliberately absent from the LOCAL static set
+            # (CLOUD/HYBRID supplemental).
+            "smart_load_power",
+            "grid_load_power",
+            "eps_load_power",
         }
 
         property_map = DeviceProcessingMixin._get_inverter_property_map()
@@ -4096,7 +4351,7 @@ class TestSmartPortFiltering:
             DeviceProcessingMixin,
         )
 
-        # Port 1 = AC Couple (active, prevents all-zero skip), port 2 = Unused
+        # Port 1 = AC Couple, port 2 = Unused
         mid = self._make_mid_device({1: 2, 2: 0, 3: 0, 4: 0})
         sensors: dict = {
             "smart_load2_power_l1": 10.0,
@@ -4254,42 +4509,99 @@ class TestSmartPortFiltering:
         assert sensors["smart_port3_status"] == "smart_load"
         assert sensors["smart_port4_status"] == "unused"
 
-    def test_all_zeros_no_cache_skips_filtering(self):
-        """When all statuses are 0 with no cache, filtering is skipped."""
+    def test_all_zeros_is_valid_read(self):
+        """All-zeros is a valid read (all ports unused), not corrupt (#195/#248).
+
+        Re-landed from PR #198, which was lost in a history rewrite: treating
+        all-zeros as corrupt left raw integer 0 in the status keys, which
+        HA's enum validation rejected with ValueError on every refresh.
+        """
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
         )
 
-        # Use unique serial with no cached statuses
-        serial = "TEST_MID_ZEROS_NOCACHE"
+        serial = "TEST_MID_ZEROS_VALID"
         _last_good_smart_port_statuses.pop(serial, None)
 
         mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_port1_status": 0,
+            "smart_port2_status": 0,
+            "smart_port3_status": 0,
+            "smart_port4_status": 0,
             "smart_load1_power_l1": 50.0,
             "ac_couple1_power_l1": 100.0,
         }
 
         DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
 
-        # Power keys preserved (no cache → skip filtering)
-        assert sensors["smart_load1_power_l1"] == 50.0
-        assert sensors["ac_couple1_power_l1"] == 100.0
+        # Status integers converted to string labels (not raw 0)
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "unused"
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # All ports unused → both smart_load and ac_couple keys removed
+        assert "smart_load1_power_l1" not in sensors
+        assert "ac_couple1_power_l1" not in sensors
+        # Cached as a good read
+        assert serial in _last_good_smart_port_statuses
 
-    def test_all_zeros_with_cache_uses_cached_statuses(self):
-        """When all statuses are 0 but cache exists, cached statuses are used."""
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+
+    def test_corrupt_read_no_cache_still_converts_labels(self):
+        """Corrupt read with no cache skips filtering but converts labels (#195)."""
         from custom_components.eg4_web_monitor.coordinator_mixins import (
             DeviceProcessingMixin,
             _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
         )
 
-        serial = "TEST_MID_ZEROS_CACHED"
+        serial = "TEST_MID_CORRUPT_NOCACHE"
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+        # Port 3 has out-of-range value (corrupt)
+        mid = self._make_mid_device({1: 0, 2: 1, 3: 5, 4: 0}, serial=serial)
+        sensors: dict = {
+            "smart_port1_status": 0,
+            "smart_port2_status": 1,
+            "smart_port3_status": 5,
+            "smart_port4_status": 0,
+            "smart_load1_power_l1": 50.0,
+        }
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        # Valid integers converted to labels even though filtering was skipped
+        assert sensors["smart_port1_status"] == "unused"
+        assert sensors["smart_port2_status"] == "smart_load"
+        # Out-of-range value falls back to "unused" to prevent HA ValueError
+        assert sensors["smart_port3_status"] == "unused"
+        assert sensors["smart_port4_status"] == "unused"
+        # Power keys preserved (filtering skipped)
+        assert sensors["smart_load1_power_l1"] == 50.0
+
+        # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_corrupt_read_with_cache_uses_cached_statuses(self):
+        """When read is corrupt but cache exists, cached statuses are used."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_CORRUPT_CACHED"
         # Pre-populate cache: port 1 = AC couple, others unused
         _last_good_smart_port_statuses[serial] = {1: 2, 2: 0, 3: 0, 4: 0}
+        _warned_smart_port_devices.discard(serial)
 
-        mid = self._make_mid_device({1: 0, 2: 0, 3: 0, 4: 0}, serial=serial)
+        # Corrupt read: port 2 has out-of-range value
+        mid = self._make_mid_device({1: 0, 2: 7, 3: 0, 4: 0}, serial=serial)
         sensors: dict = {
             "smart_load1_power_l1": 50.0,
             "smart_load1_power_l2": 30.0,
@@ -4307,6 +4619,131 @@ class TestSmartPortFiltering:
         assert sensors["ac_couple1_power_l2"] == 120.0
 
         # Cleanup
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_good_read_writes_validation_marker(self):
+        """A fresh, complete good read writes the per-cycle authority marker.
+
+        The stale smart-port registry cleanup (#217) only acts on cycles
+        carrying this marker — it must appear on every complete good read.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_MARKER_GOOD"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        mid = self._make_mid_device({1: 1, 2: 0, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert sensors.get(SMART_PORT_VALIDATED_KEY) is True
+
+        _last_good_smart_port_statuses.pop(serial, None)
+
+    def test_cached_fallback_does_not_write_validation_marker(self):
+        """A cached-fallback cycle must NOT carry the authority marker.
+
+        The session cache can be stale (port reconfigured since the last
+        good read), so a cycle filtered with cached statuses is not proof of
+        the real port configuration — the registry cleanup must wait for a
+        fresh good read (codex r2 HIGH).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_MARKER_CACHED"
+        _last_good_smart_port_statuses[serial] = {1: 1, 2: 0, 3: 0, 4: 0}
+        _warned_smart_port_devices.discard(serial)
+
+        # Corrupt current read: port 2 out of range
+        mid = self._make_mid_device({1: 1, 2: 7, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_suspect_skip_does_not_write_validation_marker(self):
+        """The skip-filtering path (corrupt, no cache) must NOT carry the marker.
+
+        It writes status labels for HA enum safety but performs no
+        filtering, so the dynamic key set is not authoritative (codex r1
+        HIGH).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+            _warned_smart_port_devices,
+        )
+
+        serial = "TEST_MID_MARKER_SUSPECT"
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+        mid = self._make_mid_device({1: 0, 2: 5, 3: 0, 4: 0}, serial=serial)
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+        # Status labels still written (HA enum safety, #195/#248)
+        assert sensors["smart_port2_status"] == "unused"
+
+        _last_good_smart_port_statuses.pop(serial, None)
+        _warned_smart_port_devices.discard(serial)
+
+    def test_partial_good_read_does_not_write_validation_marker(self):
+        """A good-but-partial read (fewer than 4 ports) must NOT carry the marker.
+
+        A device shape exposing only some smart_port*_status properties can
+        validate the ports it has, but the cleanup would then remove
+        registry entries for ports that were never read (codex r2 MEDIUM).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+            _last_good_smart_port_statuses,
+        )
+
+        serial = "TEST_MID_MARKER_PARTIAL"
+        _last_good_smart_port_statuses.pop(serial, None)
+
+        class _PartialMid:
+            """Plain object: only port 1 exposes a status attribute."""
+
+            serial_number = serial
+            smart_port1_status = 0
+
+        sensors: dict = {"smart_load1_power_l1": 50.0}
+
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, _PartialMid())
+
+        # Port 1 validated and cached, but the read is incomplete
+        assert serial in _last_good_smart_port_statuses
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+
         _last_good_smart_port_statuses.pop(serial, None)
 
 
@@ -4407,7 +4844,7 @@ class TestParameterPreComputation:
             runtime = InverterRuntimeData(
                 pv_total_power=0,
                 battery_soc=50,
-                grid_power=0,
+                rectifier_power=0,
                 parallel_number=0,
                 parallel_master_slave=0,
                 parallel_phase=0,
@@ -4445,7 +4882,7 @@ class TestParameterPreComputation:
                 coordinator,
                 "_read_modbus_parameters",
                 new_callable=AsyncMock,
-                return_value={},
+                return_value=({}, True),
             ),
             patch.object(
                 coordinator,
@@ -4487,7 +4924,7 @@ class TestParameterPreComputation:
         runtime = InverterRuntimeData(
             pv_total_power=0,
             battery_soc=50,
-            grid_power=0,
+            rectifier_power=0,
             parallel_number=0,
             parallel_master_slave=0,
             parallel_phase=0,
@@ -6168,6 +6605,280 @@ class TestStaticLiveFeatureAgreement:
         assert overridden != live
 
 
+class TestUnknownFamilyModelFallback:
+    """Model-name fallback when family detection reports UNKNOWN (issue #219).
+
+    A 6000XP on firmware ccaa-140A0A reports an unmapped HOLD_DEVICE_TYPE_CODE
+    in CLOUD mode, so pylxpweb's ``detect_features()`` yields family=UNKNOWN
+    whose conservative defaults set ``split_phase=False`` — silently starving
+    all L1/L2 (split-phase) sensors such as eps_power_l1/eps_power_l2.  The
+    integration must fall back to deriving the full family profile from the
+    device *model* string so known models keep their correct sensor set.
+    """
+
+    @staticmethod
+    def _make_unknown_inverter(model: str, device_type_code: int = 0):
+        """Inverter stand-in whose feature detection resolved to UNKNOWN.
+
+        Mirrors the cloud failure mode: a real ``InverterFeatures`` built from
+        an unmapped device type code (family=UNKNOWN), plus the ``model`` /
+        ``serial_number`` surface the extractor reads.
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        class _Inverter:
+            def __init__(self) -> None:
+                self._features = InverterFeatures.from_device_type_code(
+                    device_type_code
+                )
+                self.serial_number = "6000123456"
+                self.model = model
+
+        return _Inverter()
+
+    def test_cloud_unknown_family_6000xp_creates_split_phase_sensors(self):
+        """CLOUD: family UNKNOWN + model 6000XP → eps_power_l1/l2 created."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+        from custom_components.eg4_web_monitor.sensor import _should_create_sensor
+
+        # Real HybridInverter exactly as the cloud path builds it: model from
+        # deviceTypeText, _features defaulted to UNKNOWN (unmapped type code).
+        inverter = make_real_inverter("6000123456", "6000XP")
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+        # The starved sensors from issue #219 must be created...
+        assert _should_create_sensor("eps_power_l1", features) is True
+        assert _should_create_sensor("eps_power_l2", features) is True
+        # ...and three-phase R/S/T sensors must NOT be created.
+        assert _should_create_sensor("grid_voltage_r", features) is False
+        assert _should_create_sensor("eps_voltage_r", features) is False
+
+    def test_fallback_applies_full_family_profile(self):
+        """The fallback applies the complete profile, not just phase flags."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        # EG4_OFFGRID capabilities beyond the phase flags (UNKNOWN profile
+        # would leave these False, starving their sensors too).
+        assert features["supports_discharge_recovery_hysteresis"] is True
+        # Presence only: the OFFGRID grid_peak_shaving default flips to False
+        # in pylxpweb (eg4-juzg adjudication of PR #220 claim 4 — GRID peak
+        # shaving is grid-parallel-only; SNA uses GEN peak shaving), so the
+        # value differs across pylxpweb releases.  Entity gating is
+        # family-based in switch.py/number.py and does not read this flag.
+        assert "supports_grid_peak_shaving" in features
+        assert features["grid_type"] == "split_phase"
+        assert "pv_string_count" in features
+
+    def test_fallback_preserves_probed_capabilities(self):
+        """Runtime-probed refinements survive the model-name fallback.
+
+        pylxpweb's ``_probe_optional_features()`` refines flags from actual
+        register presence even when the family is UNKNOWN.  Values deviating
+        from the pure-UNKNOWN baseline were genuinely detected and must
+        override the model-derived family profile (which would say False).
+        """
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        inverter = self._make_unknown_inverter("6000XP")
+        # Simulate a register probe having fired on the UNKNOWN profile
+        # (EG4_OFFGRID's family default for volt_watt_curve is False).
+        inverter._features.volt_watt_curve = True
+        # Explicit PV string count (deviates from the baseline default 3).
+        inverter._features.pv_string_count = 2
+
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_volt_watt_curve"] is True
+        assert features["pv_string_count"] == 2
+
+    def test_fallback_keeps_baseline_equal_pv_string_count(self):
+        """A probed pv_string_count equal to the baseline default still wins.
+
+        Value-difference is not valid provenance for pv_string_count: the
+        baseline default is itself a legitimate probed value, so the fallback
+        profile must never clobber it (#219 review finding 3).
+        """
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        baseline_count = InverterFeatures().pv_string_count
+        inverter = self._make_unknown_inverter("6000XP")
+        inverter._features.pv_string_count = baseline_count
+
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["pv_string_count"] == baseline_count
+
+    def test_fallback_records_provenance_breadcrumbs(self):
+        """Fallback marks family_source and keeps the raw detected family."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+
+    def test_static_fallback_records_provenance_breadcrumbs(self):
+        """Static path sets the same breadcrumbs (drives the Repairs notice)."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _features_from_family,
+        )
+
+        features = _features_from_family("UNKNOWN", None, model="6000XP")
+        assert features["family_source"] == "model_fallback"
+        assert features["detected_inverter_family"] == "UNKNOWN"
+        # A cleanly detected family carries no breadcrumbs (no fallback fired).
+        clean = _features_from_family("EG4_HYBRID", None, model="FlexBOSS21")
+        assert "family_source" not in clean
+
+    def test_live_path_grid_type_override_survives_fallback(self):
+        """User grid-type override outranks the fallback profile every poll.
+
+        Composition contract for the LOCAL live path (#219 review finding 1):
+        extraction (with fallback) then _apply_grid_type_override — the
+        override must win regardless of what the fallback inferred.
+        """
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            _apply_grid_type_override,
+        )
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP")
+        )
+        assert features["supports_split_phase"] is True  # fallback profile
+        _apply_grid_type_override(features, "three_phase")
+        assert features["supports_three_phase"] is True
+        assert features["supports_split_phase"] is False
+
+    @pytest.mark.parametrize(
+        ("model", "expected_family"),
+        [
+            ("6000XP", "EG4_OFFGRID"),
+            ("12000XP", "EG4_OFFGRID"),
+            ("12000XP-US", "EG4_OFFGRID"),
+            ("FlexBOSS21", "EG4_HYBRID"),
+            ("FlexBOSS18", "EG4_HYBRID"),
+            ("18kPV", "EG4_HYBRID"),
+            ("12kPV", "EG4_HYBRID"),
+            # Case-insensitive matching (cloud deviceTypeText casing varies)
+            ("6000xp", "EG4_OFFGRID"),
+            ("FLEXBOSS21", "EG4_HYBRID"),
+            (" 18KPV ", "EG4_HYBRID"),
+        ],
+    )
+    def test_model_name_fallback_mapping(self, model, expected_family):
+        """Each known model maps to its family; all are split-phase US."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter(model)
+        )
+        assert features["inverter_family"] == expected_family
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+    def test_unknown_family_unknown_model_stays_conservative(self):
+        """Unrecognized model leaves the UNKNOWN profile untouched."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("MysteryBox9000")
+        )
+        assert features["inverter_family"] == "UNKNOWN"
+        assert features["supports_split_phase"] is False
+        assert features["supports_three_phase"] is False
+
+    def test_known_family_not_overridden_by_model(self):
+        """The fallback never fires when detection resolved a real family."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        # LXP-EU (three-phase) detected correctly, but a contradictory model
+        # string must not flip it to a split-phase profile.
+        inverter = self._make_unknown_inverter("6000XP", device_type_code=12)
+        features = DeviceProcessingMixin._extract_inverter_features(inverter)
+        assert features["inverter_family"] == "LXP"
+        assert features["supports_three_phase"] is True
+        assert features["supports_split_phase"] is False
+
+    def test_fallback_preserves_real_device_type_code(self):
+        """The real (unmapped) device type code survives as a diagnostic."""
+        from custom_components.eg4_web_monitor.coordinator_mixins import (
+            DeviceProcessingMixin,
+        )
+
+        features = DeviceProcessingMixin._extract_inverter_features(
+            self._make_unknown_inverter("6000XP", device_type_code=777)
+        )
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        # NOT the EG4_OFFGRID representative code (54) — keep the breadcrumb.
+        assert features["device_type_code"] == 777
+
+    def test_static_path_model_fallback(self):
+        """LOCAL static path derives the profile from model when family fails."""
+        # Legacy config without a stored family
+        features = _features_from_family(None, model="6000XP")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+        assert features["supports_three_phase"] is False
+
+        # Config that stored the literal UNKNOWN family
+        features = _features_from_family("UNKNOWN", model="12000XP")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is True
+
+        # Hybrid-family model
+        features = _features_from_family(None, model="FlexBOSS21")
+        assert features["inverter_family"] == "EG4_HYBRID"
+        assert features["supports_split_phase"] is True
+
+    def test_static_path_unknown_model_returns_empty(self):
+        """Unresolvable family + unrecognized model keeps create-all fallback."""
+        assert _features_from_family(None, model="MysteryBox9000") == {}
+        assert _features_from_family("UNKNOWN", model=None) == {}
+        assert _features_from_family("UNKNOWN", model="") == {}
+
+    def test_static_path_ambiguous_lxp_not_overridden_by_model(self):
+        """A known-but-ambiguous family (LXP, no dtc) is not model-overridden."""
+        # LXP needs a device type code (EU=three-phase vs LB=split-phase);
+        # a contradictory model string must not pick a side.
+        assert _features_from_family("LXP", model="18kPV") == {}
+
+    def test_static_path_grid_type_override_wins_over_fallback(self):
+        """User grid-type override still beats the model-derived profile."""
+        features = _features_from_family(None, model="6000XP", grid_type="three_phase")
+        assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["supports_split_phase"] is False
+        assert features["supports_three_phase"] is True
+
+
 class TestPV456DataPath:
     """pv4-6 values must actually flow into coordinator sensor data.
 
@@ -6383,3 +7094,300 @@ class TestPV456DataPath:
         assert sensors["pv5_power"] == 3200
         # pv_string_count surfaced through feature extraction.
         assert result["features"]["pv_string_count"] == 5
+
+
+class TestIsQuickChargeActiveLive:
+    """Live quick-charge active check (reg 233 bit 0), bypassing the throttled
+    status cache. Gates the Quick Charge Duration reg 234 write so it is neither
+    dropped (stale-idle after switch-on) nor rejected (stale-active after the
+    charge auto-expires)."""
+
+    async def test_no_inverter_returns_none(self, hass, mock_config_entry):
+        """No inverter object for the serial -> unknown (None, not False)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        with patch.object(coordinator, "get_inverter_object", return_value=None):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None
+
+    async def test_detail_active_returns_true(self, hass, mock_config_entry):
+        """get_quick_charge_detail with hasUnclosedQuickChargeTask=True -> active."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        detail = MagicMock()
+        detail.hasUnclosedQuickChargeTask = True
+        inverter.get_quick_charge_detail = AsyncMock(return_value=detail)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is True
+
+    async def test_detail_idle_returns_false(self, hass, mock_config_entry):
+        """get_quick_charge_detail with hasUnclosedQuickChargeTask=False -> idle."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        detail = MagicMock()
+        detail.hasUnclosedQuickChargeTask = False
+        inverter.get_quick_charge_detail = AsyncMock(return_value=detail)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is False
+
+    async def test_read_error_returns_none(self, hass, mock_config_entry):
+        """A transport/cloud read failure is swallowed to None (unknown), not
+        False — callers must not treat it as confirmed idle."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock()
+        inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None
+
+    async def test_falls_back_to_status_bool(self, hass, mock_config_entry):
+        """Older pylxpweb without get_quick_charge_detail uses the boolean
+        get_quick_charge_status."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock(spec=["get_quick_charge_status"])
+        inverter.get_quick_charge_status = AsyncMock(return_value=True)
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is True
+
+    async def test_no_read_method_returns_none(self, hass, mock_config_entry):
+        """An inverter exposing neither read method -> unknown (None)."""
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        inverter = MagicMock(spec=[])
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("1234567890") is None
+
+
+class TestQuickChargeOffgridCloudStatus:
+    """EG4_OFFGRID + HYBRID quick-charge status comes from the cloud (#296).
+
+    The XP firmware rejects holding register 233 (ILLEGAL DATA ADDRESS), so a
+    quick charge started via the cloud endpoint is invisible to the local
+    register read pylxpweb's get_quick_charge_detail prefers when a transport
+    is attached. With a cloud client available, the coordinator reads the
+    cloud getStatusInfo directly for that family.
+    """
+
+    @staticmethod
+    def _cloud_status(active: bool) -> MagicMock:
+        status = MagicMock()
+        status.hasUnclosedQuickChargeTask = active
+        status.remainTimeBeforeQuickChargeStop = 3540 if active else 0
+        status.unclosedQuickChargeTaskId = 7 if active else None
+        status.unclosedQuickChargeTaskStatus = "WAIT_CHARGE" if active else None
+        status.quickChargeMinute = None
+        return status
+
+    @staticmethod
+    def _offgrid_inverter() -> MagicMock:
+        inverter = MagicMock()
+        inverter.serial_number = "61062J0147"
+        # HYBRID: local transport attached; reg 234 (duration/remaining
+        # minutes) reads 45 locally.
+        transport = MagicMock()
+        transport.read_parameters = AsyncMock(return_value={234: 45})
+        inverter.transport = transport
+        inverter.get_quick_charge_detail = AsyncMock()
+        return inverter
+
+    def _coordinator_with_cloud(
+        self, hass, mock_config_entry, *, active: bool = True
+    ) -> EG4DataUpdateCoordinator:
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        client = MagicMock()
+        client.api.control.get_quick_charge_status = AsyncMock(
+            return_value=self._cloud_status(active)
+        )
+        coordinator.client = client
+        return coordinator
+
+    async def test_fetch_uses_cloud_for_offgrid_hybrid(self, hass, mock_config_entry):
+        """Offgrid + transport + cloud client -> cloud getStatusInfo is the
+        status source; the transport-preferring detail read is bypassed."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
+            "61062J0147"
+        )
+        inverter.get_quick_charge_detail.assert_not_awaited()
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["remainTimeBeforeQuickChargeStop"] == 3540
+        # Duration register stays LOCAL (reg 234) so the Duration number's
+        # read and write sides agree on offgrid+HYBRID (Codex round 2).
+        assert status["quickChargeMinute"] == 45
+        inverter.transport.read_parameters.assert_awaited_once_with(234, 1)
+        assert status["fetched_at"] <= time.monotonic()
+
+    async def test_fetch_offgrid_reg234_skipped_when_link_down(
+        self, hass, mock_config_entry
+    ):
+        """Codex round-3: an attached-but-dead transport link must not be
+        touched — a raw read_parameters on it is the uninterruptible
+        multi-minute pymodbus hang class (not covered by pylxpweb's
+        _fetch_parameters link-down guard). No transport read is attempted;
+        minute
+        degrades to None (stored-preference fallback); the cloud active flag
+        is unaffected."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        inverter.transport_link_down = True
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.transport.read_parameters.assert_not_awaited()
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["quickChargeMinute"] is None
+
+    async def test_fetch_offgrid_reg234_read_failure_falls_back_to_none(
+        self, hass, mock_config_entry
+    ):
+        """If the local reg-234 read fails (possibly firmware-rejected like
+        reg 233 — unverified on XP), quickChargeMinute is None and the
+        Duration number falls back to the stored preference; the cloud
+        active flag is unaffected."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        inverter.transport.read_parameters = AsyncMock(
+            side_effect=OSError("illegal data address")
+        )
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["quickChargeMinute"] is None
+
+    async def test_fetch_keeps_local_detail_for_other_families(
+        self, hass, mock_config_entry
+    ):
+        """Non-offgrid families keep the transport-preferring detail read
+        (register 233 works there)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        inverter = self._offgrid_inverter()
+        detail = self._cloud_status(False)
+        detail.quickChargeMinute = 60
+        inverter.get_quick_charge_detail = AsyncMock(return_value=detail)
+        target: dict[str, Any] = {"features": {"inverter_family": "EG4_HYBRID"}}
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.get_quick_charge_detail.assert_awaited_once()
+        coordinator.client.api.control.get_quick_charge_status.assert_not_awaited()
+        status = target["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is False
+        assert status["quickChargeMinute"] == 60
+        assert "fetched_at" in status
+
+    async def test_fetch_offgrid_without_cloud_uses_transport_read(
+        self, hass, mock_config_entry
+    ):
+        """Offgrid LOCAL-only (no cloud client): only the transport read
+        exists — unchanged behavior."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None
+        inverter = self._offgrid_inverter()
+        inverter.get_quick_charge_detail = AsyncMock(
+            return_value=self._cloud_status(False)
+        )
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.get_quick_charge_detail.assert_awaited_once()
+        assert target["quick_charge_status"]["hasUnclosedQuickChargeTask"] is False
+
+    async def test_fetch_failure_carries_previous_status_forward(
+        self, hass, mock_config_entry
+    ):
+        """A failed read carries the previous cycle's status forward (with its
+        original fetched_at) instead of dropping the key — a transient error
+        must not flip the switch to a lying OFF."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None
+        prev = {
+            "hasUnclosedQuickChargeTask": True,
+            "fetched_at": 1234.5,
+        }
+        coordinator.data = {"devices": {"61062J0147": {"quick_charge_status": prev}}}
+        inverter = self._offgrid_inverter()
+        inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
+        target: dict[str, Any] = {"features": {}}
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        assert target["quick_charge_status"] is prev
+        assert target["quick_charge_status"]["fetched_at"] == 1234.5
+
+    async def test_cloud_status_read_is_time_bounded(
+        self, hass, mock_config_entry, monkeypatch
+    ):
+        """A backoff-stalled cloud status call is cut off by asyncio.wait_for
+        and treated as a failed read (carry-forward) instead of holding a
+        coordinator slot for the whole 502-storm backoff."""
+        import asyncio
+
+        from custom_components.eg4_web_monitor import coordinator_mixins
+
+        monkeypatch.setattr(
+            coordinator_mixins, "QUICK_CHARGE_CLOUD_STATUS_TIMEOUT", 0.01
+        )
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+
+        async def _stalled(serial: str) -> Any:
+            await asyncio.sleep(5)
+
+        coordinator.client.api.control.get_quick_charge_status = AsyncMock(
+            side_effect=_stalled
+        )
+        prev = {"hasUnclosedQuickChargeTask": True, "fetched_at": 1234.5}
+        coordinator.data = {"devices": {"61062J0147": {"quick_charge_status": prev}}}
+        inverter = self._offgrid_inverter()
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        assert target["quick_charge_status"] is prev  # timeout -> carry-forward
+
+    async def test_active_live_uses_cloud_for_offgrid_hybrid(
+        self, hass, mock_config_entry
+    ):
+        """is_quick_charge_active_live reads the cloud for offgrid HYBRID —
+        the reg-233 read cannot see a cloud-started charge."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "61062J0147": {
+                    "type": "inverter",
+                    "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+                }
+            }
+        }
+        inverter = self._offgrid_inverter()
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("61062J0147") is True
+        inverter.get_quick_charge_detail.assert_not_awaited()
+        coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
+            "61062J0147"
+        )

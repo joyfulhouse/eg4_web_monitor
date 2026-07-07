@@ -23,7 +23,9 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    INVERTER_FAMILY_EG4_OFFGRID,
     NON_THREE_PHASE_SENSORS,
+    OFFGRID_ONLY_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
     STATION_SENSOR_TYPES,
@@ -32,6 +34,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+from .utils import is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +51,11 @@ _PV_STRING_SENSOR = re.compile(
 _DEFAULT_PV_STRING_COUNT = 3
 
 
-def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> bool:
+def _should_create_sensor(
+    sensor_key: str,
+    features: dict[str, Any] | None,
+    device_type: str = "inverter",
+) -> bool:
     """Determine if a sensor should be created based on device features.
 
     This function implements feature-based sensor filtering to avoid creating
@@ -57,10 +64,24 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
     Args:
         sensor_key: The sensor key to check
         features: Device features dictionary from feature detection, or None
+        device_type: Device type ("inverter", "gridboss", "parallel_group").
+            EG4_OFFGRID-only gating applies to inverters; other device types
+            share some key names (load_power) without carrying features.
 
     Returns:
         True if the sensor should be created, False if it should be skipped
     """
+    # EG4_OFFGRID-only sensors are FAIL-CLOSED for inverters: registers
+    # confirmed working on 12000XP/6000XP only (issue #197).  Without a
+    # positively detected/derived EG4_OFFGRID family these must not exist —
+    # the previous no-features create-all fallback leaked them onto
+    # EG4_HYBRID/LXP installs whose feature detection failed (review).
+    # GridBOSS / parallel-group load_power passes via device_type instead.
+    if device_type == "inverter" and sensor_key in OFFGRID_ONLY_SENSORS:
+        if not features:
+            return False
+        return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
+
     # If no features detected, create all sensors (conservative fallback)
     if not features:
         return True
@@ -76,7 +97,7 @@ def _should_create_sensor(sensor_key: str, features: dict[str, Any] | None) -> b
         pv_string_count = features.get("pv_string_count", _DEFAULT_PV_STRING_COUNT)
         return string_index <= int(pv_string_count)
 
-    # Check split-phase sensors (only for EG4_OFFGRID series)
+    # Check split-phase sensors (EG4_OFFGRID + EG4_HYBRID split-phase systems)
     if sensor_key in SPLIT_PHASE_ONLY_SENSORS:
         return bool(features.get("supports_split_phase", True))
 
@@ -315,7 +336,9 @@ async def async_setup_entry(
     # Track known device sensor keys for late registration.
     # In HYBRID mode, transport-only sensors (per-leg power, overlay sensors)
     # only appear after local transports are attached — typically on the second
-    # coordinator update cycle.  Entities created during async_setup_entry()
+    # coordinator update cycle; parallel-group aggregates derived from member
+    # bank data (parallel_battery_*) appear late the same way when the first
+    # cycle had no bank data.  Entities created during async_setup_entry()
     # only cover keys present in the first update.  This listener registers
     # new device sensor entities that appear in subsequent updates.
     known_device_sensor_keys: dict[str, set[str]] = {}
@@ -337,7 +360,7 @@ async def async_setup_entry(
                 and not k.startswith("battery_bank_")
                 and _should_create_sensor(k, features)
             }
-        elif dtype == "gridboss":
+        elif dtype in ("gridboss", "parallel_group"):
             known_device_sensor_keys[serial] = {
                 k for k in device_data.get("sensors", {}) if k in SENSOR_TYPES
             }
@@ -350,7 +373,7 @@ async def async_setup_entry(
         new_entities: list[SensorEntity] = []
         for serial, device_data in coordinator.data["devices"].items():
             dtype = device_data.get("type", "unknown")
-            if dtype not in ("inverter", "gridboss"):
+            if dtype not in ("inverter", "gridboss", "parallel_group"):
                 continue
             features = device_data.get("features")
             known = known_device_sensor_keys.setdefault(serial, set())
@@ -360,7 +383,20 @@ async def async_setup_entry(
                 # Skip battery_bank sensors (handled by their own entity class)
                 if sensor_key.startswith("battery_bank_"):
                     continue
-                if not _should_create_sensor(sensor_key, features):
+                # GridBOSS smart-port dynamic keys are owned by the dedicated
+                # smart-port listener above; adding them here too would call
+                # async_add_entities twice for the same unique ID on the first
+                # real poll after a static LOCAL setup ("does not generate
+                # unique IDs" boot errors — #217 codex review).  Inverter and
+                # parallel-group sensors sharing these key names (EG4_OFFGRID
+                # smart_load_power #222, GridBOSS CT overlay) keep using this
+                # listener.
+                if (
+                    dtype == "gridboss"
+                    and sensor_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+                ):
+                    continue
+                if not _should_create_sensor(sensor_key, features, dtype):
                     continue
                 known.add(sensor_key)
                 new_entities.append(
@@ -381,6 +417,59 @@ async def async_setup_entry(
 
     entry.async_on_unload(
         coordinator.async_add_listener(_async_discover_device_sensors)
+    )
+
+    # Track known battery bank sensor keys for late registration.
+    # In HYBRID mode the first refresh is cloud-only (no forced local read by
+    # design), so LOCAL-register bank keys (BMS limits, cycle count, inverter
+    # voltage sample) only appear once a later cycle has read the transport
+    # battery data.  Whether those keys are present during async_setup_entry()
+    # is therefore a race against the second coordinator cycle — and the
+    # device-sensor listener above deliberately skips battery_bank_ keys
+    # (they need their own entity class).  Without this listener, a lost race
+    # strands the bank register sensors as unavailable until reload (eg4-68y).
+    # CAN-dependent bank diagnostics (soc_delta etc.) appear late the same way.
+    known_bank_sensor_keys: dict[str, set[str]] = {}
+    for serial, device_data in coordinator.data.get("devices", {}).items():
+        if device_data.get("type") == "inverter":
+            known_bank_sensor_keys[serial] = {
+                k
+                for k in device_data.get("sensors", {})
+                if k.startswith("battery_bank_") and k in SENSOR_TYPES
+            }
+
+    @callback
+    def _async_discover_battery_bank_sensors() -> None:
+        """Register battery bank sensors that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[SensorEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            known = known_bank_sensor_keys.setdefault(serial, set())
+            for sensor_key in device_data.get("sensors", {}):
+                if not sensor_key.startswith("battery_bank_"):
+                    continue
+                if sensor_key not in SENSOR_TYPES or sensor_key in known:
+                    continue
+                known.add(sensor_key)
+                new_entities.append(
+                    EG4BatteryBankSensor(
+                        coordinator=coordinator,
+                        serial=serial,
+                        sensor_key=sensor_key,
+                    )
+                )
+        if new_entities:
+            _LOGGER.info(
+                "Late battery bank registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_battery_bank_sensors)
     )
 
 
@@ -429,6 +518,22 @@ def _create_inverter_sensors(
             len(skipped_sensors),
             serial,
             skipped_sensors,
+        )
+
+    # Quick Charge Remaining (minutes) — custom sensor sourced from
+    # quick_charge_status (cloud getStatusInfo or local registers 233/234),
+    # gated exactly like the Quick Charge switch/duration entities (matches by
+    # model-name substring or detected inverter family, #259).
+    if is_supported_control_model(device_data) and (
+        coordinator.has_http_api() or coordinator.has_configured_local_transport(serial)
+    ):
+        inverter_entities.append(
+            EG4QuickChargeRemainingSensor(
+                coordinator=coordinator,
+                serial=serial,
+                sensor_key="quick_charge_remaining",
+                device_type="inverter",
+            )
         )
 
     # Create battery bank sensors (separate device, phase 2)
@@ -511,6 +616,30 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
     pass  # All functionality provided by EG4BaseSensor
 
 
+class EG4QuickChargeRemainingSensor(EG4InverterSensor):
+    """Quick Charge remaining time in seconds.
+
+    Sourced from the device's ``quick_charge_status`` (not the sensors dict):
+    the coordinator populates it from the cloud getStatusInfo (HTTP/HYBRID) or,
+    locally, from input register 210 (seconds) with a holding-register 234
+    (minute-resolution) fallback. Reads 0 when no timed charge is running. The
+    duration device class renders the seconds value human-readably.
+    """
+
+    def _get_raw_value(self) -> Any:
+        """Return remaining seconds from quick_charge_status (0 when idle)."""
+        if not self.coordinator.data or "devices" not in self.coordinator.data:
+            return None
+        device_data = self.coordinator.data["devices"].get(self._serial)
+        if not device_data:
+            return None
+        status = device_data.get("quick_charge_status")
+        if not isinstance(status, dict):
+            return 0
+        remain = status.get("remainTimeBeforeQuickChargeStop")
+        return remain if remain else 0
+
+
 class EG4BatteryBankSensor(EG4BatteryBankEntity, SensorEntity):
     """Representation of an EG4 Battery Bank sensor (aggregate of all batteries).
 
@@ -586,8 +715,10 @@ class EG4StationSensor(EG4StationEntity, SensorEntity):
         if uom := sensor_config.get("unit_of_measurement"):
             self._attr_native_unit_of_measurement = uom
 
-        # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
-        if sensor_config.get("enabled_default") is False:
+        # Allow sensors to be disabled by default (e.g. noisy last_polled
+        # timestamps). Truthiness, not an ``is False`` identity check, so a
+        # non-bool falsy value can't silently ship the entity enabled (#310).
+        if not sensor_config.get("enabled_default", True):
             self._attr_entity_registry_enabled_default = False
 
         # Build unique ID

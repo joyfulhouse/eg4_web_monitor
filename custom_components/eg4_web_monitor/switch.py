@@ -2,6 +2,9 @@
 
 import asyncio
 import logging
+import math
+import time
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
@@ -23,20 +26,65 @@ from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
 from .const import (
     FUNCTION_PARAM_MAPPING,
-    INVERTER_FAMILY_EG4_OFFGRID,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_BAT_SHARED,
     PARAM_FUNC_BATTERY_BACKUP_CTRL,
+    PARAM_FUNC_CHARGE_LAST,
     PARAM_FUNC_EPS_EN,
+    PARAM_FUNC_FEED_IN_GRID_EN,
     PARAM_FUNC_FORCED_CHG_EN,
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
-    SUPPORTED_INVERTER_MODELS,
+    PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    PARAM_FUNC_RUN_WITHOUT_GRID,
+    QUICK_CHARGE_DURATION_DEFAULT,
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .utils import (
+    flag_offgrid_control_suppression,
+    is_family_control_supported,
+    is_offgrid_family,
+    is_supported_control_model,
+    supports_grid_sellback,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+# Working modes that act on grid-parallel export/import blending. The
+# EG4_OFFGRID (SNA) platform has no grid sellback and no grid-parallel
+# operation (bypass-or-invert topology), so these functions are inert there:
+# the registers exist on the shared Luxpower layout but always read disabled
+# (stock SNA12K-US cloud dump and the 6000XP capture in #222 both show
+# FUNC_GRID_PEAK_SHAVING=False / FUNC_FORCED_DISCHG_EN=False), and the SNA
+# platform manages battery-vs-grid priority through its own LSP_* /
+# discharge-control parameters instead. Suppressed for that family per the
+# PR #220 / issue #197 adjudication (eg4-juzg).
+GRID_TIED_ONLY_WORKING_MODE_PARAMS: frozenset[str] = frozenset(
+    {
+        "FUNC_GRID_PEAK_SHAVING",
+        "FUNC_FORCED_DISCHG_EN",
+    }
+)
+
+# Control keys of the suppressed working-mode switches (entity_key is the
+# param name lowercased without the "func_" prefix — see
+# EG4WorkingModeSwitch.__init__). Unique IDs are ``{serial}_{key}``; the
+# Repairs probe matches by suffix so legacy-prefixed registry entries are
+# caught too.
+_SUPPRESSED_OFFGRID_SWITCH_KEYS: tuple[str, ...] = (
+    "grid_peak_shaving",
+    "forced_dischg_en",
+)
+
+# Battery backup control key suppressed on EG4_OFFGRID via the family
+# capability map (FAMILY_UNSUPPORTED_CONTROL_PARAMS, GH #289): the Battery
+# Backup Mode working switch (entity_key "battery_backup_ctrl",
+# FUNC_BATTERY_BACKUP_CTRL — the one with a live rejected-write report).
+# Same suffix-matched Repairs probe as above. The EPS Battery Backup
+# switch is deliberately NOT here — see the capability map's rationale.
+_SUPPRESSED_OFFGRID_BATTERY_BACKUP_KEYS: tuple[str, ...] = ("battery_backup_ctrl",)
 
 
 def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
@@ -45,6 +93,14 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     The EPS battery backup switch controls a specific inverter parameter.
     Some devices (like XP series) don't support this parameter through the API,
     even though they have off-grid capability in hardware.
+
+    NOT family-gated (#289 / PR #307 review): the SNA12K-US reference dump
+    (pylxpweb docs/inverters/SNA12KUS_52XXXXXX68.md) shows FUNC_EPS_EN live
+    and actively ENABLED on EG4_OFFGRID hardware, so the XP-v2
+    portal-absence evidence does not generalize to the family — a family
+    gate would strip a working switch from SNA-US owners. Feature-detected
+    devices keep the switch; only the legacy model-string fallback for
+    feature-less XP devices excludes it.
 
     Args:
         device_data: Device data dictionary with model and features
@@ -56,15 +112,7 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
 
     # If features are available, use feature-based detection
     if features:
-        # EG4 Off-Grid series (12000XP, 6000XP) supports EPS natively
-        # but the parameter control may be different
-        inverter_family = features.get("inverter_family")
-        if inverter_family == INVERTER_FAMILY_EG4_OFFGRID:
-            # EG4_OFFGRID devices support EPS but may use different parameter
-            # For now, keep them enabled until we confirm parameter support
-            return bool(features.get("supports_off_grid", True))
-
-        # EG4_HYBRID and others generally support the EPS parameter
+        # All positively identified families keep the EPS parameter switch
         return bool(features.get("supports_off_grid", True))
 
     # Fallback to string matching for backward compatibility
@@ -72,6 +120,40 @@ def _supports_eps_battery_backup(device_data: dict[str, Any]) -> bool:
     model = device_data.get("model", "Unknown")
     model_lower = model.lower()
     return "xp" not in model_lower
+
+
+def _params_are_local_raw(coordinator: EG4DataUpdateCoordinator, serial: str) -> bool:
+    """Whether this serial's parameter cache is (or will become) local-raw.
+
+    Thin wrapper over :meth:`EG4DataUpdateCoordinator.params_are_local_raw`
+    (the single implementation). A key the installed pylxpweb cannot decode
+    from a register (see ``_local_params_can_carry``) can never appear in a
+    local-raw cache, so a switch reading it would permanently report OFF.
+
+    Unlike the number-entity property this is evaluated once at setup, so it
+    passes ``include_configured=True`` to also consult the CONFIGURED
+    transports: a hybrid attach that fails at startup and recovers later
+    (eg4-05l) must not slip a cloud-param-only switch through the gate.
+    """
+    return coordinator.params_are_local_raw(serial, include_configured=True)
+
+
+def _local_params_can_carry(param: str) -> bool:
+    """Whether the installed pylxpweb decodes ``param`` from local registers.
+
+    A local-raw parameter cache (LOCAL mode, or HYBRID with a transport)
+    only contains keys named in pylxpweb's register map — a key absent from
+    the map can never appear, so a switch reading it would permanently
+    report OFF and local writes of it would fail.  Probing the map at setup
+    doubles as the version guard for newly pinned bits: e.g.
+    ``FUNC_PV_SELL_TO_GRID_EN`` (reg 179 bit 3, pinned 2026-06-12) resolves
+    from pylxpweb 0.9.36b6 on, while older installs keep the pre-pin
+    cloud-only behavior (same hasattr-style probing the Stop Discharge
+    Voltage number entity uses for new pylxpweb methods).
+    """
+    from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
+
+    return any(param in names for names in REGISTER_TO_PARAM_KEYS.values())
 
 
 # Silver tier requirement: Specify parallel update count
@@ -111,25 +193,34 @@ async def async_setup_entry(
 
         # Only create switches for standard inverters (not GridBOSS)
         if device_type == "inverter":
-            # Get device model for compatibility check
+            # Get device model for compatibility check (defensive against a
+            # non-str model, matching is_supported_control_model()).
             model = device_data.get("model", "Unknown")
-            model_lower = model.lower()
+            model_lower = model.lower() if isinstance(model, str) else ""
 
-            # Check if device model is known to support switch functions
+            # Check if device model is known to support switch functions.
+            # Matches by model-name substring or, for cloud deviceTypeText
+            # variants the substrings miss (e.g. "SNA-US 15K", #259), by the
+            # detected inverter family.
             _LOGGER.debug(
-                "Switch setup for %s: model=%s, model_lower=%s, supported=%s",
+                "Switch setup for %s: model=%s, model_lower=%s, family=%s",
                 serial,
                 model,
                 model_lower,
-                SUPPORTED_INVERTER_MODELS,
+                (device_data.get("features") or {}).get("inverter_family"),
             )
-            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
-                # Add quick charge switch (HTTP API only - requires cloud API)
-                if coordinator.has_http_api():
+            if is_supported_control_model(device_data):
+                # Add quick charge switch. Works over the cloud API or, for a
+                # supported model with a local transport, directly via holding
+                # registers 233/234 (HYBRID prefers local; pylxpweb routes it).
+                if (
+                    coordinator.has_http_api()
+                    or coordinator.has_configured_local_transport(serial)
+                ):
                     entities.append(EG4QuickChargeSwitch(coordinator, serial))
                 else:
                     _LOGGER.debug(
-                        "Skipping Quick Charge switch for %s (no HTTP API available)",
+                        "Skipping Quick Charge switch for %s (no transport available)",
                         serial,
                     )
 
@@ -152,31 +243,127 @@ async def async_setup_entry(
                 # Add off-grid mode switch (Green Mode)
                 entities.append(EG4OffGridModeSwitch(coordinator, serial))
 
+                # Add charge last switch (reg 110 bit 4) — issue #177
+                entities.append(EG4ChargeLastSwitch(coordinator, serial))
+
                 # Add working mode switches
-                for mode_key, mode_config in WORKING_MODES.items():
+                sellback_supported = supports_grid_sellback(device_data)
+                params_local_raw = _params_are_local_raw(coordinator, serial)
+                offgrid = is_offgrid_family(device_data)
+                if offgrid:
+                    # One-shot Repairs issue for users who already had the
+                    # suppressed grid-tied controls registered (#219
+                    # precedent: explain disappearing entities).
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        device_data.get("model", "Unknown"),
+                        "switch",
+                        tuple(
+                            f"{serial}_{key}" for key in _SUPPRESSED_OFFGRID_SWITCH_KEYS
+                        ),
+                    )
+                    # Battery Backup Mode is write-rejected on this family
+                    # (#289) — separate issue text from the inert grid-tied
+                    # controls above.
+                    flag_offgrid_control_suppression(
+                        hass,
+                        serial,
+                        device_data.get("model", "Unknown"),
+                        "switch",
+                        tuple(
+                            f"{serial}_{key}"
+                            for key in _SUPPRESSED_OFFGRID_BATTERY_BACKUP_KEYS
+                        ),
+                        issue_key="offgrid_battery_backup_removed",
+                    )
+                for mode_config in WORKING_MODES.values():
+                    param = mode_config.get("param", "")
+                    # Grid-tied-only controls are inert on EG4_OFFGRID
+                    # hardware — see GRID_TIED_ONLY_WORKING_MODE_PARAMS.
+                    if offgrid and param in GRID_TIED_ONLY_WORKING_MODE_PARAMS:
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (grid-tied only; "
+                            "family=EG4_OFFGRID)",
+                            param,
+                            serial,
+                        )
+                        continue
+                    # Family capability map (#289): controls the family's
+                    # firmware rejects and the vendor portal never exposes
+                    # (e.g. Battery Backup Mode on EG4_OFFGRID) are not
+                    # created — the write path can only error.
+                    if not is_family_control_supported(device_data, param):
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (unsupported "
+                            "on this inverter family, GH #289)",
+                            param,
+                            serial,
+                        )
+                        continue
+                    # Grid sell-back controls are meaningless on off-grid
+                    # families (GH #135)
+                    if mode_config.get("grid_tied_only") and not sellback_supported:
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (no grid sell-back)",
+                            param,
+                            serial,
+                        )
+                        continue
+                    # State keys the installed pylxpweb cannot decode from
+                    # local registers never appear in a local-raw parameter
+                    # cache — skip rather than show a lying OFF state.  This
+                    # probe is also the version guard for newly pinned bits
+                    # (FUNC_PV_SELL_TO_GRID_EN needs pylxpweb >= 0.9.36b6).
+                    if params_local_raw and not _local_params_can_carry(param):
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (state key not "
+                            "decodable from local registers by installed "
+                            "pylxpweb)",
+                            param,
+                            serial,
+                        )
+                        continue
                     # For local-only mode, skip working modes without a Modbus
                     # register mapping in _WORKING_MODE_PARAMETERS.
-                    if coordinator.is_local_only():
-                        param = mode_config.get("param", "")
-                        if not _WORKING_MODE_PARAMETERS.get(param):
-                            _LOGGER.debug(
-                                "Skipping working mode %s for %s (no Modbus support)",
-                                param,
-                                serial,
-                            )
-                            continue
+                    if coordinator.is_local_only() and not _WORKING_MODE_PARAMETERS.get(
+                        param
+                    ):
+                        _LOGGER.debug(
+                            "Skipping working mode %s for %s (no Modbus support)",
+                            param,
+                            serial,
+                        )
+                        continue
 
                     entities.append(
                         EG4WorkingModeSwitch(
                             coordinator=coordinator,
                             serial=serial,
-                            mode_key=mode_key,
                             mode_config=mode_config,
                         )
                     )
 
     if entities:
         async_add_entities(entities)
+
+
+# Bound (seconds) on how long the Quick Charge switch distrusts a FRESH but
+# UNCONFIRMING status read after a successful write (#296): within the bound
+# the cloud may simply not have registered the new task yet; past it a fresh
+# read is trusted in either direction. Known-stale data (carried forward, or
+# read before the write) NEVER overrides the commanded state regardless of
+# this bound — falling back to it at expiry would reproduce the reported flap
+# (ON -> stale OFF at t+TTL -> eventual fresh ON) during exactly the cloud
+# 502 storms the reporter's environment produces. A fresh read normally lands
+# within one 30s status throttle window and ends the hold.
+#
+# Intentional trade-off: because the hold is fresh-data-terminated, a
+# PERMANENT status-source outage after a command retains the commanded state
+# indefinitely (the last thing we know the inverter accepted) — this reverses
+# the earlier "a dead status source can never pin state forever" guarantee.
+# Showing the accepted command beats flapping to provably pre-write data.
+QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
 
 
 class EG4QuickChargeSwitch(EG4BaseSwitch):
@@ -195,6 +382,46 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             name="Quick Charge",
             icon="mdi:battery-charging",
         )
+        # Post-write optimistic retention (#296): after a successful
+        # enable/disable, hold the commanded state until a quick-charge
+        # status read FRESHER than the write confirms either state. The
+        # coordinator refresh inside _execute_switch_action can serve a
+        # stale/carried-forward status (30s throttle) or one read before the
+        # cloud registered the new task — clearing optimistic state on that
+        # data flipped the switch OFF ~7s after a successful (cloud-fallback)
+        # start while the inverter kept charging.
+        self._pending_state: bool | None = None
+        self._pending_since: float = 0.0
+
+    def _prefers_cloud_control(self) -> bool:
+        """True when quick charge must be driven via the cloud endpoints.
+
+        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects writes to
+        holding register 233 (ILLEGAL DATA ADDRESS, #296), so pylxpweb's
+        local-first enable/disable burns a doomed Modbus write + warning on
+        every toggle before falling back to the cloud. Go straight to the
+        cloud start/stop endpoints when a cloud client is configured; other
+        families keep the local-first behavior (register 233 works there).
+        """
+        return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
+
+    async def _cloud_enable_quick_charge(self, minute: int | None = None) -> bool:
+        """Start quick charge via the cloud endpoint (offgrid family, #296)."""
+        client = self.coordinator.client
+        if client is None:
+            return False
+        result = await client.api.control.start_quick_charge(
+            self._serial, minute=minute
+        )
+        return bool(result.success)
+
+    async def _cloud_disable_quick_charge(self) -> bool:
+        """Stop quick charge via the cloud endpoint (offgrid family, #296)."""
+        client = self.coordinator.client
+        if client is None:
+            return False
+        result = await client.api.control.stop_quick_charge(self._serial)
+        return bool(result.success)
 
     @property
     def is_on(self) -> bool | None:
@@ -203,11 +430,33 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         if self._optimistic_state is not None:
             return self._optimistic_state
 
-        # Check if we have quick charge status data from coordinator
         quick_charge_status = self._device_data.get("quick_charge_status")
-        if quick_charge_status and isinstance(quick_charge_status, dict):
+        status = quick_charge_status if isinstance(quick_charge_status, dict) else None
+
+        # Post-write retention (#296): the commanded state holds until a
+        # status read performed AFTER the write (fetched_at newer than the
+        # write) reports on the charge. Known-stale data — carried forward or
+        # read pre-write — never overrides the command, even past the TTL:
+        # trusting it at expiry would flap the switch to the pre-write value
+        # mid-charge (Codex review). A fresh CONFIRMING read ends the hold
+        # immediately; a fresh UNCONFIRMING read is trusted only after the
+        # TTL (within it, the cloud may not have registered the task yet).
+        if self._pending_state is not None:
+            fetched_at = status.get("fetched_at") if status else None
+            if fetched_at is None or fetched_at < self._pending_since:
+                return self._pending_state  # stale/absent — hold
+            reported = status.get("hasUnclosedQuickChargeTask") if status else None
+            confirming = reported is not None and bool(reported) == self._pending_state
+            expired = (
+                time.monotonic() - self._pending_since > QUICK_CHARGE_OPTIMISTIC_TTL
+            )
+            if not confirming and not expired:
+                return self._pending_state  # fresh but unconfirming — hold
+            self._pending_state = None
+
+        if status:
             # Parse the hasUnclosedQuickChargeTask field from getStatusInfo response
-            has_unclosed_task = quick_charge_status.get("hasUnclosedQuickChargeTask")
+            has_unclosed_task = status.get("hasUnclosedQuickChargeTask")
             if has_unclosed_task is not None:
                 return bool(has_unclosed_task)
 
@@ -231,6 +480,12 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             if task_status:
                 attributes["task_status"] = task_status
 
+            # Remaining minutes for a fixed-duration quick charge (new firmware).
+            # remainTimeBeforeQuickChargeStop is reported in seconds.
+            remain = quick_charge_status.get("remainTimeBeforeQuickChargeStop")
+            if remain:
+                attributes["minutes_remaining"] = math.ceil(remain / 60)
+
         # Add optimistic state indicator for debugging
         if self._optimistic_state is not None:
             attributes["optimistic_state"] = self._optimistic_state
@@ -238,24 +493,48 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         return attributes if attributes else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on quick charge."""
-        await self._execute_switch_action(
-            action_name="quick charge",
-            enable_method="enable_quick_charge",
-            disable_method="disable_quick_charge",
-            turn_on=True,
-            refresh_params=False,
+        """Turn on quick charge using the stored duration preference."""
+        minute = self.coordinator._quick_charge_minutes.get(
+            self._serial, QUICK_CHARGE_DURATION_DEFAULT
         )
+        await self._async_set_quick_charge(True, enable_kwargs={"minute": minute})
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off quick charge."""
+        await self._async_set_quick_charge(False)
+
+    async def _async_set_quick_charge(
+        self, turn_on: bool, enable_kwargs: dict[str, Any] | None = None
+    ) -> None:
+        """Run the enable/disable action and arm the post-write retention.
+
+        pylxpweb's enable/disable prefer the local transport (register 233);
+        on the EG4_OFFGRID family that register is firmware-rejected, so the
+        cloud-direct callables are used instead (#296). On success the
+        commanded state is retained until a status read fresher than the
+        write confirms either state (see ``is_on``); a failed action clears
+        any prior hold and re-raises.
+        """
+        enable_method: str | Callable[..., Awaitable[bool]] = "enable_quick_charge"
+        disable_method: str | Callable[..., Awaitable[bool]] = "disable_quick_charge"
+        if self._prefers_cloud_control():
+            enable_method = self._cloud_enable_quick_charge
+            disable_method = self._cloud_disable_quick_charge
+
+        self._pending_state = None
         await self._execute_switch_action(
             action_name="quick charge",
-            enable_method="enable_quick_charge",
-            disable_method="disable_quick_charge",
-            turn_on=False,
+            enable_method=enable_method,
+            disable_method=disable_method,
+            turn_on=turn_on,
             refresh_params=False,
+            enable_kwargs=enable_kwargs,
         )
+        # Success (no exception raised): hold the commanded state until a
+        # fresh post-write status read confirms either state (#296).
+        self._pending_state = turn_on
+        self._pending_since = time.monotonic()
+        self.async_write_ha_state()
 
 
 class EG4BatteryBackupSwitch(EG4BaseSwitch):
@@ -371,13 +650,25 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if off-grid mode is enabled."""
+        """Return True if off-grid mode is enabled, None when unknown.
+
+        An absent FUNC_GREEN_EN key means UNKNOWN, not off: EG4_OFFGRID
+        local reads deliberately omit the key (the SNA register-110 bit
+        for green is unverified — pylxpweb #210), and a successful local
+        parameter refresh replaces the serial's parameter dict wholesale
+        (coordinator_mixins._refresh_device_parameters). Returning False
+        for the absent key would silently flip a cloud-confirmed/seeded
+        "on" to "off" after any local refresh on that family.
+        """
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
             return self._optimistic_state
 
         # Check parameter data from coordinator
-        return bool(self._parameter_data.get("FUNC_GREEN_EN", False))
+        value = self._parameter_data.get(PARAM_FUNC_GREEN_EN)
+        if value is None:
+            return None
+        return bool(value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -396,6 +687,21 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
         return attributes if attributes else None
 
+    @property
+    def _green_mode_cloud_only(self) -> bool:
+        """Local FUNC_GREEN_EN writes are withheld on EG4_OFFGRID.
+
+        The SNA register-110 upper-bit layout is hardware-proven to differ
+        from the 18kPV table (buzzer at bit 7, ECO at bit 15 — PR #220 /
+        eg4-juzg), and green's true position on this family is unverified
+        (the lxp_modbus reference puts it at bit 14, not the mapped bit 8).
+        A local bit-8 write on SNA hardware would likely flip a CT-sampling
+        config bit while reading back as success. The cloud applies the bit
+        server-side and is always correct, so offgrid green-mode writes are
+        cloud-only until a community toggle capture pins the bit.
+        """
+        return is_offgrid_family(self._device_data)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable off-grid mode."""
         await self._execute_local_with_fallback(
@@ -404,6 +710,7 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=True,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
+            cloud_only=self._green_mode_cloud_only,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -414,6 +721,81 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=False,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
+            cloud_only=self._green_mode_cloud_only,
+        )
+
+
+class EG4ChargeLastSwitch(EG4BaseSwitch):
+    """Switch to control the battery Charge Last function.
+
+    Charge Last (FUNC_CHARGE_LAST, register 110 bit 4) flips the PV surplus
+    priority. Disabled (default, "charge first"): PV charges the battery
+    before exporting surplus to the grid. Enabled ("charge last"): PV serves
+    house loads and grid export first and charges the battery last — useful
+    to reserve battery headroom for peak production when PV capacity exceeds
+    the export limit (issue #177).
+
+    Local writes go through the named-parameter map (read-modify-write of
+    register 110); cloud writes use the function-control API — the same
+    routes pylxpweb's own get/set_charge_last helpers use.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize the charge last switch."""
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            entity_key="charge_last",
+            name="Charge Last",
+            icon="mdi:battery-clock",
+            entity_category=EntityCategory.CONFIG,
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if charge last mode is enabled."""
+        # Use optimistic state if available (for immediate UI feedback)
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        # Check parameter data from coordinator
+        return bool(self._parameter_data.get(PARAM_FUNC_CHARGE_LAST, False))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return extra state attributes."""
+        attributes: dict[str, Any] = {}
+
+        # Add parameter details if available
+        if self._parameter_data:
+            func_charge_last = self._parameter_data.get(PARAM_FUNC_CHARGE_LAST)
+            if func_charge_last is not None:
+                attributes["func_charge_last"] = func_charge_last
+
+        # Add optimistic state indicator for debugging
+        if self._optimistic_state is not None:
+            attributes["optimistic_state"] = self._optimistic_state
+
+        return attributes if attributes else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable charge last mode."""
+        await self._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=True,
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable charge last mode."""
+        await self._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=False,
         )
 
 
@@ -427,6 +809,8 @@ _WORKING_MODE_METHODS = {
         "enable_battery_backup_ctrl",
         "disable_battery_backup_ctrl",
     ),
+    "FUNC_FEED_IN_GRID_EN": ("enable_feed_in_grid", "disable_feed_in_grid"),
+    "FUNC_PV_SELL_TO_GRID_EN": ("enable_pv_sell_to_grid", "disable_pv_sell_to_grid"),
 }
 
 # Mapping of working mode function names to named-parameter constants used by
@@ -438,6 +822,28 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # Extended function registers (verified via Modbus probe 2026-02-13)
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
+    "FUNC_FEED_IN_GRID_EN": PARAM_FUNC_FEED_IN_GRID_EN,  # Register 21, bit 15
+    # Register 179, bit 3 (GH #135) — pinned 2026-06-12 via authorized live
+    # cloud toggles raw-verified on BOTH 12K-hybrid models (FlexBOSS21
+    # 52842P0581 and 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, XOR
+    # 0x0008 = single bit 3, restores verified by re-read).  Requires
+    # pylxpweb >= 0.9.36b6 for the name to resolve locally; older installs
+    # are handled by the _local_params_can_carry() setup gate.
+    "FUNC_PV_SELL_TO_GRID_EN": PARAM_FUNC_PV_SELL_TO_GRID_EN,
+    # Register 110, bit 1 (GH #274) — "Fast Zero Export" in both web UIs
+    # ("FunctionEn1.ubFastZeroExport" in the LXP protocol PDF). Same bit in
+    # pylxpweb's base and SNA register-110 tables, so the name resolves
+    # locally on every supported install. Deliberately absent from
+    # _WORKING_MODE_METHODS: the cloud path goes through the generic
+    # function-control API — the exact call the website makes.
+    "FUNC_RUN_WITHOUT_GRID": PARAM_FUNC_RUN_WITHOUT_GRID,
+    # Register 110, bit 3 (GH #288) — "Share Battery" in the portals. Same
+    # bit in pylxpweb's base and SNA register-110 tables, so the name
+    # resolves locally on every supported install. Deliberately absent from
+    # _WORKING_MODE_METHODS: the cloud path goes through the generic
+    # function-control API with FUNC_BAT_SHARED — the exact call the
+    # website makes (reporter-verified).
+    "FUNC_BAT_SHARED": PARAM_FUNC_BAT_SHARED,
 }
 
 
@@ -448,24 +854,32 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        mode_key: str,
         mode_config: dict[str, Any],
     ) -> None:
         """Initialize the working mode switch."""
-        self._mode_key = mode_key
         self._mode_config = mode_config
 
-        # Clean parameter name for entity key (remove func_ prefix for cleaner IDs)
+        # Clean parameter name for entity key (remove func_ prefix for cleaner
+        # IDs). Modes may override via "entity_key" when the param-derived
+        # default would mislead (e.g. FUNC_RUN_WITHOUT_GRID -> fast_zero_export).
         param_clean = mode_config["param"].lower().replace("func_", "")
 
         super().__init__(
             coordinator=coordinator,
             serial=serial,
-            entity_key=param_clean,  # Use cleaned name directly as entity_key
+            entity_key=mode_config.get("entity_key", param_clean),
             name=mode_config["name"],
             icon=mode_config.get("icon", "mdi:toggle-switch"),
             entity_category=mode_config.get("entity_category"),
+            translation_key=mode_config.get("translation_key"),
         )
+
+        # Niche modes register disabled by default (e.g. Share Battery,
+        # GH #288 — multi-inverter shared-bank setups only). Truthiness (not
+        # an ``is False`` identity check) so a future non-bool falsy value
+        # (0, None, "") can't silently ship the entity enabled (#310).
+        if not mode_config.get("enabled_default", True):
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def is_on(self) -> bool:
@@ -549,6 +963,15 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         param_name = _WORKING_MODE_PARAMETERS.get(param)
         methods = _WORKING_MODE_METHODS.get(param)
 
+        if param_name and not _local_params_can_carry(param_name):
+            # Execution-time mirror of the setup version guard: the installed
+            # pylxpweb cannot resolve this name to a register (e.g.
+            # FUNC_PV_SELL_TO_GRID_EN before 0.9.36b6), so a local write
+            # could only fail.  Degrade to the cloud method path — legacy
+            # flat HYBRID creates this entity (its parameter cache is
+            # cloud-fed) yet still reports a local transport.
+            param_name = None
+
         if param_name and methods:
             # Both local and cloud paths available — use fallback pattern
             await self._execute_local_with_fallback(
@@ -559,20 +982,31 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 cloud_disable_method=methods[1],
             )
         elif param_name:
-            # Local-only, no cloud methods available
-            await self._execute_named_parameter_action(
+            # No dedicated cloud methods: prefer the local named write and
+            # fall back to (or, without a transport, go straight to) the
+            # generic cloud function-control API — the same route the
+            # vendor websites use for FUNC_ bits (e.g. FUNC_RUN_WITHOUT_GRID,
+            # GH #274).
+            await self._execute_local_with_fallback(
                 action_name=f"working mode {param}",
                 parameter=param_name,
                 value=turn_on,
             )
         elif self.coordinator.has_http_api() and methods:
-            # Cloud-only, no local parameter mapping
+            # Cloud-only, no local parameter mapping. A transport can still
+            # be attached here (the version guard above degrades legacy
+            # flat-HYBRID installs to this branch), so seed the parameter
+            # cache with the acknowledged value like the fallback path —
+            # otherwise a link-down write reverts to the stale pre-write
+            # state until link recovery (#310). Pure-cloud stays unseeded
+            # via the has_local_transport guard in the seeding helper.
             await self._execute_switch_action(
                 action_name=f"working mode {param}",
                 enable_method=methods[0],
                 disable_method=methods[1],
                 turn_on=turn_on,
                 refresh_params=True,
+                seed_param_key=FUNCTION_PARAM_MAPPING.get(param),
             )
         else:
             raise HomeAssistantError(
@@ -607,7 +1041,9 @@ class EG4DSTSwitch(CoordinatorEntity[EG4DataUpdateCoordinator], SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo | None:
         """Return device information."""
-        return self.coordinator.get_station_device_info()
+        # Typed local: the mixin call resolves Any-typed under HA 2026.1.
+        info: DeviceInfo | None = self.coordinator.get_station_device_info()
+        return info
 
     @property
     def is_on(self) -> bool:

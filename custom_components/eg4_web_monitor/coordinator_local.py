@@ -7,6 +7,8 @@ aggregation, and static entity creation.
 
 import asyncio
 import logging
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
@@ -38,10 +40,13 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator_mixins import (
+    BATTERY_CARRY_FORWARD_MAX_AGE,
+    _PARAMETER_RETRY_INTERVAL,
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
     drop_dead_inverter_grid_legs,
+    is_transport_link_down,
 )
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
@@ -53,6 +58,7 @@ from .coordinator_mappings import (
     _build_gridboss_sensor_mapping,
     _build_individual_battery_mapping,
     _build_runtime_sensor_mapping,
+    _apply_grid_type_override,
     _build_transport_configs,
     _features_from_family,
     _get_transport_label,
@@ -60,7 +66,9 @@ from .coordinator_mappings import (
     alias_common_voltage_sensors,
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
+    input_block_size_kwargs,
 )
+from .utils import is_hybrid_family, is_offgrid_family, local_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +86,26 @@ _LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTran
 # are skipped to avoid creating phantom battery entities.
 _MIN_SERIAL_LENGTH = 10
 
+# Individual-battery register slots per atomic read (5002+, 4 slots × 30
+# registers fits the FC04 125-register PDU limit; there is no readable 5th
+# slot — #170).  More distinct serials than slots means the firmware rotates
+# batteries through the fixed slots, so pre-#252 positional keys were
+# assigned in an order this session cannot reconstruct.
+_BATTERY_SLOTS_PER_PAGE = 4
+
+# A serial-less battery slot must persist this many data-bearing polls before
+# its positional fallback entry is exposed.  Gives slow firmware a chance to
+# surface the CAN serial first, so the late-battery listener never
+# instantiates a positional entity that a serial-based identity is about to
+# replace (#252 cold-start sequence).
+_NO_SERIAL_EXPOSE_POLLS = 3
+
+# Minimum seconds between retries of failed local-transport attaches
+# (eg4-05l).  Long enough that a wedged dongle isn't hammered (each attempt
+# costs up to 3 connect timeouts), short enough that the post-restart
+# stale-TCP-slot window — typically 1-5 minutes — recovers promptly.
+ATTACH_RETRY_INTERVAL_SECONDS = 60.0
+
 
 class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
@@ -86,6 +114,7 @@ class LocalTransportMixin(_MixinBase):
         self,
         inverter_serial: str,
         transport_batteries: list["BatteryData"],
+        reported_count: int | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Merge transport battery slot data into the round-robin cache.
 
@@ -94,9 +123,19 @@ class LocalTransportMixin(_MixinBase):
         accumulates readings keyed by battery serial so that all batteries
         eventually appear as HA entities.
 
+        Batteries are keyed by their canonical serial-based key (#252) —
+        identical to the key the CLOUD path derives for the same battery — so
+        mode migrations never duplicate battery devices.  Batteries without a
+        CAN serial keep the positional slot key, debounced by
+        ``_NO_SERIAL_EXPOSE_POLLS`` so a late-arriving serial claims the
+        identity before any positional entity is instantiated.
+
         Args:
             inverter_serial: Parent inverter serial number.
             transport_batteries: List of BatteryData from current poll.
+            reported_count: Battery count from reg 96, when available.  Only
+                used as a rotation hint (values > slots-per-page); reg 96 is
+                unreliable (#258) so it never gates battery creation here.
 
         Returns:
             Full battery dict for device_data["batteries"], containing all
@@ -108,13 +147,26 @@ class LocalTransportMixin(_MixinBase):
             self._battery_next_index[inverter_serial] = 1
 
         cache = self._battery_rr_cache[inverter_serial]
-        key_map = self._battery_serial_to_key[inverter_serial]
+        legacy_key_map = self._battery_serial_to_key[inverter_serial]
+        fallback_keys = self._battery_fallback_keys.setdefault(inverter_serial, set())
+        noserial_polls = self._battery_noserial_polls.setdefault(inverter_serial, {})
 
         poll_serials: list[str] = []
         poll_slots_skipped = 0
         new_serials: list[str] = []
+        key_migrations: dict[str, str] = {}
+        # Canonical keys claimed this poll → slot, for duplicate detection.
+        keys_this_poll: dict[str, int] = {}
+        # Exposure record for the shifted-slot retirement sweep (#302):
+        # positional keys re-claimed by a serial-less battery this poll, and
+        # every virtual slot the transport served this poll in ANY state
+        # (ghost, truncated, serial-less or serial) — a slot absent from the
+        # served set is an upstream reservation hole, never a transient.
+        positional_keys_this_poll: set[str] = set()
+        slots_this_poll: set[int] = set()
 
         for batt in transport_batteries:
+            slots_this_poll.add(batt.battery_index)
             # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
             # are non-optional (default 0), so an empty slot reads 0/0 not None.
             if batt.voltage == 0 and batt.soc == 0:
@@ -128,16 +180,36 @@ class LocalTransportMixin(_MixinBase):
                 )
                 continue
 
+            slot: int = batt.battery_index
             bat_serial: str = getattr(batt, "serial_number", "") or ""
             if not bat_serial:
-                # No serial → fall back to slot-index keying (pre-round-robin
-                # firmware or battery without CAN serial).
-                fallback_key = f"{inverter_serial}-{batt.battery_index + 1:02d}"
+                # No serial → positional slot keying (pre-round-robin firmware
+                # or battery without CAN serial), debounced: expose only after
+                # the slot has reported serial-less data several polls in a
+                # row, so a slow-to-arrive serial can claim the identity first
+                # (#252 cold start — see _NO_SERIAL_EXPOSE_POLLS).
+                seen_polls = noserial_polls.get(slot, 0) + 1
+                noserial_polls[slot] = seen_polls
+                fallback_key = f"{inverter_serial}-{slot + 1:02d}"
+                if seen_polls < _NO_SERIAL_EXPOSE_POLLS:
+                    poll_slots_skipped += 1
+                    _LOGGER.debug(
+                        "RR [%s] slot %d: no serial, holding positional key %s "
+                        "(%d/%d polls before exposure)",
+                        inverter_serial,
+                        slot,
+                        fallback_key,
+                        seen_polls,
+                        _NO_SERIAL_EXPOSE_POLLS,
+                    )
+                    continue
+                fallback_keys.add(fallback_key)
+                positional_keys_this_poll.add(fallback_key)
                 cache[fallback_key] = _build_individual_battery_mapping(batt)
                 _LOGGER.debug(
                     "RR [%s] slot %d: no serial, fallback key %s (V=%.1f SoC=%s)",
                     inverter_serial,
-                    getattr(batt, "battery_index", -1),
+                    slot,
                     fallback_key,
                     batt.voltage or 0.0,
                     batt.soc,
@@ -153,7 +225,7 @@ class LocalTransportMixin(_MixinBase):
                 _LOGGER.debug(
                     "RR [%s] slot %d: skipping truncated serial %r (len=%d < %d)",
                     inverter_serial,
-                    getattr(batt, "battery_index", -1),
+                    slot,
                     bat_serial,
                     len(bat_serial),
                     _MIN_SERIAL_LENGTH,
@@ -162,24 +234,169 @@ class LocalTransportMixin(_MixinBase):
 
             poll_serials.append(bat_serial)
 
-            # Assign a stable battery_key on first encounter
-            if bat_serial not in key_map:
+            # Canonical serial-based key — identical to the CLOUD-derived key
+            # for the same battery (#252).
+            battery_key = local_battery_key(inverter_serial, bat_serial, slot)
+
+            # Same-poll canonical collision (duplicate/misreported serials):
+            # two slots claiming one identity means last-write-wins data and
+            # unsafe registry migration.  Keep positional disambiguation for
+            # the colliding battery and stop trusting migration for this
+            # inverter.
+            if battery_key in keys_this_poll:
+                self._suppress_battery_migration(
+                    inverter_serial,
+                    f"slots {keys_this_poll[battery_key]} and {slot} both "
+                    f"resolve to battery identity {battery_key!r}",
+                    level=logging.WARNING,
+                )
+                collision_key = f"{inverter_serial}-{slot + 1:02d}"
+                fallback_keys.add(collision_key)
+                positional_keys_this_poll.add(collision_key)
+                cache[collision_key] = _build_individual_battery_mapping(batt)
+                continue
+            keys_this_poll[battery_key] = slot
+
+            # A serial now claims this slot: retire the slot's positional
+            # fallback entry — it was the same physical battery read before
+            # its serial became available (#252 cold-start P0).  The rr-cache
+            # never evicts on its own, so without this the stale positional
+            # twin would shadow the serial identity forever (and its presence
+            # in the active-key set would permanently block the migration).
+            noserial_polls.pop(slot, None)
+            slot_fallback_key = f"{inverter_serial}-{slot + 1:02d}"
+            if slot_fallback_key in fallback_keys:
+                fallback_keys.discard(slot_fallback_key)
+                if slot_fallback_key != battery_key:
+                    cache.pop(slot_fallback_key, None)
+                    # Retirement is authoritative across BOTH sticky layers
+                    # (#258 review P1): the carry-forward cache published this
+                    # positional key on earlier cycles and would resurrect it
+                    # otherwise (a no-serial mapping carries no serial for the
+                    # supersede guard to match).
+                    self._battery_carry_forward.get(inverter_serial, {}).pop(
+                        slot_fallback_key, None
+                    )
+                    _LOGGER.debug(
+                        "RR [%s] slot %d: retired positional fallback %s "
+                        "(serial %s now known)",
+                        inverter_serial,
+                        slot,
+                        slot_fallback_key,
+                        bat_serial,
+                    )
+
+            # On first encounter, also reproduce the legacy positional key the
+            # pre-#252 code would have assigned (same first-seen order) so any
+            # existing registry entries can be renamed to the canonical key.
+            if bat_serial not in legacy_key_map:
                 idx = self._battery_next_index[inverter_serial]
-                key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
+                legacy_key_map[bat_serial] = f"{inverter_serial}-{idx:02d}"
                 self._battery_next_index[inverter_serial] = idx + 1
                 new_serials.append(bat_serial)
+                key_migrations[legacy_key_map[bat_serial]] = battery_key
 
-            battery_key = key_map[bat_serial]
             cache[battery_key] = _build_individual_battery_mapping(batt)
             _LOGGER.debug(
                 "RR [%s] slot %d: serial=%s → key=%s (V=%.1f SoC=%d%%)",
                 inverter_serial,
-                getattr(batt, "battery_index", -1),
+                slot,
                 bat_serial,
                 battery_key,
                 batt.voltage or 0.0,
                 batt.soc or 0,
             )
+
+        # Shifted-slot positional retirement (#302).  When a positional slot's
+        # serial becomes readable, pylxpweb (post pylxpweb#204) evicts its
+        # "pos:N" accumulator entry and mints the serial a NEW virtual slot —
+        # preserving the old slot as a reservation hole — so the serial's
+        # battery_index no longer points at the slot whose positional key was
+        # exposed.  The same-slot retirement above then misses the exposed
+        # key, leaving a frozen positional twin (until the 6h age bound,
+        # #300) and a stale debounce counter that keeps blocking the #252
+        # registry migration through active_keys below.
+        #
+        # BatteryData carries no bank-position metadata that survives the
+        # eviction, so the exposed key is matched by ABSENCE instead of by
+        # position: the transport serves its full accumulator on every poll,
+        # so an exposed positional key that no serial-less battery re-claimed
+        # this poll has been evicted upstream — exactly the pos:N entries the
+        # arriving serial(s) reconciled.  Gated on new_serials so the swept
+        # polls are precisely the reconciliation events; steady-state polls
+        # (including transient ghost reads of a still-serial-less battery)
+        # keep the pre-#302 behavior.
+        if new_serials:
+            for stale_key in sorted(fallback_keys - positional_keys_this_poll):
+                fallback_keys.discard(stale_key)
+                # A placeholder serial (Battery_ID_NN) can canonically claim
+                # the very key it was exposed under — never drop a mapping a
+                # serial owns as of this poll.
+                if stale_key not in keys_this_poll:
+                    cache.pop(stale_key, None)
+                    self._battery_carry_forward.get(inverter_serial, {}).pop(
+                        stale_key, None
+                    )
+                # INFO once per key (mirrors _suppress_battery_migration): the
+                # #252 migration renames first-seen-order legacy keys, which
+                # need not match this slot-position fallback, so the retired
+                # key's HA device/entities can survive as registry orphans the
+                # user has to remove manually.  Flapping-serial repeats DEBUG.
+                level = (
+                    logging.DEBUG
+                    if stale_key in self._battery_shift_retire_logged
+                    else logging.INFO
+                )
+                self._battery_shift_retire_logged.add(stale_key)
+                _LOGGER.log(
+                    level,
+                    "RR [%s]: retired stale positional battery fallback %s — "
+                    "its serial became readable at a shifted slot (new "
+                    "serial(s): %s). If a battery device/entities keyed %r "
+                    "remain in Home Assistant, they are orphaned and can be "
+                    "removed from the device page (#302)",
+                    inverter_serial,
+                    stale_key,
+                    new_serials,
+                    stale_key,
+                )
+            # Debounce counters whose slot the transport did not serve AT ALL
+            # this poll belong to upstream-evicted reservation holes — pop
+            # them (a stale pending counter would otherwise inject a phantom
+            # positional key into active_keys below, permanently blocking the
+            # one-shot #252 migration).  Slots served in any state — including
+            # ghost or truncated reads that skipped the counter increment —
+            # keep their debounce progress.
+            for stale_slot in [s for s in noserial_polls if s not in slots_this_poll]:
+                noserial_polls.pop(stale_slot)
+
+        if key_migrations:
+            # Rotation trust guard: with more distinct serials than register
+            # slots (or reg 96 reporting more), the firmware rotates batteries
+            # through the slots and the pre-#252 positional keys were assigned
+            # in an order this session cannot reconstruct — renaming could
+            # bind battery X's history to battery Y.  Leave the positional
+            # registry rows untouched as orphans; live data still converges on
+            # the serial-based keys.
+            if (
+                len(legacy_key_map) > _BATTERY_SLOTS_PER_PAGE
+                or (reported_count or 0) > _BATTERY_SLOTS_PER_PAGE
+            ):
+                self._suppress_battery_migration(
+                    inverter_serial,
+                    f"rotating pack ({len(legacy_key_map)} distinct serials "
+                    f"seen, reg-96 count {reported_count}); legacy positional "
+                    "history is not attributable",
+                )
+            else:
+                # Debounced no-serial slots count as active: their positional
+                # key belongs to a live battery even before exposure.
+                active_keys = set(cache) | {
+                    f"{inverter_serial}-{s + 1:02d}" for s in noserial_polls
+                }
+                self._register_battery_key_migrations(
+                    inverter_serial, key_migrations, active_keys
+                )
 
         _LOGGER.debug(
             "RR [%s] poll summary: %d responded, %d skipped, "
@@ -191,12 +408,64 @@ class LocalTransportMixin(_MixinBase):
             len(new_serials),
             len(cache),
             poll_serials,
-            list(key_map.keys()),
+            list(legacy_key_map.keys()),
         )
+
+        # Age-based eviction must run on every merge, not only on empty
+        # polls: this method returns the full accumulated cache, so once any
+        # battery has been seen device_data["batteries"] is never empty and
+        # the empty-poll re-serve branch downstream is unreachable.  Without
+        # this, a physically removed pack would be re-served with frozen
+        # values until restart.  Mirrors the unconditional HYBRID/CLOUD
+        # bound in _apply_battery_carry_forward.  Rotating batteries are
+        # safe: their mapping is re-stamped whenever their page comes
+        # around, well within the bound.
+        self._evict_aged_rr_batteries(inverter_serial)
 
         return dict(cache)
 
-    async def _read_modbus_parameters(self, transport: Any) -> dict[str, Any]:
+    def _evict_aged_rr_batteries(self, inverter_serial: str) -> None:
+        """Evict round-robin cache entries aged past the carry-forward bound.
+
+        An entry whose ``battery_last_seen`` is older than
+        BATTERY_CARRY_FORWARD_MAX_AGE is a physically removed pack, not a
+        transient — evict it from the rr-cache (and the carry-forward
+        layer, which would otherwise resurrect it) so removal converges
+        without an HA restart (#258 review).
+        """
+        cache = self._battery_rr_cache.get(inverter_serial)
+        if not cache:
+            return
+        now = dt_util.utcnow()
+        aged = [
+            key
+            for key, mapping in cache.items()
+            if isinstance(
+                last_seen := mapping.get("battery_last_seen"),
+                datetime,
+            )
+            and now - dt_util.as_utc(last_seen) > BATTERY_CARRY_FORWARD_MAX_AGE
+        ]
+        for key in aged:
+            cache.pop(key, None)
+            self._battery_carry_forward.get(inverter_serial, {}).pop(key, None)
+        if aged:
+            _LOGGER.info(
+                "LOCAL: Evicting %d batteries for %s not seen for "
+                "over %s (physically removed or permanently "
+                "vanished): %s",
+                len(aged),
+                inverter_serial,
+                BATTERY_CARRY_FORWARD_MAX_AGE,
+                aged,
+            )
+
+    async def _read_modbus_parameters(
+        self,
+        transport: Any,
+        device_data: dict[str, Any] | None = None,
+        device: Any = None,
+    ) -> tuple[dict[str, Any], bool]:
         """Read configuration parameters using library's named parameter mapping.
 
         Uses pylxpweb's read_named_parameters() which maps Modbus registers
@@ -204,13 +473,102 @@ class LocalTransportMixin(_MixinBase):
 
         Args:
             transport: ModbusTransport or DongleTransport instance
+            device_data: The device's per-cycle data dict (with ``features``)
+                for family-gated ranges; None reads the family-agnostic set.
+            device: The BaseInverter owning ``transport``, for the link-down
+                gate below; None skips the gate (direct-transport callers).
 
         Returns:
-            Dictionary of parameter keys to values matching HTTP API format
+            Tuple of (parameter dict matching HTTP API format, completeness
+            flag). The flag is False when any register range failed or the
+            link-down gate skipped the read — returned per call rather than
+            stored on the instance because endpoint groups poll concurrently
+            via ``asyncio.gather`` and a shared attribute lets one device's
+            outcome clobber a sibling's before it is consumed (#282 would
+            silently regress on multi-endpoint installs).
         """
         params: dict[str, Any] = {}
+        # Link-down gate (pylxpweb#206/#208 parity): these targeted range
+        # reads go straight to the raw transport, bypassing
+        # BaseInverter.refresh() and its link-down probe rate limit, and
+        # Python 3.11's asyncio.wait_for cannot interrupt an in-flight
+        # pymodbus read — every range would walk into the dead RS485 link
+        # for a multi-minute stall.  Report the skip as INCOMPLETE so the
+        # #282 machinery treats it exactly like a failed read: callers
+        # carry last-known values forward and keep the device queued for a
+        # floored retry.  Link state is (re-)evaluated here AFTER this
+        # cycle's refresh() probe ran, so the first cycle after link
+        # recovery reads immediately.
+        if device is not None and is_transport_link_down(device):
+            _LOGGER.debug(
+                "Skipping targeted parameter read for %s: local transport "
+                "link is down (re-probed by the regular poll cycle)",
+                getattr(device, "serial_number", "unknown"),
+            )
+            return params, False
+        failed_ranges: list[str] = []
+        # Completeness flag for the caller's sticky carry-forward + throttle
+        # re-arm (#282): a partial read must not blank known parameter values
+        # or arm the refresh throttle.
+        complete = True
 
         try:
+            # AC First schedule windows (152-157, GH #295): consumed only by
+            # the EG4_OFFGRID-gated AC First time entities, so the range is
+            # family-gated with the SAME fails-closed predicate as the entity
+            # gate — non-SNA firmware that NAKs the range would otherwise mark
+            # every parameter cycle incomplete and loop the #282 early retry
+            # for registers nothing consumes. Evaluated per call (the caller
+            # passes the freshly-built per-cycle device_data), so a family
+            # detected after the first poll picks the range up on the next
+            # parameter cycle. pylxpweb > 0.9.36b21 names these registers
+            # HOLD_AC_FIRST_TIME_*; older releases surface the raw
+            # "152".."157" keys — the time entities' alias chains handle both.
+            ac_first_range: list[tuple[int, int]] = (
+                [(152, 6)] if is_offgrid_family(device_data or {}) else []
+            )
+
+            # Peak Shaving (209-212), Generator (256-259) and Off-Grid
+            # (269-274) schedule windows: consumed by the EG4_HYBRID-gated
+            # schedule time entities (Generator is also created on EG4_OFFGRID).
+            # Like the AC First (152, 6) read above, the ranges are family-gated
+            # with the same fails-closed predicate — non-matching firmware that
+            # NAKs them would otherwise mark every parameter cycle incomplete and
+            # loop the #282 early retry for registers nothing consumes. Evaluated
+            # per call (freshly-built per-cycle device_data). pylxpweb #209 names
+            # these registers HOLD_{PEAK_SHAVING,GEN,OFF_GRID}_TIME_*; older
+            # releases surface the raw address keys — the alias chains handle both.
+            #
+            # Generator (256-259) is read on BOTH families: the SNA12K-US probe
+            # proves regs 256-259 carry HOLD_GEN_* names, so the NAK-risk
+            # rationale for excluding offgrid does not apply, and reading it
+            # closes the write-works-but-readback-missing gap for Generator
+            # entities on LOCAL-only SNA. Peak Shaving / Off-Grid stay hybrid-only
+            # (their params are absent on the SNA probe). The Generator read is
+            # kept separate from Off-Grid (two reads, not one 256-274 span) to
+            # skip the deliberately-unmapped 260-268 zone (model-dependent
+            # HOLD_EXPORT_LOCK_POWER etc., pylxpweb inverter_holding.py) — 9
+            # wasted reads avoided per hybrid poll.
+            is_hybrid = is_hybrid_family(device_data or {})
+            is_offgrid = is_offgrid_family(device_data or {})
+            hybrid_schedule_ranges: list[tuple[int, int]] = []
+            if is_hybrid:
+                hybrid_schedule_ranges.append((209, 4))  # Peak Shaving
+            if is_hybrid or is_offgrid:
+                hybrid_schedule_ranges.append((256, 4))  # Generator charge
+            if is_hybrid:
+                hybrid_schedule_ranges.append((269, 6))  # Off-Grid
+                # Grid Peak Shaving Power (PS1, reg 206, deci-kW — encoding
+                # hardware-verified in #328): consumed by the Grid Peak
+                # Shaving Power number, which was cloud/hybrid-only until
+                # pylxpweb 0.9.36b27 mapped the register; without this read
+                # the entity sat unknown in LOCAL mode (3.4.0-final sweep).
+                # Family-gated like the (209, 4) schedule read above — the
+                # SNA probe shows the PS params absent from the offgrid
+                # template. Older pylxpweb surfaces the raw "206" key,
+                # which nothing consumes until the pin bump.
+                hybrid_schedule_ranges.append((206, 1))
+
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
             register_ranges = [
@@ -218,15 +576,62 @@ class LocalTransportMixin(_MixinBase):
                     20,
                     3,
                 ),  # PV input mode (20), function enable (21), PV start voltage (22)
-                (64, 16),  # Power settings + AC charge/discharge (64-79)
-                (101, 2),  # Charge/discharge current limits (101-102)
+                # Power settings + AC charge/discharge (64-79, incl. the
+                # forced charge schedule 76-81) + forced discharge power/SOC
+                # (82-83, GH #207) + the forced discharge schedule windows
+                # (84-89, newly covered for GH #295) — one widened read
+                # keeps the Modbus budget flat vs separate (82, 2)/(84, 6)
+                # reads. Deliberately NOT family-gated: the forced charge
+                # (76-81) and forced discharge (84-89) schedule entities are
+                # suppressed on EG4_OFFGRID, but the registers sit inside the
+                # shared range consumed by ungated controls (64-67, 82-83)
+                # and READ fine on the family — only the cloud WRITE is
+                # rejected (#295); splitting the range would cost extra
+                # Modbus reads for nothing.
+                (64, 26),
+                (
+                    100,
+                    4,
+                ),  # Off-grid cutoff voltage (100), charge/discharge current
+                # (101-102), grid sell back power percent (103, GH #135)
                 (105, 2),  # On-grid SOC cutoff (105-106)
                 (110, 1),  # System function register (bit fields)
+                # P_to_user start discharge/charge thresholds (116-117, GH
+                # #272). Reg 116 surfaces under pylxpweb's local name-map key
+                # (HOLD_PTOUSER_START_DISCHARGE); reg 117 has no name mapping
+                # anywhere, so read_named_parameters emits the raw "117" key.
+                (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
-                (179, 1),  # Extended functions (FUNC_GRID_PEAK_SHAVING, etc.)
-                (227, 1),  # System charge SOC limit (HOLD_SYSTEM_CHARGE_SOC_LIMIT)
-                (231, 2),  # Grid peak shaving power (_12K_HOLD_GRID_PEAK_SHAVING_POWER)
+                *ac_first_range,  # (152, 6) on EG4_OFFGRID only (GH #295)
+                # AC charge start/stop voltage (158-159); on EG4_OFFGRID the
+                # read widens to cover the AC-charge SOC window (160-161,
+                # GH #331) consumed by the family's AC Charge Start/End
+                # Battery SOC numbers — same widen-don't-split rationale as
+                # (64, 26): one Modbus read either way. Both registers
+                # surface under pylxpweb's name-map keys
+                # (HOLD_AC_CHARGE_{START,END}_BATTERY_SOC; reg 161 named
+                # from 0.9.36b28 — older releases emit the raw "161"
+                # fallback key, which nothing consumes until the pin bump).
+                (158, 4 if is_offgrid else 2),
+                (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
+                (
+                    179,
+                    1,
+                ),  # Extended functions (FUNC_BAT_CHARGE/DISCHARGE_CONTROL, etc.)
+                # Stop discharge voltage (_12K_HOLD_STOP_DISCHG_VOLT, decivolts
+                # raw — bead eg4-aa3t). Older pylxpweb without the reg-202 name
+                # mapping surfaces this read under the raw key "202" (unused).
+                (202, 1),
+                (227, 2),  # System charge SOC limit (227) + voltage limit (228)
+                # Registers 231-232 were once read here as "grid peak shaving
+                # power" — removed (eg4-gfu5): PS1 actually lives at reg 206
+                # (231 is an unknown, unnamed register). Since #328 verified
+                # the deci-kW encoding, reg 206 is read via the family-gated
+                # (206, 1) entry in hybrid_schedule_ranges above.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
+                # Peak Shaving / Generator / Off-Grid schedules — EG4_HYBRID
+                # only (209-212, 256-274). See hybrid_schedule_ranges above.
+                *hybrid_schedule_ranges,
             ]
 
             for start, count in register_ranges:
@@ -234,12 +639,22 @@ class LocalTransportMixin(_MixinBase):
                     named_params = await transport.read_named_parameters(start, count)
                     params.update(named_params)
                 except Exception as range_err:
-                    _LOGGER.warning(
+                    failed_ranges.append(f"{start}-{start + count - 1}")
+                    _LOGGER.debug(
                         "Failed to read param registers %d-%d: %s",
                         start,
                         start + count - 1,
                         range_err,
                     )
+
+            if failed_ranges:
+                complete = False
+                _LOGGER.info(
+                    "Parameter read incomplete (register range(s) %s failed); "
+                    "keeping last-known values for those parameters and "
+                    "retrying early (#282)",
+                    ", ".join(failed_ranges),
+                )
 
             _LOGGER.debug("Read %d parameters from Modbus registers", len(params))
             # Debug: log key number entity parameters
@@ -257,16 +672,16 @@ class LocalTransportMixin(_MixinBase):
                     "HOLD_DISCHG_CUT_OFF_SOC_EOD",  # On-Grid SOC (reg 105)
                     "HOLD_SOC_LOW_LIMIT_EPS_DISCHG",  # Off-Grid SOC (reg 125)
                     "HOLD_SYSTEM_CHARGE_SOC_LIMIT",  # System Charge SOC (reg 227)
-                    "_12K_HOLD_GRID_PEAK_SHAVING_POWER",  # Grid Peak Shaving Power (reg 231)
                 )
             }
             if key_params:
                 _LOGGER.debug("Number entity params: %s", key_params)
 
         except Exception as err:
+            complete = False
             _LOGGER.warning("Failed to read parameters from Modbus: %s", err)
 
-        return params
+        return params, complete
 
     def _build_local_device_data(
         self,
@@ -445,7 +860,14 @@ class LocalTransportMixin(_MixinBase):
             }
 
             if include_params:
-                param_data = await self._read_modbus_parameters(transport)
+                param_data, param_read_complete = await self._read_modbus_parameters(
+                    transport, device_data, device=inverter
+                )
+                if not param_read_complete:
+                    # Sticky carry-forward (#282): keep last-known values for
+                    # the failed range(s); only re-read ranges change.
+                    previous = (self.data or {}).get("parameters", {}).get(serial) or {}
+                    param_data = {**previous, **param_data}
             else:
                 param_data = {}
             processed["parameters"] = {serial: param_data}
@@ -458,12 +880,12 @@ class LocalTransportMixin(_MixinBase):
 
             runtime = inverter.transport_runtime
             _LOGGER.debug(
-                "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                "%s update complete - FW: %s, PV: %.0fW, SOC: %d%%, Rect: %.0fW",
                 transport_name,
                 firmware_version,
                 runtime.pv_total_power,
                 runtime.battery_soc,
-                runtime.grid_power,
+                runtime.rectifier_power,
             )
 
             # Schedule deferred parameter load on first successful refresh
@@ -641,6 +1063,9 @@ class LocalTransportMixin(_MixinBase):
             )
 
             if needs_creation:
+                # Modbus read block size (#254): feature-detected, {} on
+                # released pylxpweb without the parameter (stays conservative).
+                block_size_kwargs = input_block_size_kwargs(self._max_input_block_size)
                 transport: Any = None
                 if transport_type == "modbus_tcp":
                     transport = create_transport(
@@ -651,6 +1076,7 @@ class LocalTransportMixin(_MixinBase):
                         unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
                         timeout=DEFAULT_MODBUS_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 elif transport_type == "wifi_dongle":
                     transport = create_transport(
@@ -661,6 +1087,7 @@ class LocalTransportMixin(_MixinBase):
                         port=port,
                         timeout=DEFAULT_DONGLE_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 elif transport_type == "modbus_serial":
                     transport = create_transport(
@@ -673,6 +1100,7 @@ class LocalTransportMixin(_MixinBase):
                         unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
                         timeout=DEFAULT_MODBUS_TIMEOUT,
                         inverter_family=inverter_family,
+                        **block_size_kwargs,
                     )
                 else:
                     _LOGGER.error(
@@ -824,6 +1252,14 @@ class LocalTransportMixin(_MixinBase):
                                 e,
                             )
                     features = self._extract_inverter_features(inverter)
+                    # Re-apply the user's grid-type override AFTER extraction:
+                    # the model-family fallback inside the extractor can flip
+                    # phase flags, and without this the override only survived
+                    # the static first refresh — the second poll flipped the
+                    # features back and churned phase sensors (#219 review).
+                    grid_type_override = config.get(CONF_GRID_TYPE)
+                    if features and grid_type_override:
+                        _apply_grid_type_override(features, grid_type_override)
                     if include_params and features:
                         _LOGGER.debug(
                             "LOCAL: Detected features for %s: family=%s, "
@@ -930,7 +1366,9 @@ class LocalTransportMixin(_MixinBase):
                             # batteries eventually appear as entities.
                             device_data["batteries"] = (
                                 self._merge_round_robin_batteries(
-                                    serial, list(battery_data.batteries)
+                                    serial,
+                                    list(battery_data.batteries),
+                                    battery_data.battery_count,
                                 )
                             )
                             _LOGGER.debug(
@@ -941,20 +1379,32 @@ class LocalTransportMixin(_MixinBase):
                                 len(battery_data.batteries),
                                 len(self._battery_rr_cache.get(serial, {})),
                             )
-                        elif serial in self._battery_rr_cache:
-                            # Individual battery registers unavailable this poll
-                            # (e.g. transient read failure).  Serve cached data
-                            # so entities stay available rather than going
-                            # unavailable until the next successful read.
-                            device_data["batteries"] = dict(
-                                self._battery_rr_cache[serial]
-                            )
-                            _LOGGER.debug(
-                                "LOCAL: %s serving %d individual batteries "
-                                "from cache (no battery data this poll)",
-                                serial,
-                                len(device_data["batteries"]),
-                            )
+                if not device_data["batteries"] and (
+                    cached_batteries := self._battery_rr_cache.get(serial)
+                ):
+                    # Individual batteries unavailable this poll — transient
+                    # read failure, a cleared transport battery cache, or a
+                    # momentary reg 96 = 0 under-report (#258; reg 96 is
+                    # unreliable on parallel/rotating systems).  Serve the
+                    # round-robin cache so entities stay available rather
+                    # than flipping unavailable until the next good read.
+                    # A genuine shared-battery secondary never populates the
+                    # cache, so this can only re-serve batteries this
+                    # inverter itself reported earlier.
+                    #
+                    # Bounded (#258 review): an entry not read for over
+                    # BATTERY_CARRY_FORWARD_MAX_AGE is a physically removed
+                    # pack, not a transient — evict it so removal converges
+                    # instead of re-serving frozen data until restart.
+                    self._evict_aged_rr_batteries(serial)
+                    if cached_batteries:
+                        device_data["batteries"] = dict(cached_batteries)
+                        _LOGGER.debug(
+                            "LOCAL: %s serving %d individual batteries "
+                            "from cache (no battery data this poll)",
+                            serial,
+                            len(device_data["batteries"]),
+                        )
 
                 device_data["sensors"]["firmware_version"] = firmware_version
                 device_data["sensors"]["connection_transport"] = _get_transport_label(
@@ -977,6 +1427,11 @@ class LocalTransportMixin(_MixinBase):
                     sensors["rectifier_power"] = val
                 if (val := inverter.power_to_user) is not None:
                     sensors["grid_import_power"] = val
+
+                # Quick charge status from local registers 233/234 (throttled).
+                # Populates the same key the Quick Charge switch + remaining
+                # sensor read, so they work in LOCAL-only mode too.
+                await self._fetch_quick_charge_status(inverter, device_data)
 
                 # Add last_polled timestamp so users can see when data was last fetched
                 # (not just when it last changed)
@@ -1012,27 +1467,61 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
-                if include_params:
-                    transport = inverter.transport
-                    if transport:
-                        param_data = await self._read_modbus_parameters(transport)
+                # Entity-parameter read: due on the hourly cycle for everyone,
+                # and on floored retry cycles for devices still pending
+                # (#282 P1-A: a device skipped by transport-interval gating or
+                # failing before this point must not starve until the next
+                # hourly window just because a sibling's success stamped the
+                # shared throttle — the cc8d4e2 shared-timestamp bug class).
+                # getattr: the deprecated single-device path calls this method
+                # without _async_update_local_data's per-cycle pre-compute.
+                read_entity_params = getattr(
+                    self, "_include_params_this_cycle", False
+                ) or (
+                    getattr(self, "_param_retry_due", False)
+                    and serial in self._param_retry_pending
+                )
+                param_transport = inverter.transport
+                if read_entity_params and param_transport:
+                    self._param_attempted_this_cycle = True
+                    (
+                        param_data,
+                        param_read_complete,
+                    ) = await self._read_modbus_parameters(
+                        param_transport, device_data, device=inverter
+                    )
+                    if param_read_complete:
+                        self._param_completed_this_cycle.add(serial)
+                        self._param_retry_pending.discard(serial)
                     else:
-                        param_data = {}
+                        # Sticky carry-forward (#282): a partial read must
+                        # not blank previously-known values — one misrouted
+                        # dongle response used to wipe every parameter in
+                        # the failed range (e.g. reg-227 System Charge SOC
+                        # Limit) until the next hourly refresh.  Merge the
+                        # fresh partial read OVER the carried-forward dict
+                        # so only successfully re-read ranges change; a
+                        # COMPLETE read stays authoritative.  The device
+                        # stays queued for a floored retry.
+                        previous = processed["parameters"].get(serial) or {}
+                        param_data = {**previous, **param_data}
+                        self._param_retry_pending.add(serial)
                     processed["parameters"][serial] = param_data
                 elif serial not in processed["parameters"]:
-                    # No param read this cycle — preserve existing data or
-                    # defer on first refresh (empty dict is safe — switch/number
+                    # No param read this cycle (not due, still pending with no
+                    # usable transport, or first refresh) — preserve existing
+                    # data or defer (empty dict is safe — switch/number
                     # entities show unknown until background load completes).
                     processed["parameters"][serial] = {}
 
                 _LOGGER.debug(
-                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Grid: %.0fW",
+                    "LOCAL: Updated %s (%s) - FW: %s, PV: %.0fW, SOC: %d%%, Rect: %.0fW",
                     serial,
                     transport_type,
                     firmware_version,
                     runtime_data.pv_total_power,
                     runtime_data.battery_soc,
-                    runtime_data.grid_power,
+                    runtime_data.rectifier_power,
                 )
 
                 _LOGGER.debug(
@@ -1054,12 +1543,26 @@ class LocalTransportMixin(_MixinBase):
             TransportReadError,
             TransportError,
         ) as e:
-            _LOGGER.warning(
-                "LOCAL: Failed to update %s (%s): %s",
-                serial,
-                transport_type,
-                e,
+            device = self._inverter_cache.get(serial) or self._mid_device_cache.get(
+                serial
             )
+            if device is not None and is_transport_link_down(device):
+                # Link already declared down: the transition logged one
+                # warning and raised a Repairs issue — keep the per-cycle
+                # noise at debug while the outage lasts (eg4-57g).
+                _LOGGER.debug(
+                    "LOCAL: %s (%s) still link-down: %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
+            else:
+                _LOGGER.warning(
+                    "LOCAL: Failed to update %s (%s): %s",
+                    serial,
+                    transport_type,
+                    e,
+                )
             device_availability[serial] = False
 
         except Exception as e:
@@ -1186,15 +1689,38 @@ class LocalTransportMixin(_MixinBase):
 
             # Derive feature flags from inverter family and device_type_code so
             # that _should_create_sensor() filters phase-specific sensors correctly
-            # even before Modbus-based feature detection runs.
+            # even before Modbus-based feature detection runs. The model name is
+            # the last-resort family fallback when config stored an UNKNOWN or
+            # missing family (issue #219).
             family_str = config.get("inverter_family")
             dtc = config.get("device_type_code")
             grid_type = config.get("grid_type")
             features = (
-                _features_from_family(family_str, dtc, grid_type=grid_type)
+                _features_from_family(family_str, dtc, grid_type=grid_type, model=model)
                 if not is_gridboss
                 else {}
             )
+
+            if features.get("family_source") == "model_fallback":
+                # Behavior change for legacy UNKNOWN-family entries: the static
+                # path used to create ALL sensors for them (including bogus
+                # three-phase R/S/T ones that never had data). The fallback now
+                # prunes to the model's real profile — surface that loudly so
+                # automations referencing the dropped sensors don't break
+                # silently (#219 review).
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"unknown_family_fallback_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="unknown_family_fallback",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "model": str(model),
+                        "family": str(features.get("inverter_family", "")),
+                    },
+                )
 
             device_data: dict[str, Any] = {
                 "type": device_type,
@@ -1373,6 +1899,26 @@ class LocalTransportMixin(_MixinBase):
         self._include_params_this_cycle = (
             self._local_parameters_loaded and self._should_refresh_parameters()
         )
+        # Per-device parameter retry (#282 P1-A): on a param-due cycle every
+        # inverter must either COMPLETE its targeted param read or land in
+        # _param_retry_pending (transport-interval skips, pre-param failures,
+        # and partial reads all qualify).  Pending devices retry on later
+        # cycles — gated by the 2-minute attempt floor — without re-reading
+        # healthy siblings, and drain individually on their own success.
+        # This closes the shared-timestamp hole (cc8d4e2 bug class): a device
+        # whose transport was not due on the stamp cycle no longer starves
+        # until the next hourly window.
+        attempt = self._last_parameter_attempt
+        self._param_retry_due = (
+            self._local_parameters_loaded
+            and bool(self._param_retry_pending)
+            and (
+                attempt is None
+                or dt_util.utcnow() - attempt >= _PARAMETER_RETRY_INTERVAL
+            )
+        )
+        self._param_completed_this_cycle = set()
+        self._param_attempted_this_cycle = False
 
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
@@ -1438,6 +1984,11 @@ class LocalTransportMixin(_MixinBase):
                     device_availability,
                 )
 
+        # Mark link-down devices (error key -> entities unavailable) and
+        # sync their Repairs issues.  Runs BEFORE the all-failed check so a
+        # full-outage cycle still raises/clears the issues (eg4-57g).
+        self._sync_transport_link_state(processed)
+
         # Check if we got any device data
         successful_devices = sum(1 for v in device_availability.values() if v)
         total_devices = len(self._local_transport_configs)
@@ -1450,6 +2001,12 @@ class LocalTransportMixin(_MixinBase):
                     total_devices,
                 )
                 self._last_available_state = False
+            # Full outage raises BEFORE _process_local_parallel_groups()
+            # runs, so the carried-forward PG entries would otherwise keep
+            # passing entity availability and serve the stale aggregate
+            # during the wrapper's suppressed-failure window (cached data
+            # returned, last_update_success still True) — eg4-57g review r2.
+            self._error_mark_stale_parallel_groups(processed)
             raise UpdateFailed(f"All {total_devices} local transports failed to update")
 
         # Silver tier logging: Log when service becomes available again
@@ -1477,9 +2034,42 @@ class LocalTransportMixin(_MixinBase):
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
 
-        # Stamp parameter refresh timestamp if params were read this cycle.
+        # Parameter throttle bookkeeping (#282 P1-A).  A DUE cycle stamps the
+        # hourly throttle REGARDLESS of per-device outcomes — healthy devices
+        # stay on the hourly cadence — and every inverter that did not
+        # complete its targeted read this cycle (transport-interval skip,
+        # pre-param failure, or partial read) is queued in
+        # _param_retry_pending for floored per-device retries that do not
+        # re-read healthy siblings.
         if self._include_params_this_cycle and successful_devices > 0:
+            self._last_parameter_attempt = dt_util.utcnow()
             self._last_parameter_refresh = dt_util.utcnow()
+            expected_param_serials = {
+                cfg["serial"]
+                for cfg in self._local_transport_configs
+                if cfg.get("serial")
+                and not cfg.get("is_gridboss", False)
+                and cfg.get("serial") not in self._mid_device_cache
+            }
+            missed = expected_param_serials - self._param_completed_this_cycle
+            self._param_retry_pending |= missed
+            if missed:
+                _LOGGER.info(
+                    "Parameter read pending for %s this cycle; keeping "
+                    "last-known values and retrying within ~%d minutes",
+                    sorted(missed),
+                    int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
+                )
+        elif self._param_retry_due and self._param_attempted_this_cycle:
+            # A retry cycle that actually attempted reads re-arms the floor;
+            # cycles where the pending device's transport was not pollable
+            # leave the floor untouched so the next pollable cycle retries.
+            self._last_parameter_attempt = dt_util.utcnow()
+            if not self._param_retry_pending:
+                _LOGGER.info(
+                    "Parameter retries complete; all devices back on the "
+                    "hourly schedule"
+                )
 
         # On first successful refresh, schedule background parameter +
         # feature detection load so that switch/number entities and
@@ -1561,6 +2151,18 @@ class LocalTransportMixin(_MixinBase):
                 master_serial = group_devices[0][0]
 
             first_serial = master_serial
+
+            # Members whose device data is error-marked (link-down — see
+            # _sync_transport_link_state, which runs before this method).
+            # Their carried-forward sensors are STALE: an aggregate mixing
+            # stale and fresh members is wrong in both directions, so the
+            # group is error-marked below — honest unavailability beats a
+            # quietly wrong total (eg4-57g review).
+            link_down_members = sorted(
+                member_serial
+                for member_serial, member_data in group_devices
+                if "error" in member_data
+            )
 
             # Collect sensor data from all devices in the group
             group_sensors: dict[str, Any] = {}
@@ -1719,6 +2321,12 @@ class LocalTransportMixin(_MixinBase):
                 if device_data.get("type") != "gridboss":
                     continue
                 has_mid_device = True
+                # The GridBOSS CTs are authoritative contributors to the
+                # group's grid/consumption values — a link-down (error-
+                # marked) GridBOSS taints the aggregate the same way a
+                # link-down inverter member does.
+                if "error" in device_data and serial not in link_down_members:
+                    link_down_members.append(serial)
                 gb_sensors = device_data.get("sensors", {})
 
                 # Apply the canonical GridBOSS workflow to the parallel group.
@@ -1758,12 +2366,25 @@ class LocalTransportMixin(_MixinBase):
 
             group_device_id = f"parallel_group_{group_name.lower()}"
 
-            group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
+            if link_down_members:
+                # Don't claim a fresh poll for an aggregate built from stale
+                # members — carry the previous stamp forward (if any) so it
+                # reflects the last genuinely fresh aggregate.
+                prev_stamp = (
+                    processed["devices"]
+                    .get(group_device_id, {})
+                    .get("sensors", {})
+                    .get("parallel_group_last_polled")
+                )
+                if prev_stamp is not None:
+                    group_sensors["parallel_group_last_polled"] = prev_stamp
+            else:
+                group_sensors["parallel_group_last_polled"] = dt_util.utcnow()
 
             # Create groups even with 1 inverter if parallel_number > 0,
             # since this indicates the inverter is configured for parallel
             # operation (e.g., single inverter + GridBOSS setup).
-            processed["devices"][group_device_id] = {
+            pg_device_data: dict[str, Any] = {
                 "type": "parallel_group",
                 "name": f"Parallel Group {group_name}",
                 "group_name": group_name,
@@ -1772,6 +2393,15 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
+            if link_down_members:
+                # Error key -> all PG sensor entities go unavailable
+                # (base_entity availability contract), exactly like the
+                # link-down members themselves.
+                pg_device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(link_down_members))}"
+                )
+            processed["devices"][group_device_id] = pg_device_data
 
             self._register_pg_device(group_device_id, group_name)
 
@@ -1786,12 +2416,16 @@ class LocalTransportMixin(_MixinBase):
         """Attach local transports to HTTP-discovered station devices.
 
         This method enables hybrid mode by connecting local transports
-        (Modbus TCP or WiFi Dongle) to devices discovered via HTTP API.
-        After attachment, devices will use local transport for data fetching
-        with automatic fallback to HTTP on failure.
+        (Modbus TCP, WiFi Dongle, or Modbus Serial) to devices discovered
+        via HTTP API. After attachment, devices will use local transport
+        for data fetching with automatic fallback to HTTP on failure.
 
-        Uses the new Station.attach_local_transports() API from pylxpweb.
+        Network transports use the Station.attach_local_transports() API
+        from pylxpweb; serial transports are attached integration-side
+        because that API only dispatches modbus_tcp and wifi_dongle (#233).
         """
+        from pylxpweb.transports.config import AttachResult, TransportType
+
         if self.station is None or not self._local_transport_configs:
             return
 
@@ -1801,13 +2435,32 @@ class LocalTransportMixin(_MixinBase):
         )
 
         # Convert stored config dicts to TransportConfig objects
-        configs = _build_transport_configs(self._local_transport_configs)
+        configs = _build_transport_configs(
+            self._local_transport_configs, self._max_input_block_size
+        )
         if not configs:
             _LOGGER.warning("No valid transport configs to attach")
             return
 
+        # pylxpweb's Station.attach_local_transports() only dispatches
+        # modbus_tcp and wifi_dongle ("Unknown transport type: modbus_serial"
+        # otherwise), so USB/RS485 serial configs are attached here instead,
+        # mirroring the LOCAL-only dispatch path (#233).
+        serial_configs = [
+            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
+        ]
+        network_configs = [
+            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
+        ]
+
         try:
-            result = await self.station.attach_local_transports(configs)
+            if network_configs:
+                result = await self.station.attach_local_transports(network_configs)
+            else:
+                result = AttachResult()
+
+            if serial_configs:
+                await self._attach_serial_transports_to_station(serial_configs, result)
 
             _LOGGER.info(
                 "Local transport attachment complete: %d matched, %d unmatched, %d failed",
@@ -1830,10 +2483,38 @@ class LocalTransportMixin(_MixinBase):
 
             self._local_transports_attached = True
 
-            # Configure each inverter with a local transport:
-            # 1. Propagate data validation (prevents GridBOSS data spikes)
-            # 2. Align cache TTLs with coordinator's user-configured intervals
-            # 3. Schedule background buffer drain (see _drain_modbus_buffers)
+            # Track failed serials for bounded retry on later update cycles
+            # (eg4-05l): a transient connect failure at boot — commonly the
+            # dongle's single TCP slot still held by the previous HA session —
+            # must not park the device on cloud data until a manual reload.
+            self._failed_attach_serials = set(result.failed_serials)
+            network_serials = {c.serial for c in network_configs}
+            for serial in sorted(self._failed_attach_serials & network_serials):
+                cfg = next(c for c in network_configs if c.serial == serial)
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"transport_attach_failed_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="transport_attach_failed",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "host": str(getattr(cfg, "host", "?")),
+                    },
+                )
+            # Clear stale issues for serials that attached this time (a
+            # reload after a degraded run must not leave ghost repairs).
+            for cfg in configs:
+                if cfg.serial not in self._failed_attach_serials:
+                    ir.async_delete_issue(
+                        self.hass, DOMAIN, f"transport_attach_failed_{cfg.serial}"
+                    )
+                    ir.async_delete_issue(
+                        self.hass, DOMAIN, f"serial_attach_failed_{cfg.serial}"
+                    )
+
+            # Configure devices that received a transport.
             #
             # NOTE: We intentionally do NOT await inverter.refresh() here.
             # asyncio.wait_for() with Python 3.11 does NOT interrupt in-flight
@@ -1844,21 +2525,7 @@ class LocalTransportMixin(_MixinBase):
             # async_config_entry_first_refresh() for that entire duration,
             # causing HA's setup timeout to fire and cancel entity setup.
             # Instead, a background task drains the buffer after setup returns.
-            validation_enabled = self._data_validation_enabled
-            modbus_inverters: list[Any] = []
-            for inverter in self.station.all_inverters:
-                transport = inverter.transport
-                if transport is not None:
-                    inverter.validate_data = validation_enabled
-                    # Propagate split-phase config for per-leg power fallback
-                    grid_type = self._get_device_grid_type(inverter.serial_number)
-                    if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
-                        transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
-                    tt = getattr(transport, "transport_type", "modbus_tcp")
-                    self._align_inverter_cache_ttls(inverter, tt)
-                    if tt == "modbus_tcp":
-                        modbus_inverters.append(inverter)
-
+            modbus_inverters = self._configure_attached_devices()
             if modbus_inverters:
                 task = self.hass.async_create_task(
                     self._drain_modbus_buffers(modbus_inverters)
@@ -1866,13 +2533,6 @@ class LocalTransportMixin(_MixinBase):
                 self._background_tasks.add(task)
                 task.add_done_callback(self._remove_task_from_set)
                 task.add_done_callback(self._log_task_exception)
-
-            # Propagate validation to MID devices.  set_max_system_power()
-            # cannot be called here because inverter features have not been
-            # detected yet — it runs later in _deferred_local_parameter_load().
-            for mid in self.station.all_mid_devices:
-                if mid.transport is not None:
-                    mid.validate_data = validation_enabled
 
             # Log hybrid mode status
             if self.station.is_hybrid_mode:
@@ -1887,6 +2547,373 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.error("Failed to attach local transports: %s", err)
             # Don't mark as attached so we can retry on next update
             self._local_transports_attached = False
+
+    def _configure_attached_devices(self) -> list[Any]:
+        """Propagate validation/cache/grid-type settings to attached devices.
+
+        Idempotent — safe to re-run after an attach retry succeeds. Returns
+        the modbus_tcp inverters; the CALLER decides whether to schedule a
+        Waveshare buffer drain (only the initial attach does — re-draining a
+        healthy, already-polling bus would disturb it).
+        """
+        modbus_inverters: list[Any] = []
+        if self.station is None:
+            return modbus_inverters
+        validation_enabled = self._data_validation_enabled
+        for inverter in self.station.all_inverters:
+            transport = inverter.transport
+            if transport is not None:
+                inverter.validate_data = validation_enabled
+                # Propagate split-phase config for per-leg power fallback
+                grid_type = self._get_device_grid_type(inverter.serial_number)
+                if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
+                    transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
+                tt = getattr(transport, "transport_type", "modbus_tcp")
+                self._align_inverter_cache_ttls(inverter, tt)
+                if tt == "modbus_tcp":
+                    modbus_inverters.append(inverter)
+
+        # Propagate validation to MID devices.  set_max_system_power()
+        # cannot be called here because inverter features have not been
+        # detected yet — it runs later in _deferred_local_parameter_load().
+        for mid in self.station.all_mid_devices:
+            if mid.transport is not None:
+                mid.validate_data = validation_enabled
+        return modbus_inverters
+
+    async def _maybe_retry_failed_attaches(self) -> None:
+        """Retry local-transport attaches that failed at setup (eg4-05l).
+
+        A transient connect failure at boot — commonly the dongle's single
+        TCP slot still held by the previous HA session — used to park the
+        device on cloud data until a manual reload. Retry the failed serials
+        with a bounded interval; on success, configure the device, clear its
+        Repairs issue, and resume local polling.
+        """
+        if not self._failed_attach_serials or self.station is None:
+            return
+        now = time.monotonic()
+        if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+            return
+        self._last_attach_retry = now
+
+        from pylxpweb.transports.config import AttachResult, TransportType
+
+        retry_dicts = [
+            c
+            for c in self._local_transport_configs
+            if str(c.get("serial")) in self._failed_attach_serials
+        ]
+        configs = _build_transport_configs(retry_dicts, self._max_input_block_size)
+        if not configs:
+            self._failed_attach_serials = set()
+            return
+        serial_configs = [
+            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
+        ]
+        network_configs = [
+            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
+        ]
+        _LOGGER.debug(
+            "Retrying local transport attach for: %s",
+            sorted(self._failed_attach_serials),
+        )
+        try:
+            if network_configs:
+                result = await self.station.attach_local_transports(network_configs)
+            else:
+                result = AttachResult()
+            if serial_configs:
+                await self._attach_serial_transports_to_station(serial_configs, result)
+        except Exception as err:
+            _LOGGER.debug("Local transport attach retry failed: %s", err)
+            return
+
+        still_failed = set(result.failed_serials) | set(result.unmatched_serials)
+        recovered = {c.serial for c in configs} - still_failed
+        if not recovered:
+            return
+        self._failed_attach_serials -= recovered
+        for serial in sorted(recovered):
+            ir.async_delete_issue(
+                self.hass, DOMAIN, f"transport_attach_failed_{serial}"
+            )
+            ir.async_delete_issue(self.hass, DOMAIN, f"serial_attach_failed_{serial}")
+            _LOGGER.info(
+                "Local transport attached for %s after retry — resuming local polling",
+                serial,
+            )
+        modbus_inverters = self._configure_attached_devices()
+        # A freshly-recovered Modbus transport needs the same Waveshare
+        # stale-buffer drain the initial attach schedules (review MEDIUM) —
+        # but ONLY for the recovered serials; re-draining a healthy,
+        # already-polling bus would disturb it. The drain and the param
+        # reload below share the bus, so they run in ONE ordered task.
+        recovered_modbus = [
+            inv for inv in modbus_inverters if str(inv.serial_number) in recovered
+        ]
+        task = self.hass.async_create_task(
+            self._finish_attach_recovery(recovered_modbus, sorted(recovered))
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._remove_task_from_set)
+        task.add_done_callback(self._log_task_exception)
+
+    async def _finish_attach_recovery(
+        self, recovered_modbus: list[Any], recovered_serials: list[str]
+    ) -> None:
+        """Drain recovered Modbus buffers, then reload parameters via transport.
+
+        The parameter caches for recovered serials were cloud-populated
+        (kW-scaled) while the transport was down; once the transport is
+        attached, ``_params_are_local_raw()`` treats the cache as raw, so the
+        stale kW values would display ÷10 (12 kW as 1.2) until the next
+        scheduled refresh (codex r2 MEDIUM). Reloading through the transport
+        replaces them with raw register values within seconds. Runs in the
+        background after the Waveshare drain so the two never interleave on
+        the same bus.
+        """
+        if recovered_modbus:
+            await self._drain_modbus_buffers(recovered_modbus)
+        for serial in recovered_serials:
+            # Pre-blank BOTH caches before the reload: pylxpweb swallows
+            # parameter-read failures inside refresh() and returns with the
+            # old (cloud-kW) dict intact, so success must be proven by
+            # repopulation — the absence of an exception proves nothing
+            # (codex r4). Unknown beats wrong-by-10x in the meantime; a
+            # successful transport read repopulates raw values seconds later,
+            # and a failed one self-heals at the next parameter refresh.
+            inverter = self.get_inverter_object(serial)
+            if inverter is not None:
+                inverter.parameters = None
+            if self.data and serial in self.data.get("parameters", {}):
+                self.data["parameters"][serial] = {}
+            try:
+                await self._refresh_device_parameters(serial)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Parameter reload after attach recovery failed for %s: %s",
+                    serial,
+                    err,
+                )
+
+    def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
+        """Sync Repairs issues and device error keys with transport link state.
+
+        Called each update cycle from BOTH paths (eg4-57g):
+
+        - LOCAL passes the processed data dict — there is no cloud to fall
+          back to, so a link-down device gets an ``"error"`` key and its
+          entities go unavailable instead of frozen-fresh (base_entity
+          ``available`` checks for the key).
+        - HYBRID passes ``None`` — link-down devices keep serving
+          cloud-fallback data, so only the Repairs issues are synced.
+
+        Error-key scope (deliberate): the key is honored by MEASUREMENT
+        entities — EG4BaseSensor, EG4BaseBatterySensor, and
+        EG4BatteryBankEntity — because frozen measurements are the bug.
+        Control-entity availability (numbers, switches, selects, update
+        entities) is intentionally unchanged: those are setpoints, not
+        live readings, and this matches the never-attached degraded
+        precedent (transport_attach_failed devices also keep their
+        controls).  Parallel groups whose members are error-marked get
+        error-marked too in _process_local_parallel_groups, which runs
+        after this method.
+
+        One-shot semantics: the issue is created once per down transition
+        (tracked in ``_link_down_notified``) and deleted on recovery.  The
+        healthy-path delete is an idempotent registry no-op, which also
+        clears stale issues left behind by a restart mid-outage.
+        """
+        devices: dict[str, Any] = {}
+        if self.station is not None:
+            # HYBRID: the station owns all devices (caches mirror it).
+            for inv in self.station.all_inverters:
+                devices[str(inv.serial_number)] = inv
+            for mid in self.station.all_mid_devices:
+                devices[str(mid.serial_number)] = mid
+        else:
+            # LOCAL: devices live in the coordinator caches.
+            devices.update(self._inverter_cache)
+            devices.update(self._mid_device_cache)
+
+        for serial, device in devices.items():
+            transport = getattr(device, "transport", None)
+            if transport is None:
+                continue
+            if is_transport_link_down(device):
+                if processed is not None:
+                    device_data = processed.get("devices", {}).get(serial)
+                    if device_data is not None:
+                        device_data["error"] = "Local transport link down"
+                if serial in self._link_down_notified:
+                    continue
+                self._link_down_notified.add(serial)
+                host = getattr(transport, "host", None) or getattr(
+                    transport, "port", "?"
+                )
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"transport_link_down_{serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="transport_link_down",
+                    translation_placeholders={
+                        "serial": str(serial),
+                        "host": str(host),
+                    },
+                )
+            else:
+                if serial in self._link_down_notified:
+                    self._link_down_notified.discard(serial)
+                    _LOGGER.info(
+                        "Local transport link restored for %s — clearing Repairs issue",
+                        serial,
+                    )
+                ir.async_delete_issue(
+                    self.hass, DOMAIN, f"transport_link_down_{serial}"
+                )
+
+    def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
+        """Error-mark carried-forward parallel groups on a full-outage cycle.
+
+        On a full LOCAL outage the ``successful_devices == 0`` branch raises
+        UpdateFailed BEFORE ``_process_local_parallel_groups()`` runs, so
+        the carried-forward PG entries never get the partial-path marking —
+        their sensors would keep passing entity availability and serve the
+        stale aggregate while the coordinator wrapper suppresses the first
+        UpdateFailed cycles.  Apply the same rule the partial path uses: a
+        group is tainted when any of its members — or the GridBOSS CT
+        contributor — is error-marked (link-down).  A transient full outage
+        with no link-down marks leaves the groups alone, matching the
+        member entities (which also stay available on cached values then).
+        The carried ``parallel_group_last_polled`` stamp is left untouched
+        (no fresh-poll claim is ever made on this path).
+
+        DEPENDENCY: like the device-level marks from
+        ``_sync_transport_link_state``, this mark becomes visible through
+        the coordinator's RETAINED data only because the carry-forward in
+        ``_async_update_local_data`` shares dict references with
+        ``self.data`` (``processed["devices"].update(self.data...)``).
+        If that carry-forward ever becomes a deep copy, both marks break
+        together — the suppressed-failure window would silently serve
+        stale data as available again.
+        """
+        devices: dict[str, Any] = processed.get("devices", {})
+        error_serials = {
+            serial
+            for serial, device_data in devices.items()
+            if device_data.get("type") in ("inverter", "gridboss")
+            and "error" in device_data
+        }
+        if not error_serials:
+            return
+        gridboss_down = [
+            serial
+            for serial in error_serials
+            if devices[serial].get("type") == "gridboss"
+        ]
+        for device_data in devices.values():
+            if device_data.get("type") != "parallel_group" or "error" in device_data:
+                continue
+            members = device_data.get("member_serials") or []
+            stale = set(members) & error_serials
+            # GridBOSS CTs contribute to every group (partial-path parity).
+            stale.update(gridboss_down)
+            if stale:
+                device_data["error"] = (
+                    f"Local transport link down for member(s): "
+                    f"{', '.join(sorted(stale))}"
+                )
+
+    async def _attach_serial_transports_to_station(
+        self, configs: list[Any], result: Any
+    ) -> None:
+        """Attach Modbus serial (USB/RS485) transports to station devices.
+
+        pylxpweb's Station.attach_local_transports() only dispatches
+        modbus_tcp and wifi_dongle configs, so serial transports are
+        created and attached here with the same factory the LOCAL-only
+        path uses, mirroring the pylxpweb attach semantics (#233).
+
+        Args:
+            configs: MODBUS_SERIAL TransportConfig objects.
+            result: AttachResult updated in place with matched/unmatched/
+                failed counts so the caller's summary logging stays accurate.
+        """
+        from pylxpweb.transports import create_transport
+
+        assert self.station is not None
+        device_lookup: dict[str, Any] = {
+            inv.serial_number: inv for inv in self.station.all_inverters
+        }
+        for mid in self.station.all_mid_devices:
+            device_lookup[mid.serial_number] = mid
+
+        for config in configs:
+            device = device_lookup.get(config.serial)
+            if device is None:
+                _LOGGER.warning(
+                    "No device found with serial %s in station %s",
+                    config.serial,
+                    self.station.id,
+                )
+                result.unmatched += 1
+                result.unmatched_serials.append(config.serial)
+                continue
+
+            try:
+                transport = create_transport(
+                    "serial",
+                    port=config.serial_port,
+                    serial=config.serial,
+                    baudrate=config.serial_baudrate,
+                    parity=config.serial_parity,
+                    stopbits=config.serial_stopbits,
+                    unit_id=config.unit_id,
+                    timeout=DEFAULT_MODBUS_TIMEOUT,
+                    inverter_family=config.inverter_family,
+                    **input_block_size_kwargs(self._max_input_block_size),
+                )
+                await transport.connect()
+                device._transport = transport
+                result.matched += 1
+
+                # Tighten cache TTLs for local transport speed (inverters only,
+                # matching Station.attach_local_transports() semantics)
+                if isinstance(device, BaseInverter):
+                    device.set_transport_cache_ttls()
+
+                _LOGGER.info(
+                    "Attached modbus_serial transport to %s (%s)",
+                    config.serial,
+                    config.serial_port,
+                )
+            except Exception as err:
+                _LOGGER.error(
+                    "Failed to attach serial transport to device %s: %s",
+                    config.serial,
+                    err,
+                )
+                result.failed += 1
+                result.failed_serials.append(config.serial)
+                # Surface the degradation: the device silently falls back to
+                # cloud-only until the next reload, which is exactly the class
+                # of quiet failure #233 was filed about. Issue id includes the
+                # serial so HA de-duplicates repeat attach failures per device.
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"serial_attach_failed_{config.serial}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="serial_attach_failed",
+                    translation_placeholders={
+                        "serial": str(config.serial),
+                        "serial_port": str(config.serial_port),
+                    },
+                )
 
     async def _drain_modbus_buffers(self, inverters: list[Any]) -> None:
         """Background task: drain stale Waveshare RS485 buffer after HA restart.
@@ -1978,6 +3005,62 @@ class LocalTransportMixin(_MixinBase):
             return self.get_local_transport(serial) is not None
         # Fallback for no serial: check deprecated single-transport fields
         return self._modbus_transport is not None or self._dongle_transport is not None
+
+    def has_configured_local_transport(self, serial: str) -> bool:
+        """Whether a per-device local transport is CONFIGURED for this serial.
+
+        Config-based and stable from setup, unlike ``has_local_transport()``
+        which reflects the live attachment state. Setup-time gates that must
+        not flip across the failed-attach-then-recover window (eg4-05l) use
+        this: a configured HYBRID transport makes the parameter cache
+        local-raw as soon as the attach succeeds, even if that happens after
+        the entity platforms were set up.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True if CONF_LOCAL_TRANSPORTS contains an entry for the serial.
+        """
+        return any(c.get("serial") == serial for c in self._local_transport_configs)
+
+    def has_local_register_path(self, serial: str) -> bool:
+        """Whether ANY config-based local register path exists for this serial.
+
+        The reg-117 class of controls (no cloud parameter name — raw register
+        access only, GH #272) must be created wherever local register access
+        can be served. That is:
+
+        - local-only modes (:meth:`is_local_only`);
+        - a per-serial ``CONF_LOCAL_TRANSPORTS`` entry (modern HYBRID format);
+        - the DEPRECATED flat single-transport format (pre-v3.2 MODBUS /
+          DONGLE / HYBRID entries), whose global transport is constructed
+          directly from entry data in ``__init__`` — config-based and stable
+          from setup, exactly the property
+          :meth:`has_configured_local_transport` pins (codex P2 on PR #284:
+          that method checks only ``CONF_LOCAL_TRANSPORTS``, so flat-HYBRID
+          entries silently lost the reg-117 entity). The flat format has a
+          single inverter, so the global transport IS this serial's
+          transport — the same equivalence :meth:`get_local_transport`
+          already applies for writes.
+
+        Flat-HYBRID caveat: the legacy global transport serves WRITES (via
+        the :meth:`get_local_transport` fallback), but such entries populate
+        the parameter cache from the cloud, so raw-key reads stay unknown
+        until the entry is migrated to ``CONF_LOCAL_TRANSPORTS``.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True if a local register path (modern or legacy) exists.
+        """
+        return (
+            self.is_local_only()
+            or self.has_configured_local_transport(serial)
+            or self._modbus_transport is not None
+            or self._dongle_transport is not None
+        )
 
     def is_local_only(self) -> bool:
         """Check if using local-only connection (Modbus, Dongle, or Local multi-device).

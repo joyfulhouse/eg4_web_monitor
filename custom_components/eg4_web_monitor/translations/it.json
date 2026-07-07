@@ -374,7 +374,10 @@
           "parameter_refresh_interval": "Intervallo Aggiornamento Parametri (minuti)",
           "library_debug": "Log di Debug Libreria",
           "data_validation": "Validazione Dati Registro",
-          "include_ac_couple_pv": "Includi PV accoppiato CA nei totali"
+          "modbus_block_size": "Dimensione del blocco di lettura Modbus",
+          "include_ac_couple_pv": "Includi PV accoppiato CA nei totali",
+          "charge_control_mode": "Controllo carica batteria",
+          "discharge_control_mode": "Controllo scarica batteria"
         },
         "data_description": {
           "sensor_update_interval": "Quanto spesso eseguire il polling per gli aggiornamenti dei sensori ({min_sensor_interval}-{max_sensor_interval} secondi). Valori piu bassi forniscono aggiornamenti piu veloci ma aumentano il carico dell'API.",
@@ -384,9 +387,15 @@
           "parameter_refresh_interval": "Quanto spesso aggiornare i parametri dell'inverter come limiti SOC e impostazioni di carica ({min_param_interval}-{max_param_interval} minuti).",
           "library_debug": "Abilita il logging DEBUG per la libreria pylxpweb (mostra richieste API, risposte e operazioni interne della libreria)",
           "data_validation": "Abilita il rilevamento della corruzione per le letture dei registri locali. Valida i limiti fisici (SoC, frequenza, stato porte smart) e la monotonia energetica. Abilitare solo in caso di letture instabili (entità fantasma, picchi di energia, valori non validi).",
-          "include_ac_couple_pv": "Aggiungere la potenza dell'inverter solare accoppiato CA (dalle Smart Port del GridBOSS) ai totali PV del gruppo parallelo"
+          "modbus_block_size": "Quanti registri leggere per richiesta Modbus durante il polling locale. Conservativa usa piccole letture raggruppate supportate da ogni dongle e firmware. Veloce legge fino a 120 registri alla volta per un polling più rapido, ma i firmware dei dongle più vecchi supportano solo letture di ~40 registri: se una lettura grande fallisce, l'integrazione torna automaticamente a Conservativa (con un avviso) fino al prossimo ricaricamento.",
+          "include_ac_couple_pv": "Aggiungere la potenza dell'inverter solare accoppiato CA (dalle Smart Port del GridBOSS) ai totali PV del gruppo parallelo",
+          "charge_control_mode": "Come la batteria decide quando FERMARE la carica: SOC (anello chiuso, litio con BMS) o Tensione (anello aperto, piombo-acido / senza BMS). I controlli di limite non selezionati sono nascosti per impostazione predefinita. ⚠️ La modifica riconfigura anche l'inverter.",
+          "discharge_control_mode": "Come la batteria decide quando FERMARE la scarica: SOC (anello chiuso, litio con BMS) o Tensione (anello aperto, piombo-acido / senza BMS). I controlli di stacco non selezionati sono nascosti per impostazione predefinita. ⚠️ La modifica riconfigura anche l'inverter."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Impossibile applicare la modalità di controllo batteria all'inverter. Controlla la connessione del dispositivo e riprova."
     }
   },
   "selector": {
@@ -394,6 +403,12 @@
       "options": {
         "normal": "Normale",
         "standby": "Standby"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservativa (compatibile con tutti i firmware)",
+        "fast": "Veloce (120 registri, richiede firmware del dongle recente)"
       }
     }
   },
@@ -405,6 +420,9 @@
           "on": "Connesso",
           "off": "Disconnesso"
         }
+      },
+      "off_grid": {
+        "name": "Fuori Rete"
       }
     },
     "sensor": {
@@ -468,11 +486,37 @@
       "bt_temperature": {
         "name": "Temperatura BT"
       },
+      "operating_state": {
+        "name": "Stato Operativo",
+        "state": {
+          "standby": "Standby",
+          "fault": "Guasto",
+          "programming": "Programmazione",
+          "pv_to_grid": "PV → Rete",
+          "pv_charging": "PV → Batteria",
+          "pv_charging_to_grid": "PV → Batteria + Rete",
+          "battery_to_grid": "Batteria → Rete",
+          "pv_battery_to_grid": "PV + Batteria → Rete",
+          "ac_charging": "AC → Batteria",
+          "pv_ac_charging": "PV + AC → Batteria",
+          "off_grid_battery": "Fuori Rete (Batteria)",
+          "ac_coupled_charging": "Fuori Rete (Carica AC Couple)",
+          "pv_off_grid": "Fuori Rete (PV, instabile)",
+          "pv_charging_off_grid": "Fuori Rete (PV + Carica)",
+          "pv_battery_off_grid": "Fuori Rete (PV + Batteria)"
+        }
+      },
       "status_code": {
         "name": "Codice Stato"
       },
       "status_text": {
-        "name": "Stato"
+        "name": "Stato cloud"
+      },
+      "fault_code": {
+        "name": "Codice Guasto"
+      },
+      "warning_code": {
+        "name": "Codice Avviso"
       },
       "grid_power": {
         "name": "Potenza Rete"
@@ -652,6 +696,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "Tasso di carica batteria"
+      },
+      "quick_charge_remaining": {
+        "name": "Carica rapida rimanente"
       }
     },
     "switch": {
@@ -663,6 +710,12 @@
       },
       "off_grid_mode": {
         "name": "Modalita Isolata"
+      },
+      "fast_zero_export": {
+        "name": "Esportazione zero rapida"
+      },
+      "share_battery": {
+        "name": "Condivisione batteria"
       }
     },
     "number": {
@@ -681,8 +734,20 @@
       "ac_charge_soc_limit": {
         "name": "Limite SOC Carica AC"
       },
+      "quick_charge_duration": {
+        "name": "Durata Ricarica Rapida"
+      },
       "soc_cutoff": {
         "name": "Soglia SOC"
+      },
+      "grid_sell_back_power": {
+        "name": "Potenza di vendita alla rete"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Soglia di potenza di avvio scarica"
+      },
+      "start_charge_power_threshold": {
+        "name": "Soglia di potenza di avvio carica"
       }
     },
     "button": {
@@ -710,6 +775,122 @@
           "pv2_pv3": "PV2 & PV3",
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
+      }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "Ora di Inizio Carica AC 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "Ora di Fine Carica AC 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "Ora di Inizio Carica AC 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "Ora di Fine Carica AC 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "Ora di Inizio Carica AC 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "Ora di Fine Carica AC 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "Ora di Inizio AC First 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "Ora di Fine AC First 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "Ora di Inizio AC First 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "Ora di Fine AC First 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "Ora di Inizio AC First 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "Ora di Fine AC First 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Ora di Inizio Carica Forzata 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Ora di Fine Carica Forzata 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Ora di Inizio Carica Forzata 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Ora di Fine Carica Forzata 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Ora di Inizio Carica Forzata 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Ora di Fine Carica Forzata 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Ora di Inizio Scarica Forzata 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Ora di Fine Scarica Forzata 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Ora di Inizio Scarica Forzata 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Ora di Fine Scarica Forzata 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Ora di Inizio Scarica Forzata 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Ora di Fine Scarica Forzata 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Ora di Inizio Riduzione dei Picchi 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Ora di Fine Riduzione dei Picchi 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Ora di Inizio Riduzione dei Picchi 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Ora di Fine Riduzione dei Picchi 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Ora di Inizio Carica Generatore 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Ora di Fine Carica Generatore 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Ora di Inizio Carica Generatore 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Ora di Fine Carica Generatore 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Ora di Inizio Fuori Rete 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Ora di Fine Fuori Rete 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Ora di Inizio Fuori Rete 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Ora di Fine Fuori Rete 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Ora di Inizio Fuori Rete 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Ora di Fine Fuori Rete 3"
       }
     }
   },
@@ -745,6 +926,28 @@
           "description": "L'ID della voce di configurazione da riconciliare. Se non fornito, verranno riconciliate tutte le integrazioni {brand_name} Web Monitor con credenziali cloud."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Importa dati storici",
+      "description": "Importa lo storico energetico giornaliero a livello di impianto (produzione FV, consumo, import/export di rete, carica/scarica batteria) dal cloud {brand_name} nelle statistiche a lungo termine di Home Assistant. I dati vengono scritti come statistiche esterne separate selezionabili nella dashboard Energia; lo storico dei sensori esistenti non viene mai modificato. Rieseguire intervalli uguali o sovrapposti è sicuro.",
+      "fields": {
+        "config_entry": {
+          "name": "Voce di configurazione",
+          "description": "La voce di configurazione {brand_name} Web Monitor (impianto) di cui importare lo storico."
+        },
+        "dry_run": {
+          "name": "Prova",
+          "description": "Anteprima di ciò che verrebbe importato senza scrivere alcuna statistica."
+        },
+        "start_date": {
+          "name": "Data di inizio",
+          "description": "Primo giorno da importare (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "Data di fine",
+          "description": "Ultimo giorno da importare (YYYY-MM-DD). Predefinito: oggi. Intervallo massimo: 2 anni."
+        }
+      }
     }
   },
   "exceptions": {
@@ -759,12 +962,62 @@
     },
     "invalid_date_format": {
       "message": "Formato data non valido. Utilizzare il formato AAAA-MM-GG."
+    },
+    "cloud_required": {
+      "message": "L'importazione dello storico richiede credenziali cloud (modalità di connessione HTTP o ibrida)."
+    },
+    "date_range_too_large": {
+      "message": "L'intervallo di {range_days} giorni supera il massimo di {max_days} giorni (2 anni). Importa lo storico in blocchi più piccoli."
+    },
+    "history_api_unavailable": {
+      "message": "La libreria pylxpweb installata non fornisce l'API dello storico energetico richiesta da questo servizio. Aggiorna l'integrazione affinché venga installata la versione di pylxpweb richiesta."
+    },
+    "invalid_date_range": {
+      "message": "Intervallo di date non valido: da {start_date} a {end_date}. La data di inizio non deve essere nel futuro né successiva alla data di fine."
+    },
+    "no_devices": {
+      "message": "Nessun inverter trovato per questo impianto."
+    },
+    "station_not_ready": {
+      "message": "I dati cloud della stazione non sono ancora caricati. Attendi che l'integrazione completi il primo aggiornamento e riprova."
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "Controlli di rete rimossi da {model} {serial}",
+      "description": "I controlli **Peak Shaving** e **Forced Discharge** (gli interruttori di modalità e le impostazioni Grid Peak Shaving Power, Forced Discharge Power e Forced Discharge SOC Limit) sono stati rimossi da **{serial}** ({model}).\n\nQueste funzioni agiscono sulla miscelazione di esportazione/importazione in parallelo alla rete, non supportata dai modelli off-grid EG4 (12000XP/6000XP): i registri esistono ma le funzioni sono inerti su questo hardware.\n\nSe automazioni o dashboard facevano riferimento a queste entità, rimuovere i riferimenti. Se si ritiene che il dispositivo supporti davvero queste funzioni, segnalarlo nelle issue GitHub dell'integrazione."
+    },
+    "offgrid_battery_backup_removed": {
+      "title": "Controllo Battery Backup Mode rimosso da {model} {serial}",
+      "description": "L'interruttore **Battery Backup Mode** è stato rimosso da **{serial}** ({model}).\n\nL'attivazione di questa modalità di lavoro viene rifiutata dal firmware della famiglia off-grid EG4 (“failed to enable working mode” su un 12000XP v2), e il portale EG4 stesso non espone un interruttore di modalità di lavoro per queste unità. L'interruttore **EPS Battery Backup** non è interessato.\n\nSe automazioni o dashboard facevano riferimento a questa entità, rimuovere tali riferimenti. Se ritenete che il vostro dispositivo supporti davvero questa funzione, segnalatelo nelle issue GitHub dell'integrazione."
+    },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "AC Charge SOC Limit sostituito su {model} {serial}",
+      "description": "L'impostazione **AC Charge SOC Limit** è stata rimossa da **{serial}** ({model}).\n\nIl cloud EG4 rifiuta la scrittura di quel parametro sulla famiglia off-grid (REMOTE_SET_ERROR su un 12000XP v2) e il portale EG4 stesso non lo espone per queste unità. La finestra reale di SOC di carica CA della famiglia è esposta dalle nuove impostazioni **AC Charge Start Battery SOC** e **AC Charge End Battery SOC**, che corrispondono alla pagina della modalità di lavoro off-grid del portale.\n\nAggiorna eventuali automazioni o dashboard che facevano riferimento alla vecchia entità per usare le nuove. Se ritieni che il tuo dispositivo supporti davvero il vecchio parametro, segnalalo nelle GitHub Issues dell'integrazione."
+    },
+    "offgrid_forced_charge_times_removed": {
+      "title": "Orari Forced Charge rimossi da {model} {serial}",
+      "description": "Le impostazioni degli orari **Forced Charge** (orari di inizio/fine, finestre 1-3) sono state rimosse da **{serial}** ({model}).\n\nIl cloud EG4 rifiuta la scrittura di questi parametri sulla famiglia off-grid (REMOTE_SET_ERROR su un 12000XP v2), e il portale EG4 stesso non espone alcun orario Forced Charge per queste unità. Gli orari **AC Charge** e **AC First** non sono interessati.\n\nSe automazioni o dashboard facevano riferimento a queste entità, rimuovere tali riferimenti. Se ritenete che il vostro dispositivo supporti davvero questo orario, segnalatelo nelle issue GitHub dell'integrazione."
+    },
     "dongle_validation_disabled": {
       "title": "Validazione dati consigliata per WiFi dongle",
       "description": "Un WiFi dongle è configurato ma la **Validazione dati** è disabilitata. I WiFi dongle condividono un bus Modbus e le letture simultanee possono causare dati di registro corrotti (es. picchi di energia).\n\nPer risolvere, andare in **Impostazioni > Dispositivi e servizi > EG4 Web Monitor > Configura** e abilitare la **Validazione dati**."
+    },
+    "serial_attach_failed": {
+      "title": "Connessione seriale non riuscita per il dispositivo {serial}",
+      "description": "Impossibile aprire la connessione seriale Modbus (USB/RS485) su **{serial_port}** per il dispositivo **{serial}**. Il dispositivo sta usando temporaneamente solo i dati cloud.\n\nVerifica che l'adattatore sia collegato, che il percorso della porta sia corretto e che nessun altro software stia usando la porta, quindi ricarica l'integrazione."
+    },
+    "transport_attach_failed": {
+      "title": "Connessione locale non riuscita per il dispositivo {serial}",
+      "description": "Impossibile stabilire la connessione locale a **{host}** per il dispositivo **{serial}** — accade spesso subito dopo un riavvio di Home Assistant, finché il dongle WiFi mantiene ancora la connessione della sessione precedente. Il dispositivo sta usando temporaneamente i dati cloud.\n\nL'integrazione riprova automaticamente circa una volta al minuto; il problema si risolve da solo quando la connessione locale viene ripristinata. Se persiste, verifica che il dispositivo sia alimentato e raggiungibile su **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Connessione locale al dispositivo {serial} persa",
+      "description": "La connessione locale a **{host}** per il dispositivo **{serial}** ha smesso di rispondere dopo diversi errori di lettura consecutivi — di solito un'interruzione di rete, una caduta della VPN o un dongle/gateway riavviato. Finché il collegamento è interrotto, il dispositivo ricorre ai dati cloud se sono configurate credenziali cloud; altrimenti le sue entità diventano non disponibili invece di mostrare valori obsoleti.\n\nL'integrazione continua a ritentare la connessione locale a ogni ciclo di aggiornamento; il problema si risolve da solo quando il collegamento si ripristina. Se persiste, verifica che il dispositivo sia alimentato e raggiungibile su **{host}**."
+    },
+    "unknown_family_fallback": {
+      "title": "Famiglia inverter dedotta dal modello per {serial}",
+      "description": "Il dispositivo **{serial}** non ha riportato una famiglia di inverter riconosciuta, quindi le sue capacità sono state dedotte dal nome del modello **{model}** (famiglia **{family}**). I sensori specifici di fase che non hanno mai avuto dati (ad es. i sensori trifase R/S/T su hardware split-phase) non vengono più creati.\n\nSe qualche automazione faceva riferimento a quei sensori, aggiornala. Se questo dispositivo è davvero trifase, imposta **Tipo di rete** nelle opzioni dell'integrazione. Segnala inoltre il codice tipo dispositivo del firmware (vedi il sensore diagnostico «Device Type Code») così che possa essere mappato."
     }
   }
 }

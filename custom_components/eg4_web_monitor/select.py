@@ -21,15 +21,18 @@ else:
 from . import EG4ConfigEntry
 from .const import (
     DEVICE_TYPE_GRIDBOSS,
+    PARAM_FUNC_BAT_CHARGE_CONTROL,
+    PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     PARAM_HOLD_PV_INPUT_MODE,
-    SUPPORTED_INVERTER_MODELS,
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import _get_model_from_coordinator
 from .utils import (
+    async_write_with_cloud_fallback,
     create_device_info,
     generate_entity_id,
     generate_unique_id,
+    is_supported_control_model,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,12 +49,8 @@ def _get_model(
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
 
-# Operating mode options
+# Operating mode options (FUNC_SET_TO_STANDBY: true = Normal, false = Standby)
 OPERATING_MODE_OPTIONS = ["Normal", "Standby"]
-OPERATING_MODE_MAPPING = {
-    "Normal": True,  # True = normal mode (FUNC_SET_TO_STANDBY = true means Normal)
-    "Standby": False,  # False = standby mode (FUNC_SET_TO_STANDBY = false means Standby)
-}
 
 # PV Input Mode options (register 20, HOLD_PV_INPUT_MODE)
 # Maps display label -> raw register value
@@ -105,23 +104,34 @@ async def async_setup_entry(
         if device_type == "inverter":
             # Get device model for compatibility check
             model = device_data.get("model", "Unknown")
-            model_lower = model.lower()
 
             _LOGGER.debug(
-                "Evaluating select compatibility: device=%s, model=%s",
+                "Evaluating select compatibility: device=%s, model=%s, family=%s",
                 serial,
                 model,
+                (device_data.get("features") or {}).get("inverter_family"),
             )
 
-            if any(supported in model_lower for supported in SUPPORTED_INVERTER_MODELS):
+            # Matches by model-name substring or, for cloud deviceTypeText
+            # variants the substrings miss (e.g. "SNA-US 15K", #259), by the
+            # detected inverter family.
+            if is_supported_control_model(device_data):
                 # Add operating mode select
                 entities.append(
                     EG4OperatingModeSelect(coordinator, serial, device_data)
                 )
                 # Add PV input mode select
                 entities.append(EG4PVInputModeSelect(coordinator, serial, device_data))
+                # Add battery charge/discharge control mode selects (SOC vs Voltage)
+                entities.append(
+                    EG4BatteryChargeControlSelect(coordinator, serial, device_data)
+                )
+                entities.append(
+                    EG4BatteryDischargeControlSelect(coordinator, serial, device_data)
+                )
                 _LOGGER.debug(
-                    "Added operating mode + PV input mode selects for device %s (%s)",
+                    "Added operating mode, PV input mode, and battery control "
+                    "selects for device %s (%s)",
                     serial,
                     model,
                 )
@@ -233,6 +243,8 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
         # Check if the device supports operating mode control
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
@@ -354,6 +366,8 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             return bool(device_data.get("type") == "inverter")
@@ -378,25 +392,30 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
+            async def _local_write() -> None:
                 # Local Modbus: write register value directly
                 await self.coordinator.write_named_parameter(
                     PARAM_HOLD_PV_INPUT_MODE, int_value, serial=self._serial
                 )
-            elif self.coordinator.client is not None:
+
+            async def _cloud_write() -> None:
                 # Cloud API: write via generic parameter write
-                result = await self.coordinator.client.api.control.write_parameter(
+                client = self.coordinator.require_client()
+                result = await client.api.control.write_parameter(
                     self._serial, "HOLD_PV_INPUT_MODE", str(int_value)
                 )
                 if not result.success:
                     raise HomeAssistantError(f"Failed to set PV input mode to {option}")
-                inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
-                    await inverter.refresh(force=True, include_parameters=True)
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"PV input mode to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={PARAM_HOLD_PV_INPUT_MODE: int_value},
+            )
 
             _LOGGER.info(
                 "Successfully set PV input mode to %s for device %s",
@@ -482,6 +501,8 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
         if self.coordinator.data and "devices" in self.coordinator.data:
             device_data = self.coordinator.data["devices"].get(self._serial, {})
             return bool(device_data.get("type") == DEVICE_TYPE_GRIDBOSS)
@@ -506,24 +527,30 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = option
             self.async_write_ha_state()
 
-            if self.coordinator.has_local_transport(self._serial):
+            async def _local_write() -> None:
                 await self.coordinator.write_named_parameter(
                     f"BIT_MIDBOX_SP_MODE_{self._port}",
                     int_value,
                     serial=self._serial,
                 )
-            elif self.coordinator.client is not None:
-                result = await self.coordinator.client.api.control.set_smart_port_mode(
+
+            async def _cloud_write() -> None:
+                client = self.coordinator.require_client()
+                result = await client.api.control.set_smart_port_mode(
                     self._serial, self._port, int_value
                 )
                 if not result.success:
                     raise HomeAssistantError(
                         f"Failed to set smart port {self._port} mode to {option}"
                     )
-            else:
-                raise HomeAssistantError(
-                    "No local transport or cloud API available for parameter write."
-                )
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"smart port {self._port} mode to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+            )
 
             _LOGGER.info(
                 "Successfully set smart port %d mode to %s for device %s",
@@ -546,3 +573,156 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
             self._optimistic_state = None
             self.async_write_ha_state()
             raise
+
+
+# Battery control regime options (SOC vs Voltage). Label → voltage_mode bool.
+BATTERY_CONTROL_OPTIONS = ["SOC", "Voltage"]
+_BATTERY_CONTROL_TO_VOLTAGE = {"SOC": False, "Voltage": True}
+
+
+class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
+    """Base select for the battery charge/discharge control regime.
+
+    Controls register 179 bit 9 (charge) or bit 10 (discharge): SOC
+    (closed-loop) vs Voltage (open-loop). Live read/write in all connection
+    modes — usable in automations. Always created (it is the regime knob),
+    unlike the SOC/Voltage limit entities which are gated by the chosen mode.
+    """
+
+    # Overridden by subclasses.
+    _param_key: str = ""
+    _control_name: str = ""
+    _id_suffix: str = ""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        device_data: dict[str, Any],
+    ) -> None:
+        """Initialize the battery control mode select."""
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+
+        self._serial = serial
+        self._optimistic_state: str | None = None
+        self._model = _get_model(coordinator, serial)
+
+        self._attr_unique_id = generate_unique_id(serial, self._id_suffix)
+        self._attr_entity_id = generate_entity_id(
+            "select", self._model, serial, self._id_suffix
+        )
+
+        self._attr_has_entity_name = True
+        self._attr_name = self._control_name
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_icon = "mdi:battery-sync"
+        self._attr_options = BATTERY_CONTROL_OPTIONS
+
+        self._attr_device_info = create_device_info(serial, self._model)
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the current control mode (SOC/Voltage) from polled params.
+
+        Returns None (unknown) until reg 179 has been polled, rather than a
+        misleading default — the regime mirrors live hardware state.
+        """
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            params = self.coordinator.data["parameters"].get(self._serial, {})
+            raw = params.get(self._param_key)
+            if raw is not None:
+                return "Voltage" if bool(raw) else "SOC"
+
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        if self.coordinator.data and "devices" in self.coordinator.data:
+            device_data = self.coordinator.data["devices"].get(self._serial, {})
+            return bool(device_data.get("type") == "inverter")
+        return False
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the battery control mode via local Modbus or cloud API."""
+        if option not in BATTERY_CONTROL_OPTIONS:
+            raise HomeAssistantError(f"Invalid battery control mode: {option}")
+
+        voltage_mode = _BATTERY_CONTROL_TO_VOLTAGE[option]
+
+        try:
+            _LOGGER.info(
+                "Setting %s to %s for device %s",
+                self._control_name,
+                option,
+                self._serial,
+            )
+            self._optimistic_state = option
+            self.async_write_ha_state()
+
+            async def _local_write() -> None:
+                await self.coordinator.write_named_parameter(
+                    self._param_key, voltage_mode, serial=self._serial
+                )
+
+            async def _cloud_write() -> None:
+                client = self.coordinator.require_client()
+                result = await client.api.control.control_function(
+                    self._serial, self._param_key, voltage_mode
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set {self._control_name} to {option}"
+                    )
+                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
+
+            await async_write_with_cloud_fallback(
+                self.coordinator,
+                self._serial,
+                f"{self._control_name} to {option}",
+                local_write=_local_write,
+                cloud_write=_cloud_write,
+                local_values={self._param_key: voltage_mode},
+            )
+
+            self._optimistic_state = None
+            # The inverter firmware syncs the battery control regime across the
+            # whole parallel group, so refresh ALL inverters' parameters (not
+            # just this serial) so sibling Select entities and the SOC/Voltage
+            # limit "is_effective" indicators reflect the propagated change
+            # promptly instead of waiting for the throttled poll.
+            await self.coordinator.refresh_all_device_parameters()
+
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to set %s to %s for device %s: %s",
+                self._control_name,
+                option,
+                self._serial,
+                e,
+            )
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+
+
+class EG4BatteryChargeControlSelect(EG4BatteryControlModeSelect):
+    """Select for battery charge control mode (register 179 bit 9)."""
+
+    _param_key = PARAM_FUNC_BAT_CHARGE_CONTROL
+    _control_name = "Battery Charge Control"
+    _id_suffix = "battery_charge_control"
+
+
+class EG4BatteryDischargeControlSelect(EG4BatteryControlModeSelect):
+    """Select for battery discharge control mode (register 179 bit 10)."""
+
+    _param_key = PARAM_FUNC_BAT_DISCHARGE_CONTROL
+    _control_name = "Battery Discharge Control"
+    _id_suffix = "battery_discharge_control"

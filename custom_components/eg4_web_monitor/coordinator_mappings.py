@@ -5,19 +5,28 @@ maintainability. These map pylxpweb transport/device objects to sensor
 key dictionaries used by Home Assistant entities.
 """
 
+import dataclasses
+import inspect
 import logging
 from collections.abc import Callable
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BLOCK_SIZE_CONSERVATIVE,
+    BLOCK_SIZE_PRESET_REGISTERS,
     DEFAULT_MODBUS_UNIT_ID,
     GRID_TYPE_SINGLE_PHASE,
     GRID_TYPE_SPLIT_PHASE,
     GRID_TYPE_THREE_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
+    INVERTER_FAMILY_EG4_HYBRID,
+    INVERTER_FAMILY_LXP,
     LEGACY_FAMILY_MAP,
+    MODEL_NAME_FAMILY_FALLBACK,
+    operating_state_slug,
 )
 
 if TYPE_CHECKING:
@@ -140,6 +149,63 @@ def alias_common_voltage_sensors(
         sensors["eps_voltage"] = v
 
 
+# NOTE (#335): the former apply_eps_load_power_sensors() helper (#197) that
+# aliased eps_power_l1/l2 onto eps_load_power_l1/l2 and summed them into
+# eps_load_power was DELETED.  Regs 129/130 / cloud pEpsL1N/pEpsL2N are the
+# COMBINED backup-path output (smart load + EPS loads) — the #197 "sum matches
+# cloud epsLoadPower" validation was a coincidence (smart load idle).  The
+# eps_load_power_l1/l2 keys are retired (no per-leg EPS-load source exists on
+# any path) and eps_load_power now maps the real cloud epsLoadPower field via
+# the HTTP property map (cloud-only; see _get_inverter_property_map()).
+
+
+# Families whose cloud pLoad170 mirror is trustworthy for output_power:
+# EG4_HYBRID is live-verified (18kPV pLoad170=2395 / FlexBOSS21 2365,
+# 2026-06-10) and LXP carries the canonical reg-170 pairing with no
+# zeroing evidence.  EG4_OFFGRID is excluded (#197: the cloud zeroes the
+# mirror), and so is UNKNOWN or any unrecognized family — the pylxpweb
+# InverterFamily enum emits the truthy string "UNKNOWN" on failed
+# detection, so membership in this allowlist (not a not-OFFGRID check)
+# is the only safe test (codex r2 HIGH).
+_CLOUD_PLOAD170_TRUSTED_FAMILIES: frozenset[str] = frozenset(
+    {INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP}
+)
+
+
+def drop_offgrid_cloud_output_power(
+    sensors: dict[str, Any],
+    inverter_family: str | None,
+    has_transport_runtime: bool,
+) -> None:
+    """Drop cloud-sourced ``output_power`` unless its mirror is trusted.
+
+    ``output_power`` carries reg-170 load-output semantics on every path,
+    but the cloud ZEROES its reg-170 mirror (``pLoad170``) for EG4_OFFGRID
+    models (12000XP/6000XP, issue #197).  Without transport runtime the
+    cloud-mapped value is that bogus zero — remove the key rather than
+    publish a false 0 W load.  Fail-closed like the #197 entity gate in
+    sensor.py: the value survives only when it came from the local register
+    (transport runtime present) or the family is in the positively-known
+    trusted allowlist.  A transiently unknown family costs one cycle of
+    the sensor on cloud-connected EG4_HYBRID/LXP systems; the alternative
+    is corrupt data on EG4_OFFGRID.
+
+    Called from the cloud/hybrid device processing path only — the LOCAL
+    mapping reads reg 170 directly, which is always genuine.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+        inverter_family: Detected family string, or None when unknown.
+        has_transport_runtime: True when Modbus transport runtime backs the
+            mapped value (pylxpweb ``power_output`` prefers the transport).
+    """
+    if has_transport_runtime:
+        return
+    if inverter_family in _CLOUD_PLOAD170_TRUSTED_FAMILIES:
+        return
+    sensors.pop("output_power", None)
+
+
 # ---------------------------------------------------------------------------
 # Static sensor key sets — extracted from the mapping function dicts below.
 # Used by _build_static_local_data() for immediate entity creation during
@@ -204,6 +270,13 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "radiator2_temperature",
         "bt_temperature",
         "status_code",
+        # Friendly decode of status_code (issue #262); same value all modes.
+        "operating_state",
+        # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields;
+        # BMS code merged in as fallback by pylxpweb).  LOCAL/HYBRID only —
+        # the cloud runtime endpoint has no faultCode/warningCode (eg4-23a6).
+        "fault_code",
+        "warning_code",
         "grid_current_l1",
         "grid_current_l2",
         "grid_current_l3",
@@ -214,6 +287,17 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "eps_power_l2",
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",
+        # EG4_OFFGRID confirmed registers (issue #197): load power (reg 170)
+        # and battery discharge power (reg 11).  Entity creation is
+        # family-gated via OFFGRID_ONLY_SENSORS in sensor.py.
+        # NOTE (#335): eps_load_power is NOT here — it is a CLOUD-ONLY sensor
+        # (cloud epsLoadPower field) like smart_load_power/grid_load_power;
+        # regs 129/130 carry the COMBINED backup output (eps_power_l1/l2
+        # above), and no local register for the EPS-loads subset is known
+        # (needs XP hardware probing).  The former eps_load_power_l1/l2
+        # aliases were retired for the same reason.
+        "load_power",
+        "battery_discharge_power",
         # US split-phase per-leg power (regs 195-204)
         "inverter_power_l1",
         "inverter_power_l2",
@@ -445,13 +529,31 @@ GRIDBOSS_SENSOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Smart port status keys (smart_port{1-4}_status).  Written into the GridBOSS
+# sensors dict by _filter_unused_smart_port_sensors() on every successful real
+# poll — including its skip-filtering path for invalid statuses — but never
+# present in the static first-refresh placeholder data.
+SMART_PORT_STATUS_KEYS: frozenset[str] = frozenset(
+    f"smart_port{port}_status" for port in range(1, 5)
+)
+
+# Per-cycle authority marker for the stale smart-port registry cleanup in
+# __init__.py (#217).  _filter_unused_smart_port_sensors() writes it ONLY when
+# the current cycle had a fresh, complete good status read (all 4 ports
+# present and in range 0-2).  Static placeholder data, suspect-skip cycles,
+# cached-fallback cycles, and partial reads never carry it — the cleanup must
+# not remove registry entries based on any of those (codex r1 HIGH, r2
+# HIGH/MEDIUM: stale session caches and partial reads are not proof that the
+# dynamic power/energy keys reflect the real port configuration).
+SMART_PORT_VALIDATED_KEY = "smart_port_statuses_validated"
+
 # Keys that live in the coordinator sensors dict but must NOT become HA sensor
 # entities.  They are read by select entities and internal coordinator logic,
 # but are excluded from both the static entity-creation path and the
 # late-registration listener in sensor.py.
-GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = frozenset(
-    f"smart_port{port}_status" for port in range(1, 5)
-)
+GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = SMART_PORT_STATUS_KEYS | {
+    SMART_PORT_VALIDATED_KEY
+}
 
 # Smart port keys that should NOT be included in static entity creation.
 # These are dynamically added by _filter_unused_smart_port_sensors() based on
@@ -556,7 +658,19 @@ def _build_runtime_sensor_mapping(
     Returns:
         Dictionary mapping sensor keys to values.
     """
-    return {
+    # Net grid flow (eg4-9wf): grid_power = import − export (positive = import),
+    # from regs 27/26 (power_to_user/power_to_grid) — the same formula the
+    # CLOUD path computes in _process_inverter_object and the GridBOSS sign
+    # convention.  Reg 17 (Prec) is RECTIFIER power and feeds the separate
+    # rectifier_power sensor; it must never masquerade as grid power.
+    grid_import = runtime_data.power_from_grid
+    grid_export = runtime_data.power_to_grid
+    net_grid_power = (
+        grid_import - grid_export
+        if grid_import is not None and grid_export is not None
+        else None
+    )
+    mapping: dict[str, Any] = {
         # PV/Solar input
         "pv1_voltage": runtime_data.pv1_voltage,
         "pv1_power": runtime_data.pv1_power,
@@ -586,6 +700,9 @@ def _build_runtime_sensor_mapping(
         "battery_current": runtime_data.battery_current,
         "state_of_charge": runtime_data.battery_soc,
         "battery_temperature": runtime_data.battery_temperature,
+        # Battery discharge power (reg 11 / cloud pDisCharge) — entity gated
+        # to EG4_OFFGRID via OFFGRID_ONLY_SENSORS (issue #197).
+        "battery_discharge_power": runtime_data.battery_discharge_power,
         # Grid - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
         # Note: R/S/T registers valid on LXP, garbage on US split-phase systems
         # Note: L1/L2 registers valid on EG4_OFFGRID/EG4_HYBRID split-phase systems
@@ -596,15 +713,17 @@ def _build_runtime_sensor_mapping(
         "grid_voltage_l1": runtime_data.grid_l1_voltage,
         "grid_voltage_l2": runtime_data.grid_l2_voltage,
         "grid_frequency": runtime_data.grid_frequency,
-        "grid_power": runtime_data.grid_power,
+        "grid_power": net_grid_power,
         "grid_export_power": runtime_data.power_to_grid,
         # Inverter output
         "ac_power": runtime_data.inverter_power,
         # Power factor (Modbus reg 19, 0.0-1.0). Also available from cloud "pf"
         # via the inverter property map; surfaced here so LOCAL exposes it too.
         "power_factor": runtime_data.power_factor,
-        # Note: load_power removed - register 27 (pToUser) is grid import, NOT consumption
-        # Use consumption_power sensor instead (computed from energy balance)
+        # Note: the OLD load_power (register 27 pToUser) was removed — that
+        # register is grid import, NOT consumption.  load_power now carries
+        # register 170 (Pload) below; whole-home consumption stays on the
+        # consumption_power sensor (energy balance).
         # EPS/Backup - 3-phase R/S/T (LXP) and split-phase L1/L2 (EG4_OFFGRID/EG4_HYBRID)
         "eps_voltage_r": runtime_data.eps_voltage_r,
         "eps_voltage_s": runtime_data.eps_voltage_s,
@@ -622,6 +741,11 @@ def _build_runtime_sensor_mapping(
         # using inverter.consumption_power (energy balance calculation from pylxpweb)
         # Output power (split-phase total)
         "output_power": runtime_data.output_power,
+        # Load power (reg 170, "Pload" in the 6kXP Modbus PDF).  Valid both
+        # grid-tied and in EPS mode on EG4_OFFGRID; the cloud zeroes its
+        # reg-170 mirror for that family, so the LOCAL register is the only
+        # trusted source (issue #197).  Entity gated to EG4_OFFGRID.
+        "load_power": runtime_data.output_power,
         # Generator
         "generator_voltage": runtime_data.generator_voltage,
         "generator_frequency": runtime_data.generator_frequency,
@@ -650,6 +774,14 @@ def _build_runtime_sensor_mapping(
         "bt_temperature": runtime_data.temperature_t1,
         # Status
         "status_code": runtime_data.device_status,
+        # Friendly operating-state slug decoded from status_code (issue #262).
+        # Shared decode -> identical to the CLOUD/HYBRID path.
+        "operating_state": operating_state_slug(runtime_data.device_status),
+        # Fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields) — raw
+        # passthrough; pylxpweb already merged the BMS code in as a fallback
+        # when the inverter code reads 0 (eg4-23a6).
+        "fault_code": runtime_data.fault_code,
+        "warning_code": runtime_data.warning_code,
         # Inverter RMS current (3-phase R/S/T mapped to L1/L2/L3)
         # For local mode (Modbus): I_IINV_RMS (reg 18), I_IINV_RMS_S (reg 190), I_IINV_RMS_T (reg 191)
         # For HTTP mode: These values are not returned by the cloud API
@@ -662,6 +794,15 @@ def _build_runtime_sensor_mapping(
         "max_charge_current": runtime_data.bms_charge_current_limit,
         "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
+    # NOTE (#335): eps_load_power (the EPS-loads subset of the backup output)
+    # is deliberately NOT mapped here.  Regs 129/130 are the COMBINED
+    # backup-path legs (already on eps_power_l1/l2 above) — with a GEN-port
+    # smart load active they include the smart-load draw (#222: 6000XP live,
+    # L1+L2 3371 W = smartLoadPower 2999 + epsLoadPower 365).  No local
+    # register for the subset is validated (needs XP hardware probing), so
+    # the sensor is CLOUD-ONLY for now: absent in pure LOCAL, populated in
+    # CLOUD/HYBRID whenever cloud runtime is fetched (HTTP property map).
+    return mapping
 
 
 def _energy_balance(
@@ -1332,6 +1473,136 @@ def _parse_inverter_family(family_str: str | None) -> Any:
         return None
 
 
+def _family_from_model_name(model: str | None) -> str | None:
+    """Map a device model name to its inverter family (fallback path).
+
+    Only consulted when register/cloud-based family detection could not
+    resolve the family. Matching is case-insensitive against
+    :data:`MODEL_NAME_FAMILY_FALLBACK`.
+
+    Args:
+        model: Device model string (e.g. "6000XP", "FlexBOSS21").
+
+    Returns:
+        Family string ("EG4_OFFGRID"/"EG4_HYBRID") or None if unrecognized.
+    """
+    if not model:
+        return None
+    return MODEL_NAME_FAMILY_FALLBACK.get(model.strip().upper())
+
+
+def _model_fallback_profile(model: str | None) -> dict[str, Any] | None:
+    """Derive a full family feature profile from a device model name.
+
+    Builds the same feature dict shape as :func:`_features_from_family` by
+    routing the model-mapped family through pylxpweb's canonical
+    ``InverterFeatures`` — so the fallback profile is complete (phase flags,
+    discharge recovery, volt-watt, PV string count, grid type), not just a
+    split-phase patch.
+
+    Args:
+        model: Device model string.
+
+    Returns:
+        Feature dict, or None when the model does not map to a family.
+    """
+    family_str = _family_from_model_name(model)
+    if family_str is None:
+        return None
+
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
+
+    feat = InverterFeatures.from_family(InverterFamily(family_str))
+    if feat is None:
+        # Defensive: all fallback families have a representative profile.
+        return None
+    return _features_dict_from_inverter_features(feat)
+
+
+def _apply_model_family_fallback(
+    features: dict[str, Any], model: str | None, serial: str | None = None
+) -> dict[str, Any]:
+    """Re-derive the feature profile from the model name when family is UNKNOWN.
+
+    Some firmware reports a HOLD_DEVICE_TYPE_CODE that pylxpweb cannot map
+    (e.g. 6000XP on ccaa-140A0A, issue #219). ``detect_features()`` then
+    yields family=UNKNOWN whose conservative defaults set
+    ``split_phase=False`` — silently starving all L1/L2 sensors (eps_power_l1,
+    eps_power_l2, ...). When the device *model* string identifies a known
+    family, the family-default layer is rebuilt from it instead.
+
+    Detection-derived refinements survive the fallback: any detected value
+    that deviates from the pure-UNKNOWN baseline was set by something real —
+    pylxpweb's runtime register probing (``_probe_optional_features``) or an
+    explicit PV string count — and overrides the family profile, mirroring
+    pylxpweb's own family-defaults-then-probe layering. The real (unmapped)
+    ``device_type_code`` is always preserved for diagnostics so users can
+    report it for proper mapping.
+
+    Args:
+        features: Feature dict from ``_features_dict_from_inverter_features``.
+        model: Device model string (cloud ``deviceTypeText`` or config model).
+        serial: Device serial for logging context.
+
+    Returns:
+        The fallback feature dict, or *features* unchanged when detection
+        resolved a real family or the model is unrecognized.
+    """
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
+
+    if features.get("inverter_family") != InverterFamily.UNKNOWN.value:
+        return features
+
+    fallback = _model_fallback_profile(model)
+    if fallback is None:
+        return features
+
+    # Pure-UNKNOWN baseline (no probe refinements): fields where the detected
+    # dict matches this baseline carry no information and take the fallback
+    # profile's value; deviations were genuinely detected and win.
+    baseline = _features_dict_from_inverter_features(InverterFeatures())
+
+    merged = dict(fallback)
+    for key, detected_value in features.items():
+        if key in ("inverter_family", "device_type_code"):
+            # inverter_family: replacing UNKNOWN is the whole point.
+            # device_type_code: handled explicitly below.
+            continue
+        if key not in baseline or detected_value != baseline[key]:
+            merged[key] = detected_value
+
+    # Keep the real (unmapped) code — the representative profile's code is
+    # synthetic and would hide the value users need to report.
+    if "device_type_code" in features:
+        merged["device_type_code"] = features["device_type_code"]
+
+    # pv_string_count: the baseline default is itself a VALID probed value, so
+    # value-difference is not usable as provenance for this field — a probe
+    # that landed exactly on the default would be clobbered by the profile.
+    # An explicitly detected count always wins over the fallback profile.
+    if "pv_string_count" in features:
+        merged["pv_string_count"] = features["pv_string_count"]
+
+    # Provenance breadcrumbs: the diagnostic inverter_family sensor reports
+    # the EFFECTIVE family (so downstream gating works), and these companion
+    # keys keep the raw detection visible in coordinator data/diagnostics so
+    # the upstream pylxpweb mapping gap stays reportable.
+    merged["family_source"] = "model_fallback"
+    merged["detected_inverter_family"] = features.get(
+        "inverter_family", InverterFamily.UNKNOWN.value
+    )
+
+    _LOGGER.info(
+        "Inverter family UNKNOWN for %s (device_type_code=%s); derived family "
+        "%s from model name %r",
+        serial or "unknown serial",
+        features.get("device_type_code"),
+        merged["inverter_family"],
+        model,
+    )
+    return merged
+
+
 def _apply_grid_type_override(features: dict[str, Any], grid_type: str) -> None:
     """Override phase-specific feature flags based on user-selected grid type.
 
@@ -1396,6 +1667,7 @@ def _features_from_family(
     family_str: str | None,
     device_type_code: int | None = None,
     grid_type: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Derive feature flags from inverter family and device type code.
 
@@ -1419,6 +1691,11 @@ def _features_from_family(
             LXP-LB).
         grid_type: User-selected grid type override. When provided, overrides the
             phase flags. None means no override (backward compatible).
+        model: Device model string from config. Used as a last-resort family
+            fallback (issue #219) when the family is missing/UNKNOWN — a known
+            model (e.g. "6000XP") then supplies its family profile. A
+            known-but-ambiguous family (LXP without device type code) is never
+            model-overridden.
 
     Returns:
         Feature dict suitable for ``_should_create_sensor`` filtering. Empty dict
@@ -1426,16 +1703,43 @@ def _features_from_family(
         code (conservative: creates all sensors).
     """
     family = _parse_inverter_family(family_str)
-    if family is None:
-        return {}
 
-    from pylxpweb.devices.inverters import InverterFeatures
+    from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
 
-    feat = InverterFeatures.from_family(family, device_type_code)
+    feat = (
+        InverterFeatures.from_family(family, device_type_code)
+        if family is not None
+        else None
+    )
+
     if feat is None:
-        return {}
+        # A resolved-but-ambiguous family (LXP needs a device type code to
+        # pick EU three-phase vs LB split-phase) keeps the conservative
+        # create-all fallback — a contradictory model must not pick a side.
+        if family is not None and family != InverterFamily.UNKNOWN:
+            return {}
 
-    features = _features_dict_from_inverter_features(feat)
+        # Model-name fallback (issue #219): family missing or UNKNOWN.
+        features = _model_fallback_profile(model)
+        if features is None:
+            return {}
+        # Provenance breadcrumbs (mirror _apply_model_family_fallback): keep
+        # the raw config family visible and let the static-data builder
+        # detect that the fallback engaged (Repairs notice for legacy
+        # UNKNOWN entries whose create-all sensor set is now pruned).
+        features["family_source"] = "model_fallback"
+        features["detected_inverter_family"] = (
+            str(family_str) if family_str else InverterFamily.UNKNOWN.value
+        )
+        _LOGGER.info(
+            "Inverter family %r unresolved in config; derived family %s from "
+            "model name %r",
+            family_str,
+            features["inverter_family"],
+            model,
+        )
+    else:
+        features = _features_dict_from_inverter_features(feat)
 
     # The only integration-specific layer on top of pylxpweb's canonical
     # capabilities: apply the user-selected grid-type override when present.
@@ -1463,8 +1767,73 @@ def _derive_model_from_family(
     return INVERTER_FAMILY_DEFAULT_MODELS.get(family_str, fallback)
 
 
+# ---------------------------------------------------------------------------
+# Modbus input-register block size (#254)
+# ---------------------------------------------------------------------------
+
+# The conservative register count — anything at or below this means "plain
+# grouped reads", which needs no transport parameter at all.
+_CONSERVATIVE_BLOCK_REGISTERS = BLOCK_SIZE_PRESET_REGISTERS[BLOCK_SIZE_CONSERVATIVE]
+
+
+@lru_cache(maxsize=1)
+def _warn_block_size_unsupported() -> bool:
+    """Warn once per HA run that the installed pylxpweb lacks the parameter."""
+    _LOGGER.warning(
+        "Modbus read block size is set to Fast, but the installed pylxpweb "
+        "does not support max_input_block_size yet — using the conservative "
+        "grouped reads. Update pylxpweb to enable faster polling."
+    )
+    return True
+
+
+def input_block_size_kwargs(max_input_block_size: int) -> dict[str, Any]:
+    """Feature-detected transport kwargs for the configured read block size.
+
+    Returns ``{"max_input_block_size": N}`` when a non-conservative size is
+    configured AND the installed pylxpweb transports accept the parameter
+    (added after 0.9.36b19); otherwise ``{}``, so transport construction
+    stays silently conservative on released library versions (#254, same
+    fallback approach as #281).
+
+    Detection uses ``ModbusTransport`` as the representative signature — the
+    parameter ships on all local transports in the same pylxpweb release.
+    """
+    if max_input_block_size <= _CONSERVATIVE_BLOCK_REGISTERS:
+        return {}
+    from pylxpweb.transports import ModbusTransport
+
+    if (
+        "max_input_block_size"
+        not in inspect.signature(ModbusTransport.__init__).parameters
+    ):
+        _warn_block_size_unsupported()
+        return {}
+    return {"max_input_block_size": max_input_block_size}
+
+
+def transport_config_block_size_kwargs(max_input_block_size: int) -> dict[str, Any]:
+    """Feature-detected ``TransportConfig`` kwargs for the read block size.
+
+    ``TransportConfig`` is a dataclass — passing an unknown field raises
+    TypeError on released pylxpweb (0.9.36b19), so the field is included
+    only when the installed library defines it (#254).
+    """
+    if max_input_block_size <= _CONSERVATIVE_BLOCK_REGISTERS:
+        return {}
+    from pylxpweb.transports.config import TransportConfig
+
+    if not any(
+        f.name == "max_input_block_size" for f in dataclasses.fields(TransportConfig)
+    ):
+        _warn_block_size_unsupported()
+        return {}
+    return {"max_input_block_size": max_input_block_size}
+
+
 def _build_transport_configs(
     config_list: list[dict[str, Any]],
+    max_input_block_size: int | None = None,
 ) -> list[Any]:
     """Convert stored config dicts to TransportConfig objects.
 
@@ -1472,11 +1841,20 @@ def _build_transport_configs(
         config_list: List of transport config dicts from CONF_LOCAL_TRANSPORTS.
             Each dict should have: serial, transport_type, host, port, and
             type-specific fields (unit_id for modbus, dongle_serial for dongle).
+        max_input_block_size: Configured Modbus read block size in registers
+            (#254). Included in the configs only when non-conservative AND the
+            installed pylxpweb supports it; None means "not configured".
 
     Returns:
         List of TransportConfig objects ready for Station.attach_local_transports().
     """
     from pylxpweb.transports.config import TransportConfig, TransportType
+
+    block_size_kwargs = (
+        transport_config_block_size_kwargs(max_input_block_size)
+        if max_input_block_size is not None
+        else {}
+    )
 
     configs = []
     for item in config_list:
@@ -1487,21 +1865,33 @@ def _build_transport_configs(
             inverter_family = _parse_inverter_family(item.get("inverter_family"))
 
             # Build type-specific kwargs
-            extra_kwargs: dict[str, Any] = {}
+            extra_kwargs: dict[str, Any] = dict(block_size_kwargs)
             if transport_type == TransportType.MODBUS_TCP:
                 extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
             elif transport_type == TransportType.WIFI_DONGLE:
                 extra_kwargs["dongle_serial"] = item.get("dongle_serial", "")
             elif transport_type == TransportType.MODBUS_SERIAL:
-                extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
-                extra_kwargs["serial_port"] = item.get("serial_port", "")
-                extra_kwargs["serial_baudrate"] = item.get("serial_baudrate", 19200)
-                extra_kwargs["serial_parity"] = item.get("serial_parity", "N")
-                extra_kwargs["serial_stopbits"] = item.get("serial_stopbits", 1)
+                # Coerce numeric fields defensively: entries stored by older
+                # versions (or hand-edited) may hold strings/None, which would
+                # raise TypeError deep in TransportConfig validation and abort
+                # the whole setup instead of skipping one bad config (#233).
+                extra_kwargs["unit_id"] = int(
+                    item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
+                )
+                extra_kwargs["serial_port"] = str(item.get("serial_port", ""))
+                extra_kwargs["serial_baudrate"] = int(
+                    item.get("serial_baudrate", 19200)
+                )
+                extra_kwargs["serial_parity"] = str(item.get("serial_parity", "N"))
+                extra_kwargs["serial_stopbits"] = int(item.get("serial_stopbits", 1))
 
-            # For serial transport, host/port are optional
+            # Serial transports have no host/port in stored config dicts;
+            # TransportConfig requires both positionally but skips them in
+            # MODBUS_SERIAL validation, so pass placeholders (#233).
             if transport_type == TransportType.MODBUS_SERIAL:
                 config = TransportConfig(
+                    host=item.get("host", ""),
+                    port=item.get("port", 0),
                     serial=item["serial"],
                     transport_type=transport_type,
                     inverter_family=inverter_family,
@@ -1532,7 +1922,7 @@ def _build_transport_configs(
 
             configs.append(config)
 
-        except (KeyError, ValueError) as err:
+        except (KeyError, TypeError, ValueError) as err:
             _LOGGER.warning("Failed to build TransportConfig from %s: %s", item, err)
             continue
 

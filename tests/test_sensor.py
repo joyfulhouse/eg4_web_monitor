@@ -114,8 +114,9 @@ class TestLateBatteryRegistration:
         # Set up entities — should create inverter sensors but no batteries
         await async_setup_entry(hass, local_config_entry, mock_add_entities)
 
-        # Verify listeners registered (batteries + smart ports + device sensors)
-        assert mock_coordinator_static.async_add_listener.call_count == 3
+        # Verify listeners registered (batteries + smart ports + device
+        # sensors + battery bank sensors)
+        assert mock_coordinator_static.async_add_listener.call_count == 4
 
         # Simulate second refresh: batteries appear
         battery_sensors = {
@@ -423,3 +424,130 @@ class TestLateDeviceSensorRegistration:
         # The previously-filtered sensor now late-registers (not stranded)
         late_keys = {e._sensor_key for e in mock_add_entities.call_args_list[-1][0][0]}
         assert "eps_voltage_l1" in late_keys
+
+
+class TestSmartPortListenerOwnership:
+    """GridBOSS smart-port dynamic keys are owned by ONE listener.
+
+    After a static LOCAL first refresh, the first real poll makes smart-port
+    keys appear in the same update for both the dedicated smart-port listener
+    and the generic device-sensor listener.  Each maintains its own "known"
+    set, so without an explicit exclusion both registered the same unique ID
+    — producing the "does not generate unique IDs ... already exists" boot
+    errors from the #217 report (codex review LOW).
+    """
+
+    GRIDBOSS_SERIAL = "4434850364"
+
+    @pytest.fixture
+    def gridboss_config_entry(self):
+        """Config entry for LOCAL connection type with one GridBOSS."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 Electronics - GridBOSS",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": "4434850364",
+                        "host": "192.168.1.50",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "is_gridboss": True,
+                        "model": "GridBOSS",
+                    },
+                ],
+            },
+            entry_id="gridboss_sensor_test_entry",
+        )
+
+    @pytest.fixture
+    def mock_coordinator_gridboss_static(self):
+        """Coordinator with static GridBOSS data (no smart-port keys yet)."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            GRIDBOSS_STATIC_ENTITY_KEYS,
+        )
+
+        coord = MagicMock(spec=EG4DataUpdateCoordinator)
+        coord.data = {
+            "devices": {
+                self.GRIDBOSS_SERIAL: {
+                    "type": "gridboss",
+                    "model": "GridBOSS",
+                    "serial": self.GRIDBOSS_SERIAL,
+                    "firmware_version": "IAAB-1.0",
+                    "sensors": {k: None for k in GRIDBOSS_STATIC_ENTITY_KEYS},
+                    "binary_sensors": {},
+                },
+            },
+            "parameters": {self.GRIDBOSS_SERIAL: {}},
+        }
+        coord.last_update_success = True
+        coord.config_entry = MagicMock()
+        coord.plant_id = None
+        coord.get_device_info = MagicMock(
+            return_value={
+                "identifiers": {(DOMAIN, self.GRIDBOSS_SERIAL)},
+                "name": f"GridBOSS {self.GRIDBOSS_SERIAL}",
+                "manufacturer": "EG4 Electronics",
+            }
+        )
+        coord._listeners: list = []
+
+        def add_listener(callback):
+            coord._listeners.append(callback)
+            return lambda: coord._listeners.remove(callback)
+
+        coord.async_add_listener = MagicMock(side_effect=add_listener)
+        return coord
+
+    async def test_smart_port_keys_registered_exactly_once(
+        self, hass, gridboss_config_entry, mock_coordinator_gridboss_static
+    ):
+        """First real poll registers each smart-port unique ID exactly once."""
+        gridboss_config_entry.add_to_hass(hass)
+        gridboss_config_entry.runtime_data = mock_coordinator_gridboss_static
+        mock_add_entities = MagicMock()
+
+        await async_setup_entry(hass, gridboss_config_entry, mock_add_entities)
+
+        # First real poll: port 1 = smart load active, statuses resolved
+        sensors = mock_coordinator_gridboss_static.data["devices"][
+            self.GRIDBOSS_SERIAL
+        ]["sensors"]
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_VALIDATED_KEY,
+        )
+
+        sensors.update(
+            {
+                "smart_port1_status": "smart_load",
+                "smart_port2_status": "unused",
+                "smart_port3_status": "unused",
+                "smart_port4_status": "unused",
+                SMART_PORT_VALIDATED_KEY: True,
+                "smart_load1_power_l1": 120.0,
+                "smart_load1_power_l2": 80.0,
+                "smart_load1_power": 200.0,
+                "smart_load_power": 200.0,
+            }
+        )
+
+        # Fire every listener in registration order — one coordinator update
+        # tick invokes them all (smart-port listener first, then the generic
+        # device-sensor listener)
+        for listener in list(mock_coordinator_gridboss_static._listeners):
+            listener()
+
+        all_unique_ids = [
+            e._attr_unique_id
+            for call in mock_add_entities.call_args_list
+            for e in call[0][0]
+        ]
+        duplicates = {u for u in all_unique_ids if all_unique_ids.count(u) > 1}
+        assert not duplicates, f"duplicate unique IDs registered: {duplicates}"
+        # The reporter's automation entity is registered exactly once
+        assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_load_power") == 1
+        assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_load1_power_l1") == 1

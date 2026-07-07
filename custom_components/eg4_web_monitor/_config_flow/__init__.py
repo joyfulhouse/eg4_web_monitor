@@ -32,6 +32,7 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
+from pylxpweb.transports import TransportError, TransportTimeoutError
 
 from .discovery import (
     DiscoveredDevice,
@@ -141,7 +142,6 @@ class EG4ConfigFlow(
         self._base_url: str = DEFAULT_BASE_URL
         self._verify_ssl: bool = DEFAULT_VERIFY_SSL
         self._dst_sync: bool = True
-        self._library_debug: bool = False  # Legacy: kept for migration only
         self._plant_id: str | None = None
         self._plant_name: str | None = None
         self._plants: list[dict[str, Any]] | None = None
@@ -501,9 +501,10 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_modbus_device(host, port, unit_id)
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected Modbus discovery error")
@@ -566,9 +567,10 @@ class EG4ConfigFlow(
                     device = await discover_dongle_device(
                         host, dongle_serial, inverter_serial, port
                     )
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected dongle discovery error")
@@ -872,7 +874,11 @@ class EG4ConfigFlow(
         self._verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         self._dst_sync = entry.data.get(CONF_DST_SYNC, True)
         # library_debug now in options flow, not loaded here
-        self._plant_id = entry.data.get(CONF_PLANT_ID)
+        # Entries created before the #275 fix may store the plant id as int
+        # (single-station auto-select path); normalize to str. The unique_id
+        # is not touched by reconfigure, so this is safe for existing installs.
+        plant_id = entry.data.get(CONF_PLANT_ID)
+        self._plant_id = str(plant_id) if plant_id is not None else None
         self._plant_name = entry.data.get(CONF_PLANT_NAME)
         self._local_transports = list(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
 
@@ -1055,10 +1061,11 @@ class EG4ConfigFlow(
             return await self.async_step_reconfigure_devices()
 
         # Build selection schema from current devices
+        transport_names = {"modbus_tcp": "Modbus", "modbus_serial": "Serial"}
         device_options = {
             t.get("serial", f"unknown_{i}"): (
                 f"{t.get('model', '?')} ({t.get('serial', '?')}) - "
-                f"{'Modbus' if t.get('transport_type') == 'modbus_tcp' else 'Dongle'}"
+                f"{transport_names.get(t.get('transport_type', ''), 'Dongle')}"
             )
             for i, t in enumerate(self._local_transports)
         }
@@ -1105,9 +1112,10 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_modbus_device(host, port, unit_id)
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected Modbus discovery error")
@@ -1174,9 +1182,10 @@ class EG4ConfigFlow(
                     device = await discover_dongle_device(
                         host, dongle_serial, inverter_serial, port
                     )
-                except TimeoutError:
+                except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
-                except OSError:
+                except (OSError, TransportError) as err:
+                    _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
                 except Exception:
                     _LOGGER.exception("Unexpected dongle discovery error")
@@ -1395,8 +1404,12 @@ class EG4ConfigFlow(
             from pylxpweb.devices import Station
 
             stations = await Station.load_all(client)
+            # Normalize plant ids to str at the API boundary: pylxpweb returns
+            # Station.id as int, but the HA frontend submits form selections as
+            # str and CONF_PLANT_ID is stored as str (#275).
             self._plants = [
-                {"plantId": station.id, "name": station.name} for station in stations
+                {"plantId": str(station.id), "name": station.name}
+                for station in stations
             ]
             if not self._plants:
                 raise LuxpowerAPIError("No plants found for this account")

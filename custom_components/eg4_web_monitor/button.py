@@ -4,7 +4,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -88,9 +89,6 @@ async def async_setup_entry(
     for serial, device_data in coordinator.data["devices"].items():
         # Check if this device has individual batteries
         if "batteries" in device_data:
-            device_info = coordinator.data.get("device_info", {}).get(serial, {})
-            parent_model = device_info.get("deviceTypeText4APP", "Unknown")
-
             for battery_key in device_data["batteries"]:
                 # Create refresh button for each individual battery
                 phase2_entities.append(
@@ -98,8 +96,6 @@ async def async_setup_entry(
                         coordinator=coordinator,
                         parent_serial=serial,
                         battery_key=battery_key,
-                        parent_model=parent_model,
-                        battery_id=battery_key,
                     )
                 )
 
@@ -117,6 +113,48 @@ async def async_setup_entry(
         _LOGGER.debug(
             "Phase 2: Added %d individual battery button entities", len(phase2_entities)
         )
+
+    # Track known battery keys for late registration.  Individual batteries
+    # are discovered only when a real battery read completes — the LOCAL
+    # static first refresh has none, and in HYBRID a failed cloud battery
+    # fetch on the first cycle leaves them empty until the local transport
+    # read.  The sensor platform already late-registers battery sensors;
+    # without this listener the matching refresh buttons stayed missing
+    # until reload (eg4-68y review follow-up).
+    known_battery_keys: dict[str, set[str]] = {
+        serial: set(device_data.get("batteries", {}))
+        for serial, device_data in coordinator.data["devices"].items()
+    }
+
+    @callback
+    def _async_discover_battery_buttons() -> None:
+        """Register battery refresh buttons that appear after initial setup."""
+        if not coordinator.data or "devices" not in coordinator.data:
+            return
+        new_entities: list[ButtonEntity] = []
+        for serial, device_data in coordinator.data["devices"].items():
+            known = known_battery_keys.setdefault(serial, set())
+            for battery_key in device_data.get("batteries", {}):
+                if battery_key in known:
+                    continue
+                known.add(battery_key)
+                new_entities.append(
+                    EG4BatteryRefreshButton(
+                        coordinator=coordinator,
+                        parent_serial=serial,
+                        battery_key=battery_key,
+                    )
+                )
+        if new_entities:
+            _LOGGER.info(
+                "Late battery button registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_battery_buttons)
+    )
 
 
 class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
@@ -202,20 +240,46 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
             )
             device_type = device_data.get("type", "unknown")
 
+            incomplete = False
             if device_type == "inverter":
-                # Get inverter object and refresh
+                # Force a full refresh INCLUDING parameters (holding
+                # registers).  A bare refresh() respects pylxpweb cache TTLs
+                # (re-reads nothing shortly after a poll) and never touches
+                # parameters, so control values changed outside HA (e.g. on
+                # the EG4 portal) took until the hourly parameter cycle to
+                # appear (#322).  The coordinator helper calls
+                # inverter.refresh(force=True, include_parameters=True) and
+                # stores the fresh parameters; link-down handling lives in
+                # pylxpweb's _fetch_parameters guard (cloud fallback in
+                # HYBRID, clean skip in LOCAL — no hang risk).  The private
+                # method is used instead of async_refresh_device_parameters()
+                # because the public wrapper triggers its own coordinator
+                # refresh (double-read) and this button does its own
+                # completeness check: refresh() gathers its fetch tasks with
+                # return_exceptions=True, so read failures never raise — they
+                # surface only as parameters_complete=False.
+                _LOGGER.debug(
+                    "Force-refreshing inverter %s including parameters",
+                    self._serial,
+                )
+                await self.coordinator._refresh_device_parameters(self._serial)
                 inverter = self.coordinator.get_inverter_object(self._serial)
-                if inverter:
-                    _LOGGER.debug(
-                        "Refreshing inverter device object for %s", self._serial
-                    )
-                    await inverter.refresh()
-                    _LOGGER.debug("Successfully refreshed inverter %s", self._serial)
-                else:
-                    _LOGGER.warning("Inverter object not found for %s", self._serial)
+                incomplete = inverter is not None and not getattr(
+                    inverter, "parameters_complete", True
+                )
 
-            # For other device types or as fallback, trigger coordinator refresh
+            # Publish whatever was read (partial data plus sticky
+            # carry-forward); also the fallback path for other device types.
             await self.coordinator.async_request_refresh()
+
+            if incomplete:
+                # The device read silently came up short (dead link with no
+                # cloud fallback, failed register ranges, ...) — surface it
+                # in the UI instead of reporting a successful refresh.
+                raise HomeAssistantError(
+                    f"Parameter refresh incomplete for {self._serial}: device"
+                    " unreachable or link degraded; showing last known values"
+                )
             _LOGGER.debug("Successfully refreshed data for device %s", self._serial)
 
         except Exception as e:
@@ -232,19 +296,14 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
     - Availability checking for battery presence
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(
         self,
         coordinator: EG4DataUpdateCoordinator,
         parent_serial: str,
         battery_key: str,
-        parent_model: str,
-        battery_id: str,
     ) -> None:
         """Initialize the battery refresh button."""
         super().__init__(coordinator, parent_serial, battery_key)
-
-        self._parent_model = parent_model
-        self._battery_id = battery_id
 
         # Create unique identifiers - match battery device pattern
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
@@ -273,7 +332,7 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
 
         # Add parent device info
         attributes["parent_device"] = self._parent_serial
-        attributes["battery_id"] = self._battery_id
+        attributes["battery_id"] = self._battery_key
 
         return attributes if attributes else None
 
@@ -285,10 +344,14 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
                 self._battery_key,
             )
 
-            # Get parent inverter object and refresh (which refreshes all batteries)
+            # Get parent inverter object and refresh (which refreshes all
+            # batteries).  force=True bypasses the pylxpweb cache TTLs so a
+            # press actually re-reads instead of serving cached data (#322);
+            # parameters are not needed here (battery data lives in input
+            # registers).
             inverter = self.coordinator.get_inverter_object(self._parent_serial)
             if inverter:
-                await inverter.refresh()
+                await inverter.refresh(force=True)
             else:
                 _LOGGER.warning(
                     "Parent inverter object not found for %s", self._parent_serial

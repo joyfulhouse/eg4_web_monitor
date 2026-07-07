@@ -5,7 +5,9 @@ All entity classes should inherit from these bases to ensure consistent behavior
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
+from datetime import time as dt_time
 import logging
 from typing import TYPE_CHECKING, Any, Generator, cast
 
@@ -256,6 +258,26 @@ def _get_model_from_coordinator(
     return "Unknown"
 
 
+def device_present_and_healthy(
+    coordinator: EG4DataUpdateCoordinator, serial: str
+) -> bool:
+    """Whether the device is present in coordinator data without an error.
+
+    The sensor-level availability rule (stricter than
+    ``EG4DeviceEntity.available``): present-but-unknown when the device is
+    online without data, unavailable only when the device is gone or errored
+    (#256). Shared by :attr:`EG4BaseSensor.available` and the off-grid binary
+    sensor so the two cannot drift.
+    """
+    return (
+        coordinator.last_update_success
+        and coordinator.data is not None
+        and "devices" in coordinator.data
+        and serial in coordinator.data["devices"]
+        and "error" not in coordinator.data["devices"][serial]
+    )
+
+
 # HA's recorder treats a drop greater than 10% as a meter reset (silent);
 # smaller dips trigger a "state is not strictly increasing" warning
 # (homeassistant/components/sensor/recorder.py). We suppress dips that fall
@@ -324,8 +346,6 @@ def _apply_sensor_config(
     sensor_config: dict[str, Any] = cast(
         "dict[str, Any]", SENSOR_TYPES.get(sensor_key, {})
     )
-    entity._sensor_config = sensor_config
-
     entity._attr_native_unit_of_measurement = sensor_config.get("unit")
     entity._attr_device_class = sensor_config.get("device_class")
     entity._attr_state_class = sensor_config.get("state_class")
@@ -333,6 +353,14 @@ def _apply_sensor_config(
     options = sensor_config.get("options")
     if options is not None:
         entity._attr_options = options
+
+    # Opt-in translation key for sensors whose STATE is one of a fixed set of
+    # slugs (e.g. the operating_state enum). Setting it activates HA's
+    # entity.sensor.<key>.state translations; the display name still comes from
+    # the "name" field below. Only sensors that declare it are affected.
+    translation_key = sensor_config.get("translation_key")
+    if translation_key is not None:
+        entity._attr_translation_key = translation_key
 
     # Set display precision
     precision = _get_display_precision(sensor_config, entity._attr_device_class)
@@ -353,8 +381,10 @@ def _apply_sensor_config(
             else EntityCategory.DIAGNOSTIC
         )
 
-    # Allow sensors to be disabled by default (e.g. noisy last_polled timestamps)
-    if sensor_config.get("enabled_default") is False:
+    # Allow sensors to be disabled by default (e.g. noisy last_polled
+    # timestamps). Truthiness, not an ``is False`` identity check, so a
+    # non-bool falsy value can't silently ship the entity enabled (#310).
+    if not sensor_config.get("enabled_default", True):
         entity._attr_entity_registry_enabled_default = False
 
     return sensor_config
@@ -372,7 +402,6 @@ class EG4BaseSensor(EG4DeviceEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
@@ -406,9 +435,12 @@ class EG4BaseSensor(EG4DeviceEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id based on device type
         model = _get_model_from_coordinator(coordinator, serial)
@@ -463,13 +495,7 @@ class EG4BaseSensor(EG4DeviceEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return (
-            self.coordinator.last_update_success
-            and self.coordinator.data is not None
-            and "devices" in self.coordinator.data
-            and self._serial in self.coordinator.data["devices"]
-            and "error" not in self.coordinator.data["devices"][self._serial]
-        )
+        return device_present_and_healthy(self.coordinator, self._serial)
 
 
 class EG4BaseBatterySensor(EG4BatteryEntity):
@@ -483,7 +509,6 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
@@ -518,9 +543,12 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{battery_key}_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
         model = _get_model_from_coordinator(coordinator, serial)
@@ -584,7 +612,6 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
 
     Attributes:
         _sensor_key: The sensor key for lookup in SENSOR_TYPES.
-        _sensor_config: Configuration dictionary for this sensor.
         _last_reported_value: Last reported numeric value for monotonic guard.
     """
 
@@ -611,9 +638,12 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         # Generate unique ID
         self._attr_unique_id = f"{serial}_battery_bank_{sensor_key}"
 
-        # Modern entity naming
+        # Modern entity naming. When a translation_key is declared, leave
+        # _attr_name unset so HA resolves the (localizable) name from
+        # entity.<platform>.<key>.name; setting _attr_name would override it.
         self._attr_has_entity_name = True
-        self._attr_name = sensor_config.get("name", sensor_key)
+        if not sensor_config.get("translation_key"):
+            self._attr_name = sensor_config.get("name", sensor_key)
 
         # Generate entity_id
         model = _get_model_from_coordinator(coordinator, serial)
@@ -651,10 +681,12 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
 
         if not device_exists or self.coordinator.data is None:
             return False
-        return bool(
-            self._sensor_key
-            in self.coordinator.data["devices"][self._serial].get("sensors", {})
-        )
+        device_data = self.coordinator.data["devices"][self._serial]
+        # Battery-bank sensors are MEASUREMENTS: an error-marked (link-down)
+        # device must read unavailable, not frozen-fresh (eg4-57g review).
+        if "error" in device_data:
+            return False
+        return bool(self._sensor_key in device_data.get("sensors", {}))
 
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from battery bank aggregate sensors."""
@@ -787,6 +819,70 @@ class EG4BaseNumber(CoordinatorEntity):
         return {}
 
 
+# ========== Time Base Classes ==========
+# NOTE: time entities manage their optimistic value explicitly instead of a
+# finally-always-clears context manager: a successful write whose follow-up
+# refresh fails RETAINS the optimistic value (PR #283 review P2 — clearing
+# would look like a silent revert to the stale cached time).
+
+
+class EG4BaseTime(CoordinatorEntity):
+    """Base class for all EG4 time entities.
+
+    The time-typed mirror of :class:`EG4BaseNumber`: coordinator integration
+    with device data access, optimistic value management for UI
+    responsiveness, device information lookup, availability checking, and
+    parameter data access.
+
+    Attributes:
+        coordinator: The data update coordinator managing device data.
+        serial: The device serial number.
+        _model: The device model name.
+        _clean_model: Cleaned model name for unique IDs.
+        _optimistic_value: Temporary value for immediate UI feedback.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the base time entity.
+
+        Args:
+            coordinator: The data update coordinator.
+            serial: The device serial number.
+        """
+        super().__init__(coordinator)
+        self.coordinator: EG4DataUpdateCoordinator = coordinator
+        self.serial = serial
+        self._optimistic_value: dt_time | None = None
+
+        # Get device info for subclasses
+        self._model = _get_model_from_coordinator(coordinator, serial)
+        self._clean_model = clean_model_name(self._model, use_underscores=True)
+
+        # Device info
+        self._attr_device_info = coordinator.get_device_info(serial)
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    @property
+    def _parameter_data(self) -> dict[str, Any]:
+        """Get parameter data for this device from coordinator.
+
+        Returns:
+            Parameter data dictionary or empty dict if not available.
+        """
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            params: dict[str, Any] = self.coordinator.data["parameters"].get(
+                self.serial, {}
+            )
+            return params
+        return {}
+
+
 # ========== Switch Base Classes ==========
 
 
@@ -815,6 +911,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         name: str,
         icon: str = "mdi:toggle-switch",
         entity_category: EntityCategory | None = None,
+        translation_key: str | None = None,
     ) -> None:
         """Initialize the base switch entity.
 
@@ -822,9 +919,12 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             coordinator: The data update coordinator.
             serial: The device serial number.
             entity_key: Unique key for this entity (used in entity_id and unique_id).
-            name: Display name for the entity.
+            name: Display name for the entity. Ignored when ``translation_key``
+                is provided — a set ``_attr_name`` overrides the translated
+                name in HA (issue #262 gotcha).
             icon: MDI icon for the entity.
             entity_category: Optional entity category (CONFIG, DIAGNOSTIC, etc.).
+            translation_key: Localize the entity name via strings.json.
         """
         super().__init__(coordinator)
         self.coordinator: EG4DataUpdateCoordinator = coordinator
@@ -838,7 +938,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         # Set entity attributes
         self._attr_has_entity_name = True
-        self._attr_name = name
+        if translation_key is not None:
+            self._attr_translation_key = translation_key
+        else:
+            self._attr_name = name
         self._attr_icon = icon
         self._attr_unique_id = generate_unique_id(serial, entity_key)
         self._attr_entity_id = generate_entity_id(
@@ -890,9 +993,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         """Return if entity is available.
 
         Returns:
-            True if the device is an inverter and available, False otherwise.
+            True if the coordinator is healthy and the device is an inverter,
+            False otherwise.
         """
-        return bool(self._device_data.get("type") == "inverter")
+        return bool(
+            self.coordinator.last_update_success
+            and self._device_data.get("type") == "inverter"
+        )
 
     def _get_inverter_or_raise(self) -> Any:
         """Get inverter device object or raise HomeAssistantError.
@@ -911,11 +1018,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
     async def _execute_switch_action(
         self,
         action_name: str,
-        enable_method: str,
-        disable_method: str,
+        enable_method: str | Callable[..., Awaitable[bool]],
+        disable_method: str | Callable[..., Awaitable[bool]],
         turn_on: bool,
         refresh_params: bool = False,
         api_delay: float = 1.0,
+        enable_kwargs: dict[str, Any] | None = None,
+        seed_param_key: str | None = None,
     ) -> None:
         """Execute a switch action with optimistic state handling.
 
@@ -933,16 +1042,32 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         Args:
             action_name: Human-readable name of the action for logging.
-            enable_method: Name of the method to call when turning on.
-            disable_method: Name of the method to call when turning off.
+            enable_method: Method to call when turning on — either the name of
+                a method on the inverter object, or an awaitable callable
+                (e.g. a cloud-direct bound method for families whose local
+                register is firmware-rejected, #296).
+            disable_method: Method to call when turning off (same forms).
             turn_on: True to enable, False to disable.
             refresh_params: If True, refresh parameters instead of just data.
             api_delay: Seconds to wait for API to propagate changes (default 1.0).
+            enable_kwargs: Optional keyword arguments passed to the enable method
+                on the turn-on path only (the disable method is always called with
+                no arguments).
+            seed_param_key: Parameter-cache key to seed with the acknowledged
+                ``turn_on`` boolean when a local transport is attached (#310).
+                Pass only for parameter-backed switches whose ``is_on`` reads
+                this key; leave ``None`` for status-based actions (e.g. quick
+                charge) and pure-cloud-only callers.
 
         Raises:
             HomeAssistantError: If the action fails.
         """
-        method_name = enable_method if turn_on else disable_method
+        method_ref = enable_method if turn_on else disable_method
+        method_name = (
+            method_ref
+            if isinstance(method_ref, str)
+            else getattr(method_ref, "__name__", action_name)
+        )
         action_verb = "Enabling" if turn_on else "Disabling"
 
         try:
@@ -959,14 +1084,23 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
             inverter = self._get_inverter_or_raise()
 
-            # Call the appropriate method
-            method = getattr(inverter, method_name, None)
+            # Call the appropriate method: an inverter method looked up by
+            # name, or a pre-bound callable (cloud-direct path, #296).
+            method = (
+                getattr(inverter, method_ref, None)
+                if isinstance(method_ref, str)
+                else method_ref
+            )
             if method is None:
                 self._optimistic_state = None
                 self.async_write_ha_state()
                 raise HomeAssistantError(f"Method {method_name} not found on inverter")
 
-            success = await method()
+            # Only the enable (turn_on) path forwards enable_kwargs; the disable
+            # method is always called with no arguments.
+            success = (
+                await method(**(enable_kwargs or {})) if turn_on else await method()
+            )
             if not success:
                 self._optimistic_state = None
                 self.async_write_ha_state()
@@ -980,6 +1114,17 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 action_name,
                 self._serial,
             )
+
+            # Seed the acknowledged value BEFORE the refresh/optimistic-clear
+            # (#310): under a down local link the parameter refresh below
+            # cannot read the device locally (LOCAL-only: no data at all;
+            # HYBRID: cloud re-read can lag or fail), so without the seed
+            # this method could publish the STALE pre-write state when it
+            # clears the optimistic value — a wrong-then-corrected double
+            # transition (recorder pollution, automation misfires on the
+            # intermediate value).
+            if seed_param_key is not None:
+                self._seed_cloud_written_parameter(seed_param_key, turn_on)
 
             # Refresh inverter data from API
             await inverter.refresh()
@@ -1022,8 +1167,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         action_name: str,
         parameter: str,
         value: bool,
-        cloud_enable_method: str,
-        cloud_disable_method: str,
+        cloud_enable_method: str | None = None,
+        cloud_disable_method: str | None = None,
+        cloud_only: bool = False,
     ) -> None:
         """Execute a switch action preferring local transport, falling back to cloud.
 
@@ -1036,17 +1182,53 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
             value: True to enable, False to disable.
             cloud_enable_method: Inverter method name to call when enabling.
+                When omitted, the cloud path writes ``parameter`` directly via
+                the function-control API instead.
             cloud_disable_method: Inverter method name to call when disabling.
+            cloud_only: Never write the local register. Used when the local
+                bit position for ``parameter`` is unverified on the device's
+                family (e.g. FUNC_GREEN_EN on EG4_OFFGRID, whose register-110
+                upper-bit layout is hardware-proven to differ from the 18kPV
+                table the local map derives from) — the cloud applies the bit
+                server-side and is always correct. Without a cloud connection
+                the action fails honestly instead of flipping a suspect bit.
 
         Raises:
+            ValueError: If exactly one of ``cloud_enable_method`` /
+                ``cloud_disable_method`` is provided. They must be supplied
+                together (named-method route) or both omitted (function-control
+                route) — a one-sided call would otherwise silently write
+                ``parameter`` via control_function, which may be the wrong
+                FUNC_ key for the intended action.
             HomeAssistantError: If all available transports fail.
         """
-        if self.coordinator.has_local_transport(self._serial):
+        if bool(cloud_enable_method) != bool(cloud_disable_method):
+            raise ValueError(
+                "cloud_enable_method and cloud_disable_method must be provided "
+                "together or both omitted; got "
+                f"enable={cloud_enable_method!r}, disable={cloud_disable_method!r}"
+            )
+
+        if cloud_only and not self.coordinator.has_http_api():
+            raise HomeAssistantError(
+                f"The local register mapping for {action_name} is unverified "
+                "on this device family; a cloud connection is required for "
+                "this control."
+            )
+
+        if not cloud_only and self.coordinator.has_local_transport(self._serial):
             try:
+                # When a cloud fallback exists, keep the optimistic state on
+                # local failure: clearing it there would publish the stale
+                # pre-write value for one transition before the cloud retry
+                # re-asserts it (#310 review — recorder pollution/automation
+                # misfire). The cloud path's own error handling clears it if
+                # the retry fails too.
                 await self._execute_named_parameter_action(
                     action_name=action_name,
                     parameter=parameter,
                     value=value,
+                    clear_optimistic_on_error=not self.coordinator.has_http_api(),
                 )
                 return
             except HomeAssistantError:
@@ -1061,21 +1243,156 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     raise
 
         if self.coordinator.has_http_api():
-            await self._execute_switch_action(
-                action_name=action_name,
-                enable_method=cloud_enable_method,
-                disable_method=cloud_disable_method,
-                turn_on=value,
-                refresh_params=True,
-            )
+            # The write lands via the cloud: seed the parameter cache with
+            # the acknowledged value so the switch converges even when the
+            # post-write local parameter refresh is skipped (#310). Every
+            # ``parameter`` reaching this wrapper is a named local bit
+            # param, i.e. exactly the parameter-cache key ``is_on`` reads.
+            if cloud_enable_method and cloud_disable_method:
+                await self._execute_switch_action(
+                    action_name=action_name,
+                    enable_method=cloud_enable_method,
+                    disable_method=cloud_disable_method,
+                    turn_on=value,
+                    refresh_params=True,
+                    seed_param_key=parameter,
+                )
+            else:
+                await self._execute_cloud_function_action(
+                    action_name=action_name,
+                    parameter=parameter,
+                    value=value,
+                    seed_param_key=parameter,
+                )
         else:
             raise HomeAssistantError(f"No transport available for {action_name}")
+
+    def _seed_cloud_written_parameter(self, param_key: str, value: bool) -> None:
+        """Seed an acknowledged cloud-written FUNC_ bit into the parameter cache.
+
+        Convergence for cloud-fallback writes while a local transport is
+        attached (GH #310, the switch counterpart of
+        :func:`utils.async_write_with_cloud_fallback` seeding): under a down
+        local link the post-write parameter refresh cannot read the device
+        locally (pylxpweb skips the local read — LOCAL-only installs get no
+        data at all, and a HYBRID cloud re-read can lag or fail), so without
+        the seed ``is_on`` could revert to the stale pre-write cache value
+        once the optimistic state clears. The seed is the local-raw representation
+        (bit params read back as ``bool``), and a later successful parameter
+        read overwrites it with fresh device data.
+
+        Never fires for pure-cloud installs (no transport attached): their
+        parameter cache is cloud-fed and refreshes normally.
+        """
+        if self.coordinator.has_local_transport(self._serial):
+            self.coordinator.note_parameters_written(self._serial, {param_key: value})
+
+    async def _execute_cloud_function_action(
+        self,
+        action_name: str,
+        parameter: str,
+        value: bool,
+        api_delay: float = 1.0,
+        seed_param_key: str | None = None,
+    ) -> None:
+        """Execute a switch action via the cloud function-control API.
+
+        For FUNC_* bit parameters without dedicated enable/disable methods in
+        pylxpweb (e.g. ``FUNC_CHARGE_LAST``), write directly via
+        ``client.api.control.control_function(serial, parameter, value)`` —
+        the same route pylxpweb's dual-path setters use in cloud mode. The
+        server applies the bit update atomically (no read-modify-write race
+        across the HTTP round-trip).
+
+        Args:
+            action_name: Human-readable name of the action for logging.
+            parameter: Cloud function parameter name (e.g., "FUNC_CHARGE_LAST").
+            value: True to enable, False to disable.
+            api_delay: Seconds to wait for the API to propagate changes.
+            seed_param_key: Parameter-cache key to seed with the acknowledged
+                ``value`` when a local transport is attached (#310) — pass
+                only for parameter-backed switches whose ``is_on`` reads this
+                key; leave ``None`` for actions whose state is not parameter
+                cache backed (e.g. status-based quick charge).
+
+        Raises:
+            HomeAssistantError: If no cloud client exists or the write fails.
+        """
+        action_verb = "Enabling" if value else "Disabling"
+        client = self.coordinator.client
+        if client is None:
+            raise HomeAssistantError(f"No cloud API available for {action_name}")
+
+        try:
+            _LOGGER.debug(
+                "%s %s via CLOUD function control for device %s (parameter %s)",
+                action_verb,
+                action_name,
+                self._serial,
+                parameter,
+            )
+
+            # Set optimistic state immediately for UI feedback
+            self._optimistic_state = value
+            self.async_write_ha_state()
+
+            response = await client.api.control.control_function(
+                self._serial, parameter, value
+            )
+            if not response.success:
+                raise HomeAssistantError(
+                    f"Failed to {action_verb.lower()} {action_name}"
+                )
+
+            _LOGGER.info(
+                "Successfully %s %s via CLOUD function control for device %s",
+                action_verb.lower()[:-3] + "ed",
+                action_name,
+                self._serial,
+            )
+
+            # Seed the acknowledged value BEFORE the refresh/optimistic-clear:
+            # under a down local link the parameter refresh below cannot read
+            # the device locally (LOCAL-only: skipped; HYBRID: cloud re-read
+            # can lag or fail), and is_on would otherwise revert to the stale
+            # pre-write cache value once the optimistic state clears (#310).
+            if seed_param_key is not None:
+                self._seed_cloud_written_parameter(seed_param_key, value)
+
+            # Wait for API to propagate changes before refreshing parameters
+            await asyncio.sleep(api_delay)
+
+            # Refresh device parameters so is_on reflects the new bit state
+            await self.coordinator.async_refresh_device_parameters(self._serial)
+
+            # Clear optimistic state AFTER refresh completes
+            self._optimistic_state = None
+            self.async_write_ha_state()
+
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to %s %s for device %s: %s",
+                action_verb.lower(),
+                action_name,
+                self._serial,
+                e,
+            )
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action_verb.lower()} {action_name}: {e}"
+            ) from e
 
     async def _execute_named_parameter_action(
         self,
         action_name: str,
         parameter: str,
         value: bool,
+        clear_optimistic_on_error: bool = True,
     ) -> None:
         """Execute a switch action by writing a named parameter.
 
@@ -1086,6 +1403,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             action_name: Human-readable name of the action for logging.
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
             value: True to enable, False to disable.
+            clear_optimistic_on_error: Whether a failed write clears the
+                optimistic state (and publishes). The fallback wrapper passes
+                False when a cloud retry follows, so the entity never
+                publishes the stale pre-write value between the local failure
+                and the cloud attempt (#310 review).
 
         Raises:
             HomeAssistantError: If the parameter write fails.
@@ -1135,8 +1457,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             self.async_write_ha_state()
 
         except HomeAssistantError:
-            self._optimistic_state = None
-            self.async_write_ha_state()
+            if clear_optimistic_on_error:
+                self._optimistic_state = None
+                self.async_write_ha_state()
             raise
         except Exception as e:
             _LOGGER.error(
@@ -1146,8 +1469,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self._serial,
                 e,
             )
-            self._optimistic_state = None
-            self.async_write_ha_state()
+            if clear_optimistic_on_error:
+                self._optimistic_state = None
+                self.async_write_ha_state()
             raise HomeAssistantError(
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e

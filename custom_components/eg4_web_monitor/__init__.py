@@ -10,7 +10,14 @@ import homeassistant.helpers.entity_registry as er
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import ServiceValidationError
 
 from .const import (
@@ -21,10 +28,20 @@ from .const import (
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .coordinator_mappings import (
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    SMART_PORT_VALIDATED_KEY,
+)
+from .history_import import (
+    IMPORT_HISTORICAL_DATA_SCHEMA,
+    SERVICE_IMPORT_HISTORICAL_DATA,
+    async_import_historical_data,
+)
 from .services import async_reconcile_history
 from ._config_flow.helpers import migrate_legacy_entry
 
@@ -38,10 +55,12 @@ EG4ConfigEntry: TypeAlias = ConfigEntry[EG4DataUpdateCoordinator]
 # via via_device.  The remaining platforms can load concurrently.
 SENSOR_PLATFORM: list[Platform] = [Platform.SENSOR]
 OTHER_PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.TIME,
     Platform.UPDATE,
 ]
 PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
@@ -49,10 +68,16 @@ PLATFORMS: list[Platform] = SENSOR_PLATFORM + OTHER_PLATFORMS
 # Sensor keys removed in the charge/discharge consolidation refactor.
 # Existing installations may have entity registry entries for these;
 # they are cleaned up once during async_setup_entry().
+#
+# NOTE: "_battery_discharge_power" is intentionally ABSENT — the per-inverter
+# battery_discharge_power sensor was reintroduced for EG4_OFFGRID (reg 11 /
+# cloud pDisCharge, issue #197).  Keeping the suffix here would delete the new
+# entity's registry entry on every setup.  "_parallel_battery_discharge_power"
+# below does NOT match the per-inverter unique_id (suffix matching requires
+# the literal "parallel" segment).
 _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
     {
         "_battery_charge_power",
-        "_battery_discharge_power",
         "_battery_bank_charge_power",
         "_battery_bank_discharge_power",
         "_parallel_battery_charge_power",
@@ -60,6 +85,33 @@ _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES: frozenset[str] = frozenset(
         "_battery_discharge_rate",
         "_battery_bank_discharge_rate",
         "_parallel_battery_discharge_rate",
+    }
+)
+
+# Sensor keys removed because they duplicated another sensor's value; the
+# suffixes purge their orphaned registry entries at setup.  Matching uses the
+# literal ``_{sensor_key}`` unique_id tail so surviving keys are never touched.
+#
+# Issue #253: the per-inverter "Has Runtime Data" sensor was created twice —
+# from the inverter ``has_data`` property (key ``has_data``) and from the
+# redundant ``has_runtime_data``/cloud ``hasRuntimeData`` field (key
+# ``inverter_has_runtime_data``).  Both rendered the identical name and
+# collided onto one entity_id slug, so installs accumulated two active
+# entities per inverter.  The ``_inverter_has_runtime_data`` tail never
+# matches the surviving ``_has_data`` entity (or any ``_runtime_..._has_data``
+# variant).
+#
+# Issue #335: the EG4_OFFGRID "EPS Load Power L1/L2" sensors (#197) aliased
+# the eps_power_l1/l2 values (regs 129/130 / cloud pEpsL1N/L2N — the COMBINED
+# backup-path legs), so they were exact duplicates of "EPS Power L1/L2".  The
+# keys are retired: no per-leg source for the EPS-loads subset exists.  The
+# ``..._l1``/``..._l2`` tails never match the surviving ``_eps_load_power``
+# (total) entity, which now carries the real cloud ``epsLoadPower`` field.
+_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "_inverter_has_runtime_data",
+        "_eps_load_power_l1",
+        "_eps_load_power_l2",
     }
 )
 
@@ -160,6 +212,19 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         schema=RECONCILE_HISTORY_SCHEMA,
     )
 
+    # Register import_historical_data service (issue #73)
+    async def handle_import_historical_data(call: ServiceCall) -> ServiceResponse:
+        """Handle import_historical_data service call."""
+        return await async_import_historical_data(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_IMPORT_HISTORICAL_DATA,
+        handle_import_historical_data,
+        schema=IMPORT_HISTORICAL_DATA_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     return True
 
 
@@ -248,6 +313,121 @@ async def _async_update_device_registry(
             serial_number=serial,
             sw_version=firmware_version,
         )
+
+
+def _async_cleanup_duplicate_runtime_data_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+) -> None:
+    """Remove orphaned entities of retired duplicate sensor keys (#253, #335).
+
+    Earlier versions exposed the same underlying value under two sensor keys
+    (see ``_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES``): the redundant
+    ``inverter_has_runtime_data`` twin of ``has_data`` (#253) and the
+    ``eps_load_power_l1``/``_l2`` aliases of ``eps_power_l1``/``_l2`` (#335).
+    The duplicate keys have been removed; purge their stale registry entries
+    so the dead entities disappear without manual deletion.
+    """
+    entity_registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        if any(
+            entity.unique_id.endswith(suffix)
+            for suffix in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
+        ):
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed retired duplicate sensor (#253/#335): %s",
+                entity.entity_id,
+            )
+
+
+def _async_cleanup_stale_smart_port_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> set[str]:
+    """Remove stale GridBOSS smart-port sensor entities from the registry.
+
+    Previous versions created entities for all 4 smart ports; now only active
+    ports get entities (determined dynamically by
+    _filter_unused_smart_port_sensors), so registry entries for inactive port
+    keys are removed during setup.
+
+    Removal only happens for GridBOSS serials whose coordinator data is
+    AUTHORITATIVE: the sensors dict carries the SMART_PORT_VALIDATED_KEY
+    marker, which _filter_unused_smart_port_sensors() writes ONLY on a
+    fresh, complete good status read (all 4 ports present and in range this
+    cycle).  Static placeholder data, suspect-skip cycles, cached-fallback
+    cycles, and partial reads never carry it.  The LOCAL-mode first refresh
+    returns static placeholder data without smart-port keys (port statuses
+    are unknown before the first register read); treating that as
+    authoritative deleted every smart-port registry entry on each reboot and
+    re-created them moments later under NEW registry entry IDs, permanently
+    breaking automations pinned to the old entry ID (#217).  The same applies
+    to a CLOUD/HYBRID first refresh where the midbox runtime endpoint
+    returned no data.
+
+    Returns:
+        Serials of GridBOSS devices whose port data is not authoritative yet;
+        their cleanup must be retried when real data arrives.
+    """
+    entity_registry = er.async_get(hass)
+
+    # Active keys are tracked PER GridBOSS serial: with two GridBOSS units a
+    # global set would let a stale entity on unit A survive forever whenever
+    # unit B has the same key active (codex r2 LOW).
+    active_smart_port_keys_by_serial: dict[str, set[str]] = {}
+    pending_serials: set[str] = set()
+    devices = (coordinator.data or {}).get("devices", {})
+    for serial, device_data in devices.items():
+        if device_data.get("type") != "gridboss":
+            continue
+        sensors = device_data.get("sensors", {})
+        # Authority requires the per-cycle validation marker, written by
+        # _filter_unused_smart_port_sensors ONLY on a fresh, complete good
+        # status read (all 4 ports in range this cycle).  Static placeholder
+        # data, suspect-skip cycles, cached-fallback cycles, and partial
+        # reads never carry it — none of those prove the dynamic keys
+        # reflect the real port configuration (codex r1 HIGH, r2
+        # HIGH/MEDIUM), so cleanup waits for a definitive cycle instead.
+        if not sensors.get(SMART_PORT_VALIDATED_KEY):
+            pending_serials.add(serial)
+            continue
+        active_smart_port_keys_by_serial[serial] = {
+            k for k in sensors if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+        }
+
+    if not active_smart_port_keys_by_serial:
+        return pending_serials
+
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        # Only GridBOSS entities are smart-port cleanup candidates.  The
+        # aggregate "smart_load_power" key is SHARED with EG4_OFFGRID
+        # inverters (cloud GEN-port smart load, #222) — a suffix-only match
+        # would delete the inverter entity from the registry on every setup
+        # whenever no GridBOSS port is active (codex review MEDIUM).
+        # Unique IDs are "{serial}_{sensor_key}", so gate on the serial.
+        entity_serial = entity.unique_id.split("_", 1)[0]
+        if entity_serial not in active_smart_port_keys_by_serial:
+            continue
+        active_keys = active_smart_port_keys_by_serial[entity_serial]
+        # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
+        # Match by checking if any smart port key appears in the unique_id suffix
+        for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
+            if entity.unique_id.endswith(f"_{sp_key}") and sp_key not in active_keys:
+                entity_registry.async_remove(entity.entity_id)
+                _LOGGER.info(
+                    "Removed stale smart port entity: %s (key %s not active)",
+                    entity.entity_id,
+                    sp_key,
+                )
+                break
+
+    return pending_serials
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
@@ -434,37 +614,80 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
             entity_registry.async_remove(entity.entity_id)
             _LOGGER.info("Removed deprecated sensor: %s", entity.entity_id)
 
-    # One-time cleanup: remove stale smart port entities from previous versions
-    # that created entities for all 4 ports. Now only active ports get entities
-    # (determined dynamically by _filter_unused_smart_port_sensors).
-    from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+    # One-time cleanup: purge retired duplicate sensor keys — the "Has
+    # Runtime Data" twin (#253) and the fabricated EPS Load Power L1/L2
+    # aliases of EPS Power L1/L2 (#335).
+    _async_cleanup_duplicate_runtime_data_entities(hass, entry)
 
-    active_smart_port_keys: set[str] = set()
+    # Conditional cleanup: per-inverter "_battery_discharge_power" was
+    # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs
+    # that skipped the purging versions still carry the stale entry on
+    # non-offgrid hardware — remove it ONLY when the device's family is
+    # positively known and not EG4_OFFGRID; unresolved devices keep theirs
+    # (conservative — pure-cloud family resolves on a later refresh).
+    offgrid_serials: set[str] = set()
+    family_known_serials: set[str] = set()
     if coordinator.data and "devices" in coordinator.data:
-        for device_data in coordinator.data["devices"].values():
-            if device_data.get("type") == "gridboss":
-                active_smart_port_keys.update(
-                    k
-                    for k in device_data.get("sensors", {})
-                    if k in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
-                )
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            family = (device_data.get("features") or {}).get("inverter_family")
+            if family:
+                family_known_serials.add(serial)
+                if family == INVERTER_FAMILY_EG4_OFFGRID:
+                    offgrid_serials.add(serial)
     for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
         if entity.domain != "sensor":
             continue
-        # Smart port unique IDs contain sensor keys like "smart_load1_power_l1"
-        # Match by checking if any smart port key appears in the unique_id suffix
-        for sp_key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS:
-            if (
-                entity.unique_id.endswith(f"_{sp_key}")
-                and sp_key not in active_smart_port_keys
-            ):
-                entity_registry.async_remove(entity.entity_id)
-                _LOGGER.info(
-                    "Removed stale smart port entity: %s (key %s not active)",
-                    entity.entity_id,
-                    sp_key,
-                )
-                break
+        uid = entity.unique_id
+        if not uid.endswith("_battery_discharge_power"):
+            continue
+        serial = uid.split("_", 1)[0]
+        if serial in family_known_serials and serial not in offgrid_serials:
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed deprecated sensor for non-offgrid device: %s",
+                entity.entity_id,
+            )
+
+    # One-time cleanup: remove stale smart port entities from previous versions
+    # that created entities for all 4 ports. Now only active ports get entities
+    # (determined dynamically by _filter_unused_smart_port_sensors).
+    #
+    # The cleanup is gated on AUTHORITATIVE port data: the LOCAL-mode first
+    # refresh returns static placeholder data without smart-port keys, and
+    # running the cleanup against it deleted every smart-port registry entry
+    # on each reboot — breaking automations pinned to the registry entry ID
+    # (#217).  GridBOSS serials without real port data yet are retried via a
+    # one-shot coordinator listener once the first real poll lands.
+    pending_smart_port_serials = _async_cleanup_stale_smart_port_entities(
+        hass, entry, coordinator
+    )
+    if pending_smart_port_serials:
+        unsub_smart_port_cleanup: CALLBACK_TYPE | None = None
+
+        @callback
+        def _async_deferred_smart_port_cleanup() -> None:
+            """Retry the smart-port cleanup once real port data arrives."""
+            nonlocal unsub_smart_port_cleanup
+            if _async_cleanup_stale_smart_port_entities(hass, entry, coordinator):
+                return  # some GridBOSS still lacks authoritative port data
+            if unsub_smart_port_cleanup is not None:
+                unsub_smart_port_cleanup()
+                unsub_smart_port_cleanup = None
+
+        @callback
+        def _async_cancel_smart_port_cleanup() -> None:
+            """Drop the deferred-cleanup listener on entry unload."""
+            nonlocal unsub_smart_port_cleanup
+            if unsub_smart_port_cleanup is not None:
+                unsub_smart_port_cleanup()
+                unsub_smart_port_cleanup = None
+
+        unsub_smart_port_cleanup = coordinator.async_add_listener(
+            _async_deferred_smart_port_cleanup
+        )
+        entry.async_on_unload(_async_cancel_smart_port_cleanup)
 
     # Forward entry setup to platforms (creates devices and entities)
     # Sensor platform first to create parent devices before other platforms

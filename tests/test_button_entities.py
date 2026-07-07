@@ -1,12 +1,19 @@
 """Unit tests for button entity logic without HA instance."""
 
+import types
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock
+
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.button import (
     EG4RefreshButton,
     EG4BatteryRefreshButton,
     EG4StationRefreshButton,
+)
+from custom_components.eg4_web_monitor.coordinator_mixins import (
+    ParameterManagementMixin,
 )
 
 
@@ -44,16 +51,12 @@ class TestEG4RefreshButton:
 
     @pytest.mark.asyncio
     async def test_async_press_refreshes_coordinator(self):
-        """Test pressing button refreshes coordinator."""
+        """Pressing the button runs the gated parameter refresh path (#322)."""
         coordinator = MagicMock()
         coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
         coordinator.get_device_info.return_value = {}
         coordinator.async_request_refresh = AsyncMock()
-
-        # Mock inverter object with async refresh method
-        mock_inverter = MagicMock()
-        mock_inverter.refresh = AsyncMock()
-        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+        coordinator._refresh_device_parameters = AsyncMock()
 
         device_data = {"type": "inverter"}
 
@@ -66,9 +69,123 @@ class TestEG4RefreshButton:
 
         await entity.async_press()
 
-        # Verify inverter refresh was called
-        mock_inverter.refresh.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        # The inverter path delegates to the coordinator's force refresh
+        # (which includes holding-register parameters).
+        coordinator._refresh_device_parameters.assert_awaited_once_with("1234567890")
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_forces_refresh_with_parameters(self):
+        """The button press force-refreshes the device INCLUDING parameters.
+
+        Uses the real ParameterManagementMixin._refresh_device_parameters so
+        the assertion covers the actual pylxpweb call: a bare refresh() would
+        serve cached TTL data and never read holding registers (#322).
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = types.MethodType(
+            ParameterManagementMixin._refresh_device_parameters, coordinator
+        )
+
+        mock_inverter = MagicMock()
+        mock_inverter.transport = None  # no local transport -> link not down
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.parameters = {"HOLD_110": 8}
+        mock_inverter.parameters_complete = True
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        await entity.async_press()
+
+        mock_inverter.refresh.assert_awaited_once_with(
+            force=True, include_parameters=True
+        )
+        # Fresh parameters are stored for entity consumption
+        assert coordinator.data["parameters"]["1234567890"] == {"HOLD_110": 8}
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_link_down_still_refreshes(self):
+        """A down local link does NOT block the button refresh.
+
+        Link-down handling is delegated to pylxpweb's _fetch_parameters
+        guard (pylxpweb#206, in the b24 floor pinned by manifest.json):
+        it skips the local Modbus read (no hang risk) and falls back to
+        cloud named-parameter reads in HYBRID.  A coordinator-side gate
+        would block exactly that fallback, so refresh() must still be
+        awaited with force + parameters even when the link is down.
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = types.MethodType(
+            ParameterManagementMixin._refresh_device_parameters, coordinator
+        )
+
+        mock_inverter = MagicMock()
+        mock_inverter.transport = MagicMock()  # attached...
+        mock_inverter.transport_link_down = True  # ...but dead link
+        mock_inverter.refresh = AsyncMock()
+        mock_inverter.parameters = {"HOLD_110": 8}  # served via cloud fallback
+        mock_inverter.parameters_complete = True
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        await entity.async_press()
+
+        mock_inverter.refresh.assert_awaited_once_with(
+            force=True, include_parameters=True
+        )
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_async_press_incomplete_parameters_raises(self):
+        """A silently-failed read surfaces as HomeAssistantError.
+
+        refresh() gathers its fetch tasks with return_exceptions=True and
+        _fetch_parameters records failures only as parameters_complete=False,
+        so the button must check completeness itself: partial data is still
+        published (coordinator refresh runs) but the press reports failure
+        instead of pretending the values are fresh.
+        """
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"1234567890": {"type": "inverter"}}}
+        coordinator.get_device_info.return_value = {}
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator._refresh_device_parameters = AsyncMock()
+
+        mock_inverter = MagicMock()
+        mock_inverter.parameters_complete = False
+        coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
+
+        entity = EG4RefreshButton(
+            coordinator=coordinator,
+            serial="1234567890",
+            device_data={"type": "inverter"},
+            model="FlexBOSS21",
+        )
+
+        with pytest.raises(HomeAssistantError, match="incomplete"):
+            await entity.async_press()
+
+        # Partial data + sticky carry-forward still published first
+        coordinator.async_request_refresh.assert_awaited_once()
 
     def test_device_info(self):
         """Test device info is correctly set."""
@@ -109,8 +226,6 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         assert entity._parent_serial == "1234567890"
@@ -135,15 +250,13 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         await entity.async_press()
 
-        # Verify parent inverter refresh was called (which refreshes batteries)
-        mock_inverter.refresh.assert_called_once()
-        coordinator.async_request_refresh.assert_called_once()
+        # Parent inverter refresh must bypass the pylxpweb cache TTLs (#322)
+        mock_inverter.refresh.assert_awaited_once_with(force=True)
+        coordinator.async_request_refresh.assert_awaited_once()
 
     def test_unique_id(self):
         """Test unique ID includes battery key."""
@@ -156,8 +269,6 @@ class TestEG4BatteryRefreshButton:
             coordinator=coordinator,
             parent_serial="1234567890",
             battery_key="1234567890-01",
-            parent_model="FlexBOSS21",
-            battery_id="1234567890-01",
         )
 
         assert "1234567890" in entity.unique_id
@@ -216,3 +327,98 @@ class TestEG4StationRefreshButton:
 
         assert "12345" in entity.unique_id
         assert "refresh" in entity.unique_id.lower()
+
+
+class TestLateBatteryButtonRegistration:
+    """Late registration of per-battery refresh buttons (eg4-68y review)."""
+
+    @staticmethod
+    def _coordinator(batteries: dict | None = None) -> MagicMock:
+        coordinator = MagicMock()
+        coordinator.plant_id = "12345"
+        coordinator.async_add_listener = MagicMock(return_value=lambda: None)
+        coordinator.get_device_info.return_value = None
+        coordinator.get_battery_device_info.return_value = None
+        coordinator.data = {
+            "devices": {
+                "INV001": {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "sensors": {},
+                    "batteries": batteries or {},
+                },
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_batteries_appearing_late_get_buttons(self):
+        """Batteries discovered after setup get refresh buttons."""
+        from custom_components.eg4_web_monitor.button import async_setup_entry
+
+        coordinator = self._coordinator(batteries={})
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        added: list = []
+
+        def add_entities(entities, *args):
+            added.extend(entities)
+
+        await async_setup_entry(MagicMock(), entry, add_entities)
+        # Setup created no battery buttons (LOCAL static first refresh has none)
+        assert not any(isinstance(e, EG4BatteryRefreshButton) for e in added)
+
+        battery_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_battery_buttons"
+        )
+
+        coordinator.data["devices"]["INV001"]["batteries"]["INV001-01"] = {
+            "battery_real_voltage": 53.2,
+        }
+
+        added.clear()
+        battery_callback()
+
+        battery_buttons = [e for e in added if isinstance(e, EG4BatteryRefreshButton)]
+        assert len(battery_buttons) == 1
+        assert battery_buttons[0]._battery_key == "INV001-01"
+
+        # No duplicates on a second fire
+        added.clear()
+        battery_callback()
+        assert added == []
+
+    @pytest.mark.asyncio
+    async def test_setup_time_batteries_not_readded(self):
+        """Batteries present at setup are seeded as known."""
+        from custom_components.eg4_web_monitor.button import async_setup_entry
+
+        coordinator = self._coordinator(
+            batteries={"INV001-01": {"battery_real_voltage": 53.2}}
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        added: list = []
+
+        def add_entities(entities, *args):
+            added.extend(entities)
+
+        await async_setup_entry(MagicMock(), entry, add_entities)
+        setup_buttons = [e for e in added if isinstance(e, EG4BatteryRefreshButton)]
+        assert len(setup_buttons) == 1
+
+        battery_callback = next(
+            call[0][0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call[0][0].__name__ == "_async_discover_battery_buttons"
+        )
+
+        added.clear()
+        battery_callback()
+        assert added == []

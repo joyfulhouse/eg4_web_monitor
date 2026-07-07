@@ -22,6 +22,21 @@ CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"
 CONF_DATA_VALIDATION = "data_validation"
 
+# Battery control regime: whether charge/discharge limits are governed by
+# State-of-Charge (closed-loop) or battery Voltage (open-loop). Backed by the
+# inverter's register 179 bit 9 (charge) / bit 10 (discharge). These gate which
+# limit control entities are enabled by default to reduce entity clutter.
+CONF_CHARGE_CONTROL_MODE = "charge_control_mode"
+CONF_DISCHARGE_CONTROL_MODE = "discharge_control_mode"
+
+# Battery control mode values (must match pylxpweb BatteryControlMode values)
+CONTROL_MODE_SOC = "soc"
+CONTROL_MODE_VOLTAGE = "voltage"
+
+# Default to SOC (closed-loop) — preserves the historical behavior where only
+# the SOC limit entities were created/enabled.
+DEFAULT_CONTROL_MODE = CONTROL_MODE_SOC
+
 # Options flow configuration keys (configurable via UI after setup)
 CONF_SENSOR_UPDATE_INTERVAL = "sensor_update_interval"
 CONF_HTTP_POLLING_INTERVAL = "http_polling_interval"
@@ -31,6 +46,23 @@ CONF_INCLUDE_AC_COUPLE_PV = "include_ac_couple_pv"  # Add AC couple power to PV 
 # Per-transport polling intervals (LOCAL mode with mixed transports)
 CONF_MODBUS_UPDATE_INTERVAL = "modbus_update_interval"
 CONF_DONGLE_UPDATE_INTERVAL = "dongle_update_interval"
+
+# Modbus input-register read block size preset (#254). Conservative keeps the
+# plain per-group reads every dongle/firmware handles; Fast coalesces adjacent
+# register groups into up to 120-register reads (fewer round-trips -> faster
+# polls) on hardware that supports large reads. pylxpweb latches back to the
+# conservative reads automatically if a large read fails.
+CONF_MODBUS_BLOCK_SIZE = "modbus_block_size"
+BLOCK_SIZE_CONSERVATIVE = "conservative"
+BLOCK_SIZE_FAST = "fast"
+DEFAULT_MODBUS_BLOCK_SIZE = BLOCK_SIZE_CONSERVATIVE
+# Preset -> max registers per coalesced read (pylxpweb max_input_block_size).
+# 40 = the documented cap of the oldest dongle firmware (no coalescing);
+# 120 = the field-proven fast setting (DG dongle fw 2.04-2.09, 40-multiple).
+BLOCK_SIZE_PRESET_REGISTERS: dict[str, int] = {
+    BLOCK_SIZE_CONSERVATIVE: 40,
+    BLOCK_SIZE_FAST: 120,
+}
 
 # Connection type configuration
 CONF_CONNECTION_TYPE = "connection_type"

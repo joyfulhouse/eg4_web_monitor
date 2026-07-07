@@ -71,7 +71,7 @@ eg4_web_monitor: coordinator_http.py
     → _map_device_properties(json_dict, FIELD_MAPPING)
     → const/sensors/mappings.py → INVERTER_RUNTIME_FIELD_MAPPING
                                 → GRIDBOSS_FIELD_MAPPING
-                                → PARALLEL_GROUP_FIELD_MAPPING
+    → Parallel groups: coordinator_mixins._get_parallel_group_property_map()
     → Applies scaling (÷10, ÷100) per DIVIDE_BY_10_SENSORS etc.
     |
     v
@@ -129,13 +129,13 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 8 | `pv2_power` | 1 | W | `pv2_power` | `pv2_power` |
 | 9 | `pv3_power` | 1 | W | `pv3_power` | `pv3_power` |
 | 10 | `charge_power` | 1 | W | `battery_charge_power` | `battery_charge_power` |
-| 11 | `discharge_power` | 1 | W | `battery_discharge_power` | `battery_discharge_power` |
+| 11 | `discharge_power` | 1 | W | `battery_discharge_power` | `battery_discharge_power` (entity EG4_OFFGRID-only, #197) |
 | 12 | `grid_voltage_r` | ÷10 | V | `grid_voltage_r` | `grid_voltage_r` |
 | 13 | `grid_voltage_s` | ÷10 | V | `grid_voltage_s` | `grid_voltage_s` |
 | 14 | `grid_voltage_t` | ÷10 | V | `grid_voltage_t` | `grid_voltage_t` |
 | 15 | `grid_frequency` | ÷100 | Hz | `grid_frequency` | `grid_frequency` |
 | 16 | `inverter_power` | 1 | W | `inverter_power` | `ac_power` |
-| 17 | `rectifier_power` | 1 | W | `grid_power` | `grid_power` |
+| 17 | `rectifier_power` | 1 | W | `rectifier_power` | `rectifier_power` (Prec; NOT grid power — eg4-9wf) |
 | 18 | `inverter_rms_current_r` | ÷100 | A | `inverter_rms_current_r` | `grid_current_l1` |
 | 20 | `eps_voltage_r` | ÷10 | V | `eps_voltage_r` | `eps_voltage_r` |
 | 21 | `eps_voltage_s` | ÷10 | V | `eps_voltage_s` | `eps_voltage_s` |
@@ -151,8 +151,38 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 |-----|----------------|-------|------|----------------|---------------|
 | 127 | `eps_l1_voltage` | ÷10 | V | `eps_l1_voltage` | `eps_voltage_l1` |
 | 128 | `eps_l2_voltage` | ÷10 | V | `eps_l2_voltage` | `eps_voltage_l2` |
+| 129 | `eps_l1_power` | 1 | W | `eps_l1_power` | `eps_power_l1` (COMBINED backup-path leg — see #335 note) |
+| 130 | `eps_l2_power` | 1 | W | `eps_l2_power` | `eps_power_l2` (COMBINED backup-path leg — see #335 note) |
+| 170 | `output_power` | 1 | W | `output_power` | `output_power`; also `load_power` (EG4_OFFGRID-only, #197) |
 | 193 | `grid_l1_voltage` | ÷10 | V | `grid_l1_voltage` | `grid_voltage_l1` (suppressed when 0) |
 | 194 | `grid_l2_voltage` | ÷10 | V | `grid_l2_voltage` | `grid_voltage_l2` (suppressed when 0) |
+
+> **EG4_OFFGRID confirmed registers (issue #197):** live Modbus sweep + cloud
+> cross-reference on a 12000XP (device type 54) validated reg 170 as load
+> power (`Pload` in the 6kXP Modbus PDF — valid both grid-tied AND in EPS
+> mode).  The cloud zeroes its reg-170 mirror for EG4_OFFGRID, so
+> `load_power` comes from the LOCAL register only (LOCAL mapping + HYBRID
+> `_TRANSPORT_OVERLAY`; absent in pure CLOUD).  `load_power`,
+> `battery_discharge_power` and the backup-output-split sensors below are
+> gated to EG4_OFFGRID via `OFFGRID_ONLY_SENSORS` in
+> `const/device_types.py`.
+>
+> **Backup-output split (issues #222/#335):** on the 6000XP/12000XP the GEN
+> terminal can be a smart-load output, and `peps`/`pEpsL1N`/`pEpsL2N` (regs
+> 129/130 locally) carry the COMBINED backup-path output (smart load + EPS
+> loads) — live evidence: L1+L2 = 3371 W = cloud `smartLoadPower` 2999 W +
+> `epsLoadPower` 365 W.  The cloud-only split is exposed as
+> `smart_load_power` / `grid_load_power` / `eps_load_power` sensors
+> (CLOUD/HYBRID supplemental, EG4_OFFGRID-gated; no validated local register
+> — the 18kPV firmware RE names input reg 232 `smart_load_power` but it has
+> never been observed non-zero and is unvalidated on off-grid hardware, and
+> regs 129/130 are the combined legs, not the `epsLoadPower` subset).
+> The former `eps_load_power_l1/_l2` sensors and the L1+L2
+> `eps_load_power` sum (#197) were RETIRED in #335: they aliased the
+> combined regs 129/130 values and so exactly duplicated `eps_power_l1/l2` —
+> the #197 "sum ≈ cloud epsLoadPower" validation was a smart-load-idle
+> coincidence.  `eps_load_power` now maps the real cloud `epsLoadPower`
+> field via the pylxpweb `eps_load_power` property (pylxpweb ≥0.9.36).
 
 > **Note:** Regs 193-204 (grid/generator per-leg voltage + per-leg power) are
 > firmware-zero on EG4 US split-phase inverters — confirmed live across the full
@@ -182,6 +212,27 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 38 | `bus_voltage_1` | ÷10 | V | `bus1_voltage` |
 | 39 | `bus_voltage_2` | ÷10 | V | `bus2_voltage` |
 
+### Fault / Warning Code Registers (32-bit pairs)
+
+| Reg | Canonical Name | Scale | Unit | pylxpweb Field | HA Sensor Key |
+|-----|----------------|-------|------|----------------|---------------|
+| 60-61 | `fault_code` | 1 | - | `fault_code` | `fault_code` |
+| 62-63 | `warning_code` | 1 | - | `warning_code` | `warning_code` |
+
+> **Note (eg4-23a6):** Raw 32-bit bitfields surfaced as diagnostic sensors
+> (state `0` = no fault/warning). `from_modbus_registers` merges the BMS
+> codes (regs 99/100, canonical `bms_fault_code`/`bms_warning_code`) into
+> the inverter-level fields as a **fallback when the inverter code reads 0**,
+> so the dataclass fields — and therefore the sensors — carry the combined
+> value. **LOCAL/HYBRID only**: the cloud `getInverterRuntime` response has
+> no `faultCode`/`warningCode` field (canonical table `cloud_api_field=None`),
+> so the keys flow through the LOCAL runtime table plus the HYBRID
+> `_TRANSPORT_OVERLAY` and are correctly absent in pure CLOUD mode.
+> pylxpweb also exposes decoded text via
+> `InverterRuntimeData.fault_messages`/`warning_messages`
+> (`pylxpweb.constants.fault_codes`); the sensors deliberately publish the
+> raw numeric code.
+
 ### Temperature Registers
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
@@ -199,11 +250,19 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
 |-----|----------------|-------|------|---------------|
-| 31 | `inverter_energy_today` | ÷10 | kWh | `yield` |
+| 31 | `inverter_energy_today` | ÷10 | kWh | `inverter_energy` (NOT `yield` — see note) |
 | 33 | `charge_energy_today` | ÷10 | kWh | `charging` |
 | 34 | `discharge_energy_today` | ÷10 | kWh | `discharging` |
 | 36 | `grid_export_energy_today` | ÷10 | kWh | `grid_export` |
 | 37 | `grid_import_energy_today` | ÷10 | kWh | `grid_import` |
+
+> **Note (eg4-bc0):** `yield` is PV yield: LOCAL computes it as the epvN_day
+> sum (`pv_energy_today`), CLOUD reads `todayYielding`.  The cloud's
+> `todayYielding` is **PV yield, not Einv_day** — proven by the pvPie permille
+> rates (charge+export+usage sum to 1000 and distribute `todayYielding`;
+> live 2026-06-10: 53.0 kWh × 0.777 == todayExport 41.2).  Reg 31 (Einv_day,
+> inverter OUTPUT energy) therefore feeds the separate `inverter_energy`
+> sensor and has **no cloud mirror**.
 
 ### Energy Registers (Lifetime, 32-bit pairs)
 
@@ -211,7 +270,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg Pair | Canonical Name | Scale | Unit | HA Sensor Key |
 |----------|----------------|-------|------|---------------|
-| 46-47 | `inverter_energy_total` | ÷10 | kWh | `yield_lifetime` |
+| 46-47 | `inverter_energy_total` | ÷10 | kWh | `inverter_energy_lifetime` (NOT `yield_lifetime` — see daily note) |
 | 50-51 | `charge_energy_total` | ÷10 | kWh | `charging_lifetime` |
 | 52-53 | `discharge_energy_total` | ÷10 | kWh | `discharging_lifetime` |
 | 56-57 | `grid_export_energy_total` | ÷10 | kWh | `grid_export_lifetime` |
@@ -355,9 +414,49 @@ if reg1 & 0x100:
 |-----|---------------|-------------|---------|
 | 0 | `battery_backup` | switch | EPS/Battery Backup mode |
 | 7 | `ac_charge` | switch | AC (Grid) Charging enable |
-| 8 | `green_mode` | switch | Green/Off-Grid Mode |
 | 10 | `forced_discharge` | switch | Forced Battery Discharge |
 | 11 | `pv_charge_priority` | switch | Forced PV Charge Priority |
+| 15 | `feed_in_grid_en` | switch | Grid Sell Back (feed-in/export enable, [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135); grid-tied families only) |
+
+### System Function Bitfield (Register 110)
+
+| Bit | Parameter Key | HA Entity Key | Entity Type | Purpose |
+|-----|---------------|---------------|-------------|---------|
+| 1 | `FUNC_RUN_WITHOUT_GRID` | `fast_zero_export` | switch | Fast Zero Export — speeds up the zero-export control loop; select as the opposite of Grid Sell Back ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274); grid-tied families only) |
+| 4 | `FUNC_CHARGE_LAST` | `charge_last` | switch | Charge Last — PV serves loads/export first, charges battery last ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)) |
+| 8 | `FUNC_GREEN_EN` | `off_grid_mode` | switch | Green/Off-Grid Mode |
+
+> Register 110 holds 14 verified bit fields (`REGISTER_TO_PARAM_KEYS[110]` in
+> pylxpweb `constants/registers.py`); only bits 1, 4 and 8 are mapped to
+> entities. Local writes read-modify-write the register via the
+> named-parameter map; cloud writes use the function-control API
+> (`control_function`), which applies the bit server-side.
+>
+> **`FUNC_RUN_WITHOUT_GRID` (bit 1) is "Fast Zero Export"** — the LXP
+> protocol PDF names the bit `FunctionEn1.ubFastZeroExport`, and both the
+> EG4 (#135 screenshot) and Luxpower (#274 screenshot) web UIs toggle the
+> `FUNC_RUN_WITHOUT_GRID` cloud param from their Grid Sell tab's
+> "Fast Zero Export" button. pylxpweb's canonical name `run_without_grid`
+> is the vendor param dictionary's literal wording, not the function: the
+> bit does not make the inverter run without grid. Same bit position in
+> the base (18kPV) and SNA register-110 tables.
+>
+> **EG4_OFFGRID (SNA) layout differs in the upper bits** (PR #220
+> adjudication, eg4-juzg): on 12000XP/6000XP hardware the buzzer is bit 7
+> (not 6) and `FUNC_BATTERY_ECO_EN` is **bit 15** (not 9) — 12000XP live
+> toggle evidence cross-confirmed by the stock SNA cloud decode
+> (`FUNC_BUZZER_EN` the only set flag with raw `0x0080`) and the ant0nkr
+> lxp_modbus reference (Green=14/ECO=15 there). pylxpweb local transports
+> apply `OFFGRID_REGISTER_110_PARAM_KEYS` for this family. Bit 8
+> (`FUNC_GREEN_EN`, the Off Grid Mode switch) deliberately keeps the 18kPV
+> position pending an SNA toggle test — if the lxp_modbus layout fully
+> applies, green may really live at bit 14; a community capture (read 110,
+> toggle Green in the EG4 cloud UI, read 110 again) settles it. Because of
+> that uncertainty the Off Grid Mode switch writes are **cloud-only on
+> EG4_OFFGRID** (server-side bit mapping is always correct; pure-LOCAL
+> setups get an honest error instead of a suspect bit-8 write). No ECO
+> entity exists in the integration; the relocation only corrects the
+> library mapping.
 
 ### Power Control Registers
 
@@ -368,6 +467,24 @@ if reg1 & 0x100:
 | 66 | `ac_charge_power` | number | W | 0-15000 |
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
+| 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
+| 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
+| 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
+
+> **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
+> cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
+> single-register named cloud reads on 18kPV + FlexBOSS21 (2026-06-12,
+> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)). The cloud
+> never uses the protocol spec's `HOLD_MAX_BACKFLOW_POWER_PERCENT` name for
+> this register. **kW with 100 W raw units** (the reg-66/74/82 encoding), NOT
+> the percent in the spec or the param name
+> ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274)):
+> the 2026-04-13 live local probe read raw **160** on the 18kPV whose cloud
+> named read returned **"16"**, both web UIs label the field "Grid Sell Back
+> Power(kW)" (#135 + #274 screenshots), and the #274 LXP-LB shows 12.1 kW
+> (raw 121) — impossible as a 0-100 percent. Cloud reads/writes are kW floats
+> (server scales); the local/Modbus path scales kW×10 on write and ÷10 on
+> read. Grid-tied families only.
 
 > **`pv_charge_power` targets register 74** (`HOLD_FORCED_CHG_POWER_CMD`, the
 > forced/PV-charge-priority power command), stored in **100W units** (0-150 =
@@ -377,6 +494,92 @@ if reg1 & 0x100:
 > power control and is currently unmapped to any entity. The local path
 > previously mis-targeted reg 64 with a lossy kW↔% conversion (the "set 1 →
 > reads 0" bounce); see issue history.
+
+> **`start_discharge_power_threshold` (reg 116, `PtoUserStartdischg`)** starts
+> battery discharge once grid import (P_to_user) exceeds the value — the
+> Luxpower web UI's "Start Discharge P_import(W)", range hint `[50, ]`
+> ([#272](https://github.com/joyfulhouse/eg4_web_monitor/issues/272)). Raw
+> register IS **whole watts** (protocol register table scale "1W", default
+> 50 W) — NOT the 100 W encoding of regs 66/74/82/103: fleet scanner reads
+> show raw 100 == cloud "100" == 100 W. TWO parameter keys for the one
+> register: pylxpweb's local name map uses `HOLD_PTOUSER_START_DISCHARGE`
+> (LOCAL/HYBRID reads + local name-map writes), while the live cloud API uses
+> `HOLD_P_TO_USER_START_DISCHG` (#272 reporter's browser console + every
+> `docs/inverters` scanner dump; pylxpweb's guessed `api_param_key` does not
+> exist on the server, so its cloud read leg returns 0). Cloud writes go
+> through the generic named-parameter API with the live key. Grid-tied
+> families only (EG4_HYBRID, LXP); CT required for the feature to act.
+>
+> **`start_charge_power_threshold` (reg 117, `PtoUserStartchg`)** starts
+> charging once P_to_user drops below the value — **signed** watts, protocol
+> default **-50 W** (= start charging once exporting more than 50 W). The
+> register is absent from the Luxpower web UI and has **no cloud parameter
+> name** (remoteRead names reg 117 `<EMPTY>` on every scanned model, incl.
+> LXP-EU), so the entity is **LOCAL/HYBRID-only** and disabled by default
+> (untested register, added for #272 field testing). Local reads surface it
+> under the raw `"117"` key (`read_named_parameters` falls back to
+> `str(addr)` for unmapped registers); writes use the raw register address
+> with two's-complement masking (-50 → 65486).
+
+### Schedule Time Window Registers ([#277](https://github.com/joyfulhouse/eg4_web_monitor/issues/277) + [#295](https://github.com/joyfulhouse/eg4_web_monitor/issues/295))
+
+Four schedule types share one packed-time layout, declared once in the
+`SCHEDULE_TIME_TYPES` table (const/modbus.py, mirroring pylxpweb's
+`SCHEDULE_CONFIGS`) and consumed by a single `time` entity class
+(`EG4ScheduleTimeEntity`). Per type: three daily windows × (start, end) =
+six consecutive holding registers from the base. Each 16-bit register
+**packs both time fields**: hour in the **low byte**, minute in the **high
+byte** (`value = hour | (minute << 8)`, pylxpweb
+`pack_time()`/`unpack_time()`; e.g. 23:30 → `7703`).
+
+| Schedule | Regs | Cloud param prefix | Entities (gating) |
+|----------|------|--------------------|-------------------|
+| AC Charge | 68-73 | `HOLD_AC_CHARGE` | all control-capable families (#277) |
+| AC First | 152-157 | `HOLD_AC_FIRST` | **EG4_OFFGRID (SNA) only** — the portal shows the AC First section only on the SNA working-mode page (`/WManage/web/maintain/workingMode/sna`) |
+| Forced Charge | 76-81 | `HOLD_FORCED_CHARGE` | all control-capable families |
+| Forced Discharge | 84-89 | `HOLD_FORCED_DISCHARGE` | control-capable **grid-tied** families — suppressed on EG4_OFFGRID like the forced discharge power/SOC numbers (PR #220 / #197) |
+
+Within each block: reg base+0/1 = window 1 start/end, +2/3 = window 2,
++4/5 = window 3. HA entity keys are `{schedule}_{start|end}_time_{1|2|3}`
+(e.g. `ac_first_start_time_1`); window 1 is enabled by default, windows 2/3
+are created registry-disabled. Cloud param names take the window suffix
+`""`/`_1`/`_2`: e.g. reg 72 (AC charge window 3 start) ↔
+`HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2`.
+
+> **Evidence for the packed layout and cloud naming**: the live cloud
+> register probes (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json` for
+> 68-73, `SNA12KUS_52XXXXXX68.json` blocks 106-111 for 152-157) read each
+> register individually and get **two** named params back per register —
+> the hour *and* the minute — with window 1 unsuffixed and windows 2/3
+> suffixed `_1`/`_2`. This matches pylxpweb's `SCHEDULE_CONFIGS` (bases
+> 68/76/84/152) and its Modbus schedule helpers, which write
+> `pack_time(hour, minute)` per register. All probed families (12kPV,
+> FlexBOSS18/21, LXP-US, SNA12K-US) report the named cloud params for all
+> four schedules; the family gates above reflect the portal UI (which page
+> shows the section) and the #197 off-grid adjudication, not param absence.
+>
+> **LOCAL parameter-cache naming caveat (AC charge only)**: pylxpweb's
+> `REGISTER_TO_PARAM_KEYS` still carries a stale pre-probe interpretation of
+> 68-73 (one field per register: `HOLD_AC_CHARGE_START_HOUR_1` @ 68, …,
+> `HOLD_AC_CHARGE_ENABLE_1`/`_2` @ 72/73). Local `read_named_parameters()`
+> therefore surfaces the **raw packed values under those misleading names**;
+> each spec's `local_param_keys` alias chain (const/modbus.py) maps the
+> register to its cache keys and the time entities unpack the value
+> themselves. Do **not** treat those cache keys as separated hour/minute
+> values on the local path. The other schedules use pylxpweb's canonical
+> packed names (`HOLD_FORCED_CHARGE_TIME_0_START`, …; 84-89 and 152-157
+> named in pylxpweb > 0.9.36b21) with the raw `"84"`/`"152"`-style address
+> keys as fallback on older releases.
+>
+> **Write paths**: LOCAL/HYBRID-with-transport writes the single packed
+> register (FC06 — the firmware rejects FC16 multi-writes on schedule
+> registers) via `coordinator.write_register()`; CLOUD writes the portal's
+> named hour + minute params via `control.write_parameter()`. Overnight
+> windows (end < start, e.g. 20:00 → 08:00) are firmware-legal and are not
+> cross-validated. Whether a window is *active* is governed by the separate
+> enable bits (e.g. AC Charge reg 21 bit 7, Forced Charge/Discharge reg 21
+> bits 11/10) and the AC charge type (reg 120 bits 1-3) controls — the time
+> entities manage only the schedule.
 
 ### Battery Control Registers
 
@@ -393,14 +596,42 @@ if reg1 & 0x100:
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
+| 3 | `FUNC_PV_SELL_TO_GRID_EN` | `pv_sell_to_grid_en` (switch "Export PV Only") | Only export PV surplus, never battery ([#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135); pinned 2026-06-12) |
 | 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
+| 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
+| 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
 
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
-> `FUNC_AC_COUPLING_FUNCTION`, `FUNC_BAT_CHARGE_CONTROL`, etc.) but only bit 7 has been
-> confirmed via live toggle testing. Other bits have placeholder names (`FUNC_179_BIT0` etc.)
-> until verified.
+> `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 3, 7, 9, and 10 are confirmed via live toggle
+> testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
+>
+> `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
+> [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
+> bit 3** on 2026-06-12 (~16:05–16:07 PT) via authorized live cloud toggles
+> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 52842P0581 and 18kPV
+> 4512670118 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
+> = single bit 3) in lockstep with the named parameter, restores verified by
+> re-read (`remoteRead` valueFrame, base64 LE uint16). With pylxpweb ≥ 0.9.36b6
+> the switch works in ALL modes: local-raw parameter caches decode the bit by
+> name and local writes RMW it; against older pylxpweb the setup probe
+> (`switch._local_params_can_carry`) keeps it cloud-parameter-mode only. The
+> register contract harness pins the name to (179, 3).
 
 Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
+
+> **Family availability:** the Grid Peak Shaving switch/power number and the
+> Forced Discharge switch/power/SOC-limit numbers are **not created for
+> EG4_OFFGRID** (12000XP/6000XP). These functions act on grid-parallel
+> export/import blending; the SNA platform has no sellback or grid-parallel
+> operation (bypass-or-invert), uses `FUNC_GEN_PEAK_SHAVING` for its
+> generator-overload variant, and manages battery-vs-grid priority through
+> its own `LSP_*`/discharge-control parameters. Field data: stock SNA12K-US
+> cloud dump and the #222 6000XP capture both read
+> `FUNC_GRID_PEAK_SHAVING=False`/`FUNC_FORCED_DISCHG_EN=False`, and the SNA
+> cloud parameter set does not even expose
+> `_12K_HOLD_GRID_PEAK_SHAVING_POWER`. Existing users see a Repairs issue
+> (`offgrid_grid_controls_removed`) explaining the removal (#219
+> precedent).
 
 ### Extended Function Enable 2 (Register 233)
 
@@ -408,13 +639,52 @@ Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
-| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed) |
+| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed). Not created on EG4_OFFGRID — cloud write rejected on 12000XP v2 and local reg-233 access returns ILLEGAL DATA ADDRESS family-wide (#289/#296) |
 
 > **Note:** Register 233 contains 9 API-mapped parameters (`BIT_DRY_CONTRACTOR_MULTIPLEX`,
 > `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.) but only
 > bit 1 has been confirmed via live toggle testing. Bit 12 is observed set (possibly
 > `FUNC_QUICK_CHARGE_CTRL`). This was the root cause of issue #153 — beta.31 shipped with
 > `pylxpweb>=0.9.4` in manifest but these register mappings only exist in 0.9.5.
+
+### Battery Charge/Discharge Control Mode (SOC vs Voltage)
+
+The charge/discharge regulation regime (register 179 bits 9/10 above) selects which
+battery-limit registers are active. The integration exposes both the SOC and Voltage
+limits as Number entities, enabling only the active mode's limits by default. Added in
+integration 3.4.0 / pylxpweb 0.9.36b1.
+
+| Reg | EG4 Param Key | HA Entity Key | Side / Mode | Unit | Range |
+|-----|---------------|---------------|-------------|------|-------|
+| 67  | `HOLD_AC_CHARGE_SOC_LIMIT` | `ac_charge_soc_limit` | charge / SOC | % | 0-100 |
+| 227 | `HOLD_SYSTEM_CHARGE_SOC_LIMIT` | `system_charge_soc_limit` | charge / SOC | % | 10-101 |
+| 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | `system_charge_volt_limit` | charge / Voltage | V | 40-64 |
+| 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | `ac_charge_start_voltage` | charge / Voltage | V | 38-60 |
+| 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | `ac_charge_end_voltage` | charge / Voltage | V | 38-60 |
+| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-90 |
+| 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
+| 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
+| 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
+| 202 | `_12K_HOLD_STOP_DISCHG_VOLT` | `stop_discharge_voltage` | discharge / Voltage | V | 40-56 |
+
+> **Voltage scaling:** local Modbus returns raw decivolts (e.g. `595`) while the cloud
+> API returns already-scaled volts (e.g. `59.5`); the Number entities normalize by
+> magnitude (a value ≥ 100 is decivolts and is divided by 10). Reg 159's cloud param
+> key is `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` (the holding-register `api_param_key`
+> `HOLD_AC_CHARGE_END_VOLTAGE` is aliased to it).
+>
+> **Stop Discharge Voltage (reg 202):** the cloud maintain page's *"Stop Discharge
+> Volt 1(V)"*, gated by `disChgVoltEnable` — the forced-discharge stop limit for the
+> Voltage regime (the voltage twin of `forced_discharge_soc_limit`, reg 83). Located
+> by single-register cloud window bisection and raw-verified DECIVOLTS 2026-06-11
+> (raw 400 ↔ cloud 40 V); cloud accepts fractional volts (live round-trip
+> 40 → 41.5 → 40 V). Added in bead eg4-aa3t (pylxpweb > 0.9.36b5).
+>
+> **EG4 web UI labels:** some of these registers appear under different names on the
+> EG4 monitor — e.g. *"Back Up Volt(V)"* is reg 159 (`ac_charge_end_voltage`, the
+> voltage twin of the AC-charge SOC limit, active in battery-backup/voltage mode) and
+> *"System Charge Volt Limit(V)"* is reg 228. The full label cross-reference lives in
+> [CONFIGURATION.md](CONFIGURATION.md#battery-control-mode-soc-vs-voltage).
 
 ---
 
@@ -630,6 +900,7 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 |-----------|---------------|-------|
 | `status` | `status_code` | 1 |
 | `pinv` | `ac_power` | 1 |
+| `pLoad170` | `output_power` | 1 |
 | `ppv` | `pv_total_power` | 1 |
 | `ppv1` | `pv1_power` | 1 |
 | `ppv2` | `pv2_power` | 1 |
@@ -658,6 +929,13 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 | `totalLoad` | `consumption_lifetime` | ÷10 |
 | `totalGridFeed` | `grid_export_lifetime` | ÷10 |
 | `totalGridConsumption` | `grid_import_lifetime` | ÷10 |
+
+> **No `faultCode`/`warningCode` fields (eg4-23a6):** the `getInverterRuntime`
+> response does not carry the inverter fault/warning codes (pylxpweb's
+> `InverterRuntime` model has no such fields and the canonical table pairs
+> regs 60-63 with `cloud_api_field=None`). The `fault_code`/`warning_code`
+> sensors are therefore LOCAL/HYBRID-only — see "Fault / Warning Code
+> Registers" in section 2.
 
 ### GridBOSS Runtime (getMidboxRuntime)
 
@@ -697,7 +975,8 @@ Mapping dict: `GRIDBOSS_FIELD_MAPPING`
 
 ### Parallel Group Energy (getInverterEnergyInfoParallel)
 
-Mapping dict: `PARALLEL_GROUP_FIELD_MAPPING`
+Mapped via `_get_parallel_group_property_map()` (coordinator_mixins.py) from the
+parsed pylxpweb parallel-group object. The cloud API fields are:
 
 | API Field | HA Sensor Key | Scale |
 |-----------|---------------|-------|
@@ -744,6 +1023,58 @@ soc=None) are skipped. This prevents creating "Unknown" entities when CAN
 communication is not established. The guard checks `batt.voltage is None and
 batt.soc is None` in both `coordinator_local.py` and `coordinator_http.py`.
 
+### Battery Device Identity (#252)
+
+The battery key is the battery **device identifier** (`(DOMAIN, battery_key)`)
+and is embedded in every battery entity unique_id
+(`{inverterSn}_{batteryKey}_{suffix}`). All three modes derive ONE canonical,
+serial-first key (helpers in `utils.py`):
+
+| Mode | Derivation | Result |
+|------|-----------|--------|
+| CLOUD | `cloud_battery_key()` — cleans the cloud `batteryKey` (`{inverterSn}_{batterySn}`) | `{inv}-{batterySn}` |
+| HYBRID | `cloud_battery_key()` on the same cloud battery objects (baseline + transport overlay) | identical to CLOUD |
+| LOCAL | `local_battery_key()` — synthesized from the CAN-reported serial | identical to CLOUD (cloud `batterySn` == CAN serial) |
+| No serial | positional fallback | `{inv}-{slot+1:02d}` |
+
+Placeholder serials (`Battery_ID_NN`, packs whose BMS reports no serial)
+collapse to `{inv}-NN` in every path via `clean_battery_display_name()`. A
+cloud battery whose `batteryKey` deviates from `{inverterSn}_{batterySn}`
+(which would split LOCAL vs CLOUD identity) logs a one-shot WARNING.
+
+**No-serial debounce (LOCAL):** a serial-less slot is held for
+`_NO_SERIAL_EXPOSE_POLLS` (3) data-bearing polls before its positional
+fallback entity is exposed, so a late-arriving CAN serial claims the identity
+first. When a serial later claims a slot, the slot's positional fallback cache
+entry is retired (same physical battery — the rr-cache never evicts on its
+own).
+
+**Migration:** pre-#252 HYBRID/LOCAL installs used positional keys
+(`{inv}-01..NN`). Once serials are known, `battery_migration.py`:
+
+- re-identifies the positional **device in place** when no canonical device
+  exists (device UUID, area, user name and labels survive; device automations
+  and dashboard cards keep working) and renames entity unique_ids in place
+  (entity_id and recorder history preserved);
+- when the canonical entity/device **already exists** (cloud→hybrid installs
+  that ran both identities), the positional duplicates are **removed — their
+  own accumulated history and long-term statistics are deleted, not merged**;
+  area/name/label customizations on the positional device are backfilled onto
+  the canonical device where the canonical's value is unset;
+- **skips migration entirely** (positional registry rows stay as removable
+  orphans, logged once) when the legacy positional history cannot be
+  attributed safely: rotating packs (more distinct serials than the 4
+  register slots, or reg 96 > 4) and payloads with duplicate battery serials;
+- never renames or removes a row whose entity object is currently live —
+  deferred to the next restart/reload (migration runs before entities
+  instantiate);
+- marks a key migrated only after its registry ops succeed (in-memory,
+  per-session guard; a restart re-run is a proven no-op).
+
+Driven by `_register_battery_key_migrations()` from all three battery
+processing paths. **Downgrade note:** rolling back to a pre-#252 beta
+re-creates the positional duplicates.
+
 ### Battery Register Space (Modbus)
 
 Base address: 5002, 30 registers per battery, max 5 batteries per inverter.
@@ -764,6 +1095,18 @@ Definitions: `pylxpweb/registers/battery.py`
 | 9 | `battery_cycle_count` | 1 | - | `cycle_count` |
 | 12 | `battery_max_cell_voltage` | ÷1000 | V | `battery_max_cell_voltage` |
 | 13 | `battery_min_cell_voltage` | ÷1000 | V | `battery_min_cell_voltage` |
+| 14 (low) | `battery_max_cell_num_temp` | 1 | - | `battery_max_cell_temp_num` |
+| 14 (high) | `battery_min_cell_num_temp` | 1 | - | `battery_min_cell_temp_num` |
+| 15 (low) | `battery_max_cell_num_voltage` | 1 | - | `battery_max_cell_voltage_num` |
+| 15 (high) | `battery_min_cell_num_voltage` | 1 | - | `battery_min_cell_voltage_num` |
+
+**Cell-number registers (eg4-4yg):** offset 14 holds the TEMPERATURE cell
+numbers and offset 15 holds the VOLTAGE cell numbers (low byte = max,
+high byte = min). Earlier pylxpweb register maps had these two registers
+crossed, so LOCAL/HYBRID modes showed voltage cell numbers in the temp
+sensors and vice versa; CLOUD mode was always correct. Verified by live
+cross-mode capture (2026-02-26) against
+`batMaxCellNumTemp`/`batMaxCellNumVolt`.
 
 ### Cloud API (getBatteryInfo)
 
@@ -776,6 +1119,10 @@ Definitions: `pylxpweb/registers/battery.py`
 | `cycleCnt` | `cycle_count` |
 | `batMaxCellVoltage` | `battery_max_cell_voltage` |
 | `batMinCellVoltage` | `battery_min_cell_voltage` |
+| `batMaxCellNumTemp` | `battery_max_cell_temp_num` |
+| `batMinCellNumTemp` | `battery_min_cell_temp_num` |
+| `batMaxCellNumVolt` | `battery_max_cell_voltage_num` |
+| `batMinCellNumVolt` | `battery_min_cell_voltage_num` |
 | `currentFullCapacity` | `battery_full_capacity` |
 | `batBmsModelText` | `battery_model` |
 
@@ -885,8 +1232,65 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `battery_power` | `charge_power - discharge_power` | coordinator_local.py |
 | `rectifier_power` | From register 17 (`grid_power`) — renamed for clarity | coordinator_local.py |
 | `grid_import_power` | From register 27 (`power_to_user`) | coordinator_local.py |
-| `eps_power_l1` | `eps_power * (eps_voltage_l1 / (eps_voltage_l1 + eps_voltage_l2))` | coordinator_local.py |
-| `eps_power_l2` | `eps_power * (eps_voltage_l2 / (eps_voltage_l1 + eps_voltage_l2))` | coordinator_local.py |
+| `eps_power_l1` | Direct reg 129 (pylxpweb ≥0.9.36b1); voltage-ratio split `eps_power * (V_l1 / (V_l1 + V_l2))` as fallback | pylxpweb `eps_power_l1` |
+| `eps_power_l2` | Direct reg 130 (pylxpweb ≥0.9.36b1); voltage-ratio split as fallback | pylxpweb `eps_power_l2` |
+| `operating_state` | Friendly decode of `status_code` (see below) | `operating_state_slug()` in `const/operating_state.py`; injected in both paths |
+
+> `eps_load_power` is no longer computed: the former L1+L2 sum (#197) was the
+> COMBINED backup output and duplicated `eps_power` (#335).  It now maps the
+> cloud `epsLoadPower` field via the HTTP property map (cloud-only).
+
+### Operating State Decode (Table 9, issue #262)
+
+`status_code` (INPUT reg 0 `device_status` / cloud `status`) is a bit-packed
+operating-mode code. The shared helpers in `const/operating_state.py`
+(`operating_state_slug()` / `is_off_grid()`) decode it into two friendly
+entities available in **all modes** (LOCAL/CLOUD/HYBRID), since both paths
+produce the identical `status_code`:
+
+- `operating_state` — a **primary enum sensor**. The stored state is a stable
+  slug; the localized label lives in `strings.json`/`translations`
+  (`entity.sensor.operating_state.state.*`).
+- `off_grid` — a **binary sensor** (`binary_sensor.py`), ON when `status_code`
+  is one of the off-grid codes (`OFF_GRID_STATUS_CODES`).
+
+| Code | Slug (`operating_state`) | Label (en) | Off-grid |
+|------|--------------------------|------------|:--------:|
+| 0x00 | `standby` | Standby | |
+| 0x01 | `fault` | Fault | |
+| 0x02 | `programming` | Programming | |
+| 0x04 | `pv_to_grid` | PV → Grid | |
+| 0x08 | `pv_charging` | PV → Battery | |
+| 0x0C | `pv_charging_to_grid` | PV → Battery + Grid | |
+| 0x10 | `battery_to_grid` | Battery → Grid | |
+| 0x11 | `standby` | Standby | |
+| 0x14 | `pv_battery_to_grid` | PV + Battery → Grid | |
+| 0x20 | `ac_charging` | AC → Battery | |
+| 0x28 | `pv_ac_charging` | PV + AC → Battery | |
+| 0x40 | `off_grid_battery` | Off-Grid (Battery) | ✅ |
+| 0x60 | `ac_coupled_charging` | Off-Grid (AC-Coupled Charging) | ✅ |
+| 0x80 | `pv_off_grid` | Off-Grid (PV, unstable) | ✅ |
+| 0x88 | `pv_charging_off_grid` | Off-Grid (PV + Charging) | ✅ |
+| 0xC0 | `pv_battery_off_grid` | Off-Grid (PV + Battery) | ✅ |
+
+**Off-grid** is determined by the threshold rule **`code >= 0x40`** (bit 6/7),
+so even an undocumented ≥0x40 combination still trips the Off-Grid binary
+sensor. This was corrected against real LXP-LB hardware and the `lxp_modbus`
+integration (#262, @ivanfmartinez):
+- `0x60` — Table 9 *names* it "Off-grid + battery charging" but *describes* it as
+  "On-grid … AC Coupled" (contradictory). Hardware (main breaker off, AC-couple
+  charging the battery) and `lxp_modbus` both confirm it is **off-grid**.
+- `0x20` — Table 9's description "Grid charges the battery" is misleading; on real
+  hardware this also occurs charging from AC-coupled PV with no grid, so the
+  label is **"AC → Battery"**, not "Grid → Battery".
+- `0x11` — an observed Standby alias (not in Table 9) that `lxp_modbus` also maps.
+
+An unmapped code → `operating_state` is `unknown` (a debug log records the raw
+value; the `status_code` sensor retains it for diagnosis).
+
+> Distinct from the **Operating Mode** *select* (holding reg 21 Normal/Standby
+> power control) and the **Cloud Status** sensor (`status_text` — cloud health
+> string, CLOUD/HYBRID only).
 
 ### GridBOSS Computed Keys
 
@@ -937,7 +1341,7 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
-- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`
+- **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197), `fault_code`/`warning_code` (regs 60-63, eg4-23a6)
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
 
@@ -958,6 +1362,10 @@ From `INVERTER_COMPUTED_KEYS` frozenset in `coordinator_mappings.py`:
 | `consumption_power` (inverter) | Computed | API | API or computed | Energy balance vs API |
 | `consumption` (energy) | Computed | API (÷10) | API (÷10) | `_energy_balance()` vs `todayLoad` |
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
+| `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
+| `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
+| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); pylxpweb ≥0.9.36 properties. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
+| `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 
 ---
 
@@ -1315,21 +1723,61 @@ grid_power = power_to_user - power_to_grid
 
 Positive = importing from grid, negative = exporting to grid.
 
-**Where:** `coordinator_mixins.py` `_process_inverter_object()` line ~458.
+Both paths use this NET-flow formula (eg4-9wf): CLOUD/HYBRID computes it in
+`coordinator_mixins.py` `_process_inverter_object()`; LOCAL computes it in
+`_build_runtime_sensor_mapping()` from regs 27/26 (`power_from_grid` −
+`power_to_grid`).  Register 17 (Prec) is RECTIFIER power and feeds the
+separate `rectifier_power` sensor — it must never be published as
+`grid_power` (the historical LOCAL mapping did exactly that).
 
-#### `eps_power_l1` / `eps_power_l2` (Inverter, LOCAL only)
+#### `eps_power_l1` / `eps_power_l2` (Inverter)
 
-Split-phase EPS power per leg, computed from total EPS power and voltage ratio:
+Split-phase EPS power per leg.  Since pylxpweb 0.9.36b1 these prefer the
+direct register reads (input regs 129/130) and only fall back to the
+voltage-ratio split for older firmware / missing registers:
 
 ```python
 eps_power_l1 = eps_power * (eps_voltage_l1 / (eps_voltage_l1 + eps_voltage_l2))
 eps_power_l2 = eps_power * (eps_voltage_l2 / (eps_voltage_l1 + eps_voltage_l2))
 ```
 
-Returns `None` when both voltages are zero (no EPS output).
+CLOUD mode reads the `pEpsL1N` / `pEpsL2N` API fields.
 
 **Source:** `inverter.eps_power_l1` / `inverter.eps_power_l2` properties in
 pylxpweb. Set in `coordinator_local.py` `_build_local_device_data()`.
+
+#### `eps_load_power_l1` / `eps_load_power_l2` — RETIRED (#335)
+
+The #197 sensors aliased `eps_power_l1`/`eps_power_l2` (regs 129/130 / cloud
+`pEpsL1N`/`pEpsL2N`) onto `eps_load_power_l1/_l2` and published the L1+L2 sum
+as `eps_load_power`.  Those source values are the COMBINED backup-path output
+(smart load + EPS loads), so the sensors were exact duplicates of
+`eps_power_l1/l2` — the #197 "sum 1327 ≈ cloud `epsLoadPower` 1338"
+validation was a smart-load-idle coincidence (#222 evidence: with the GEN
+port active, L1+L2 = 3371 W = `smartLoadPower` 2999 + `epsLoadPower` 365).
+No per-leg fields for the EPS-loads subset exist on any path.  The keys were
+removed from `SENSOR_TYPES`/key sets and orphaned registry entries are purged
+at setup (`_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES` in `__init__.py`).
+
+#### `smart_load_power` / `grid_load_power` / `eps_load_power` (Inverter, EG4_OFFGRID only, #222/#335)
+
+Cloud-only backup-output split, mapped from the pylxpweb `smart_load_power` /
+`grid_load_power` / `eps_load_power` properties (cloud `smartLoadPower` /
+`gridLoadPower` / `epsLoadPower` runtime fields, raw W; `eps_load_power`
+shipped in pylxpweb 0.9.36, pylxpweb #219 — the property returns None when no
+cloud runtime is attached, so the key stays absent in pure-LOCAL operation):
+
+| Mode | Source |
+|------|--------|
+| CLOUD | `getInverterRuntime` fields via the HTTP property map |
+| HYBRID | Same cloud fields — the pylxpweb properties intentionally read the HTTP runtime even with a transport attached, and `BaseInverter.refresh()` schedules a supplemental `_fetch_runtime_http()` for EG4_OFFGRID devices with a healthy transport so the values track the cloud on the runtime TTL instead of freezing at the setup-time snapshot |
+| LOCAL | **Absent** — no validated register on the off-grid family; keys are deliberately NOT in `ALL_INVERTER_SENSOR_KEYS` |
+
+Live evidence (6000XP, EV charging on the GEN port): `smartLoadPower`
+2999 W + `epsLoadPower` 365 W ≈ `peps` 3371 W combined backup output.
+Candidate local register for future validation: input reg 232
+(`smart_load_power` in the 18kPV firmware RE) — never observed non-zero,
+different firmware codebase, DO NOT wire without off-grid hardware proof.
 
 #### `total_load_power` (Inverter)
 
@@ -1338,8 +1786,31 @@ backward compatibility.
 
 #### `rectifier_power` (Inverter)
 
-Direct alias for register 17 (`grid_power` in pylxpweb). Named `rectifier_power`
-in HA for disambiguation from the computed `grid_power` sensor.
+Direct alias for register 17 (`rectifier_power` in pylxpweb; the dataclass
+field was renamed from the misleading `grid_power` in eg4-9wf). AC-charging
+rectifier power (grid-to-battery), distinct from the computed net
+`grid_power` sensor.
+
+#### `output_power` (Inverter)
+
+Unified LOAD-OUTPUT semantics on every path (eg4-9e4): LOCAL/HYBRID read
+input register 170 (Pload), pure CLOUD reads its mirror `pLoad170` via the
+pylxpweb `power_output` property.  Historically the cloud path published
+`pinv` here, making the sensor an exact duplicate of `ac_power`
+(live-confirmed on prod FlexBOSS21: both 2309 W).  `consumptionPower114` is
+NOT used as the mirror — it reads 0 on FlexBOSS21 while `pLoad170` is
+populated on every model.  Entity creation is no longer split-phase-gated
+(reg 170 exists on all families).
+
+**EG4_OFFGRID cloud-zero gate**: the cloud zeroes its reg-170 mirror for
+EG4_OFFGRID models (#197), so `drop_offgrid_cloud_output_power()` in
+`coordinator_mappings.py` removes the cloud-mapped key unless transport
+runtime backs it or the family is in `_CLOUD_PLOAD170_TRUSTED_FAMILIES`
+(EG4_HYBRID live-verified, LXP canonically paired — `UNKNOWN` and any
+unrecognized family drop, since the pylxpweb enum emits the truthy string
+"UNKNOWN" on failed detection).  Pure-CLOUD 12000XP/6000XP therefore has no
+`output_power` entity (same policy as `load_power`); LOCAL and HYBRID get
+the genuine register value.
 
 #### `grid_import_power` (Inverter)
 
@@ -1401,7 +1872,10 @@ consumption_power = load_power   (direct CT measurement, NOT energy balance)
 ```
 
 The GridBOSS load CT is the authoritative consumption measurement. Set in
-`_build_gridboss_sensor_mapping()` and `_get_mid_device_property_map()`.
+`_build_gridboss_sensor_mapping()` (LOCAL) and
+`_get_mid_device_property_aliases()` (CLOUD/HYBRID, eg4-7uz). The cloud
+alias table exists because `_get_mid_device_property_map()` is keyed by
+property name, so `load_power` cannot feed a second sensor key there.
 
 #### `hybrid_power` (GridBOSS)
 

@@ -10,7 +10,8 @@ self._http_polling_interval, etc.) accessed via mixin protocol.
 import asyncio
 import logging
 import time as _time
-from datetime import timedelta
+from collections.abc import Collection
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -42,13 +43,68 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
+    BATTERY_CARRY_FORWARD_MAX_AGE,
     _MixinBase,
     apply_gridboss_to_parallel_group,
     compute_total_inverter_power_kw,
+    is_transport_link_down,
 )
-from .utils import clean_battery_display_name
+from .utils import cloud_battery_key
 
 _LOGGER = logging.getLogger(__name__)
+
+# HYBRID battery overlay freshness window.
+#
+# pylxpweb's serial-keyed battery accumulator never evicts (#170 round-robin):
+# a battery the firmware rotates — or stops surfacing — out of the local
+# register page keeps its last-read block indefinitely. In HYBRID mode the
+# cloud baseline is refreshed independently (cloud battery cache TTL ~5 min), so
+# overlaying a *stale* transport block would hide fresher cloud data. Some
+# firmware exposes only a subset of batteries per page for many hours (#258: an
+# 18kPV surfaces one battery by day, all of them at night), which froze the
+# cloud-backed batteries. Transport blocks not read within this window are
+# therefore skipped in HYBRID so the fresh cloud value stands. The window
+# matches the cloud battery cache TTL: once local data is older than the cloud
+# refresh interval, the cloud copy is at least as current. LOCAL-only mode keeps
+# the never-evict block (it has no cloud fallback).
+HYBRID_TRANSPORT_FRESHNESS = timedelta(minutes=5)
+
+
+def _maybe_bust_degraded_cloud_cache(
+    client: Any,
+    last_refresh: dict[str, float],
+    http_interval: float,
+    serial: str,
+) -> bool:
+    """Throttled per-serial cloud cache bust for DEGRADED devices.
+
+    Degraded = locally configured but currently served by the cloud (attach
+    failed, or attached transport link down).  Their cloud caches are
+    aligned to the slow HTTP interval on the assumption local is primary,
+    which froze their sensors for the whole cache window — bust them so
+    degraded devices keep updating.  The bust is throttled per serial to
+    the HTTP polling interval: a hybrid coordinator can tick at the fastest
+    LOCAL interval (5s), which must never leak into the cloud call rate.
+
+    Args:
+        client: LuxpowerClient (or None — returns False).
+        last_refresh: Per-serial monotonic stamps (mutated on a fired bust).
+        http_interval: Cloud-safe HTTP polling interval in seconds.
+        serial: Device serial number.
+
+    Returns:
+        True when the bust fired (cloud window elapsed), False inside the
+        throttle window or without a client.
+    """
+    if client is None:
+        return False
+    now = _time.monotonic()
+    last = last_refresh.get(serial, 0.0)
+    if now - last < http_interval:
+        return False
+    last_refresh[serial] = now
+    client.invalidate_cache_for_device(serial)
+    return True
 
 
 class HTTPUpdateMixin(_MixinBase):
@@ -103,6 +159,30 @@ class HTTPUpdateMixin(_MixinBase):
             return should_poll
         return any(results.values())
 
+    async def _ensure_local_transports(self) -> None:
+        """Recover local transports after setup-time failures (eg4-05l).
+
+        Two failure shapes need post-setup recovery, both bounded to
+        ATTACH_RETRY_INTERVAL_SECONDS:
+
+        - a whole-attach EXCEPTION left ``_local_transports_attached`` False
+          with an empty failed set — re-run the full attach;
+        - per-serial failures (tracked in ``_failed_attach_serials``) —
+          retry just those serials.
+        """
+        if self.connection_type != CONNECTION_TYPE_HYBRID:
+            return
+        if self._local_transport_configs and not self._local_transports_attached:
+            from .coordinator_local import ATTACH_RETRY_INTERVAL_SECONDS
+
+            now = _time.monotonic()
+            if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+                return
+            self._last_attach_retry = now
+            await self._attach_local_transports_to_station()
+        elif self._failed_attach_serials:
+            await self._maybe_retry_failed_attaches()
+
     async def _refresh_station_devices(self, include_mid: bool = True) -> None:
         """Refresh station devices, serializing by transport endpoint.
 
@@ -150,21 +230,42 @@ class HTTPUpdateMixin(_MixinBase):
                 no_transport.append(device)
                 continue
             # Group by the PUBLIC host/port (network transports — TCP dongle).
-            # A transport without a network endpoint (e.g. serial) can't share
-            # one, so it refreshes on its own rather than collapsing into a
-            # bogus ":0" group (the eg4-xi7 silent-default bug).
             host = getattr(transport, "host", None)
             port = getattr(transport, "port", None)
-            if host is None or port is None:
+            if host is not None and port is not None:
+                endpoint = f"{host}:{port}"
+            elif isinstance(port, str) and port:
+                # Serial transports carry the tty path in ``port`` and have no
+                # host. Devices sharing one RS485 adapter MUST refresh
+                # sequentially — serial buses are single-client and concurrent
+                # frames interleave/corrupt (#233). Distinct ports still
+                # parallelize via separate groups. (Avoids the bogus ":0"
+                # collapse of the eg4-xi7 silent-default bug.)
+                endpoint = f"serial:{port}"
+            else:
                 no_transport.append(device)
                 continue
-            endpoint = f"{host}:{port}"
             endpoint_groups.setdefault(endpoint, []).append(device)
 
         async def _refresh_group_sequentially(devices: list[Any]) -> None:
-            """Refresh devices on the same endpoint one at a time."""
+            """Refresh devices on the same endpoint one at a time.
+
+            A device whose attached transport link is DOWN (eg4-57g) still
+            refreshes every cycle — the refresh probes the dead link (so
+            recovery can happen) and falls back to the cloud inside
+            pylxpweb.  Its per-device cloud caches are busted (throttled to
+            the HTTP interval) so the fallback serves moving values instead
+            of interval-aligned stale cache.
+            """
             for device in devices:
                 try:
+                    if is_transport_link_down(device):
+                        _maybe_bust_degraded_cloud_cache(
+                            self.client,
+                            self._last_degraded_cloud_refresh,
+                            self._http_polling_interval,
+                            str(getattr(device, "serial_number", "?")),
+                        )
                     await device.refresh()
                 except Exception as exc:
                     _LOGGER.debug(
@@ -186,8 +287,42 @@ class HTTPUpdateMixin(_MixinBase):
             coros.append(_refresh_group_sequentially(devices))
 
         # Cloud-only devices can refresh concurrently (HTTP API)
+        locally_configured = {
+            str(c.get("serial")) for c in self._local_transport_configs
+        }
+
+        async def _refresh_cloud_device(device: Any) -> None:
+            """Cloud refresh with degraded-mode cache bust + visible failures.
+
+            A device configured for local polling that has NO transport is
+            running degraded (attach failed — eg4-05l/o5m). Its cloud caches
+            are busted (throttled per serial to the HTTP polling interval —
+            see _maybe_bust_degraded_cloud_cache) so degraded devices keep
+            updating, and its refresh is skipped entirely inside the
+            throttle window. Genuinely cloud-only devices keep their normal
+            caches. Failures are logged instead of being silently swallowed
+            by gather(return_exceptions=True).
+            """
+            serial = str(getattr(device, "serial_number", "?"))
+            try:
+                if serial in locally_configured and self.client is not None:
+                    if not _maybe_bust_degraded_cloud_cache(
+                        self.client,
+                        self._last_degraded_cloud_refresh,
+                        self._http_polling_interval,
+                        serial,
+                    ):
+                        return  # cached data stands until the cloud-safe window
+                await device.refresh()
+            except Exception as exc:
+                _LOGGER.warning(
+                    "Cloud refresh failed for %s (no local transport): %s",
+                    serial,
+                    exc,
+                )
+
         for device in no_transport:
-            coros.append(device.refresh())
+            coros.append(_refresh_cloud_device(device))
 
         if coros:
             await asyncio.gather(*coros, return_exceptions=True)
@@ -205,6 +340,18 @@ class HTTPUpdateMixin(_MixinBase):
             Dictionary containing device data with transport-aware labels.
         """
         include_mid = self._should_poll_hybrid_local()
+        if not include_mid and self.station is not None:
+            # A degraded MID device refreshes via the CLOUD, not the dongle —
+            # the dongle-interval gate must not slow its fallback to one
+            # update per dongle window (eg4-o5m). Degraded covers BOTH a
+            # failed attach (no transport) and an attached-but-dead link
+            # (eg4-57g). Only escalate while a MID is actually degraded.
+            for mid in self.station.all_mid_devices:
+                if str(
+                    mid.serial_number
+                ) in self._failed_attach_serials or is_transport_link_down(mid):
+                    include_mid = True
+                    break
         data = await self._async_update_http_data(
             include_mid_refresh=include_mid,
         )
@@ -240,11 +387,21 @@ class HTTPUpdateMixin(_MixinBase):
             if transport is not None:
                 transport_type = getattr(transport, "transport_type", "local")
                 label = _get_transport_label(transport_type)
-                device_data["sensors"]["connection_transport"] = f"Hybrid ({label})"
+                if is_transport_link_down(device):
+                    # Attached but dead (eg4-57g): values come from the cloud
+                    # fallback — dashboards must show the truth.
+                    device_data["sensors"]["connection_transport"] = (
+                        f"Hybrid ({label} — link down)"
+                    )
+                else:
+                    device_data["sensors"]["connection_transport"] = f"Hybrid ({label})"
                 if hasattr(transport, "host"):
                     device_data["sensors"]["transport_host"] = transport.host
             else:
                 device_data["sensors"]["connection_transport"] = "Cloud"
+
+        # Raise/clear Repairs issues for link-down transitions (one-shot).
+        self._sync_transport_link_state(None)
 
         return data
 
@@ -311,6 +468,9 @@ class HTTPUpdateMixin(_MixinBase):
                 ):
                     await self._attach_local_transports_to_station()
             else:
+                # Recover from setup-time attach failures (eg4-05l) — both
+                # per-serial failures and a whole-attach exception.
+                await self._ensure_local_transports()
                 if include_mid_refresh:
                     _LOGGER.debug(
                         "Refreshing all station data for plant %s", self.plant_id
@@ -423,6 +583,105 @@ class HTTPUpdateMixin(_MixinBase):
             _LOGGER.exception("Unexpected error updating data: %s", e)
             raise UpdateFailed(f"Unexpected error: {e}") from e
 
+    def _apply_battery_carry_forward(
+        self,
+        inverter_serial: str,
+        device_data: dict[str, Any],
+        exclude: Collection[str] = (),
+    ) -> None:
+        """Keep once-published batteries published across transient gaps (#258).
+
+        Battery entity availability is literally key-presence in
+        ``device_data["batteries"]``, and the HYBRID/CLOUD paths rebuild that
+        dict from the cloud payload as the *baseline* every cycle.  On rotating
+        >4-battery packs the cloud is fed through the same firmware page
+        rotation as the local reads, so a fresh ``getBatteryInfo`` can
+        momentarily omit a subset of batteries — beta.18 field logs show
+        subsets of battery entities flipping unavailable seconds after a cloud
+        refresh while pylxpweb's local accumulator still held every battery.
+
+        A battery that has ever been published for this inverter is carried
+        forward with its last-known mapping instead of being dropped.  The
+        carried mapping keeps its original ``battery_last_seen`` /
+        ``battery_last_polled`` stamps, so staleness stays visible as data —
+        never as availability flapping (the #261/#282 sticky precedent).
+
+        Two guards keep identities from doubling, and one bound keeps carried
+        keys from becoming immortal:
+
+        - ``exclude``: legacy positional keys that are aliases of a battery
+          published under its canonical key this cycle (#252 migration pairs).
+          Carrying one would re-mint the positional entity and permanently
+          block the registry migration ("legacy key still active").
+        - serial supersede: a cached key whose ``battery_serial_number`` is
+          already published under a different key was re-keyed by the payload;
+          carrying the old key would publish the same physical pack twice.
+          The published-serial set grows as carried mappings are admitted, so
+          two cached keys sharing one serial can never both be carried.
+        - eviction bound: a cached key whose ``battery_last_seen`` aged past
+          ``BATTERY_CARRY_FORWARD_MAX_AGE`` is a physically removed (or
+          permanently vanished) pack, not a transient gap — it is evicted
+          (one INFO) so removal converges without a Home Assistant restart.
+
+        Args:
+            inverter_serial: Parent inverter serial number.
+            device_data: The inverter's device data dict (mutated in place).
+            exclude: Keys never to carry forward (legacy migration aliases).
+        """
+        current: dict[str, dict[str, Any]] = device_data.get("batteries") or {}
+        cache = self._battery_carry_forward.get(inverter_serial)
+
+        if cache:
+            now = dt_util.utcnow()
+            current_serials = {
+                sn
+                for mapping in current.values()
+                if isinstance(sn := mapping.get("battery_serial_number"), str) and sn
+            }
+            carried: list[str] = []
+            evicted: list[str] = []
+            for key, mapping in list(cache.items()):
+                if key in current:
+                    continue
+                last_seen = mapping.get("battery_last_seen")
+                if (
+                    isinstance(last_seen, datetime)
+                    and now - dt_util.as_utc(last_seen) > BATTERY_CARRY_FORWARD_MAX_AGE
+                ):
+                    del cache[key]
+                    evicted.append(key)
+                    continue
+                if key in exclude:
+                    continue
+                sn = mapping.get("battery_serial_number")
+                if isinstance(sn, str) and sn in current_serials:
+                    continue
+                current[key] = mapping
+                carried.append(key)
+                if isinstance(sn, str) and sn:
+                    current_serials.add(sn)
+            if evicted:
+                _LOGGER.info(
+                    "Evicting %d batteries for %s not seen for over %s "
+                    "(physically removed or permanently vanished): %s",
+                    len(evicted),
+                    inverter_serial,
+                    BATTERY_CARRY_FORWARD_MAX_AGE,
+                    evicted,
+                )
+            if carried:
+                _LOGGER.debug(
+                    "Carrying forward %d batteries missing from this cycle for %s: %s",
+                    len(carried),
+                    inverter_serial,
+                    carried,
+                )
+
+        if not current:
+            return
+        device_data["batteries"] = current
+        self._battery_carry_forward[inverter_serial] = dict(current)
+
     async def _process_station_data(self) -> dict[str, Any]:
         """Process station data using device objects."""
         if not self.station:
@@ -442,9 +701,17 @@ class HTTPUpdateMixin(_MixinBase):
         # Add station data
         processed["station"] = {
             "name": self.station.name,
-            "plant_id": self.station.id,
+            "plant_id": str(self.station.id),
             "station_last_polled": dt_util.utcnow(),
         }
+
+        # DST flag consumed by the Daylight Saving Time switch. Refreshes at
+        # station load, on HA-side writes (set_daylight_saving_time), and is
+        # re-read from the cloud during each hourly DST sync — with DST sync
+        # disabled, portal-side toggles are only picked up on entry reload.
+        processed["station"]["daylightSavingTime"] = bool(
+            getattr(self.station, "daylight_saving_time", False)
+        )
 
         if timezone := getattr(self.station, "timezone", None):
             processed["station"]["timezone"] = timezone
@@ -688,6 +955,7 @@ class HTTPUpdateMixin(_MixinBase):
             inverter = self.get_inverter_object(serial)
             if not inverter:
                 _LOGGER.debug("No inverter object found for serial %s", serial)
+                self._apply_battery_carry_forward(serial, device_data)
                 continue
 
             # Get cloud battery metadata (already cached, no API call)
@@ -711,31 +979,66 @@ class HTTPUpdateMixin(_MixinBase):
             # Transport battery slots use round-robin: firmware rotates which
             # physical batteries appear in the fixed register slots each poll.
             # Match transport → cloud by serial number (not slot index).
-            if transport_batteries and cloud_batteries:
+            #
+            # Batteries are keyed by the canonical cloud batteryKey derivation
+            # — identical to the CLOUD-only path — so a cloud→hybrid migration
+            # never re-keys a battery (#252).
+            #
+            # Defense-in-depth (#258): also run the merge when the transport
+            # battery list is momentarily EMPTY (a dropped 5002+ block read on
+            # pylxpweb <= 0.9.36b18 published a bank with batteries=[]) or
+            # None (link down clears the transport cache), instead of falling
+            # through to the CLOUD-ONLY branch for that cycle.  Since #252,
+            # both branches derive the same canonical keys, so the fallthrough
+            # no longer re-keys entities — but staying in the hybrid merge
+            # keeps the sensor mapping and freshness-overlay semantics
+            # identical across outage cycles (the cloud-only branch extracts a
+            # different sensor set and re-stamps battery_last_seen).
+            has_transport = bool(getattr(inverter, "has_transport", False))
+            if cloud_batteries and (has_transport or transport_batteries is not None):
                 if "batteries" not in device_data:
                     device_data["batteries"] = {}
 
                 # Build lookup of cloud batteries by serial for merging
-                cloud_by_serial: dict[str, tuple[int, Any]] = {}
+                cloud_by_serial: dict[str, Any] = {}
                 for cloud_batt in cloud_batteries:
                     c_sn = getattr(cloud_batt, "battery_sn", "") or ""
-                    c_idx = getattr(cloud_batt, "battery_index", None)
-                    if c_sn and c_idx is not None:
-                        cloud_by_serial[c_sn] = (c_idx, cloud_batt)
+                    if c_sn:
+                        cloud_by_serial[c_sn] = cloud_batt
 
                 # First, populate all cloud batteries as baseline
+                key_migrations: dict[str, str] = {}
+                baseline_keys: dict[str, int] = {}
                 for cloud_batt in cloud_batteries:
                     c_idx = getattr(cloud_batt, "battery_index", None)
                     if c_idx is None:
                         continue
-                    battery_key = f"{serial}-{c_idx + 1:02d}"
+                    battery_key = cloud_battery_key(serial, cloud_batt)
+                    if battery_key in baseline_keys:
+                        # Duplicate battery identity in one payload: keep
+                        # positional disambiguation for the colliding battery
+                        # and stop trusting registry migration for this
+                        # inverter (last-write-wins would hide a battery and
+                        # the migration could misbind history).
+                        self._suppress_battery_migration(
+                            serial,
+                            f"cloud batteries {baseline_keys[battery_key]} "
+                            f"and {c_idx} both resolve to identity "
+                            f"{battery_key!r}",
+                            level=logging.WARNING,
+                        )
+                        battery_key = f"{serial}-{c_idx + 1:02d}"
+                    else:
+                        baseline_keys[battery_key] = c_idx
+                        # Legacy positional key the pre-#252 HYBRID path used.
+                        key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(cloud_batt)
                     )
 
                 # Overlay transport real-time data matched by serial
                 transport_matched = 0
-                for batt in transport_batteries:
+                for batt in transport_batteries or []:
                     # Skip ghost batteries (no real data) — matches pylxpweb's
                     # canonical ghost definition (BatteryData voltage/soc are
                     # non-optional, defaulting to 0, so an empty 5002+ slot reads
@@ -745,8 +1048,27 @@ class HTTPUpdateMixin(_MixinBase):
                     bat_serial: str = getattr(batt, "serial_number", "") or ""
                     if not bat_serial or bat_serial not in cloud_by_serial:
                         continue
-                    cloud_idx, cloud_batt = cloud_by_serial[bat_serial]
-                    battery_key = f"{serial}-{cloud_idx + 1:02d}"
+                    # Skip a frozen transport block so the fresh cloud baseline
+                    # stands (#258). pylxpweb's accumulator never evicts, so a
+                    # battery the firmware stopped surfacing locally keeps its
+                    # last-read block indefinitely; overlaying that stale block
+                    # would hide the independently-refreshed cloud value. Only
+                    # overlay when the block was read within the freshness window.
+                    last_seen = getattr(batt, "last_seen", None)
+                    if (
+                        last_seen is not None
+                        and dt_util.utcnow() - dt_util.as_utc(last_seen)
+                        > HYBRID_TRANSPORT_FRESHNESS
+                    ):
+                        _LOGGER.debug(
+                            "HYBRID: battery %s transport block stale "
+                            "(last seen %s) — keeping fresh cloud value",
+                            bat_serial,
+                            last_seen,
+                        )
+                        continue
+                    cloud_batt = cloud_by_serial[bat_serial]
+                    battery_key = cloud_battery_key(serial, cloud_batt)
                     # Transport data overwrites cloud for real-time values
                     battery_sensors = _build_individual_battery_mapping(batt)
                     # Preserve cloud-only metadata
@@ -766,6 +1088,22 @@ class HTTPUpdateMixin(_MixinBase):
                     device_data["batteries"][battery_key] = battery_sensors
                     transport_matched += 1
 
+                # Rename any pre-#252 positional registry entries to the
+                # canonical keys (one-shot; no-op when nothing matches).
+                # Runs BEFORE the carry-forward so carried legacy keys can
+                # never count as "still active" and block the migration.
+                self._register_battery_key_migrations(
+                    serial, key_migrations, device_data["batteries"].keys()
+                )
+
+                # Batteries the fresh cloud payload momentarily omitted keep
+                # their last-known data instead of flipping unavailable
+                # (#258 beta.18).  The legacy aliases of batteries published
+                # this cycle are never carried.
+                self._apply_battery_carry_forward(
+                    serial, device_data, exclude=key_migrations.keys()
+                )
+
                 _LOGGER.debug(
                     "HYBRID: %d batteries for %s (%d with live transport data)",
                     len(device_data.get("batteries", {})),
@@ -778,7 +1116,21 @@ class HTTPUpdateMixin(_MixinBase):
             # Round-robin merge: accumulate by battery serial across polls.
             if transport_batteries:
                 device_data["batteries"] = self._merge_round_robin_batteries(
-                    serial, list(transport_batteries)
+                    serial,
+                    list(transport_batteries),
+                    getattr(transport_battery, "battery_count", None),
+                )
+                # The round-robin cache never evicts, but a session that
+                # earlier published cloud-keyed batteries (hybrid → local
+                # fallback flip) must not drop them (#258).  Legacy positional
+                # aliases of serials the rr merge knows are excluded — a
+                # no-serial pack whose serial just arrived had its positional
+                # key retired by the merge, and the cached positional mapping
+                # carries no serial for the supersede guard to match.
+                self._apply_battery_carry_forward(
+                    serial,
+                    device_data,
+                    exclude=set(self._battery_serial_to_key.get(serial, {}).values()),
                 )
                 _LOGGER.debug(
                     "LOCAL: %d individual batteries for %s (round-robin cache)",
@@ -794,6 +1146,7 @@ class HTTPUpdateMixin(_MixinBase):
                     serial,
                     battery_bank,
                 )
+                self._apply_battery_carry_forward(serial, device_data)
                 continue
 
             batteries = getattr(battery_bank, "batteries", None)
@@ -805,20 +1158,34 @@ class HTTPUpdateMixin(_MixinBase):
                     batteries,
                     getattr(battery_bank, "data", None),
                 )
+                self._apply_battery_carry_forward(serial, device_data)
                 continue
 
             _LOGGER.debug("Found %d batteries for inverter %s", len(batteries), serial)
 
+            cloud_key_migrations: dict[str, str] = {}
+            cloud_seen_keys: dict[str, int] = {}
             for battery in batteries:
                 try:
-                    battery_key = clean_battery_display_name(
-                        getattr(
-                            battery,
-                            "battery_key",
-                            f"BAT{battery.battery_index:03d}",
-                        ),
-                        serial,  # Parent serial is known from inverter iteration
-                    )
+                    battery_key = cloud_battery_key(serial, battery)
+                    c_idx = getattr(battery, "battery_index", None)
+                    if c_idx is not None and battery_key in cloud_seen_keys:
+                        # Duplicate battery identity in one payload — keep
+                        # positional disambiguation and stop trusting registry
+                        # migration for this inverter (#252).
+                        self._suppress_battery_migration(
+                            serial,
+                            f"cloud batteries {cloud_seen_keys[battery_key]} "
+                            f"and {c_idx} both resolve to identity "
+                            f"{battery_key!r}",
+                            level=logging.WARNING,
+                        )
+                        battery_key = f"{serial}-{c_idx + 1:02d}"
+                    elif c_idx is not None:
+                        cloud_seen_keys[battery_key] = c_idx
+                        # Legacy positional key a pre-#252 HYBRID/LOCAL install
+                        # would have used for this battery.
+                        cloud_key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
                     battery_sensors = self._extract_battery_from_object(battery)
                     battery_sensors["battery_last_polled"] = dt_util.utcnow()
                     battery_sensors["battery_last_seen"] = dt_util.utcnow()
@@ -839,6 +1206,19 @@ class HTTPUpdateMixin(_MixinBase):
                         serial,
                         e,
                     )
+
+            if cloud_key_migrations:
+                self._register_battery_key_migrations(
+                    serial,
+                    cloud_key_migrations,
+                    device_data.get("batteries", {}).keys(),
+                )
+
+            # Batteries the fresh cloud payload momentarily omitted keep their
+            # last-known data instead of flipping unavailable (#258 beta.18).
+            self._apply_battery_carry_forward(
+                serial, device_data, exclude=cloud_key_migrations.keys()
+            )
 
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:

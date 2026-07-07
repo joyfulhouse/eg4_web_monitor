@@ -12,7 +12,7 @@ final coordinator class inheriting all mixins together.
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -35,9 +35,17 @@ if TYPE_CHECKING:
     # The device objects accepted by the generic property mapper.
     _DeviceObject = BaseInverter | Battery | BatteryBank | MIDDevice | ParallelGroup
 
-from .const import CONF_LOCAL_TRANSPORTS, DOMAIN, MANUFACTURER
+from .const import (
+    CONF_LOCAL_TRANSPORTS,
+    DOMAIN,
+    INVERTER_FAMILY_EG4_OFFGRID,
+    MANUFACTURER,
+    operating_state_slug,
+)
 from .coordinator_mappings import (
+    SMART_PORT_VALIDATED_KEY,
     _apply_grid_type_override,
+    _apply_model_family_fallback,
     _build_battery_bank_sensor_mapping,
     _energy_balance,
     _features_dict_from_inverter_features,
@@ -46,21 +54,49 @@ from .coordinator_mappings import (
     alias_common_voltage_sensors,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
+    drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
-from .utils import clean_battery_display_name
+from .utils import clean_battery_display_name, is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
+
+# Bound (seconds) on the offgrid cloud quick-charge status read (#296). The
+# read shares the pylxpweb client's station-wide retry/backoff state; during a
+# cloud 502 storm an escalated backoff can sleep up to ~60s inside the call,
+# which would hold a coordinator semaphore slot for the storm's duration. A
+# timeout is treated as a failed read (carry-forward). Full backoff-domain
+# isolation is a pylxpweb architectural item deliberately not attempted here.
+QUICK_CHARGE_CLOUD_STATUS_TIMEOUT = 10.0
+
+# Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
+# parameter read no longer stamps _last_parameter_refresh, so the refresh
+# re-arms early instead of serving a degraded snapshot for the whole
+# parameter interval — but retries are floored at this spacing so a long
+# dongle outage doesn't add a full parameter read to every ~20-30 s poll.
+_PARAMETER_RETRY_INTERVAL = timedelta(minutes=2)
+
+# Eviction bound for once-published batteries served from cache (#258 review).
+# The carry-forward and the LOCAL round-robin re-serve absorb seconds-to-
+# minutes cloud/transport gaps; without a bound a PHYSICALLY REMOVED pack
+# would survive until restart with frozen SoC feeding bank aggregates and
+# automations, negating pylxpweb's empty-bank convergence.  6 hours is far
+# above every transient this covers, and safe versus the 2026-06-28 9-hour
+# firmware page pinning: during pinning the accumulator still SERVES the
+# batteries as fresh current-cycle data, so cached-serve is not what holds
+# them — only a battery gone from BOTH cloud and accumulator ages here.
+BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
 
 # Cache the last known good smart port statuses per MID device serial.
-# WiFi dongles return corrupt status register data ~3% of polls (all-zeros
-# or out-of-range values like status=3). Using cached values prevents the
-# filter from being skipped, which would allow raw AC couple data to leak
-# through as smart_load sensor values.
+# WiFi dongles return corrupt status register data ~3% of polls (out-of-range
+# values like status=3). Using cached values prevents the filter from being
+# skipped, which would allow raw AC couple data to leak through as
+# smart_load sensor values. Note: all-zeros is a valid state (all ports
+# unused) and should NOT be treated as corrupt (#195/#248).
 _last_good_smart_port_statuses: dict[str, dict[int, int]] = {}
 
 # Map raw smart port status integers to human-readable enum labels
@@ -104,6 +140,80 @@ _GRIDBOSS_PG_OVERLAY: dict[str, str] = {
 # GridBOSS and parallel-group entities).  Confirmed firmware-zero on live
 # 18kPV and FlexBOSS21 across the entire 193-204 block (issue #243 follow-up).
 _INVERTER_DEAD_GRID_LEG_KEYS: tuple[str, ...] = ("grid_voltage_l1", "grid_voltage_l2")
+
+# Transport-exclusive runtime sensor overlay (HYBRID mode).
+# (sensor_key, InverterRuntimeData attribute) pairs applied in
+# _process_inverter_object() when a local transport is attached: these are
+# Modbus-only values the cloud API does not provide (e.g. bt_temperature
+# reg 108, grid current regs 18/190/191, battery current reg 98) plus
+# split-phase per-leg voltages and the reg-170 load power (#197/#243).
+# Module-level so the register contract harness can verify each pair against
+# the canonical register tables (tests/test_register_contract_harness.py).
+_TRANSPORT_OVERLAY: tuple[tuple[str, str], ...] = (
+    ("bt_temperature", "temperature_t1"),
+    ("grid_current_l1", "inverter_rms_current_r"),
+    ("grid_current_l2", "inverter_rms_current_s"),
+    ("grid_current_l3", "inverter_rms_current_t"),
+    ("battery_current", "battery_current"),
+    # Split-phase per-leg voltages (Modbus regs 12/13 grid, 127/128
+    # EPS).  The cloud API has no per-leg field, so in HYBRID these
+    # are only available from the local transport — surface them here
+    # so HYBRID matches LOCAL parity (issue #243).  Pure CLOUD has no
+    # transport_runtime, so they stay correctly absent there.
+    ("grid_voltage_l1", "grid_l1_voltage"),
+    ("grid_voltage_l2", "grid_l2_voltage"),
+    ("eps_voltage_l1", "eps_l1_voltage"),
+    ("eps_voltage_l2", "eps_l2_voltage"),
+    # Load power (reg 170, "Pload").  The cloud zeroes its reg-170
+    # mirror for EG4_OFFGRID, so in HYBRID the value must come
+    # from the local register, never a cloud property (#197).
+    # Entity creation is gated to EG4_OFFGRID in sensor.py.
+    ("load_power", "output_power"),
+    # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit
+    # bitfields; pylxpweb merges the BMS code in as a fallback when
+    # the inverter code reads 0).  The cloud getInverterRuntime
+    # response has no faultCode/warningCode field (canonical table
+    # cloud_api_field=None), so HYBRID overlays the local registers
+    # and pure CLOUD correctly stays without the keys (eg4-23a6).
+    ("fault_code", "fault_code"),
+    ("warning_code", "warning_code"),
+)
+
+# Transport-exclusive energy sensor overlay (HYBRID mode).
+# (sensor_key, InverterEnergyData attribute) pairs applied in
+# _process_inverter_object(): per-leg EPS energy (regs 133-138) and the
+# granular per-string / per-component energy registers, none of which the
+# cloud energy endpoint provides (#243).  Module-level for the same
+# contract-harness reason as _TRANSPORT_OVERLAY above.
+_ENERGY_OVERLAY: tuple[tuple[str, str], ...] = (
+    ("eps_energy_today_l1", "eps_l1_energy_today"),
+    ("eps_energy_today_l2", "eps_l2_energy_today"),
+    ("eps_energy_total_l1", "eps_l1_energy_total"),
+    ("eps_energy_total_l2", "eps_l2_energy_total"),
+    # Granular per-string / per-component energy — register-backed,
+    # absent from the cloud energy endpoint, so overlaid from the
+    # local transport in HYBRID (disabled-by-default sensors, #243).
+    ("pv1_yield", "pv1_energy_today"),
+    ("pv2_yield", "pv2_energy_today"),
+    ("pv3_yield", "pv3_energy_today"),
+    ("pv4_yield", "pv4_energy_today"),
+    ("pv5_yield", "pv5_energy_today"),
+    ("pv6_yield", "pv6_energy_today"),
+    ("pv1_yield_lifetime", "pv1_energy_total"),
+    ("pv2_yield_lifetime", "pv2_energy_total"),
+    ("pv3_yield_lifetime", "pv3_energy_total"),
+    ("pv4_yield_lifetime", "pv4_energy_total"),
+    ("pv5_yield_lifetime", "pv5_energy_total"),
+    ("pv6_yield_lifetime", "pv6_energy_total"),
+    ("inverter_energy", "inverter_energy_today"),
+    ("inverter_energy_lifetime", "inverter_energy_total"),
+    ("ac_charge_energy", "ac_charge_energy_today"),
+    ("ac_charge_energy_lifetime", "ac_charge_energy_total"),
+    ("eps_energy", "eps_energy_today"),
+    ("eps_energy_lifetime", "eps_energy_total"),
+    ("generator_energy", "generator_energy_today"),
+    ("generator_energy_lifetime", "generator_energy_total"),
+)
 
 
 def drop_dead_inverter_grid_legs(sensors: dict[str, Any]) -> None:
@@ -328,6 +438,27 @@ def compute_total_inverter_power_kw(
     return total_kw
 
 
+def is_transport_link_down(device: Any) -> bool:
+    """Check whether a device's attached local transport link is down.
+
+    Duck-types pylxpweb's ``transport_link_down`` property (eg4-57g): the
+    device must have a transport attached AND explicitly report the link
+    as down.  The strict ``isinstance(..., bool)`` check keeps older
+    pylxpweb versions (attribute missing -> default) and non-device
+    objects from ever being treated as degraded.
+
+    Args:
+        device: BaseInverter or MIDDevice (or any object).
+
+    Returns:
+        True only when the device reports an attached-but-dead link.
+    """
+    if getattr(device, "transport", None) is None:
+        return False
+    link_down = getattr(device, "transport_link_down", False)
+    return isinstance(link_down, bool) and link_down
+
+
 if TYPE_CHECKING:
 
     class _MixinBase:
@@ -358,12 +489,21 @@ if TYPE_CHECKING:
         _http_polling_interval: int
         _local_transport_configs: list[dict[str, Any]]
         _local_transports_attached: bool
+        _failed_attach_serials: set[str]
+        _last_attach_retry: float
+        _last_degraded_cloud_refresh: dict[str, float]
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
         _data_validation_enabled: bool
+        _max_input_block_size: int
         _include_params_this_cycle: bool
         _last_available_state: bool
         _last_parameter_refresh: datetime | None
+        _last_parameter_attempt: datetime | None
+        _param_retry_pending: set[str]
+        _param_retry_due: bool
+        _param_completed_this_cycle: set[str]
+        _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
@@ -394,6 +534,10 @@ if TYPE_CHECKING:
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
+        async def _fetch_quick_charge_status(
+            self, inverter: BaseInverter, target: dict[str, Any]
+        ) -> None: ...
+        async def is_quick_charge_active_live(self, serial: str) -> bool | None: ...
         async def _process_inverter_object(
             self, inverter: BaseInverter
         ) -> dict[str, Any]: ...
@@ -425,6 +569,7 @@ if TYPE_CHECKING:
         # ── ParameterManagementMixin methods ──
         def _should_refresh_parameters(self) -> bool: ...
         async def _hourly_parameter_refresh(self) -> None: ...
+        async def _refresh_device_parameters(self, serial: str) -> None: ...
         async def _refresh_missing_parameters(
             self, inverter_serials: list[str], processed_data: dict[str, Any]
         ) -> None: ...
@@ -446,18 +591,47 @@ if TYPE_CHECKING:
             self, inverter: "BaseInverter", transport_type: str
         ) -> None: ...
 
+        # ── Battery identity migration (#252, coordinator.py) ──
+        _battery_key_migrations_done: set[tuple[str, str]]
+        _battery_fallback_keys: dict[str, set[str]]
+        _battery_noserial_polls: dict[str, dict[int, int]]
+        _battery_migration_suppressed: set[str]
+        _battery_shift_retire_logged: set[str]
+        # ── Battery carry-forward (#258, coordinator.py) ──
+        _battery_carry_forward: dict[str, dict[str, dict[str, Any]]]
+
+        def _register_battery_key_migrations(
+            self,
+            inverter_serial: str,
+            pairs: dict[str, str],
+            active_keys: Collection[str],
+        ) -> None: ...
+        def _suppress_battery_migration(
+            self, inverter_serial: str, reason: str, *, level: int = ...
+        ) -> None: ...
+
         # ── LocalTransportMixin attributes ──
         _battery_rr_cache: dict[str, dict[str, dict[str, Any]]]
         _battery_serial_to_key: dict[str, dict[str, str]]
         _battery_next_index: dict[str, int]
         _shared_battery_logged: set[str]
 
+        # ── Transport link health (eg4-57g) ──
+        _link_down_notified: set[str]
+
         # ── LocalTransportMixin methods ──
         async def _attach_local_transports_to_station(self) -> None: ...
+        async def _maybe_retry_failed_attaches(self) -> None: ...
+        async def _ensure_local_transports(self) -> None: ...
+        def _configure_attached_devices(self) -> list[Any]: ...
+        def _sync_transport_link_state(
+            self, processed: dict[str, Any] | None
+        ) -> None: ...
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,
             transport_batteries: list["BatteryData"],
+            reported_count: int | None = None,
         ) -> dict[str, dict[str, Any]]: ...
 
 else:
@@ -524,6 +698,25 @@ def _safe_numeric(value: Any) -> float:
         return 0.0
 
 
+def _bank_battery_count(bank: Any) -> int:
+    """Return a battery bank's reported module count as an int (0 when absent).
+
+    ``battery_count`` is reg 96 for a transport ``BatteryBankData`` and the
+    cloud ``BatteryBank.battery_count`` property (parallel-count / totalNumber /
+    battery-array length) for a cloud bank; both are None/0 for a device that
+    owns no bank.  Returns 0 whenever the bank or its count is absent, None, or
+    unreadable (cloud computed properties may raise on partial data) so callers
+    can treat "no usable count" uniformly.
+    """
+    if bank is None:
+        return 0
+    try:
+        raw = getattr(bank, "battery_count", None)
+        return int(raw) if raw else 0
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
 class DeviceProcessingMixin(_MixinBase):
     """Mixin for device data processing logic.
 
@@ -550,6 +743,236 @@ class DeviceProcessingMixin(_MixinBase):
             if transport.get("serial") == serial:
                 return transport.get("grid_type")
         return None
+
+    def _quick_charge_prefers_cloud(
+        self, inverter: "BaseInverter", device_data: dict[str, Any]
+    ) -> bool:
+        """True when quick charge state/control must come from the cloud API.
+
+        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects holding
+        register 233 with ILLEGAL DATA ADDRESS (issue #296) — the register
+        pylxpweb's transport-preferring quick-charge paths read and write.
+        A quick charge started via the cloud endpoint (the local-write
+        fallback, and what the EG4 app reflects) is therefore invisible to
+        the local read. When such a device has a transport attached AND a
+        cloud client is available (HYBRID), bypass the transport and use the
+        cloud getStatusInfo/start/stop endpoints directly. Fails closed
+        (False) for every other family, cloud-only devices (whose pylxpweb
+        paths already use the cloud), and LOCAL-only installs (no cloud to
+        prefer).
+        """
+        return (
+            is_offgrid_family(device_data)
+            and self.client is not None
+            and getattr(inverter, "transport", None) is not None
+        )
+
+    async def _read_offgrid_quick_charge_minute(
+        self, inverter: "BaseInverter"
+    ) -> int | None:
+        """Best-effort local read of holding reg 234 (minutes) for offgrid HYBRID.
+
+        The offgrid cloud-status route (#296) bypasses pylxpweb's reg 233+234
+        detail read, but the Quick Charge Duration number mirrors — and its
+        setter writes — reg 234 whenever a local transport is configured. So
+        the register read is kept local here to keep the number's read and
+        write sides pointing at the same truth. Only reg 233 is proven
+        firmware-rejected on the XP; if reg 234 turns out equally unsupported
+        this read fails and returns None, and the number falls back to the
+        stored cloud-start preference (the setter's reg-234 write would then
+        surface its own error).
+
+        Skipped while the transport link is down: a raw ``read_parameters``
+        on an attached-but-dead link is the multi-minute pymodbus hang class
+        that Python 3.11's ``asyncio.wait_for`` cannot interrupt (pylxpweb's
+        ``_fetch_parameters`` link-down guard does not cover raw transport
+        reads like this one) — and this read fires on every 30s-throttled
+        status poll, in exactly the HYBRID configuration where the link can
+        be down. Degrades to None like a failed read.
+        """
+        transport = getattr(inverter, "transport", None)
+        if transport is None:
+            return None
+        if is_transport_link_down(inverter):
+            _LOGGER.debug(
+                "Skipping reg 234 read for %s: local transport link is down "
+                "(Quick Charge Duration falls back to the stored preference)",
+                inverter.serial_number,
+            )
+            return None
+        try:
+            regs = await transport.read_parameters(234, 1)
+            raw = regs.get(234)
+            return int(raw) if raw is not None else None
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not read holding reg 234 for %s: %s (Quick Charge "
+                "Duration falls back to the stored preference)",
+                inverter.serial_number,
+                e,
+            )
+            return None
+
+    async def _read_quick_charge_status(
+        self, inverter: "BaseInverter", device_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Read the live quick-charge status into the coordinator dict shape.
+
+        Transport-aware via pylxpweb (cloud getStatusInfo; LOCAL/HYBRID
+        registers 233/234), except for EG4_OFFGRID + HYBRID where register
+        233 is firmware-rejected and the cloud endpoint is authoritative
+        (#296). ``fetched_at`` (monotonic) records when the data was actually
+        read so consumers can distinguish a fresh read from a carried-forward
+        one. Returns None when the installed pylxpweb exposes no read method.
+        """
+        quick_charge_minute: int | None = None
+        client = self.client
+        if client is not None and self._quick_charge_prefers_cloud(
+            inverter, device_data
+        ):
+            # Bound the cloud read: it shares the pylxpweb client's
+            # station-wide retry/backoff state, and during a 502 storm an
+            # escalated backoff sleep (up to ~60s) would otherwise hold a
+            # coordinator slot for the whole storm. A timeout is a failed
+            # read — the caller's carry-forward path handles it.
+            status = await asyncio.wait_for(
+                client.api.control.get_quick_charge_status(inverter.serial_number),
+                timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
+            )
+            # Active flag from the cloud, duration register read locally so
+            # the Duration number's read and write sides agree (#296 round 2).
+            quick_charge_minute = await self._read_offgrid_quick_charge_minute(inverter)
+        elif hasattr(inverter, "get_quick_charge_detail"):
+            # Prefer the full detail (remaining time + task metadata);
+            # version-guard for older pylxpweb exposing only the boolean.
+            status = await inverter.get_quick_charge_detail()
+            # Raw holding reg 234 (minutes); None on cloud. Lets the duration
+            # number mirror the live register on LOCAL/HYBRID instead of a
+            # stored preference. getattr guards older pylxpweb without it.
+            quick_charge_minute = getattr(status, "quickChargeMinute", None)
+        elif hasattr(inverter, "get_quick_charge_status"):
+            return {
+                "hasUnclosedQuickChargeTask": (
+                    await inverter.get_quick_charge_status()
+                ),
+                "fetched_at": time.monotonic(),
+            }
+        else:
+            return None
+        return {
+            "hasUnclosedQuickChargeTask": status.hasUnclosedQuickChargeTask,
+            "remainTimeBeforeQuickChargeStop": (status.remainTimeBeforeQuickChargeStop),
+            "unclosedQuickChargeTaskId": status.unclosedQuickChargeTaskId,
+            "unclosedQuickChargeTaskStatus": status.unclosedQuickChargeTaskStatus,
+            "quickChargeMinute": quick_charge_minute,
+            "fetched_at": time.monotonic(),
+        }
+
+    def _carry_forward_quick_charge_status(
+        self, serial: str, target: dict[str, Any]
+    ) -> None:
+        """Copy the previous cycle's quick-charge status into ``target``.
+
+        The carried dict keeps its original ``fetched_at`` stamp, so consumers
+        (the Quick Charge switch's post-write retention, #296) still see it as
+        stale data rather than a fresh confirming read.
+        """
+        if self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("quick_charge_status")
+            if prev is not None:
+                target["quick_charge_status"] = prev
+
+    async def _fetch_quick_charge_status(
+        self, inverter: "BaseInverter", target: dict[str, Any]
+    ) -> None:
+        """Fetch + store ``quick_charge_status`` into ``target`` (throttled).
+
+        Transport-aware via pylxpweb: cloud reads getStatusInfo; LOCAL/HYBRID
+        reads registers 233 (active) + 234 (remaining minutes) — except the
+        EG4_OFFGRID family in HYBRID, which reads the cloud endpoint because
+        register 233 is firmware-rejected there (#296). Shared by the
+        HTTP/HYBRID (`_process_inverter_object`) and LOCAL
+        (`_process_single_local_device`) paths so the Quick Charge switch and
+        remaining sensor work in every mode. Carries the previous value
+        forward when the throttle window has not elapsed or the read failed
+        (a transient error must not flip the switch to a lying OFF).
+        """
+        interval = 30  # seconds
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+        now = time.monotonic()
+        serial = inverter.serial_number
+        qc_key = f"qc_{serial}"
+        if now - self._last_status_fetch.get(qc_key, 0.0) >= interval:
+            try:
+                status_dict = await self._read_quick_charge_status(inverter, target)
+                if status_dict is not None:
+                    target["quick_charge_status"] = status_dict
+                self._last_status_fetch[qc_key] = now
+                _LOGGER.debug(
+                    "Quick charge status for %s: %s",
+                    serial,
+                    target.get("quick_charge_status"),
+                )
+            except Exception as e:
+                self._last_status_fetch[qc_key] = now
+                _LOGGER.debug(
+                    "Could not fetch quick charge status for %s: %s", serial, e
+                )
+                self._carry_forward_quick_charge_status(serial, target)
+        else:
+            self._carry_forward_quick_charge_status(serial, target)
+
+    async def is_quick_charge_active_live(self, serial: str) -> bool | None:
+        """Return whether a quick charge is running *right now* for ``serial``.
+
+        Reads the live enable state (LOCAL/HYBRID: holding register 233 bit 0;
+        cloud: getStatusInfo) bypassing the throttled status cache. Callers that
+        must act on the current state use this so a stale cached status — right
+        after the Quick Charge switch toggles, or just after a charge auto-
+        expires — does not mislead them. In particular the Quick Charge Duration
+        write targets register 234, which the firmware only accepts while a
+        charge is running; gating that write on this live read avoids both
+        silently dropping a wanted write (stale-idle) and surfacing a rejected
+        write (stale-active).
+
+        Returns ``True``/``False`` for a *confirmed* live state. Returns
+        ``None`` when the state cannot be determined (no inverter object, or the
+        read failed): callers must treat ``None`` as "unknown" and surface it
+        rather than silently assume idle, otherwise a live duration adjust that
+        actually failed would be reported as success.
+        """
+        inverter = self.get_inverter_object(serial)
+        if inverter is None:
+            return None
+        try:
+            client = self.client
+            device_data: dict[str, Any] = (
+                (self.data or {}).get("devices", {}).get(serial, {})
+            )
+            if client is not None and self._quick_charge_prefers_cloud(
+                inverter, device_data
+            ):
+                # EG4_OFFGRID + HYBRID: register 233 is firmware-rejected, so
+                # the cloud getStatusInfo is the authoritative live state
+                # (#296). Bounded like the throttled fetch — a backoff-stalled
+                # cloud call must not hang the caller; timeout -> unknown.
+                status = await asyncio.wait_for(
+                    client.api.control.get_quick_charge_status(serial),
+                    timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
+                )
+                return bool(status.hasUnclosedQuickChargeTask)
+            if hasattr(inverter, "get_quick_charge_detail"):
+                detail = await inverter.get_quick_charge_detail()
+                return bool(detail.hasUnclosedQuickChargeTask)
+            if hasattr(inverter, "get_quick_charge_status"):
+                return bool(await inverter.get_quick_charge_status())
+        except Exception as e:  # transport/cloud read failure -> unknown
+            _LOGGER.debug(
+                "Could not read live quick charge state for %s: %s", serial, e
+            )
+            return None
+        return None  # neither read method available -> unknown
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
@@ -658,11 +1081,32 @@ class DeviceProcessingMixin(_MixinBase):
                     ]
                 if "grid_type" in features:
                     processed["sensors"]["grid_type"] = features["grid_type"]
+            # Operating State is a primary, always-present entity. Publish None
+            # (HA "unknown") even with no runtime data so CLOUD/HYBRID create it
+            # too (LOCAL always does via the static key set), rather than letting
+            # it vanish for a no-data inverter (issue #262; #256 philosophy).
+            processed["sensors"]["operating_state"] = None
             return processed
 
         # Map inverter properties to sensor keys
         property_map = self._get_inverter_property_map()
         processed["sensors"] = _map_device_properties(inverter, property_map)
+
+        # Friendly operating-state slug decoded from the status code (issue
+        # #262). Shared decode -> identical to the LOCAL path. None (unknown
+        # code / offline inverter) is published so the enum reads "unknown".
+        processed["sensors"]["operating_state"] = operating_state_slug(
+            processed["sensors"].get("status_code")
+        )
+
+        # The cloud zeroes its reg-170 mirror (pLoad170) for EG4_OFFGRID, so
+        # the mapped output_power is a bogus 0 there unless the value came
+        # from the local register — never publish that zero (eg4-9e4 / #197).
+        drop_offgrid_cloud_output_power(
+            processed["sensors"],
+            features.get("inverter_family"),
+            inverter.transport_runtime is not None,
+        )
 
         # Load Energy (Eload, regs 171/172) — the inverter-served load.  This is
         # a SEPARATE meter from whole-home `consumption` (overridden below).
@@ -714,63 +1158,62 @@ class DeviceProcessingMixin(_MixinBase):
         transport_runtime = inverter.transport_runtime
         if transport_runtime is not None:
             sensors = processed["sensors"]
-            _TRANSPORT_OVERLAY = (
-                ("bt_temperature", "temperature_t1"),
-                ("grid_current_l1", "inverter_rms_current_r"),
-                ("grid_current_l2", "inverter_rms_current_s"),
-                ("grid_current_l3", "inverter_rms_current_t"),
-                ("battery_current", "battery_current"),
-                # Split-phase per-leg voltages (Modbus regs 12/13 grid, 127/128
-                # EPS).  The cloud API has no per-leg field, so in HYBRID these
-                # are only available from the local transport — surface them here
-                # so HYBRID matches LOCAL parity (issue #243).  Pure CLOUD has no
-                # transport_runtime, so they stay correctly absent there.
-                ("grid_voltage_l1", "grid_l1_voltage"),
-                ("grid_voltage_l2", "grid_l2_voltage"),
-                ("eps_voltage_l1", "eps_l1_voltage"),
-                ("eps_voltage_l2", "eps_l2_voltage"),
-            )
+            # Pairs defined at module level (_TRANSPORT_OVERLAY) so the
+            # register contract harness can verify them against the
+            # canonical register tables.
             for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
                 value = getattr(transport_runtime, runtime_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 sensors["total_load_power"] = val
+        elif features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID:
+            # No transport runtime — pure CLOUD, or HYBRID inside a link-down
+            # cloud-fallback window (#226). The off-grid family is the one
+            # case where the cloud carries an authoritative load figure:
+            # pylxpweb sums the epsLoadPower + smartLoadPower + gridLoadPower
+            # split, so the Loads sensor stays honest instead of going
+            # unknown mid-outage. Grid-tied families intentionally remain
+            # transport-only here — their per-inverter cloud consumptionPower
+            # is unreliable.
+            if (val := getattr(inverter, "total_load_power", None)) is not None:
+                processed["sensors"]["total_load_power"] = val
+
+        # Carry the last-known fault/warning code forward across a HYBRID local
+        # link-down (#261).  These codes are transport-exclusive (the cloud
+        # getInverterRuntime response has no faultCode/warningCode field), so the
+        # overlay above only sets them while the link is up.  When pylxpweb
+        # clears _transport_runtime on a link-down the keys would otherwise
+        # vanish and the Fault Code sensor flickers to "unknown" — while
+        # cloud-backed Status Code stays alive — on every transient Modbus drop.
+        # A status code is safe to hold: unlike a measurement a stale code is
+        # more useful than a gap, and the true state can't be observed locally
+        # during the outage anyway (the cloud carries no fault field).  Scoped to
+        # the codes only; measurements stay honestly absent during an outage
+        # (#226).  Gated on an ATTACHED transport so this is a HYBRID-only path —
+        # pure CLOUD (no transport) never sets these codes, and the gate keeps
+        # that a deliberate no-op rather than an incidental one.  The carry is
+        # intentionally sticky for the whole outage (no expiry): the value is
+        # the last live reading, other sensors (connection_transport, status)
+        # already signal the link state, and reverting to unknown would just
+        # reintroduce the flicker this fixes (codex review, risk-accepted #261).
+        if transport_runtime is None and inverter.transport is not None:
+            prev_devices = (self.data or {}).get("devices", {})
+            prev_sensors = prev_devices.get(inverter.serial_number, {}).get(
+                "sensors", {}
+            )
+            for code_key in ("fault_code", "warning_code"):
+                if code_key not in processed["sensors"] and code_key in prev_sensors:
+                    processed["sensors"][code_key] = prev_sensors[code_key]
 
         # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
         # Cloud API does not provide per-leg EPS energy; only available via Modbus.
         transport_energy = inverter.transport_energy
         if transport_energy is not None:
             sensors = processed["sensors"]
-            _ENERGY_OVERLAY = (
-                ("eps_energy_today_l1", "eps_l1_energy_today"),
-                ("eps_energy_today_l2", "eps_l2_energy_today"),
-                ("eps_energy_total_l1", "eps_l1_energy_total"),
-                ("eps_energy_total_l2", "eps_l2_energy_total"),
-                # Granular per-string / per-component energy — register-backed,
-                # absent from the cloud energy endpoint, so overlaid from the
-                # local transport in HYBRID (disabled-by-default sensors, #243).
-                ("pv1_yield", "pv1_energy_today"),
-                ("pv2_yield", "pv2_energy_today"),
-                ("pv3_yield", "pv3_energy_today"),
-                ("pv4_yield", "pv4_energy_today"),
-                ("pv5_yield", "pv5_energy_today"),
-                ("pv6_yield", "pv6_energy_today"),
-                ("pv1_yield_lifetime", "pv1_energy_total"),
-                ("pv2_yield_lifetime", "pv2_energy_total"),
-                ("pv3_yield_lifetime", "pv3_energy_total"),
-                ("pv4_yield_lifetime", "pv4_energy_total"),
-                ("pv5_yield_lifetime", "pv5_energy_total"),
-                ("pv6_yield_lifetime", "pv6_energy_total"),
-                ("inverter_energy", "inverter_energy_today"),
-                ("inverter_energy_lifetime", "inverter_energy_total"),
-                ("ac_charge_energy", "ac_charge_energy_today"),
-                ("ac_charge_energy_lifetime", "ac_charge_energy_total"),
-                ("eps_energy", "eps_energy_today"),
-                ("eps_energy_lifetime", "eps_energy_total"),
-                ("generator_energy", "generator_energy_today"),
-                ("generator_energy_lifetime", "generator_energy_total"),
-            )
+            # Pairs defined at module level (_ENERGY_OVERLAY) so the
+            # register contract harness can verify them against the
+            # canonical register tables.
             for sensor_key, energy_attr in _ENERGY_OVERLAY:
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
@@ -820,81 +1263,75 @@ class DeviceProcessingMixin(_MixinBase):
                 inverter.is_using_generator
             )
 
-        # Process battery bank aggregate data if available
-        # Prefer transport battery data (local Modbus) over cloud battery_bank
-        # In hybrid mode, _transport_battery is refreshed each cycle while
-        # _battery_bank may be stale from initial cloud station load
+        # Process battery bank aggregate data.  (This path serves HYBRID and
+        # pure CLOUD; LOCAL builds its bank in _process_single_local_device.)
         #
-        # Skip battery bank creation when battery_count is 0 or None.
-        # In parallel systems with shared batteries, the secondary inverter
-        # reports battery_count=0 (cloud: totalNumber=0, local: reg 96=0)
-        # because the CAN bus is wired only to the primary.  Creating a
-        # battery bank device with no actual batteries leads to
-        # Unknown/Unavailable entities (issue #169).
+        # Prefer the live local transport bank in HYBRID and fall back to the
+        # cloud bank when the transport count is 0/None.  The presence gate
+        # is ``battery_count > 0`` so a genuine shared-battery secondary stays
+        # skipped: in a parallel system the secondary reports 0 (cloud
+        # totalNumber=0, local reg 96=0) because the CAN bus is wired only to
+        # the primary, and a bank device with no batteries yields
+        # Unknown/Unavailable entities (#169).
+        #
+        # BUT reg 96 (the transport ``battery_count``) is unreliable on
+        # parallel/multi-battery systems and intermittently reads 0 even for a
+        # real bank (#258/#170) — the #261 log shows ``reg 96 = 0`` while the
+        # cloud reports 8 batteries.  When that happens, fall back to the cloud
+        # bank (an independent source, unaffected by the flaky local Modbus
+        # read) instead of dropping every battery_bank_* sensor and flicking the
+        # aggregate entities to Unavailable.  A genuine secondary reports 0 on
+        # BOTH sources and is still skipped.
         transport_battery = inverter.transport_battery
-        if transport_battery:
-            raw_count = getattr(transport_battery, "battery_count", None)
-            bank_count = int(raw_count) if raw_count else 0
-            if bank_count > 0:
-                _LOGGER.debug(
-                    "Battery bank for %s: using LOCAL transport data "
-                    "(hybrid/local mode, battery_count=%d)",
-                    inverter.serial_number,
-                    bank_count,
+        cloud_battery_bank = getattr(inverter, "_battery_bank", None)
+        transport_count = _bank_battery_count(transport_battery)
+        cloud_count = _bank_battery_count(cloud_battery_bank)
+
+        if transport_battery is not None and transport_count > 0:
+            _LOGGER.debug(
+                "Battery bank for %s: using LOCAL transport data "
+                "(hybrid/local mode, battery_count=%d)",
+                inverter.serial_number,
+                transport_count,
+            )
+            try:
+                processed["sensors"].update(
+                    _build_battery_bank_sensor_mapping(transport_battery)
                 )
-                try:
-                    battery_bank_sensors = _build_battery_bank_sensor_mapping(
-                        transport_battery
-                    )
-                    processed["sensors"].update(battery_bank_sensors)
-                except Exception as e:
-                    _LOGGER.warning(
-                        "Error extracting transport battery bank data for inverter %s: %s",
-                        inverter.serial_number,
-                        e,
-                    )
-            else:
-                _LOGGER.debug(
-                    "Battery bank for %s: skipping — transport battery_count=%s "
-                    "(shared battery secondary)",
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error extracting transport battery bank data for inverter %s: %s",
                     inverter.serial_number,
-                    bank_count,
+                    e,
+                )
+        elif cloud_count > 0:
+            # Cloud-only mode, or HYBRID where the transport reg-96 count
+            # flickered to 0/None while the cloud bank stayed populated (#261).
+            _LOGGER.debug(
+                "Battery bank for %s: using CLOUD data (battery_count=%d, "
+                "transport reg-96 count=%d)",
+                inverter.serial_number,
+                cloud_count,
+                transport_count,
+            )
+            try:
+                processed["sensors"].update(
+                    self._extract_battery_bank_from_object(cloud_battery_bank)
+                )
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error extracting battery bank data for inverter %s: %s",
+                    inverter.serial_number,
+                    e,
                 )
         else:
-            # Fall back to cloud battery_bank for cloud-only mode
-            battery_bank = getattr(inverter, "_battery_bank", None)
-            if battery_bank:
-                raw_count = getattr(battery_bank, "battery_count", None)
-                bank_count = int(raw_count) if raw_count else 0
-                if bank_count > 0:
-                    _LOGGER.debug(
-                        "Battery bank for %s: using CLOUD data (battery_count=%d)",
-                        inverter.serial_number,
-                        bank_count,
-                    )
-                    try:
-                        battery_bank_sensors = self._extract_battery_bank_from_object(
-                            battery_bank
-                        )
-                        processed["sensors"].update(battery_bank_sensors)
-                    except Exception as e:
-                        _LOGGER.warning(
-                            "Error extracting battery bank data for inverter %s: %s",
-                            inverter.serial_number,
-                            e,
-                        )
-                else:
-                    _LOGGER.debug(
-                        "Battery bank for %s: skipping — cloud battery_count=%s "
-                        "(shared battery secondary)",
-                        inverter.serial_number,
-                        bank_count,
-                    )
-            else:
-                _LOGGER.debug(
-                    "Battery bank for %s: NO DATA (no transport or cloud battery_bank)",
-                    inverter.serial_number,
-                )
+            _LOGGER.debug(
+                "Battery bank for %s: skipping — no usable bank "
+                "(transport count=%d, cloud count=%d, shared battery secondary)",
+                inverter.serial_number,
+                transport_count,
+                cloud_count,
+            )
 
         # Compute battery bank charge/discharge rate percentages.
         # At this point sensors dict has battery_bank_current (from battery
@@ -910,33 +1347,8 @@ class DeviceProcessingMixin(_MixinBase):
         now = time.monotonic()
         serial = inverter.serial_number
 
-        # Quick charge status
-        qc_key = f"qc_{serial}"
-        last_qc = self._last_status_fetch.get(qc_key, 0.0)
-        if now - last_qc >= _STATUS_FETCH_INTERVAL:
-            try:
-                if hasattr(inverter, "get_quick_charge_status"):
-                    quick_charge_active = await inverter.get_quick_charge_status()
-                    processed["quick_charge_status"] = {
-                        "hasUnclosedQuickChargeTask": quick_charge_active,
-                    }
-                    self._last_status_fetch[qc_key] = now
-                    _LOGGER.debug(
-                        "Quick charge status for %s: %s",
-                        serial,
-                        quick_charge_active,
-                    )
-            except Exception as e:
-                self._last_status_fetch[qc_key] = now
-                _LOGGER.debug(
-                    "Could not fetch quick charge status for %s: %s",
-                    serial,
-                    e,
-                )
-        elif self.data and serial in self.data.get("devices", {}):
-            prev = self.data["devices"][serial].get("quick_charge_status")
-            if prev is not None:
-                processed["quick_charge_status"] = prev
+        # Quick charge status (shared cloud/local fetch; transport-aware).
+        await self._fetch_quick_charge_status(inverter, processed)
 
         # Battery backup (EPS) status
         # Skip cloud API call when local transport is attached — the parameter
@@ -992,8 +1404,9 @@ class DeviceProcessingMixin(_MixinBase):
         """
         return {
             # Power sensors
-            # Note: pylxpweb uses power_output property, but we map to output_power
-            # for consistency with local mode (which uses output_power from Modbus)
+            # power_output carries unified LOAD-OUTPUT semantics (eg4-9e4):
+            # transport reg 170 (Pload) in HYBRID, cloud pLoad170 in CLOUD —
+            # matching the LOCAL table's output_power (reg 170) exactly.
             "power_output": "output_power",
             "pv_total_power": "pv_total_power",
             "pv1_power": "pv1_power",
@@ -1005,6 +1418,9 @@ class DeviceProcessingMixin(_MixinBase):
             "pv5_power": "pv5_power",
             "pv6_power": "pv6_power",
             "battery_power": "battery_power",
+            # Battery discharge power (cloud pDisCharge / transport reg 11) —
+            # entity gated to EG4_OFFGRID via OFFGRID_ONLY_SENSORS (#197).
+            "battery_discharge_power": "battery_discharge_power",
             "consumption_power": "consumption_power",
             "inverter_power": "ac_power",
             "rectifier_power": "rectifier_power",
@@ -1015,6 +1431,26 @@ class DeviceProcessingMixin(_MixinBase):
             "eps_power_l2": "eps_power_l2",
             "eps_apparent_power_l1": "eps_apparent_power_l1",
             "eps_apparent_power_l2": "eps_apparent_power_l2",
+            # Smart load (GEN port) + grid-side load split — cloud-only
+            # smartLoadPower/gridLoadPower fields (#222), entities gated to
+            # EG4_OFFGRID via OFFGRID_ONLY_SENSORS.  The pylxpweb properties
+            # read the HTTP runtime even when a transport is attached, so
+            # HYBRID gets them as cloud-supplemental data; pure LOCAL has no
+            # source (no validated register) and never creates the keys.
+            "smart_load_power": "smart_load_power",
+            "grid_load_power": "grid_load_power",
+            # EPS-loads subset of the backup output — cloud-only epsLoadPower
+            # field, the third leg of the #222 split (consumption =
+            # epsLoadPower + smartLoadPower + gridLoadPower).  NOT the same
+            # quantity as eps_power/peps/pEpsL1N, which carry the COMBINED
+            # backup output — the former eps_power_l1+l2 aliasing was a #197
+            # coincidence (smart load idle) and produced duplicate sensors
+            # (#335).  No per-leg epsLoad fields exist, and regs 129/130 are
+            # the combined legs, so there is no LOCAL source (needs XP
+            # hardware probing).  Same HYBRID cloud-supplemental behavior as
+            # its siblings above.  Backed by the pylxpweb eps_load_power
+            # property (>=0.9.36); no cloud runtime → None → key absent.
+            "eps_load_power": "eps_load_power",
             # US split-phase per-leg power
             "inverter_power_l1": "inverter_power_l1",
             "inverter_power_l2": "inverter_power_l2",
@@ -1096,7 +1532,10 @@ class DeviceProcessingMixin(_MixinBase):
             "has_data": "has_data",
             # Diagnostic sensors from energy API
             "is_lost": "inverter_lost_status",
-            "has_runtime_data": "inverter_has_runtime_data",
+            # NOTE: ``has_runtime_data`` is intentionally NOT mapped — it is the
+            # same value as ``has_data`` (both: runtime or transport data
+            # present) and mapping it created a duplicate "Has Runtime Data"
+            # sensor (#253).
         }
 
     @staticmethod
@@ -1109,6 +1548,12 @@ class DeviceProcessingMixin(_MixinBase):
         static-data path (:func:`_features_from_family`) uses — so the live and
         static feature paths always agree for a given device.
 
+        When detection resolved family=UNKNOWN (firmware reporting an unmapped
+        HOLD_DEVICE_TYPE_CODE, e.g. 6000XP on ccaa-140A0A — issue #219), the
+        feature profile is re-derived from the device model name via
+        :func:`_apply_model_family_fallback` so split-phase sensors are not
+        silently starved.
+
         Args:
             inverter: BaseInverter object with features detected.
 
@@ -1118,7 +1563,12 @@ class DeviceProcessingMixin(_MixinBase):
         inverter_features = getattr(inverter, "_features", None)
         if inverter_features is None:
             return {}
-        return _features_dict_from_inverter_features(inverter_features)
+        features = _features_dict_from_inverter_features(inverter_features)
+        return _apply_model_family_fallback(
+            features,
+            getattr(inverter, "model", None),
+            getattr(inverter, "serial_number", None),
+        )
 
     def _extract_battery_from_object(self, battery: "Battery") -> dict[str, Any]:
         """Extract sensor data from Battery object using properties.
@@ -1398,6 +1848,11 @@ class DeviceProcessingMixin(_MixinBase):
         if mid_device.has_data:
             property_map = self._get_mid_device_property_map()
             processed["sensors"] = _map_device_properties(mid_device, property_map)
+            processed["sensors"].update(
+                _map_device_properties(
+                    mid_device, self._get_mid_device_property_aliases()
+                )
+            )
             processed["sensors"]["firmware_version"] = firmware_version
 
             # Diagnostic logging for smart port energy (issue #146)
@@ -1468,6 +1923,7 @@ class DeviceProcessingMixin(_MixinBase):
             # Generator sensors
             "generator_power": "generator_power",
             "generator_voltage": "generator_voltage",
+            "generator_frequency": "generator_frequency",
             "generator_l1_power": "generator_power_l1",
             "generator_l2_power": "generator_power_l2",
             "generator_l1_voltage": "generator_voltage_l1",
@@ -1545,6 +2001,26 @@ class DeviceProcessingMixin(_MixinBase):
         }
 
     @staticmethod
+    def _get_mid_device_property_aliases() -> dict[str, str]:
+        """Get MID device property -> alias sensor key pairs.
+
+        ``_get_mid_device_property_map()`` is keyed by property name, so a
+        property that feeds a SECOND sensor key cannot be expressed there
+        (the dict key would collide).  These pairs are applied after the
+        main map in ``_process_mid_device_object()`` and mirror the aliases
+        in the LOCAL table (``coordinator_mappings.
+        _build_gridboss_sensor_mapping``) so both paths surface the same
+        sensors (eg4-7uz).
+
+        Returns:
+            Dictionary mapping MID device property names to alias sensor keys
+        """
+        return {
+            # Consumption power for GridBOSS = load_power (CT measurement)
+            "load_power": "consumption_power",
+        }
+
+    @staticmethod
     def _filter_unused_smart_port_sensors(
         sensors: dict[str, Any], mid_device: "MIDDevice"
     ) -> None:
@@ -1560,9 +2036,12 @@ class DeviceProcessingMixin(_MixinBase):
         - Status 2: AC Couple - ensure ac_couple power keys, remove all
           smart_load keys
 
-        Invalid status values (None, or outside 0-2 range) are logged as warnings
-        and treated as unused. This can occur with certain WiFi dongle firmware
-        versions that don't properly expose these registers.
+        Invalid status values (None, or outside 0-2 range) are logged as warnings.
+        When a cache of known-good statuses exists, the cached values are used
+        instead.  On the first poll with no cache, filtering is skipped (to avoid
+        removing sensors that may be in use) but all status values are converted
+        to valid labels (out-of-range values default to "unused") so raw integers
+        never reach HA's enum validation.
 
         Modifies the sensors dictionary in place.
 
@@ -1583,14 +2062,16 @@ class DeviceProcessingMixin(_MixinBase):
         )
 
         # Determine if this read is valid or corrupt.
-        # A valid read has at least one non-zero status and all values in range 0-2.
+        # A valid read has all values in range 0-2. All-zeros is valid (all
+        # ports unused) and must NOT be rejected — doing so causes raw integer
+        # 0 to leak through as the sensor state, which HA's enum validation
+        # rejects with ValueError (fixes #195, re-landed for #248).
         serial = getattr(mid_device, "serial_number", "unknown")
         all_valid_range = all(
             s is not None and s in _SMART_PORT_STATUS_LABELS
             for s in smart_port_statuses.values()
         )
-        has_nonzero = any(s != 0 for s in smart_port_statuses.values() if s is not None)
-        is_good_read = bool(smart_port_statuses) and all_valid_range and has_nonzero
+        is_good_read = bool(smart_port_statuses) and all_valid_range
 
         # Log invalid values from the raw read before any cache substitution
         if not is_good_read:
@@ -1619,10 +2100,18 @@ class DeviceProcessingMixin(_MixinBase):
                 )
 
         if is_good_read:
-            # Cache this as the last known good status set
+            # Cache the validated statuses (is_good_read guarantees all non-None)
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
+            if len(smart_port_statuses) == 4:
+                # Per-cycle authority marker for the stale smart-port registry
+                # cleanup (#217): only a FRESH and COMPLETE good read proves
+                # the dynamic keys reflect the real port configuration.
+                # Cached-fallback and suspect-skip cycles must not authorize
+                # registry removal (codex r2 HIGH), nor partial reads where
+                # some ports were never validated (codex r2 MEDIUM).
+                sensors[SMART_PORT_VALIDATED_KEY] = True
         elif serial in _last_good_smart_port_statuses:
             # Corrupt read -- fall back to cached statuses
             _LOGGER.debug(
@@ -1635,11 +2124,17 @@ class DeviceProcessingMixin(_MixinBase):
             }
         else:
             # No cache yet and current read is suspect -- skip filtering
-            # to avoid removing sensors that may be in use.
+            # to avoid removing sensors that may be in use.  Still convert
+            # any in-range integers to string labels so raw ints never reach
+            # HA's enum validation (defense-in-depth for #195/#248).
             _LOGGER.debug(
-                "Smart Port statuses all zero/invalid with no cache — "
+                "Smart Port statuses invalid with no cache — "
                 "skipping sensor filtering on initial poll"
             )
+            for port, status in smart_port_statuses.items():
+                sensors[f"smart_port{port}_status"] = _SMART_PORT_STATUS_LABELS.get(
+                    status if status is not None else -1, "unused"
+                )
             return
 
         # Convert raw status integers to enum string labels
@@ -2032,7 +2527,17 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
 
     async def _refresh_device_parameters(self, serial: str) -> None:
-        """Refresh parameters for a specific device using device object."""
+        """Refresh parameters for a specific device using device object.
+
+        Link-down handling is delegated to pylxpweb's ``_fetch_parameters``
+        guard (pylxpweb#206, shipped in the 0.9.36b24 floor pinned by
+        manifest.json): while the local transport link is down it skips the
+        local Modbus read (no uninterruptible pymodbus hang) and falls back
+        to cloud named-parameter reads in HYBRID, or skips cleanly in LOCAL
+        with ``parameters_complete`` set False.  Gating here would BLOCK
+        that cloud fallback — in HYBRID with a dead link parameters could
+        refresh via cloud but never would (#322 review).
+        """
         try:
             inverter = self.get_inverter_object(serial)
             if not inverter:
@@ -2086,15 +2591,66 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Error during missing parameter refresh: %s", e)
 
     async def _hourly_parameter_refresh(self) -> None:
-        """Perform hourly parameter refresh for all inverters."""
+        """Perform hourly parameter refresh for all inverters.
+
+        The throttle timestamp is stamped only when every inverter's last
+        parameter fetch was COMPLETE (#282): a misrouted dongle response used
+        to fail one register range, publish a partial parameter snapshot, and
+        still arm the 60-minute throttle — leaving parameter-backed entities
+        (e.g. System Charge SOC Limit, reg 227) degraded for up to an hour.
+        An incomplete fetch now re-arms an early retry instead (rate-floored
+        by ``_PARAMETER_RETRY_INTERVAL`` via ``_should_refresh_parameters``).
+        """
+        # Stamp the attempt at task START (#282 review P2): this runs as a
+        # background task while update cycles continue every ~20-30 s, so a
+        # slow in-flight refresh could otherwise be spawned a second time.
+        # The attempt floor in _should_refresh_parameters blocks re-spawning
+        # while this one runs (and after a crash, until the floor elapses).
+        self._last_parameter_attempt = dt_util.utcnow()
         try:
             await self.refresh_all_device_parameters()
-            self._last_parameter_refresh = dt_util.utcnow()
+            self._last_parameter_attempt = dt_util.utcnow()
+            if self._all_parameter_fetches_complete():
+                self._last_parameter_refresh = dt_util.utcnow()
+            else:
+                _LOGGER.info(
+                    "Parameter refresh incomplete for at least one inverter; "
+                    "serving last-known values and retrying in ~%d minutes "
+                    "instead of waiting the full parameter interval",
+                    int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
+                )
         except Exception as e:
             _LOGGER.error("Error during hourly parameter refresh: %s", e)
 
+    def _all_parameter_fetches_complete(self) -> bool:
+        """True when every inverter's last parameter fetch read all ranges.
+
+        Uses pylxpweb's ``parameters_complete`` flag; a pylxpweb without it
+        (pre-#282) defaults to True, keeping the previous stamping behavior.
+        """
+        if not self.data or "devices" not in self.data:
+            return True
+        for serial, device_data in self.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            inverter = self.get_inverter_object(serial)
+            if inverter is not None and not getattr(
+                inverter, "parameters_complete", True
+            ):
+                return False
+        return True
+
     def _should_refresh_parameters(self) -> bool:
-        """Check if hourly parameter refresh is due."""
+        """Check if the parameter refresh — or a post-failure retry — is due."""
+        attempt = getattr(self, "_last_parameter_attempt", None)
+        if (
+            attempt is not None
+            and dt_util.utcnow() - attempt < _PARAMETER_RETRY_INTERVAL
+        ):
+            # Rate floor between attempts: a failed read re-arms an early
+            # retry (the refresh timestamp was not stamped), but never
+            # tighter than this (#282).
+            return False
         if self._last_parameter_refresh is None:
             return True
 
@@ -2130,36 +2686,51 @@ class DSTSyncMixin(_MixinBase):
             return
 
         try:
+            # detect_dst_status() returns the ACTUAL DST state for the
+            # configured IANA timezone (True=DST in effect, False=not,
+            # None=cannot determine). It says nothing about whether the
+            # API flag matches — sync_dst_setting() performs that
+            # comparison itself and no-ops when already correct.
             dst_status = self.station.detect_dst_status()
-            if dst_status is False:
-                _LOGGER.info(
-                    "DST mismatch detected for station %s, syncing DST setting",
-                    self.plant_id,
-                )
-                sync_result = await self.station.sync_dst_setting()
-                if sync_result:
-                    _LOGGER.info(
-                        "DST setting synchronized successfully for station %s",
-                        self.plant_id,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to synchronize DST setting for station %s",
-                        self.plant_id,
-                    )
-                self._last_dst_sync = dt_util.utcnow()
-            elif dst_status is True:
-                _LOGGER.debug(
-                    "DST setting is already correct for station %s",
-                    self.plant_id,
-                )
-                self._last_dst_sync = dt_util.utcnow()
-            else:
+            if dst_status is None:
                 _LOGGER.debug(
                     "DST status could not be determined for station %s",
                     self.plant_id,
                 )
                 self._last_dst_sync = dt_util.utcnow()
+                return
+
+            # Re-read the cloud-side DST flag before syncing.
+            # sync_dst_setting() compares the detected status against the
+            # CACHED daylight_saving_time flag, which is otherwise only set
+            # at Station.load and by our own writes — without this refresh
+            # a portal-side toggle would leave the cache (and the HA
+            # switch) stale forever and turn the sync into a no-op. On
+            # fetch failure, proceed with the cached value.
+            try:
+                self.station.daylight_saving_time = bool(
+                    await self.station.get_daylight_saving_time_enabled()
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not refresh DST flag for station %s: %s",
+                    self.plant_id,
+                    err,
+                )
+
+            sync_result = await self.station.sync_dst_setting()
+            if sync_result:
+                _LOGGER.debug(
+                    "DST setting verified/synchronized for station %s (actual DST: %s)",
+                    self.plant_id,
+                    dst_status,
+                )
+            else:
+                _LOGGER.warning(
+                    "Failed to synchronize DST setting for station %s",
+                    self.plant_id,
+                )
+            self._last_dst_sync = dt_util.utcnow()
         except Exception as e:
             _LOGGER.warning(
                 "Error during DST sync for station %s: %s", self.plant_id, e
@@ -2284,6 +2855,45 @@ class BackgroundTaskMixin(_MixinBase):
                     _LOGGER.debug(
                         "Error disconnecting MID %s transport (ignored)",
                         serial,
+                        exc_info=True,
+                    )
+
+        # Station-attached transports (HYBRID attach path). Devices attached
+        # via Station.attach_local_transports() or the serial attach helper
+        # are not guaranteed to appear in the caches above — notably MID
+        # devices, since _rebuild_inverter_cache() only caches inverters —
+        # which leaked open serial ports across reloads (#233). De-dup by
+        # object identity so a transport shared with a cache entry closes once.
+        station = getattr(self, "station", None)
+        if station is not None:
+            seen: set[int] = set()
+            for cache in (self._inverter_cache, self._mid_device_cache):
+                for cached in cache.values():
+                    if cached.transport is not None:
+                        seen.add(id(cached.transport))
+            station_devices: list[Any] = list(
+                getattr(station, "all_inverters", None) or []
+            )
+            station_devices.extend(getattr(station, "all_mid_devices", None) or [])
+            for device in station_devices:
+                transport = getattr(device, "transport", None)
+                if (
+                    transport is None
+                    or id(transport) in seen
+                    or not getattr(transport, "is_connected", False)
+                ):
+                    continue
+                seen.add(id(transport))
+                try:
+                    await transport.disconnect()
+                    _LOGGER.debug(
+                        "Disconnected station transport for %s",
+                        getattr(device, "serial_number", "?"),
+                    )
+                except Exception:
+                    _LOGGER.debug(
+                        "Error disconnecting station transport for %s (ignored)",
+                        getattr(device, "serial_number", "?"),
                         exc_info=True,
                     )
 

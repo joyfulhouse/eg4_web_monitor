@@ -374,7 +374,10 @@
           "parameter_refresh_interval": "Parameter Refresh Interval (minutes)",
           "library_debug": "Library Debug Logging",
           "data_validation": "Register Data Validation",
-          "include_ac_couple_pv": "Include AC-Coupled PV in Totals"
+          "modbus_block_size": "Modbus Read Block Size",
+          "include_ac_couple_pv": "Include AC-Coupled PV in Totals",
+          "charge_control_mode": "Battery Charge Control",
+          "discharge_control_mode": "Battery Discharge Control"
         },
         "data_description": {
           "sensor_update_interval": "How often to poll for sensor updates ({min_sensor_interval}-{max_sensor_interval} seconds). Controls local transport polling rate. In HTTP-only mode, the HTTP interval below takes precedence.",
@@ -384,9 +387,15 @@
           "parameter_refresh_interval": "How often to refresh inverter parameters like SOC limits and charge settings ({min_param_interval}-{max_param_interval} minutes).",
           "library_debug": "Enable DEBUG logging for the pylxpweb library (shows API requests, responses, and internal library operations)",
           "data_validation": "Enable corruption detection for local register reads. Validates physical bounds (SoC, frequency, smart port status) and energy monotonicity. Only enable if you experience unstable register reads (ghost entities, energy spikes, invalid values).",
-          "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals"
+          "modbus_block_size": "How many registers to read per Modbus request when polling locally. Conservative uses small grouped reads that every dongle and firmware supports. Fast reads up to 120 registers at once for faster polling, but older dongle firmware only supports ~40-register reads — if a large read fails, the integration automatically falls back to Conservative (with a warning) until the next reload.",
+          "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals",
+          "charge_control_mode": "How your battery decides when to STOP charging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected limit controls are hidden by default. ⚠️ Changing this also reconfigures your inverter.",
+          "discharge_control_mode": "How your battery decides when to STOP discharging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected cutoff controls are hidden by default. ⚠️ Changing this also reconfigures your inverter."
         }
       }
+    },
+    "error": {
+      "control_mode_write_failed": "Failed to apply the battery control mode to the inverter. Check the device connection and try again."
     }
   },
   "selector": {
@@ -394,6 +403,12 @@
       "options": {
         "normal": "Normal",
         "standby": "Standby"
+      }
+    },
+    "modbus_block_size": {
+      "options": {
+        "conservative": "Conservative (compatible with all firmware)",
+        "fast": "Fast (120 registers, requires newer dongle firmware)"
       }
     }
   },
@@ -405,6 +420,9 @@
           "on": "Connected",
           "off": "Disconnected"
         }
+      },
+      "off_grid": {
+        "name": "Off-Grid"
       }
     },
     "sensor": {
@@ -468,11 +486,37 @@
       "bt_temperature": {
         "name": "BT Temperature"
       },
+      "operating_state": {
+        "name": "Operating State",
+        "state": {
+          "standby": "Standby",
+          "fault": "Fault",
+          "programming": "Programming",
+          "pv_to_grid": "PV → Grid",
+          "pv_charging": "PV → Battery",
+          "pv_charging_to_grid": "PV → Battery + Grid",
+          "battery_to_grid": "Battery → Grid",
+          "pv_battery_to_grid": "PV + Battery → Grid",
+          "ac_charging": "AC → Battery",
+          "pv_ac_charging": "PV + AC → Battery",
+          "off_grid_battery": "Off-Grid (Battery)",
+          "ac_coupled_charging": "Off-Grid (AC-Coupled Charging)",
+          "pv_off_grid": "Off-Grid (PV, unstable)",
+          "pv_charging_off_grid": "Off-Grid (PV + Charging)",
+          "pv_battery_off_grid": "Off-Grid (PV + Battery)"
+        }
+      },
       "status_code": {
         "name": "Status Code"
       },
       "status_text": {
-        "name": "Status"
+        "name": "Cloud Status"
+      },
+      "fault_code": {
+        "name": "Fault Code"
+      },
+      "warning_code": {
+        "name": "Warning Code"
       },
       "grid_power": {
         "name": "Grid Power"
@@ -519,7 +563,6 @@
       "grid_voltage": {
         "name": "Grid Voltage"
       },
-
       "grid_frequency": {
         "name": "Grid Frequency"
       },
@@ -535,7 +578,6 @@
       "eps_voltage": {
         "name": "EPS Voltage"
       },
-
       "eps_frequency": {
         "name": "EPS Frequency"
       },
@@ -654,6 +696,9 @@
       },
       "parallel_battery_charge_rate": {
         "name": "Battery Charge Rate"
+      },
+      "quick_charge_remaining": {
+        "name": "Quick Charge Remaining"
       }
     },
     "switch": {
@@ -665,6 +710,12 @@
       },
       "off_grid_mode": {
         "name": "Off Grid Mode"
+      },
+      "fast_zero_export": {
+        "name": "Fast Zero Export"
+      },
+      "share_battery": {
+        "name": "Share Battery"
       }
     },
     "number": {
@@ -683,8 +734,20 @@
       "ac_charge_soc_limit": {
         "name": "AC Charge SOC Limit"
       },
+      "quick_charge_duration": {
+        "name": "Quick Charge Duration"
+      },
       "soc_cutoff": {
         "name": "SOC Cut-Off"
+      },
+      "grid_sell_back_power": {
+        "name": "Grid Sell Back Power"
+      },
+      "start_discharge_power_threshold": {
+        "name": "Start Discharge Power Threshold"
+      },
+      "start_charge_power_threshold": {
+        "name": "Start Charge Power Threshold"
       }
     },
     "button": {
@@ -712,6 +775,122 @@
           "pv2_pv3": "PV2 & PV3",
           "pv1_pv2_pv3": "PV1 & PV2 & PV3"
         }
+      }
+    },
+    "time": {
+      "ac_charge_start_time_1": {
+        "name": "AC Charge Start Time 1"
+      },
+      "ac_charge_end_time_1": {
+        "name": "AC Charge End Time 1"
+      },
+      "ac_charge_start_time_2": {
+        "name": "AC Charge Start Time 2"
+      },
+      "ac_charge_end_time_2": {
+        "name": "AC Charge End Time 2"
+      },
+      "ac_charge_start_time_3": {
+        "name": "AC Charge Start Time 3"
+      },
+      "ac_charge_end_time_3": {
+        "name": "AC Charge End Time 3"
+      },
+      "ac_first_start_time_1": {
+        "name": "AC First Start Time 1"
+      },
+      "ac_first_end_time_1": {
+        "name": "AC First End Time 1"
+      },
+      "ac_first_start_time_2": {
+        "name": "AC First Start Time 2"
+      },
+      "ac_first_end_time_2": {
+        "name": "AC First End Time 2"
+      },
+      "ac_first_start_time_3": {
+        "name": "AC First Start Time 3"
+      },
+      "ac_first_end_time_3": {
+        "name": "AC First End Time 3"
+      },
+      "forced_charge_start_time_1": {
+        "name": "Forced Charge Start Time 1"
+      },
+      "forced_charge_end_time_1": {
+        "name": "Forced Charge End Time 1"
+      },
+      "forced_charge_start_time_2": {
+        "name": "Forced Charge Start Time 2"
+      },
+      "forced_charge_end_time_2": {
+        "name": "Forced Charge End Time 2"
+      },
+      "forced_charge_start_time_3": {
+        "name": "Forced Charge Start Time 3"
+      },
+      "forced_charge_end_time_3": {
+        "name": "Forced Charge End Time 3"
+      },
+      "forced_discharge_start_time_1": {
+        "name": "Forced Discharge Start Time 1"
+      },
+      "forced_discharge_end_time_1": {
+        "name": "Forced Discharge End Time 1"
+      },
+      "forced_discharge_start_time_2": {
+        "name": "Forced Discharge Start Time 2"
+      },
+      "forced_discharge_end_time_2": {
+        "name": "Forced Discharge End Time 2"
+      },
+      "forced_discharge_start_time_3": {
+        "name": "Forced Discharge Start Time 3"
+      },
+      "forced_discharge_end_time_3": {
+        "name": "Forced Discharge End Time 3"
+      },
+      "peak_shaving_start_time_1": {
+        "name": "Peak Shaving Start Time 1"
+      },
+      "peak_shaving_end_time_1": {
+        "name": "Peak Shaving End Time 1"
+      },
+      "peak_shaving_start_time_2": {
+        "name": "Peak Shaving Start Time 2"
+      },
+      "peak_shaving_end_time_2": {
+        "name": "Peak Shaving End Time 2"
+      },
+      "gen_charge_start_time_1": {
+        "name": "Generator Charge Start Time 1"
+      },
+      "gen_charge_end_time_1": {
+        "name": "Generator Charge End Time 1"
+      },
+      "gen_charge_start_time_2": {
+        "name": "Generator Charge Start Time 2"
+      },
+      "gen_charge_end_time_2": {
+        "name": "Generator Charge End Time 2"
+      },
+      "off_grid_start_time_1": {
+        "name": "Off-Grid Start Time 1"
+      },
+      "off_grid_end_time_1": {
+        "name": "Off-Grid End Time 1"
+      },
+      "off_grid_start_time_2": {
+        "name": "Off-Grid Start Time 2"
+      },
+      "off_grid_end_time_2": {
+        "name": "Off-Grid End Time 2"
+      },
+      "off_grid_start_time_3": {
+        "name": "Off-Grid Start Time 3"
+      },
+      "off_grid_end_time_3": {
+        "name": "Off-Grid End Time 3"
       }
     }
   },
@@ -747,6 +926,28 @@
           "description": "The configuration entry ID to reconcile. If not provided, all {brand_name} Web Monitor integrations with cloud credentials will be reconciled."
         }
       }
+    },
+    "import_historical_data": {
+      "name": "Import Historical Data",
+      "description": "Import plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the {brand_name} cloud into Home Assistant long-term statistics. Data is written as separate external statistics that can be selected in the Energy dashboard; existing sensor history is never modified. Re-running the same or overlapping ranges is safe.",
+      "fields": {
+        "config_entry": {
+          "name": "Config Entry",
+          "description": "The {brand_name} Web Monitor configuration entry (plant) to import history for."
+        },
+        "start_date": {
+          "name": "Start Date",
+          "description": "First day to import (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "Last day to import (YYYY-MM-DD). Defaults to today. Maximum range: 2 years."
+        },
+        "dry_run": {
+          "name": "Dry Run",
+          "description": "Preview what would be imported without writing any statistics."
+        }
+      }
     }
   },
   "exceptions": {
@@ -761,12 +962,62 @@
     },
     "invalid_date_format": {
       "message": "Invalid date format. Please use YYYY-MM-DD format."
+    },
+    "cloud_required": {
+      "message": "Historical import requires cloud credentials (HTTP or Hybrid connection mode)."
+    },
+    "station_not_ready": {
+      "message": "Cloud station data is not loaded yet. Wait for the integration to finish its first refresh and try again."
+    },
+    "no_devices": {
+      "message": "No inverters were found for this plant."
+    },
+    "invalid_date_range": {
+      "message": "Invalid date range: {start_date} to {end_date}. The start date must not be in the future or after the end date."
+    },
+    "date_range_too_large": {
+      "message": "Date range of {range_days} days exceeds the maximum of {max_days} days (2 years). Import the history in smaller chunks."
+    },
+    "history_api_unavailable": {
+      "message": "The installed pylxpweb library does not provide the energy history API required by this service. Update the integration so its required pylxpweb version is installed."
     }
   },
   "issues": {
+    "offgrid_grid_controls_removed": {
+      "title": "Grid-tied controls removed from {model} {serial}",
+      "description": "**Peak Shaving** and **Forced Discharge** controls (the mode switches plus the Grid Peak Shaving Power, Forced Discharge Power and Forced Discharge SOC Limit settings) have been removed from **{serial}** ({model}).\n\nThese functions act on grid-parallel export/import blending, which EG4 off-grid models (12000XP/6000XP) do not support — the underlying registers exist but the functions are inert on this hardware, so the controls never did anything.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports these functions, please report it on the integration's GitHub issues."
+    },
+    "offgrid_battery_backup_removed": {
+      "title": "Battery Backup Mode control removed from {model} {serial}",
+      "description": "The **Battery Backup Mode** switch has been removed from **{serial}** ({model}).\n\nEnabling this working mode is rejected by the firmware on EG4's off-grid family (“failed to enable working mode” on a 12000XP v2), and EG4's own portal does not expose a working-mode toggle for these units. The **EPS Battery Backup** switch is unaffected.\n\nIf any automation or dashboard referenced this entity, remove those references. If you believe your device genuinely supports this function, please report it on the integration's GitHub issues."
+    },
+    "offgrid_ac_charge_soc_limit_removed": {
+      "title": "AC Charge SOC Limit replaced on {model} {serial}",
+      "description": "The **AC Charge SOC Limit** setting has been removed from **{serial}** ({model}).\n\nThe EG4 cloud rejects writes to that parameter on the off-grid family (REMOTE_SET_ERROR on a 12000XP v2), and EG4's own portal does not carry it for these units. The family's actual AC-charge SOC window is exposed by the new **AC Charge Start Battery SOC** and **AC Charge End Battery SOC** settings, which match the portal's off-grid working-mode page.\n\nUpdate any automation or dashboard that referenced the old entity to use the new ones. If you believe your device genuinely supports the old parameter, please report it on the integration's GitHub issues."
+    },
+    "offgrid_forced_charge_times_removed": {
+      "title": "Forced Charge schedule times removed from {model} {serial}",
+      "description": "The **Forced Charge** schedule time settings (start/end times, windows 1-3) have been removed from **{serial}** ({model}).\n\nThe EG4 cloud rejects writes to these parameters on the off-grid family (REMOTE_SET_ERROR on a 12000XP v2), and EG4's own portal exposes no Forced Charge schedule for these units. The **AC Charge** and **AC First** schedules are unaffected.\n\nIf any automation or dashboard referenced these entities, remove those references. If you believe your device genuinely supports this schedule, please report it on the integration's GitHub issues."
+    },
     "dongle_validation_disabled": {
       "title": "Data validation recommended for WiFi dongle",
       "description": "A WiFi dongle is configured but **Data Validation** is disabled. WiFi dongles share a Modbus bus, and concurrent reads can cause corrupt register data (e.g., energy spikes).\n\nTo fix, go to **Settings > Devices & Services > EG4 Web Monitor > Configure** and enable **Data Validation**."
+    },
+    "unknown_family_fallback": {
+      "title": "Inverter family inferred from model for {serial}",
+      "description": "Device **{serial}** did not report a recognized inverter family, so its capabilities were derived from the model name **{model}** (family **{family}**). Phase-specific sensors that never had data (e.g. three-phase R/S/T sensors on split-phase hardware) are no longer created.\n\nIf any automation referenced those sensors, update it. If this device really is three-phase, set **Grid Type** in the integration options. Please also report your firmware's device type code (see the Device Type Code diagnostic sensor) so it can be mapped upstream."
+    },
+    "serial_attach_failed": {
+      "title": "Serial connection failed for device {serial}",
+      "description": "The Modbus serial (USB/RS485) connection on **{serial_port}** could not be opened for device **{serial}**. The device is temporarily using cloud data only.\n\nCheck that the adapter is plugged in, the port path is correct, and no other software has the port open, then reload the integration."
+    },
+    "transport_attach_failed": {
+      "title": "Local connection failed for device {serial}",
+      "description": "The local connection to **{host}** could not be established for device **{serial}** — this commonly happens right after a Home Assistant restart, while the WiFi dongle still holds the previous session's connection. The device is temporarily using cloud data.\n\nThe integration retries automatically about once a minute; this issue clears itself when the local connection is restored. If it persists, check that the device is powered and reachable at **{host}**."
+    },
+    "transport_link_down": {
+      "title": "Local connection to device {serial} lost",
+      "description": "The local connection to **{host}** for device **{serial}** stopped responding after several consecutive read failures — commonly a network interruption, VPN drop, or a power-cycled dongle/gateway. While the link is down, the device falls back to cloud data if cloud credentials are configured; otherwise its entities become unavailable instead of showing stale values.\n\nThe integration keeps retrying the local connection every update cycle; this issue clears itself when the link recovers. If it persists, check that the device is powered and reachable at **{host}**."
     }
   }
 }

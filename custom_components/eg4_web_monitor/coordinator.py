@@ -4,8 +4,8 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Callable, Collection
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -31,13 +31,23 @@ else:
     )
 
 from pylxpweb import LuxpowerClient
-from pylxpweb.devices import Battery, Station
+from pylxpweb.devices import Station
 from pylxpweb.devices.inverters.base import BaseInverter
 from .const import (
+    BLOCK_SIZE_PRESET_REGISTERS,
     CONF_BASE_URL,
+    CONF_CHARGE_CONTROL_MODE,
     CONF_CONNECTION_TYPE,
     CONF_DATA_VALIDATION,
+    CONF_DISCHARGE_CONTROL_MODE,
     CONF_DONGLE_HOST,
+    CONF_MODBUS_BLOCK_SIZE,
+    CONTROL_MODE_SOC,
+    CONTROL_MODE_VOLTAGE,
+    DEFAULT_CONTROL_MODE,
+    DEFAULT_MODBUS_BLOCK_SIZE,
+    PARAM_FUNC_BAT_CHARGE_CONTROL,
+    PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     CONF_DONGLE_PORT,
     CONF_DONGLE_SERIAL,
     CONF_DONGLE_UPDATE_INTERVAL,
@@ -77,9 +87,11 @@ from .const import (
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
 )
+from .battery_migration import async_migrate_battery_keys
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
+    input_block_size_kwargs,
 )
 from .coordinator_http import HTTPUpdateMixin
 from .coordinator_local import LocalTransportMixin
@@ -90,8 +102,10 @@ from .coordinator_mixins import (
     DSTSyncMixin,
     FirmwareUpdateMixin,
     ParameterManagementMixin,
+    is_transport_link_down as _device_transport_link_down,
 )
 from .const.sensors import SENSOR_TYPES
+from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,8 +152,11 @@ class EG4DataUpdateCoordinator(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
         )
 
-        # Plant ID (only used for HTTP and Hybrid modes)
-        self.plant_id: str | None = entry.data.get(CONF_PLANT_ID)
+        # Plant ID (only used for HTTP and Hybrid modes). Entries created
+        # before the #275 fix may store it as int; normalize to str so all
+        # derived identifiers (f-string based) stay identical either way.
+        plant_id = entry.data.get(CONF_PLANT_ID)
+        self.plant_id: str | None = str(plant_id) if plant_id is not None else None
 
         # Get Home Assistant timezone as IANA timezone string for DST detection
         iana_timezone = str(hass.config.time_zone) if hass.config.time_zone else None
@@ -157,6 +174,17 @@ class EG4DataUpdateCoordinator(
                 session=aiohttp_client.async_get_clientsession(hass),
                 iana_timezone=iana_timezone,
             )
+
+        # Modbus input-register read block size (#254): preset option mapped
+        # to pylxpweb's max registers per coalesced read. Conservative (40)
+        # keeps the plain grouped reads; Fast (120) consolidates them on
+        # hardware that supports large reads. Passed to every local transport
+        # via input_block_size_kwargs() (feature-detected, so released
+        # pylxpweb without the parameter stays silently conservative).
+        self._max_input_block_size: int = BLOCK_SIZE_PRESET_REGISTERS.get(
+            entry.options.get(CONF_MODBUS_BLOCK_SIZE, DEFAULT_MODBUS_BLOCK_SIZE),
+            BLOCK_SIZE_PRESET_REGISTERS[DEFAULT_MODBUS_BLOCK_SIZE],
+        )
 
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
@@ -195,6 +223,7 @@ class EG4DataUpdateCoordinator(
                     unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
                     timeout=DEFAULT_MODBUS_TIMEOUT,
                     inverter_family=_parse_inverter_family(family_str),
+                    **input_block_size_kwargs(self._max_input_block_size),
                 )
                 self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
                 self._modbus_model = _derive_model_from_family(
@@ -219,6 +248,7 @@ class EG4DataUpdateCoordinator(
                     port=entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
                     timeout=DEFAULT_DONGLE_TIMEOUT,
                     inverter_family=_parse_inverter_family(family_str),
+                    **input_block_size_kwargs(self._max_input_block_size),
                 )
                 self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
                 self._dongle_model = _derive_model_from_family(
@@ -237,6 +267,21 @@ class EG4DataUpdateCoordinator(
             CONF_LOCAL_TRANSPORTS, []
         )
         self._local_transports_attached = False
+        # Serials whose local-transport attach failed (commonly: the dongle's
+        # single TCP slot still held by the previous session right after an
+        # HA restart). Retried with a bounded interval each update cycle and
+        # cleared on success — without this, a transient boot-time failure
+        # parked the device on cloud data until a manual reload (eg4-05l).
+        self._failed_attach_serials: set[str] = set()
+        self._last_attach_retry: float = 0.0
+        # Per-serial monotonic stamps for DEGRADED cloud refreshes: a hybrid
+        # coordinator can tick at the fastest LOCAL interval (5s) — degraded
+        # devices' cloud fallback must stay throttled to the cloud-safe HTTP
+        # interval regardless (review HIGH on eg4-o5m).
+        self._last_degraded_cloud_refresh: dict[str, float] = {}
+        # Serials with an open transport_link_down Repairs issue (eg4-57g):
+        # one-shot per down transition, cleared when the link recovers.
+        self._link_down_notified: set[str] = set()
 
         # Parameter refresh tracking - read from options or use default
         self._last_parameter_refresh: datetime | None = None
@@ -244,6 +289,19 @@ class EG4DataUpdateCoordinator(
             CONF_PARAMETER_REFRESH_INTERVAL, DEFAULT_PARAMETER_REFRESH_INTERVAL
         )
         self._parameter_refresh_interval = timedelta(minutes=param_refresh_minutes)
+        # Sticky-parameter retry tracking (#282): ``_last_parameter_attempt``
+        # rate-floors the early retries a failed/partial/missed read re-arms.
+        self._last_parameter_attempt: datetime | None = None
+        # Per-device parameter retry queue (#282 P1-A): inverters that did not
+        # COMPLETE their targeted parameter read on a due cycle (transport-
+        # interval skip, pre-param failure, or partial read).  Retried on
+        # floored cycles without re-reading healthy siblings; drained on each
+        # device's own successful read.
+        self._param_retry_pending: set[str] = set()
+        # Per-cycle state for the retry queue (reset in the local update loop).
+        self._param_retry_due: bool = False
+        self._param_completed_this_cycle: set[str] = set()
+        self._param_attempted_this_cycle: bool = False
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -260,6 +318,11 @@ class EG4DataUpdateCoordinator(
         self._inverter_cache: dict[str, BaseInverter] = {}
         self._firmware_cache: dict[str, str] = {}
 
+        # Per-serial Quick Charge duration preference (minutes), set via the
+        # Quick Charge Duration number entity. Defaults to
+        # QUICK_CHARGE_DURATION_DEFAULT when a serial has no stored value.
+        self._quick_charge_minutes: dict[str, int] = {}
+
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 
@@ -270,10 +333,47 @@ class EG4DataUpdateCoordinator(
         # appear as entities regardless of which slot they occupied.
         # Outer key = inverter serial, inner key = battery serial.
         self._battery_rr_cache: dict[str, dict[str, dict[str, Any]]] = {}
-        # Stable battery_key assignment: battery serial → "inverter-NN" key.
+        # Legacy positional key shadow: battery serial → "inverter-NN" key in
+        # first-seen order — the exact assignment the pre-#252 LOCAL path used.
+        # Kept only so existing registry entries can be migrated to the
+        # canonical serial-based keys (see battery_migration.py).
         self._battery_serial_to_key: dict[str, dict[str, str]] = {}
-        # Next available index per inverter for stable key assignment.
+        # Next available index per inverter for the legacy shadow assignment.
         self._battery_next_index: dict[str, int] = {}
+        # One-shot guard for #252 battery-identity registry migrations:
+        # (inverter serial, legacy key) pairs already migrated this session.
+        self._battery_key_migrations_done: set[tuple[str, str]] = set()
+        # Cache keys created by the no-serial positional fallback (per
+        # inverter).  When a serial later claims the same slot, the fallback
+        # entry is retired — it was the same physical battery (#252 P0).
+        self._battery_fallback_keys: dict[str, set[str]] = {}
+        # Consecutive serial-less polls per (inverter, slot).  A positional
+        # fallback entity is only exposed after _NO_SERIAL_EXPOSE_POLLS so a
+        # slow-to-arrive serial can claim the identity before any positional
+        # entity is instantiated (#252 cold start).
+        self._battery_noserial_polls: dict[str, dict[int, int]] = {}
+        # Inverters whose battery-identity migration is disabled this session
+        # (rotating pack with unattributable positional history, or a
+        # duplicate/misreported battery serial).  Sticky until restart;
+        # positional registry rows are left untouched as orphans.
+        self._battery_migration_suppressed: set[str] = set()
+        # Positional fallback keys already announced by the shifted-slot
+        # retirement sweep (#302).  The retired key's registry rows can
+        # survive as orphans (the #252 migration renames first-seen-order
+        # legacy keys, which need not match the slot-position fallback), so
+        # the retirement is logged at INFO once per key — repeats from a
+        # flapping serial fall back to DEBUG.
+        self._battery_shift_retire_logged: set[str] = set()
+        # Last published battery mapping per inverter (#258 beta.18): battery
+        # entity availability is key-presence in device_data["batteries"], and
+        # the HYBRID/CLOUD paths rebuild that dict from the cloud payload as
+        # the BASELINE every cycle — a battery the cloud momentarily omits
+        # (rotating >4 packs feed the cloud through the same firmware page
+        # rotation) vanished and its entities flipped unavailable.  A battery
+        # once published is carried forward with its last-known data instead;
+        # staleness stays visible via battery_last_seen, never via
+        # availability flapping.  Outer key = inverter serial.
+        self._battery_carry_forward: dict[str, dict[str, dict[str, Any]]] = {}
 
         # Shared-battery secondary inverters: in parallel systems the CAN bus
         # connects only to the primary.  Secondaries (role >= 2) with
@@ -475,22 +575,6 @@ class EG4DataUpdateCoordinator(
         """Get inverter device object by serial number (O(1) cached lookup)."""
         return self._inverter_cache.get(serial)
 
-    def get_battery_object(self, serial: str, battery_index: int) -> Battery | None:
-        """Get battery object by inverter serial and battery index."""
-        inverter = self.get_inverter_object(serial)
-        battery_bank = getattr(inverter, "_battery_bank", None) if inverter else None
-        if not battery_bank:
-            return None
-
-        if not hasattr(battery_bank, "batteries"):
-            return None
-
-        for battery in battery_bank.batteries:
-            if battery.index == battery_index:
-                return cast(Battery, battery)
-
-        return None
-
     def has_http_api(self) -> bool:
         """Check if HTTP API is available (HTTP or Hybrid mode).
 
@@ -500,6 +584,111 @@ class EG4DataUpdateCoordinator(
             True if HTTP client is configured (HTTP or Hybrid mode).
         """
         return self.client is not None
+
+    def is_transport_link_down(self, serial: str) -> bool:
+        """Whether pylxpweb has declared this device's local transport link down.
+
+        pylxpweb keeps the transport ATTACHED while the link is down (reads
+        keep probing every cycle), so ``has_local_transport()`` stays True
+        during an outage. Control writes use this to prefer the cloud
+        immediately instead of waiting out a doomed Modbus timeout, and
+        parameter refreshes use it to skip local reads that would hang.
+
+        Delegates to :func:`coordinator_mixins.is_transport_link_down` — the
+        single implementation, whose strict guards (transport must be
+        attached, ``transport_link_down`` must be a real bool) keep stale
+        attributes without a transport and older pylxpweb versions from ever
+        reporting a down link.
+
+        Args:
+            serial: Device serial to check.
+
+        Returns:
+            True only when the device reports an attached-but-dead link.
+        """
+        device: Any = self.get_inverter_object(serial) or self._get_device_object(
+            serial
+        )
+        if device is None:
+            device = self._mid_device_cache.get(serial)
+        return _device_transport_link_down(device)
+
+    def require_client(self) -> LuxpowerClient:
+        """Return the cloud API client or raise if no write path is available.
+
+        Cloud-leg parameter writes need the HTTP client; when neither a local
+        transport nor a cloud session is configured there is nowhere to write.
+
+        Raises:
+            HomeAssistantError: If no cloud API client is configured.
+        """
+        client = self.client
+        if client is None:
+            raise HomeAssistantError(
+                "No local transport or cloud API available for parameter write."
+            )
+        return client
+
+    async def refresh_inverter_params_if_linked(self, serial: str) -> None:
+        """Refresh a device's parameters after a cloud write, unless link is down.
+
+        Skipped on a down link: pylxpweb's parameter fetch has no link gate and
+        the local reads would hang; the cloud-fallback cache seed (local_values)
+        converges the entity instead.
+        """
+        inverter = self.get_inverter_object(serial)
+        if inverter and not self.is_transport_link_down(serial):
+            await inverter.refresh(force=True, include_parameters=True)
+
+    def params_are_local_raw(
+        self, serial: str, *, include_configured: bool = False
+    ) -> bool:
+        """Whether this serial's parameter cache holds raw register values.
+
+        True in local-only modes (the coordinator reads registers itself) and
+        when the pylxpweb inverter object has a local transport attached
+        (HYBRID ``local_transports``) — pylxpweb routes the parameter read
+        through that transport, so the cache holds raw register values instead
+        of the cloud's already-scaled/separated fields. The deprecated
+        global-transport fallback inside ``has_local_transport()`` deliberately
+        does NOT count: legacy flat HYBRID entries populate the cache from the
+        cloud (scaled/decoded), and treating them as raw would mis-scale the
+        display (12 kW would show 1.2) or hide packed schedule registers.
+
+        Args:
+            serial: Device serial to check.
+            include_configured: Also treat a CONFIGURED-but-not-yet-attached
+                local transport as local-raw. Used by setup-time gates
+                (evaluated once, before a hybrid attach that fails at startup
+                can recover) so a cloud-param-only entity is not slipped
+                through; per-update entity reads leave this False and rely on
+                the live transport instead.
+        """
+        if self.is_local_only():
+            return True
+        if include_configured and self.has_configured_local_transport(serial):
+            return True
+        inverter = self.get_inverter_object(serial)
+        return getattr(inverter, "transport", None) is not None
+
+    def note_parameters_written(self, serial: str, values: dict[str, Any]) -> None:
+        """Merge acknowledged written parameter values into the cache and notify.
+
+        Convergence for cloud-fallback writes while a local transport is
+        attached: the follow-up local parameter refresh is skipped (link
+        down) or may fail, and the #282 sticky carry-forward would otherwise
+        pin the stale pre-write value until link recovery — visually
+        reverting the entity after its optimistic value clears. The written
+        value IS device truth (the cloud write was acknowledged), expressed
+        in the same local-raw representation the attached-transport cache
+        uses. A later successful parameter read overwrites it with fresh
+        device data.
+        """
+        if not self.data:
+            return
+        params = self.data.setdefault("parameters", {}).setdefault(serial, {})
+        params.update(values)
+        self.async_update_listeners()
 
     def _has_modbus_transport(self) -> bool:
         """Check if any Modbus TCP/Serial transport is configured."""
@@ -579,6 +768,118 @@ class EG4DataUpdateCoordinator(
         setattr(self, ts_attr, now)
         return True
 
+    def _suppress_battery_migration(
+        self, inverter_serial: str, reason: str, *, level: int = logging.INFO
+    ) -> None:
+        """Disable #252 battery-identity migration for an inverter (sticky).
+
+        Used when the legacy positional history cannot be attributed safely:
+        rotating packs (positional keys were assigned in an order this
+        session cannot reconstruct) or duplicate/misreported battery serials.
+        Positional registry rows are left untouched as orphans — safe beats
+        clever.  Logged once per inverter per session.
+        """
+        if inverter_serial in self._battery_migration_suppressed:
+            return
+        self._battery_migration_suppressed.add(inverter_serial)
+        _LOGGER.log(
+            level,
+            "Battery identity migration disabled for inverter %s this "
+            "session: %s. Existing positional battery entities are left "
+            "untouched; stale ones can be removed manually from the device "
+            "page (#252)",
+            inverter_serial,
+            reason,
+        )
+
+    def _register_battery_key_migrations(
+        self,
+        inverter_serial: str,
+        pairs: dict[str, str],
+        active_keys: Collection[str],
+    ) -> None:
+        """Run the #252 legacy→canonical battery-key registry migration.
+
+        Called from the battery processing paths (LOCAL round-robin merge,
+        HYBRID cloud baseline, CLOUD fallback) once the legacy positional key
+        each battery *would* have had is known alongside its canonical
+        serial-based key.
+
+        Args:
+            inverter_serial: Parent inverter serial number.
+            pairs: Mapping of legacy positional key → canonical key.
+            active_keys: Battery keys currently in use for this inverter
+                (including debounced no-serial fallback slots).  A legacy key
+                that is still an active key belongs to a live battery (mixed
+                serial/no-serial pack) and is never migrated.
+        """
+        if inverter_serial in self._battery_migration_suppressed:
+            return
+
+        active = set(active_keys)
+        pending: dict[str, str] = {}
+        for old_key, new_key in pairs.items():
+            if old_key == new_key:
+                continue
+            if (inverter_serial, old_key) in self._battery_key_migrations_done:
+                continue
+            if old_key in active:
+                _LOGGER.debug(
+                    "Skipping battery key migration %s -> %s for %s: "
+                    "legacy key still active (mixed serial/no-serial pack)",
+                    old_key,
+                    new_key,
+                    inverter_serial,
+                )
+                continue
+            pending[old_key] = new_key
+
+        if not pending:
+            return
+
+        # Same-inverter canonical-key collision safety: two legacy keys
+        # resolving to one canonical target means two physical batteries
+        # claim one identity — renaming would misbind history and the
+        # duplicate-removal branch could delete a live battery's rows.
+        # Drop the colliding pairs and warn.
+        targets = list(pending.values())
+        colliding = {t for t in targets if targets.count(t) > 1}
+        if colliding:
+            _LOGGER.warning(
+                "Skipping battery key migration for inverter %s: multiple "
+                "legacy keys resolve to the same canonical key(s) %s "
+                "(duplicate battery identity in the payload?)",
+                inverter_serial,
+                sorted(colliding),
+            )
+            pending = {o: n for o, n in pending.items() if n not in colliding}
+            if not pending:
+                return
+
+        # The done-guard is intentionally in-memory only: after a restart the
+        # migration re-runs once per battery and finds nothing left to rename
+        # (a proven no-op), so a persistent marker isn't warranted.  Retiring
+        # the legacy shadow map entirely is deferred to 3.5.0.
+        try:
+            migrated = async_migrate_battery_keys(
+                self.hass, self.entry.entry_id, inverter_serial, pending
+            )
+        except Exception:
+            # Never let a registry problem take down the refresh; the pairs
+            # are re-derived and retried (HYBRID/CLOUD: next refresh; LOCAL:
+            # next restart/reload).
+            _LOGGER.exception(
+                "Battery identity migration failed for inverter %s; "
+                "data refresh continues",
+                inverter_serial,
+            )
+            return
+        # Mark only the keys whose registry operations completed, so a
+        # per-key failure or live-entity deferral is retried instead of
+        # being lost for the session.
+        for old_key in migrated:
+            self._battery_key_migrations_done.add((inverter_serial, old_key))
+
     async def write_named_parameter(
         self,
         parameter: str,
@@ -630,6 +931,265 @@ class EG4DataUpdateCoordinator(
             raise HomeAssistantError(
                 f"Failed to write parameter {parameter}: {err}"
             ) from err
+
+    async def write_raw_parameter(
+        self,
+        address: int,
+        value: int,
+        serial: str | None = None,
+    ) -> bool:
+        """Write a single holding register by raw address via the local transport.
+
+        For registers with no pylxpweb name-map entry AND no cloud parameter
+        name — e.g. HOLD 117 (PtoUserStartchg, GH #272), which the cloud
+        remoteRead names ``<EMPTY>`` on every scanned model. Named writes
+        (:meth:`write_named_parameter`) remain the path for any register
+        pylxpweb knows; raw writes bypass the name map entirely, so callers
+        must pass the exact unsigned 16-bit register value (mask signed
+        values with ``& 0xFFFF``).
+
+        Args:
+            address: Holding register address.
+            value: Unsigned 16-bit register value to write.
+            serial: Device serial for LOCAL mode with multiple devices.
+
+        Returns:
+            True if write succeeded.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError("No local transport available for parameter write")
+
+        try:
+            if not transport.is_connected:
+                _LOGGER.debug(
+                    "Reconnecting transport for %s before writing register %d",
+                    serial,
+                    address,
+                )
+                await transport.connect()
+
+            await transport.write_parameters({address: value})
+            _LOGGER.debug("Wrote raw register %d = %s", address, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", address, err)
+            raise HomeAssistantError(
+                f"Failed to write register {address}: {err}"
+            ) from err
+
+    async def write_register(
+        self,
+        register: int,
+        value: int,
+        serial: str | None = None,
+    ) -> bool:
+        """Write a raw holding register through the local transport.
+
+        The raw-register sibling of :meth:`write_named_parameter`, for
+        registers whose local name mapping is absent or wrong (e.g. the
+        packed AC-charge schedule registers 68-73, issue #277 — their
+        pylxpweb names misdescribe the packed hour|minute layout). A single
+        register is written per call, which the transports send as a Modbus
+        FC06 single-register write — schedule registers reject FC16
+        multi-register writes.
+
+        NOTE: functionally overlaps :meth:`write_raw_parameter` (GH #272);
+        consolidating the two is a documented deferred cleanup — do not
+        merge them piecemeal.
+
+        Args:
+            register: Holding register address.
+            value: Raw 16-bit register value to write.
+            serial: Device serial for LOCAL mode with multiple devices.
+
+        Returns:
+            True if write succeeded.
+
+        Raises:
+            HomeAssistantError: If no local transport or write fails.
+        """
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError("No local transport available for register write")
+
+        try:
+            if not transport.is_connected:
+                _LOGGER.debug(
+                    "Reconnecting transport for %s before writing register %d",
+                    serial,
+                    register,
+                )
+                await transport.connect()
+
+            await transport.write_parameters({register: value})
+            _LOGGER.debug("Wrote register %d = %s", register, value)
+            return True
+
+        except Exception as err:
+            _LOGGER.error("Failed to write register %d: %s", register, err)
+            raise HomeAssistantError(
+                f"Failed to write register {register}: {err}"
+            ) from err
+
+    # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
+
+    def get_configured_control_modes(self) -> tuple[str, str]:
+        """Return the configured ``(charge_mode, discharge_mode)`` for entity gating.
+
+        Reads the stored options, defaulting to SOC (closed-loop) so existing
+        installs keep their historical behavior (only SOC limit controls
+        enabled). Used to compute ``entity_registry_enabled_default``.
+        """
+        options = self.entry.options
+        charge = options.get(CONF_CHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        discharge = options.get(CONF_DISCHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        return str(charge), str(discharge)
+
+    def get_live_control_mode(self, serial: str, *, discharge: bool = False) -> str:
+        """Return the live battery control regime for a device from polled params.
+
+        Reads register 179 bit 9 (charge) or bit 10 (discharge) as surfaced in
+        ``data["parameters"][serial]``. Returns ``CONTROL_MODE_VOLTAGE`` or
+        ``CONTROL_MODE_SOC``; defaults to SOC when the parameter is not (yet)
+        available. This reflects what the inverter is actually honoring, used
+        for the "is this control effective?" indicator and config pre-fill.
+        """
+        params = (self.data or {}).get("parameters", {}).get(serial, {})
+        key = (
+            PARAM_FUNC_BAT_DISCHARGE_CONTROL
+            if discharge
+            else PARAM_FUNC_BAT_CHARGE_CONTROL
+        )
+        raw = params.get(key)
+        if raw is None:
+            return CONTROL_MODE_SOC
+        return CONTROL_MODE_VOLTAGE if bool(raw) else CONTROL_MODE_SOC
+
+    async def async_write_battery_control_mode(
+        self, serial: str, charge_mode: str, discharge_mode: str
+    ) -> None:
+        """Write the battery charge/discharge control regime to the inverter.
+
+        Sets register 179 bit 9 (charge) and bit 10 (discharge): SOC clears the
+        bit, Voltage sets it. Routes through the local transport when available,
+        falling back to the cloud function-control API on local write failure
+        (both paths set absolute bit state, so a double-write is safe).
+
+        Raises:
+            HomeAssistantError: If no write path is available or a write fails.
+        """
+        charge_voltage = charge_mode == CONTROL_MODE_VOLTAGE
+        discharge_voltage = discharge_mode == CONTROL_MODE_VOLTAGE
+
+        async def _local_write() -> None:
+            await self.write_named_parameter(
+                PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage, serial=serial
+            )
+            try:
+                await self.write_named_parameter(
+                    PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
+                )
+            except HomeAssistantError:
+                # Charge bit landed but the discharge bit did not — register
+                # 179 holds a MIXED regime (cloud-path parity with
+                # _raise_partial_battery_mode_write). Seed the cache with the
+                # KNOWN-succeeded charge bit so entities converge on what
+                # actually landed instead of reverting to the stale pre-write
+                # value, then re-raise: in HYBRID the cloud fallback rewrites
+                # BOTH bits (absolute state) and fully converges the partial;
+                # LOCAL-only surfaces the error with an accurate cache.
+                self.note_parameters_written(
+                    serial, {PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage}
+                )
+                raise
+
+        async def _cloud_write() -> None:
+            client = self.client
+            if client is None:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available to set "
+                    "battery control mode."
+                )
+            charge_result = await client.api.control.control_function(
+                serial, PARAM_FUNC_BAT_CHARGE_CONTROL, charge_voltage
+            )
+            if not charge_result.success:
+                # Nothing written yet — no partial state to converge on.
+                raise HomeAssistantError(
+                    f"Failed to set battery control mode for {serial}"
+                )
+            try:
+                discharge_result = await client.api.control.control_function(
+                    serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
+                )
+            except Exception as err:
+                await self._raise_partial_battery_mode_write(
+                    serial, charge_voltage, err
+                )
+            if not discharge_result.success:
+                await self._raise_partial_battery_mode_write(
+                    serial, charge_voltage, None
+                )
+
+        await async_write_with_cloud_fallback(
+            self,
+            serial,
+            "battery control mode",
+            local_write=_local_write,
+            cloud_write=_cloud_write,
+            local_values={
+                PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage,
+                PARAM_FUNC_BAT_DISCHARGE_CONTROL: discharge_voltage,
+            },
+        )
+
+    async def _raise_partial_battery_mode_write(
+        self, serial: str, charge_voltage: bool, err: Exception | None
+    ) -> NoReturn:
+        """Re-read parameters after a partial battery-mode cloud write, then raise.
+
+        The charge bit was written but the discharge bit was not — register
+        179 holds a MIXED regime (same convergence pattern as the schedule
+        time entities' partial hour/minute cloud writes). A best-effort
+        parameter refresh re-reads the device so entities reflect the actual
+        state. When the local link is DOWN the KNOWN-succeeded charge bit is
+        seeded into the cache instead of a full re-read (pylxpweb would route
+        the re-read via its cloud fallback, but this write just came over the
+        cloud path anyway — seeding the acknowledged bit converges instantly
+        without a 3-range cloud read) — the failed discharge bit is left
+        untouched (the device still holds its previous value) — so the cache
+        converges on what actually landed while the error still surfaces.
+        """
+        _LOGGER.warning(
+            "Battery control mode write for %s partially applied (discharge "
+            "bit failed%s); re-reading device parameters to reflect the "
+            "actual state",
+            serial,
+            f": {err}" if err else "",
+        )
+        if self.is_transport_link_down(serial):
+            self.note_parameters_written(
+                serial, {PARAM_FUNC_BAT_CHARGE_CONTROL: charge_voltage}
+            )
+        else:
+            try:
+                await self._refresh_device_parameters(serial)
+            except Exception:
+                _LOGGER.debug(
+                    "Best-effort parameter re-read after partial battery mode "
+                    "write failed for %s",
+                    serial,
+                )
+        raise HomeAssistantError(
+            f"Failed to set battery control mode for {serial}: the regime may "
+            "be partially applied (charge and discharge bits are written "
+            "separately) — device state was re-read"
+        ) from err
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.

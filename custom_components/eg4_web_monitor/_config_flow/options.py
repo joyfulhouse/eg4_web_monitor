@@ -11,11 +11,28 @@ from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from ..const import (
+    BLOCK_SIZE_CONSERVATIVE,
+    BLOCK_SIZE_FAST,
     BRAND_NAME,
+    CONF_CHARGE_CONTROL_MODE,
     CONF_CONNECTION_TYPE,
     CONF_DATA_VALIDATION,
+    CONF_DISCHARGE_CONTROL_MODE,
+    CONF_MODBUS_BLOCK_SIZE,
+    CONTROL_MODE_SOC,
+    CONTROL_MODE_VOLTAGE,
+    DEFAULT_MODBUS_BLOCK_SIZE,
+    DEVICE_TYPE_INVERTER,
+    PARAM_FUNC_BAT_CHARGE_CONTROL,
+    PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     CONF_DONGLE_UPDATE_INTERVAL,
     # TODO: Re-enable when AC-coupled PV feature is implemented
     # CONF_INCLUDE_AC_COUPLE_PV,
@@ -70,6 +87,11 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
     - Always: Parameter refresh interval, Library debug
     """
 
+    # Battery-control-mode picker values the form was pre-filled with, set
+    # when the form is built; the submit handler compares against these so an
+    # untouched picker never triggers an inverter write.
+    _control_mode_prefill: tuple[str, str] | None = None
+
     def _has_transport_type(self, transport_type: str) -> bool:
         """Check if a specific transport type exists in local_transports config."""
         transports: list[dict[str, Any]] = self.config_entry.data.get(
@@ -107,13 +129,37 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         Returns:
             ConfigFlowResult - form or create_entry result.
         """
+        errors: dict[str, str] = {}
         if user_input is not None:
-            _LOGGER.debug(
-                "Options updated for %s: %s",
-                self.config_entry.entry_id,
-                user_input,
+            # Only write the regime when the user actually CHANGED a picker
+            # from the value the form pre-filled. The pickers are always
+            # present, pre-filled from the FIRST inverter's live regime, so an
+            # unconditional apply would let an unrelated options save (e.g. a
+            # polling-interval tweak) silently rewrite any other inverter
+            # whose regime differs from inverter #1's. When no form was shown
+            # (prefill is None — a programmatic submit), nothing can be
+            # "untouched": treat the payload as intentional and apply it (the
+            # per-inverter live-regime check inside the apply still skips
+            # no-op writes).
+            prefill = self._control_mode_prefill
+            submitted = (
+                user_input.get(CONF_CHARGE_CONTROL_MODE, CONTROL_MODE_SOC),
+                user_input.get(CONF_DISCHARGE_CONTROL_MODE, CONTROL_MODE_SOC),
             )
-            return self.async_create_entry(title="", data=user_input)
+            if prefill is None or submitted != prefill:
+                try:
+                    await self._apply_battery_control_mode(user_input)
+                except Exception as err:
+                    _LOGGER.warning("Failed to apply battery control mode: %s", err)
+                    errors["base"] = "control_mode_write_failed"
+
+            if not errors:
+                _LOGGER.debug(
+                    "Options updated for %s: %s",
+                    self.config_entry.entry_id,
+                    user_input,
+                )
+                return self.async_create_entry(title="", data=user_input)
 
         connection_type = self.config_entry.data.get(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP
@@ -257,6 +303,40 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
             ] = bool
 
+            # Modbus read block size (#254): Conservative = the plain grouped
+            # register reads every dongle/firmware handles; Fast = coalesced
+            # reads up to 120 registers (fewer round-trips -> faster polls) on
+            # hardware that supports large reads. Older dongle firmware caps
+            # reads at ~40 registers — on those, Fast fails its first large
+            # read and pylxpweb falls back to the conservative reads with a
+            # warning (see the field description in strings.json).
+            current_block_size = self.config_entry.options.get(
+                CONF_MODBUS_BLOCK_SIZE, DEFAULT_MODBUS_BLOCK_SIZE
+            )
+            schema_fields[
+                vol.Required(CONF_MODBUS_BLOCK_SIZE, default=current_block_size)
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[BLOCK_SIZE_CONSERVATIVE, BLOCK_SIZE_FAST],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="modbus_block_size",
+                )
+            )
+
+        # Battery control mode (SOC vs Voltage) — always shown. Pre-filled from
+        # the inverter's live regime so the user sees their actual setting.
+        # Changing it reconfigures the inverter (see field description).
+        charge_default, discharge_default = self._current_control_modes()
+        # Remember the pre-filled values so the submit handler can tell an
+        # intentional regime change apart from an untouched picker.
+        self._control_mode_prefill = (charge_default, discharge_default)
+        schema_fields[
+            vol.Required(CONF_CHARGE_CONTROL_MODE, default=charge_default)
+        ] = self._control_mode_selector()
+        schema_fields[
+            vol.Required(CONF_DISCHARGE_CONTROL_MODE, default=discharge_default)
+        ] = self._control_mode_selector()
+
         # TODO: Re-enable when AC-coupled PV feature is implemented
         # schema_fields[
         #     vol.Optional(
@@ -269,4 +349,85 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(schema_fields),
             description_placeholders=placeholders,
+            errors=errors,
         )
+
+    # ── Battery control mode (SOC vs Voltage) helpers ───────────────────────
+
+    @staticmethod
+    def _control_mode_selector() -> SelectSelector:
+        """Build the SOC/Voltage dropdown selector for a control mode field."""
+        return SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    SelectOptionDict(value=CONTROL_MODE_SOC, label="SOC (closed-loop)"),
+                    SelectOptionDict(
+                        value=CONTROL_MODE_VOLTAGE, label="Voltage (open-loop)"
+                    ),
+                ],
+                mode=SelectSelectorMode.DROPDOWN,
+            )
+        )
+
+    def _first_inverter_serial(self) -> str | None:
+        """Return the first inverter serial in the station, or None."""
+        coordinator = self.config_entry.runtime_data
+        for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
+            if device_data.get("type") == DEVICE_TYPE_INVERTER:
+                return str(serial)
+        return None
+
+    def _current_control_modes(self) -> tuple[str, str]:
+        """Return display defaults for the control-mode pickers.
+
+        Prefers the inverter's live regime (reg 179) so the form reflects the
+        user's actual setting — but ONLY when that register has actually been
+        polled. If the live value is unknown (e.g. inverter momentarily
+        unreachable), the stored option is shown instead of a misleading SOC
+        default, so saving the form cannot silently overwrite the user's mode.
+        """
+        coordinator = self.config_entry.runtime_data
+        charge = self.config_entry.options.get(
+            CONF_CHARGE_CONTROL_MODE, CONTROL_MODE_SOC
+        )
+        discharge = self.config_entry.options.get(
+            CONF_DISCHARGE_CONTROL_MODE, CONTROL_MODE_SOC
+        )
+        serial = self._first_inverter_serial()
+        if serial is not None:
+            params = (coordinator.data or {}).get("parameters", {}).get(serial, {})
+            if PARAM_FUNC_BAT_CHARGE_CONTROL in params:
+                charge = coordinator.get_live_control_mode(serial)
+            if PARAM_FUNC_BAT_DISCHARGE_CONTROL in params:
+                discharge = coordinator.get_live_control_mode(serial, discharge=True)
+        return charge, discharge
+
+    async def _apply_battery_control_mode(self, user_input: dict[str, Any]) -> None:
+        """Write the chosen control mode to each inverter when it differs from live.
+
+        Skips inverters whose live regime is unknown (reg 179 not yet polled) to
+        avoid a spurious write based on a guessed default.
+
+        Raises:
+            HomeAssistantError: If a write fails (surfaced as a form error).
+        """
+        charge_mode = user_input.get(CONF_CHARGE_CONTROL_MODE, CONTROL_MODE_SOC)
+        discharge_mode = user_input.get(CONF_DISCHARGE_CONTROL_MODE, CONTROL_MODE_SOC)
+        coordinator = self.config_entry.runtime_data
+        for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
+            if device_data.get("type") != DEVICE_TYPE_INVERTER:
+                continue
+            params = (coordinator.data or {}).get("parameters", {}).get(serial, {})
+            if (
+                PARAM_FUNC_BAT_CHARGE_CONTROL not in params
+                and PARAM_FUNC_BAT_DISCHARGE_CONTROL not in params
+            ):
+                # Live regime unknown — don't guess and write.
+                continue
+            live_charge = coordinator.get_live_control_mode(serial)
+            live_discharge = coordinator.get_live_control_mode(serial, discharge=True)
+            if charge_mode == live_charge and discharge_mode == live_discharge:
+                continue
+            await coordinator.async_write_battery_control_mode(
+                serial, charge_mode, discharge_mode
+            )

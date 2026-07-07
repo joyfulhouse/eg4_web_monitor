@@ -14,7 +14,10 @@ from homeassistant.const import (
     UnitOfFrequency,
     UnitOfPower,
     UnitOfTemperature,
+    UnitOfTime,
 )
+
+from ..operating_state import OPERATING_STATE_OPTIONS
 
 # Sensor types and their units
 SENSOR_TYPES = {
@@ -140,6 +143,43 @@ SENSOR_TYPES = {
         "device_class": "power",
         "state_class": "measurement",
         "icon": "mdi:power-plug",
+    },
+    # EPS-loads subset of the backup output — cloud epsLoadPower field (W),
+    # the EPS leg of the 6000XP/12000XP load split (#222: consumption =
+    # epsLoadPower + smartLoadPower + gridLoadPower).  EG4_OFFGRID only,
+    # CLOUD/HYBRID supplemental — regs 129/130 are the COMBINED backup legs
+    # (eps_power_l1/l2), NOT this subset, and no per-leg epsLoad fields exist;
+    # the former eps_load_power_l1/l2 sensors fabricated from them duplicated
+    # eps_power_l1/l2 and were retired (#335).
+    "eps_load_power": {
+        "name": "EPS Load Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:home-lightning-bolt",
+    },
+    # Grid-side load power — cloud gridLoadPower field (W), the grid leg of
+    # the 6000XP/12000XP load split (issue #222).  EG4_OFFGRID inverters
+    # only, CLOUD/HYBRID supplemental (no validated local register).  Its
+    # sibling smart_load_power shares the GridBOSS aggregate key — see the
+    # "GridBOSS Smart Load sensors" block below.
+    "grid_load_power": {
+        "name": "Grid Load Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:transmission-tower",
+    },
+    # Battery discharge power (input reg 11 / cloud pDisCharge, W).
+    # Reintroduced for EG4_OFFGRID (issue #197) after the charge/discharge
+    # consolidation — the signed battery_power sensor remains the
+    # family-agnostic net value.
+    "battery_discharge_power": {
+        "name": "Battery Discharge Power",
+        "unit": UnitOfPower.WATT,
+        "device_class": "power",
+        "state_class": "measurement",
+        "icon": "mdi:battery-arrow-down",
     },
     # EPS per-leg apparent power (split-phase, regs 131-132)
     "eps_apparent_power_l1": {
@@ -1675,15 +1715,47 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery-charging",
     },
+    # Operating state (issue #262): friendly decode of the operating-mode code
+    # (status_code / INPUT reg 0 / cloud "status"). Enum state; the labels live
+    # in strings.json (entity.sensor.operating_state.state) so they localize.
+    # Primary (non-diagnostic) so it is prominent for at-a-glance status.
+    "operating_state": {
+        "name": "Operating State",
+        "icon": "mdi:state-machine",
+        "device_class": "enum",
+        "options": OPERATING_STATE_OPTIONS,
+        "translation_key": "operating_state",
+    },
     # Status sensors (diagnostic)
     "status_code": {
         "name": "Status Code",
         "icon": "mdi:numeric",
         "entity_category": "diagnostic",
     },
+    # Cloud connection/health string ("normal"/"offline"); CLOUD/HYBRID only.
+    # Named "Cloud Status" (issue #262) to disambiguate it from the operating
+    # mode shown by "Operating State" / "Status Code".
     "status_text": {
-        "name": "Status",
+        "name": "Cloud Status",
         "icon": "mdi:information",
+        "entity_category": "diagnostic",
+    },
+    # Inverter fault/warning codes (input regs 60-61 / 62-63, 32-bit bitfields).
+    # Raw numeric state (0 = no fault/warning) following the battery
+    # fault/warning status icon convention.  pylxpweb merges the BMS code in as
+    # a fallback when the inverter code reads 0 (from_modbus_registers).
+    # LOCAL/HYBRID only: the cloud getInverterRuntime response carries no
+    # faultCode/warningCode field (canonical table cloud_api_field=None), so
+    # the keys flow via the LOCAL runtime table + HYBRID _TRANSPORT_OVERLAY
+    # (eg4-23a6).
+    "fault_code": {
+        "name": "Fault Code",
+        "icon": "mdi:alert-circle",
+        "entity_category": "diagnostic",
+    },
+    "warning_code": {
+        "name": "Warning Code",
+        "icon": "mdi:alert",
         "entity_category": "diagnostic",
     },
     "has_data": {
@@ -1734,6 +1806,12 @@ SENSOR_TYPES = {
         "entity_category": "diagnostic",
     },
     # GridBOSS Smart Load sensors
+    # NOTE: "smart_load_power" is a SHARED key (like "load_power"): GridBOSS
+    # devices publish the all-ports smart-load aggregate, and EG4_OFFGRID
+    # inverters publish the cloud smartLoadPower field — the GEN-port smart
+    # load on 6000XP/12000XP (issue #222, CLOUD/HYBRID supplemental only).
+    # The inverter side is gated via OFFGRID_ONLY_SENSORS; GridBOSS bypasses
+    # that gate through device_type, so one definition serves both.
     "smart_load_power": {
         "name": "Smart Load Power",
         "unit": UnitOfPower.WATT,
@@ -2326,14 +2404,10 @@ SENSOR_TYPES = {
         "icon": "mdi:transmission-tower-off",
         "entity_category": EntityCategory.DIAGNOSTIC,
     },
-    "inverter_has_runtime_data": {
-        "name": "Has Runtime Data",
-        "unit": None,
-        "device_class": None,
-        "state_class": None,
-        "icon": "mdi:database-check",
-        "entity_category": EntityCategory.DIAGNOSTIC,
-    },
+    # NOTE: a second "Has Runtime Data" sensor (key ``inverter_has_runtime_data``)
+    # was removed in #253 — it duplicated the ``has_data`` sensor above (identical
+    # display name and identical underlying value) and collided onto the same
+    # entity_id, leaving two active entities per inverter.
     "connection_transport": {
         "name": "Connection Transport",
         "unit": None,
@@ -2404,5 +2478,16 @@ SENSOR_TYPES = {
         "icon": "mdi:clock-check",
         "entity_category": EntityCategory.DIAGNOSTIC,
         "enabled_default": False,
+    },
+    # Quick Charge remaining time (seconds). Sourced from quick_charge_status,
+    # not the sensors dict — see EG4QuickChargeRemainingSensor. Reported in
+    # seconds to surface the resolution of the dedicated countdown register
+    # (input reg 210); the duration device class renders it human-readably.
+    "quick_charge_remaining": {
+        "name": "Quick Charge Remaining",
+        "unit": UnitOfTime.SECONDS,
+        "device_class": "duration",
+        "state_class": "measurement",
+        "icon": "mdi:timer-sand",
     },
 }

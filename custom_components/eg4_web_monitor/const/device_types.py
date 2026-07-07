@@ -19,6 +19,8 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+from .config_keys import CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE
+
 # =============================================================================
 # Device Types
 # =============================================================================
@@ -80,6 +82,27 @@ LEGACY_FAMILY_MAP: dict[str, str] = {
     "LXP_LV": "LXP",
 }
 
+# Fallback mapping from device model name to inverter family (issue #219).
+#
+# Used ONLY when register/cloud-based family detection cannot identify the
+# family: some firmware reports a HOLD_DEVICE_TYPE_CODE that pylxpweb cannot
+# map (e.g. 6000XP on ccaa-140A0A in CLOUD mode), yielding family=UNKNOWN
+# whose conservative defaults disable split-phase — silently starving all
+# L1/L2 sensors. The model name then identifies the family profile instead.
+#
+# Keys are normalized model names — lookups must use str.strip().upper().
+MODEL_NAME_FAMILY_FALLBACK: dict[str, str] = {
+    # EG4 Off-Grid series — US split-phase (L1/L2)
+    "6000XP": INVERTER_FAMILY_EG4_OFFGRID,
+    "12000XP": INVERTER_FAMILY_EG4_OFFGRID,
+    "12000XP-US": INVERTER_FAMILY_EG4_OFFGRID,
+    # EG4 Hybrid series — US split-phase grid-tied
+    "FLEXBOSS21": INVERTER_FAMILY_EG4_HYBRID,
+    "FLEXBOSS18": INVERTER_FAMILY_EG4_HYBRID,
+    "18KPV": INVERTER_FAMILY_EG4_HYBRID,
+    "12KPV": INVERTER_FAMILY_EG4_HYBRID,
+}
+
 # Mapping from inverter family to default model for entity compatibility checks
 # Used when inverter_model is not provided in config entry (Modbus/Dongle modes)
 INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
@@ -99,6 +122,11 @@ INVERTER_FAMILY_DEFAULT_MODELS: dict[str, str] = {
 
 # Sensors only available on split-phase (EG4_OFFGRID) inverters (12000XP, 6000XP)
 # These inverters use L1/L2 phase naming convention
+# NOTE: output_power is deliberately NOT in this set (eg4-9e4).  It carries
+# reg 170 (Pload) locally and its cloud mirror pLoad170 — available on every
+# family (canonical models=ALL) — so gating it by supports_split_phase starved
+# the sensor on devices with a non-split-phase grid_type override while the
+# duplicate pinv-based cloud value made it look redundant.
 SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
         "eps_power_l1",
@@ -107,7 +135,6 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "grid_voltage_l1",
         "grid_voltage_l2",
-        "output_power",
         # EPS per-leg apparent power and energy
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",
@@ -164,6 +191,39 @@ DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Sensors confirmed meaningful on EG4_OFFGRID hardware only (12000XP/6000XP —
+# live Modbus sweep + cloud cross-reference, issues #197/#222/#335):
+#   - load_power: input reg 170 ("Pload" in the 6kXP Modbus PDF, W).  The cloud
+#     zeroes its reg-170 mirror for EG4_OFFGRID, so the value comes from the
+#     LOCAL register only (LOCAL mapping + HYBRID transport overlay).
+#   - battery_discharge_power: input reg 11 / cloud pDisCharge (W)
+#   - smart_load_power / grid_load_power / eps_load_power: the cloud
+#     smartLoadPower / gridLoadPower / epsLoadPower fields (W) — the GEN-port
+#     smart load + grid-side + EPS-loads split of the backup output (issue
+#     #222: consumption = epsLoadPower + smartLoadPower + gridLoadPower).
+#     CLOUD/HYBRID supplemental only: no validated local register on this
+#     family (the 18kPV firmware RE names input reg 232 "smart_load_power"
+#     but it is unvalidated on EG4_OFFGRID hardware, and regs 129/130 are the
+#     COMBINED backup legs, not the epsLoadPower subset), so these keys are
+#     intentionally absent from ALL_INVERTER_SENSOR_KEYS and the LOCAL
+#     mapping.
+#   - The former eps_load_power_l1/_l2 sensors (#197) were RETIRED (#335):
+#     they aliased the combined regs 129/130 / pEpsL1N/L2N values and so
+#     duplicated eps_power_l1/l2 — no per-leg source for the EPS-loads
+#     subset exists on any path.
+# NOTE: "load_power" is also a GridBOSS/parallel-group sensor key — this gate
+# only applies to inverter entities (GridBOSS devices carry no inverter
+# features, so _should_create_sensor passes them through).
+OFFGRID_ONLY_SENSORS: frozenset[str] = frozenset(
+    {
+        "eps_load_power",
+        "load_power",
+        "battery_discharge_power",
+        "smart_load_power",
+        "grid_load_power",
+    }
+)
+
 # Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {
@@ -177,3 +237,91 @@ VOLT_WATT_SENSORS: frozenset[str] = frozenset(
         "volt_watt_p4",
     }
 )
+
+# =============================================================================
+# Battery Control Regime Classification (SOC vs Voltage limit controls)
+# =============================================================================
+# These map a control entity's unique-id suffix to the side (charge/discharge)
+# and regime (SOC/Voltage) it belongs to. They drive both the default-enabled
+# state of the entity and the runtime "is this control currently effective?"
+# indicator. Keys must match the unique-id suffixes used in number.py.
+
+# Charge-side controls gated by the charge control mode (reg 179 bit 9)
+CHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
+    {
+        "system_charge_soc_limit",
+        "ac_charge_soc_limit",
+    }
+)
+CHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
+    {
+        "system_charge_volt_limit",
+        "ac_charge_start_voltage",
+        "ac_charge_end_voltage",
+    }
+)
+
+# Discharge-side controls gated by the discharge control mode (reg 179 bit 10)
+DISCHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
+    {
+        "on_grid_soc_cutoff",
+        "off_grid_soc_cutoff",
+        # Forced discharge stops at this SOC (reg 83) — an SOC-regime stop
+        # limit (the cloud UI gates the same field with disChgSocEnable).
+        # The companion power command (reg 82, kW) is a power level, not a
+        # stop limit, so it is deliberately NOT regime-gated (GH #207).
+        "forced_discharge_soc_limit",
+    }
+)
+DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
+    {
+        "on_grid_cutoff_voltage",
+        "off_grid_cutoff_voltage",
+        # Forced discharge stops at this battery voltage (reg 202) — the
+        # voltage-regime counterpart of forced_discharge_soc_limit (the
+        # cloud UI gates the field with disChgVoltEnable). Bead eg4-aa3t.
+        "stop_discharge_voltage",
+    }
+)
+
+# All regime-gated control entity keys (used by tests for drift prevention)
+REGIME_GATED_CONTROLS: frozenset[str] = (
+    CHARGE_SOC_CONTROLS
+    | CHARGE_VOLTAGE_CONTROLS
+    | DISCHARGE_SOC_CONTROLS
+    | DISCHARGE_VOLTAGE_CONTROLS
+)
+
+
+def control_side_and_mode(key: str) -> tuple[str, str] | None:
+    """Return ``(side, mode)`` for a regime-gated control, else ``None``.
+
+    ``side`` is ``"charge"`` or ``"discharge"``; ``mode`` is
+    :data:`CONTROL_MODE_SOC` or :data:`CONTROL_MODE_VOLTAGE`. Controls that are
+    not regime-gated (power, current, etc.) return ``None`` (always shown).
+    """
+    if key in CHARGE_SOC_CONTROLS:
+        return ("charge", CONTROL_MODE_SOC)
+    if key in CHARGE_VOLTAGE_CONTROLS:
+        return ("charge", CONTROL_MODE_VOLTAGE)
+    if key in DISCHARGE_SOC_CONTROLS:
+        return ("discharge", CONTROL_MODE_SOC)
+    if key in DISCHARGE_VOLTAGE_CONTROLS:
+        return ("discharge", CONTROL_MODE_VOLTAGE)
+    return None
+
+
+def is_control_active(key: str, charge_mode: str, discharge_mode: str) -> bool:
+    """Whether a regime-gated control is active under the given modes.
+
+    A charge-side control is active when its regime matches ``charge_mode``; a
+    discharge-side control when its regime matches ``discharge_mode``. Non-gated
+    controls are always active. Used both for ``entity_registry_enabled_default``
+    (configured modes) and the live "is_effective" attribute (live modes).
+    """
+    classification = control_side_and_mode(key)
+    if classification is None:
+        return True
+    side, mode = classification
+    active_mode = charge_mode if side == "charge" else discharge_mode
+    return mode == active_mode

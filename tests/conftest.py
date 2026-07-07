@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.devices import HybridInverter, MIDDevice
 from pylxpweb.transports import ModbusTransport
 from pylxpweb.transports.data import (
@@ -14,6 +15,44 @@ from pylxpweb.transports.data import (
 )
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+def wire_coordinator_write_helpers(coordinator: MagicMock) -> None:
+    """Wire the extracted coordinator write-helpers onto a mock coordinator.
+
+    ``require_client``, ``refresh_inverter_params_if_linked`` and
+    ``params_are_local_raw`` were lifted out of the number/select/time entity
+    platforms into the coordinator. This mirrors the pre-extraction inline code
+    against the same sub-mocks: ``require_client`` reads the (possibly
+    test-reassigned) ``client``, the post-write refresh honors the link-down
+    gate, and ``params_are_local_raw`` reproduces the real predicate.
+    """
+
+    def _require_client() -> MagicMock:
+        if coordinator.client is None:
+            raise HomeAssistantError(
+                "No local transport or cloud API available for parameter write."
+            )
+        return coordinator.client
+
+    async def _refresh_if_linked(target: str) -> None:
+        inv = coordinator.get_inverter_object(target)
+        if inv and not coordinator.is_transport_link_down(target):
+            await inv.refresh(force=True, include_parameters=True)
+
+    def _params_local_raw(target: str, *, include_configured: bool = False) -> bool:
+        if coordinator.is_local_only():
+            return True
+        if include_configured and coordinator.has_configured_local_transport(target):
+            return True
+        inv = coordinator.get_inverter_object(target)
+        return getattr(inv, "transport", None) is not None
+
+    coordinator.require_client = MagicMock(side_effect=_require_client)
+    coordinator.refresh_inverter_params_if_linked = AsyncMock(
+        side_effect=_refresh_if_linked
+    )
+    coordinator.params_are_local_raw = MagicMock(side_effect=_params_local_raw)
 
 
 # =========================================================================
@@ -110,7 +149,7 @@ def make_transport_spec_factory():
 
 
 def create_mock_station(
-    station_id: str,
+    station_id: str | int,
     station_name: str,
     country: str = "United States of America",
     timezone: str = "GMT -8",
@@ -123,7 +162,9 @@ def create_mock_station(
     that the coordinator expects to extract for station sensors.
 
     Args:
-        station_id: Plant/station ID
+        station_id: Plant/station ID. The real API (pylxpweb ``Station.id``)
+            returns an int, so tests that mirror production should pass an
+            int (see issue #275).
         station_name: Station name
         country: Country name (defaults to "United States of America")
         timezone: Timezone string (defaults to "GMT -8")

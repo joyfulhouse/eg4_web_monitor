@@ -252,3 +252,39 @@ def test_battery_bank_keys_match_canonical_static_set() -> None:
     # the adapter, so it is in the static frozenset but not the raw mapping.
     local = _local_battery_bank_keys()
     assert local == BATTERY_BANK_KEYS - {"battery_bank_charge_rate"}
+
+
+def test_gridboss_ac_couple_l1_l2_keys_never_on_inverters() -> None:
+    """PR #220 claim 3 regression pin: per-port AC-couple L1/L2 stay GridBOSS-only.
+
+    Input registers 206-207-style per-leg AC couple power is a GridBOSS/MID
+    capability; on EG4_OFFGRID inverters (12000XP/6000XP) those registers
+    are permanently zero (issue #196 sweep — reg 153 is the only AC couple
+    power source on that family).  pylxpweb maps no inverter input register
+    to these keys and the integration must never produce them from inverter
+    mappings.  They reached 12000XP users once via the UNKNOWN-family
+    create-all fallback (removed in v3.4.0-beta.2, #219) — pin the fix.
+    """
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+    from custom_components.eg4_web_monitor.coordinator_mappings import (
+        GRIDBOSS_SENSOR_KEYS,
+    )
+
+    per_port_ac_couple_keys = {
+        f"ac_couple{port}_power_{leg}" for port in (1, 2, 3, 4) for leg in ("l1", "l2")
+    }
+
+    # GridBOSS keeps them (they are real MID-device sensors)...
+    assert per_port_ac_couple_keys <= GRIDBOSS_SENSOR_KEYS
+
+    # ...but no inverter-side source can ever emit them.
+    runtime_keys = set(_build_runtime_sensor_mapping(InverterRuntimeData()))
+    energy_keys = set(_build_energy_sensor_mapping(InverterEnergyData()))
+    property_map = set(EG4DataUpdateCoordinator._get_inverter_property_map())
+
+    assert not per_port_ac_couple_keys & ALL_INVERTER_SENSOR_KEYS
+    assert not per_port_ac_couple_keys & runtime_keys
+    assert not per_port_ac_couple_keys & energy_keys
+    assert not per_port_ac_couple_keys & property_map
