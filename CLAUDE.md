@@ -160,7 +160,8 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 Release notes should follow the CHANGELOG.md format. See `CHANGELOG.md` for detailed release history.
 
 ### Current Version
-- **v3.4.0-rc.1** — RELEASE CANDIDATE: identical source to beta.27, version promotion only (semver orders beta.27 < rc.1 < final). pylxpweb 0.9.36 stable pin unchanged. Cut after the three-mode sweep passed + #334/#335/#336 landed. Remaining to final: reporter confirms (#331 automation, #335 divergence), consolidated 3.4.0 changelog, integration/3.4.0→main merge, non-prerelease tag, prod roll.
+- **v3.4.0** — STABLE (2026-07-07): consolidates the beta.1–beta.27 + rc.1 cycle; requires **pylxpweb>=0.9.37**. The final tri-vendor review (Codex GPT-5.5 + Gemini 3.1 Pro + Claude, 3 rounds, both repos against v3.3.0/v0.9.35 baselines) found and fixed pre-ship: pylxpweb's cloud raw-register write NEVER worked (nested-dict form-encoding dropped the values on the wire — root cause of the historical param-specific cloud write failures; the five 3.4.0 voltage-limit numbers were dead in pure-CLOUD until 0.9.37's live-validated named-write rewrite), a `_read_modbus_parameters` completeness-flag race across concurrently-polled endpoint groups (#282 regression class), options-flow battery-control-mode writes firing on any options save, partial reg-179 write convergence, and pylxpweb `set_ac_charge_voltage_limits` ×10/÷10 inversion. DRY items 1–4 applied (−79 lines); deferred simplifier items → #342, pylxpweb follow-ups → pylxpweb#223. Merged to main (PR #341), tagged latest, prod rolled via HACS (605 entities / 0 unavailable).
+- **v3.4.0-rc.1** — RELEASE CANDIDATE: identical source to beta.27, version promotion only (semver orders beta.27 < rc.1 < final). pylxpweb 0.9.36 stable pin unchanged. Cut after the three-mode sweep passed + #334/#335/#336 landed.
 - **v3.4.0-beta.27** — EPS Load un-aliased (#335, brendonlobo123: EPS/EPS Load identical on XP): #197's off-grid enablement aliased combined pEpsL1N/L2N onto eps_load_* — validated while smart load idle (the one matching state); #222 consumption identity = the proof (peps/pEpsL1N/L2N combined, epsLoadPower subset, smartLoadPower GEN port). eps_load_power → real epsLoadPower via NEW pylxpweb 0.9.36-STABLE property (#219, cut as first non-beta of the line: also #217 log dedup + #218 transports README); per-leg eps_load L1/L2 RETIRED (no per-leg cloud field; #253 suffix purge, changelog breaking-note per agy P2); statistics carry over on unchanged total unique_id, semantic level-shift documented; pure-LOCAL total = unknown (no local subset register — probe = follow-up). LOCAL PS-power sweep fix #334 rides too. Review: Opus CLEAN + agy P1 = the seam-gap/pin lockstep (property merged mid-review — KNOWN_SEAM_GAPS tripwire worked exactly as designed), agy P2s → changelog notes + real-resolution-path tests (upgraded #222 e2e now pins combined-3330 vs subset-365 divergence). 1949 tests, requires pylxpweb>=0.9.36 (stable).
 - **v3.4.0-beta.26** — off-grid AC Charge SOC fix (#331, brendonlobo123's nightly REMOTE_SET_ERROR): reg 67 SOC Limit is grid-tied-only (offgrid firmware-rejects, portal-absent, reads 0 on XP-v2 dump) -> gated off EG4_OFFGRID w/ one-shot Repairs; NEW AC Charge Start/End Battery SOC numbers (regs 160/161, portal-verified, enabled-default, offgrid-only); reg 161 = pinned SOC-101 top-balance candidate; pylxpweb b28 maps 161 (only unmapped family member, historical accident) + family-scopes the old "161 read-only" FlexBOSS note (grid-tied observation preserved; offgrid local write UNVERIFIED, readback-verify covers) + #215 [serial]+frame-context dongle logs (#213); Repairs suffix serial-boundary hardened all callers. Review: Opus refuted agy's cache-incoherence P1 (wholesale param replace), Opus found the read-only-note contradiction; raw-161 dual-key workaround DELETED for named path per both reviewers. 1957 tests, requires pylxpweb>=0.9.36b28.
 - **v3.4.0-beta.25** — Grid Peak Shaving complete (#328, DoubleDoc's pylxpweb#158 hardware test + live cloud correlation): reg 206 = 0.1 kW CONFIRMED, PS family (206/232 power deci-kW, 207/218 SOC, 208/219 volt decivolts) mapped for local reads w/ cloud-identical strings + direct local writes (pylxpweb b27 #214, dual-CLEAN review); number entity pre-checks FUNC_GRID_PEAK_SHAVING with verify-then-block (live reg-179 read on stale-falsy cache — portal-side enable honored immediately) (#329); firmware NAKs PS writes + zeroes setpoint while mode off (live-verified). Pin bump also delivers b26 proven-capable Fast-mode (ivanfmartinez: >40-reg success ever → cooldown never permanent latch). 1932 tests, requires pylxpweb>=0.9.36b27.
@@ -441,8 +442,24 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | PV Charge Power | 74 | 100 W units (reg 64 is the legacy percent command; the entity reads/writes 74) |
 | Discharge Power | 65 | 0-100% |
 | AC Charge Power | 66 | 0-100% |
-| AC Charge SOC Limit | 67 | 0-100% |
+| AC Charge SOC Limit | 67 | 0-100% (grid-tied families only; removed on EG4_OFFGRID, #331/#332) |
+| AC Charge Start / End Battery SOC | 160 / 161 | 0-100% (EG4_OFFGRID family only, #332) |
 | Charge Current | 101 | Amps |
 | Discharge Current | 102 | Amps |
 | On-Grid SOC Cutoff | 105 | 10-90% |
 | Off-Grid SOC Cutoff | 125 | 0-100% |
+| Battery Charge / Discharge Control | 179, bit 9 / bit 10 | Bit field (0=SOC, 1=Voltage; #48) |
+| System Charge Voltage Limit | 228 | Decivolts |
+| On-Grid / Off-Grid Cut-Off Voltage | 169 / 100 | Decivolts |
+| AC Charge Start / End Voltage | 158 / 159 | Decivolts |
+| Stop Discharge Voltage | 202 | Decivolts |
+| Grid Sell Back | 21, bit 15 | Bit field (#135) |
+| Export PV Only | 179, bit 3 | Bit field (#135) |
+| Grid Sell Back Power | 103 | 100 W units, kW cap (#135) |
+| Fast Zero Export | 110, bit 1 | Bit field (#274) |
+| Share Battery | 110, bit 3 | Bit field (#306) |
+| Start Discharge Power Threshold | 116 | Whole watts (#272) |
+| Start Charge Power Threshold | 117 | Signed watts, LOCAL/HYBRID only (#272) |
+| Grid Peak Shaving Power | 206 | 0.1 kW units (#328) |
+| Forced Discharge Power / SOC Limit | 82 / 83 | kW / % (grid-tied only, #207) |
+| Schedule time windows | 68-73 (AC Charge), 76-81 (Forced Charge), 84-89 (Forced Discharge), 152-157 (AC First), 209-212 (Peak Shaving), 256-259 (Generator), 269-274 (Off-Grid) | Packed hour (low byte) + minute (high byte); #277/#295/#312 |

@@ -34,7 +34,8 @@ required — if you can use the EG4 Monitor app, you can use this integration.
 - **Fast local polling:** 5-second updates over Modbus, dongle, or serial — no
   internet dependency.
 - **Hybrid mode:** enrich local data with cloud-only features such as DST
-  auto-sync and quick charge control.
+  auto-sync, and fall back to the cloud for control writes when the local link
+  is down.
 - **Data integrity:** WiFi dongle cross-request validation, canary checks, and
   energy monotonicity guards protect against corrupt readings.
 - **Control & automation:** quick charge, battery backup (EPS), operating modes,

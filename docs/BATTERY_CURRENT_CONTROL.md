@@ -369,6 +369,9 @@ Then use in automations to select appropriate charge rates.
 - **Operating Mode Control**: `select.eg4_{model}_{serial}_operating_mode`
 - **AC Charge Power**: `number.eg4_{model}_{serial}_ac_charge_power`
 - **Battery SOC Limits**: Various battery parameter sensors
+- **Battery Control Mode (SOC vs Voltage)**: regulate the battery by State of
+  Charge or Voltage — see
+  [CONFIGURATION.md → Battery control mode](CONFIGURATION.md#battery-control-mode-soc-vs-voltage)
 - **Grid Export Control**: Via operating mode and power settings
 
 ## Support

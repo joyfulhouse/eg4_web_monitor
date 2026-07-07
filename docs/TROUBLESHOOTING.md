@@ -111,10 +111,11 @@ station and select a different station each time.
 dongle: yes. Hybrid: sensor and battery data work locally, but cloud features
 (DST sync, quick charge) need internet.
 
-**Does it control my inverter?** Yes, for supported features: quick charge (Cloud
-API only), battery backup (EPS), operating mode, SOC limits, AC/PV charge power,
-and charge/discharge currents. Cloud/Hybrid send commands through EG4's cloud
-API; local modes write registers directly.
+**Does it control my inverter?** Yes, for supported features: quick charge,
+battery backup (EPS), operating mode, SOC and voltage limits, AC/PV charge power,
+charge/discharge currents, grid sell-back, and schedule windows. Cloud mode sends
+commands through EG4's cloud API; local modes write registers directly; hybrid
+writes locally and falls back to the cloud when the local link is down.
 
 **Is it secure?** Yes — encrypted HTTPS to EG4's servers, credentials stored in
 Home Assistant's encrypted storage, communication only with official EG4

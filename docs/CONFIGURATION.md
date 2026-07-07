@@ -158,6 +158,15 @@ After setup, click **Configure** on the integration to customize:
   Default: 5 seconds for local connections, 30 seconds for HTTP.
 - **Parameter Refresh Interval** — how often to sync configuration settings
   (5–1440 minutes). Default: 60 minutes.
+- **Data Validation** — toggle canary checks and energy-monotonicity guards on
+  incoming readings. Default: on. Shown for all connection types.
+- **Modbus Read Block Size** — shown when a local (Modbus/dongle/serial)
+  transport is configured. **Conservative** (default) keeps the small grouped
+  register reads every dongle and firmware supports; **Fast** reads up to 120
+  registers per request (~4 fewer round-trips per poll) for tooling that polls
+  at 15 s. Older dongle firmware that only supports ~40-register reads
+  automatically latches back to conservative reads without interrupting polling
+  (#254).
 
 > Lower sensor intervals give faster updates but increase network/API load. For
 > local connections, 5 seconds is recommended; for the cloud API, 30 seconds
@@ -172,17 +181,25 @@ parameter sync.
 
 ### Switches
 
-- **Quick Charge** — start/stop battery quick charging (Cloud API / Hybrid only,
-  as it is a cloud-scheduled task).
+- **Quick Charge** — start/stop battery quick charging. Works in all modes
+  (local, hybrid, and cloud) since #251.
 - **Battery Backup (EPS)** — enable/disable emergency power supply mode.
 - **Daylight Saving Time** — enable/disable DST for station time sync.
+- **Charge Last** — flip PV surplus to charge the battery last (register 110
+  bit 4, all modes; #177).
+- **Share Battery** — per-inverter shared-bank toggle for multi-inverter systems
+  (register 110 bit 3; disabled by default as a niche feature; #306).
 - **Working modes** — AC Charge, PV Charge Priority, Forced Discharge, Peak
   Shaving, Battery Backup Control.
-  > **EG4 Off-Grid family (12000XP/6000XP):** the **Forced Discharge** and
-  > **Peak Shaving** switches are not created — these grid-parallel functions
-  > are inert on the no-sellback SNA platform (PR #220 / #197 adjudication).
-  > If you had them from an earlier version, a Repairs issue explains the
-  > removal.
+- **Grid sell-back controls** (grid-tied families only — EG4_HYBRID / LXP) —
+  **Grid Sell Back** and **Export PV Only** (#135), and **Fast Zero Export**
+  (#274). Off-grid XP units have no export to suppress, so these are not created
+  there.
+  > **EG4 Off-Grid family (12000XP/6000XP):** the **Forced Discharge**,
+  > **Peak Shaving**, **Grid Sell Back**, **Export PV Only**, and **Fast Zero
+  > Export** switches are not created — these grid-parallel functions are inert
+  > on the no-sellback SNA platform (PR #220 / #197 adjudication). If you had
+  > them from an earlier version, a Repairs issue explains the removal.
 
 ### Selects
 
@@ -195,16 +212,27 @@ parameter sync.
 ### Numbers
 
 - System Charge SOC Limit (%)
-- AC Charge SOC Limit (%), On-Grid SOC Cut-Off (%), Off-Grid SOC Cut-Off (%)
+- AC Charge SOC Limit (%) — grid-tied families only; on the EG4 Off-Grid family
+  it is replaced by **AC Charge Start Battery SOC** and **AC Charge End Battery
+  SOC** (%) (registers 160/161, enabled by default; #332)
+- On-Grid SOC Cut-Off (%), Off-Grid SOC Cut-Off (%)
 - System Charge Voltage Limit (V), AC Charge Start / End Voltage (V),
   On-Grid / Off-Grid Cut-Off Voltage (V) — voltage-mode limits (see below)
+- Stop Discharge Voltage (V) — the voltage-regime counterpart of the Forced
+  Discharge SOC Limit (register 202; all modes)
 - AC Charge Power (0.1 kW increments)
 - PV Charge Power
 - PV Start Voltage threshold
+- Grid Sell Back Power (kW cap) — grid-tied families only (register 103; #135)
 - Grid Peak Shaving Power (not on the EG4 Off-Grid family — see the working
   modes note above)
 - Forced Discharge Power (kW) and Forced Discharge SOC Limit (%) (not on the
   EG4 Off-Grid family)
+- Start Discharge Power Threshold (W) — CT-equipped grid-tied inverters, all
+  modes; and **Start Charge Power Threshold** (W) — LOCAL/HYBRID only, disabled
+  by default (the cloud has no parameter name for it) (#272)
+- Quick Charge Duration (minutes) — mirrors register 234 live in LOCAL/HYBRID;
+  a cloud-only install keeps it as a start-minute preference (#251)
 - Battery Charge Current
 - Battery Discharge Current
 
@@ -248,19 +276,69 @@ then raise **System Charge Voltage Limit** (the absorption/balance target) and
 **AC Charge End Voltage** — EG4's *"Back Up Volt(V)"*, the battery voltage at which
 grid/AC charging stops. Both are writable and automatable from Home Assistant.
 
+### Time entities (schedule windows)
+
+Native Home Assistant **time** entities expose the portal's working-mode schedule
+windows, so automations can reshape charging/discharging windows instead of
+editing them in the EG4 web portal. Seven schedule families are supported, each
+with up to three windows × (start, end):
+
+| Schedule | Windows | Availability |
+|---|---|---|
+| **AC Charge** | 3 | all control-capable families (#277) |
+| **AC First** | 3 | EG4 Off-Grid (SNA) family only |
+| **Forced Charge** | 3 | grid-tied families |
+| **Forced Discharge** | 3 | grid-tied families |
+| **Peak Shaving** | 2 | EG4_HYBRID family |
+| **Generator Charge** | 2 | EG4_HYBRID and EG4 Off-Grid families |
+| **Off-Grid** | 3 | EG4_HYBRID family |
+
+Values follow parameter polling, so changes made in the EG4 portal appear in
+Home Assistant; LOCAL/HYBRID write the packed register directly while cloud uses
+the portal's named parameters. Whether a schedule is *honored* is still governed
+by the matching enable switch (e.g. the AC Charge switch, register 21 bit 7).
+
+> **All schedule time entities are created disabled by default** (#312). They
+> serve a limited automation use case and add entity noise for most installs.
+> Enable the specific windows you automate from **Settings → Devices & Services
+> → Entities**. Entities you have already enabled keep their state.
+
+### Notable sensors
+
+Beyond the standard power/voltage/current/energy sensors, 3.4.0 adds:
+
+- **Operating State** — the operating-mode code decoded into a friendly enum
+  (e.g. `Battery → Grid`, `Off-Grid (Battery)`), all modes (#262).
+- **Off-Grid** (binary sensor) — whether the inverter is running disconnected
+  from the grid, all modes (#262).
+- **Fault Code** / **Warning Code** (diagnostic) — per inverter in LOCAL and
+  HYBRID modes (the cloud API doesn't carry these fields).
+- **Quick Charge Remaining** — the live quick-charge countdown in **seconds**
+  (#251).
+- **Smart Load Power** / **Grid Load Power** — the off-grid family's GEN-terminal
+  split, surfaced in Cloud and Hybrid modes (#222).
+
+The **Cloud Status** sensor (formerly "Status") reports the cloud
+connection/health string; its entity ID is unchanged.
+
 ### Buttons
 
 - **Refresh Data** — force a refresh for devices and batteries.
 
-### Service action: `eg4_web_monitor.refresh_data`
+### Service actions
 
-Force an immediate refresh of device data, bypassing the normal polling interval.
+The integration registers three service actions (callable from **Developer
+Tools → Actions** or automations). See each service's fields in the UI (defined
+in `services.yaml`).
 
-| Parameter | Type | Description |
-|---|---|---|
-| `entry_id` | string (optional) | The config entry to refresh. If omitted, all EG4 Web Monitor integrations refresh. |
+| Service | Description |
+|---|---|
+| `eg4_web_monitor.refresh_data` | Force an immediate refresh of all device data, bypassing the polling interval. Optional `entry_id` targets a single config entry (default: all). |
+| `eg4_web_monitor.reconcile_history` | Backfill missing energy statistics from the EG4 cloud for gaps in your energy-sensor history (requires cloud/hybrid mode). Accepts `lookback_hours` or an explicit `start_date`/`end_date`, and an optional `entry_id`. |
+| `eg4_web_monitor.import_historical_data` | Import plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the EG4 cloud into Home Assistant long-term statistics as external statistics, selectable in the Energy dashboard. Idempotent, bounded to 2 years per call, with a `dry_run` preview. Requires cloud/hybrid mode (#73). See the README for a full walkthrough. |
 
 ```yaml
+# Force an immediate data refresh
 service: eg4_web_monitor.refresh_data
 data:
   entry_id: "abc123def456"
