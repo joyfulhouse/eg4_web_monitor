@@ -232,6 +232,73 @@ automation:
           entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
+### Detecting a grid outage (template binary sensor)
+
+On an **off-grid-configured** inverter (e.g. 12000XP/6000XP running from battery/PV
+via AC First schedules), the **Off-Grid** binary sensor and the **Operating State**
+sensor report the *inverter's* mode — "running disconnected from the grid" — which is
+its normal steady state whether or not utility power is actually present. They do **not**
+flip when the grid drops, and the inverter logs no fault, warning, or EG4 event for a
+plain outage. The only reliable outage signal is **grid voltage and frequency** collapsing.
+
+Build a debounced binary sensor from the **Grid Voltage** and **Grid Frequency** sensors:
+
+```yaml
+# configuration.yaml
+template:
+  - binary_sensor:
+      - name: "Grid Power Available"
+        device_class: power
+        # Grid is "up" only when BOTH voltage and frequency are in range.
+        # Tune the voltage bound to your grid: ~200 V for US split-phase (240 V
+        # nominal), ~200 V for 230 V single-phase, ~180 V per-leg for three-phase.
+        # Leave the sensor "unknown" when the source readings are missing,
+        # rather than defaulting to 0 (which would look like an outage).
+        state: >
+          {% set volt = states('sensor.18kpv_1234567890_grid_voltage') %}
+          {% set freq = states('sensor.18kpv_1234567890_grid_frequency') %}
+          {% if is_number(volt) and is_number(freq) %}
+            {{ volt | float > 200 and freq | float > 40 }}
+          {% endif %}
+        delay_on:
+          seconds: 10      # require 10 s of stable grid before declaring recovery
+        delay_off:
+          seconds: 5       # 5 s below threshold before declaring an outage
+```
+
+The asymmetric `delay_on` / `delay_off` mirrors how the inverter itself treats the grid:
+quick to react to a loss, deliberately slow to trust a recovery (real inverters qualify
+the returning grid against the configured grid standard, HOLD-203/205, before
+reconnecting). Increase `delay_on` if brownouts or reconnect transients cause flapping.
+
+Then alert on the edges:
+
+```yaml
+automation:
+  - alias: "Notify on Grid Outage / Recovery"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.grid_power_available
+        to: "off"
+        id: outage
+      - platform: state
+        entity_id: binary_sensor.grid_power_available
+        to: "on"
+        id: recovered
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Grid Power"
+          message: >
+            {{ 'Grid outage detected' if trigger.id == 'outage'
+               else 'Grid power recovered' }}
+```
+
+> **Why this isn't a built-in sensor:** the "in range" thresholds are locale- and
+> topology-specific (a value correct for US split-phase is wrong for 230 V single-phase
+> or three-phase EU/BR units), and a faithful version needs the per-grid-standard
+> reconnect timing above. A template keeps those choices in your hands.
+
 ## Service Actions
 
 The integration registers these service actions (callable from **Developer Tools → Actions** or automations):
