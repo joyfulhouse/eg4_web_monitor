@@ -1,0 +1,158 @@
+// Decompile specific functions by address for targeted protocol analysis.
+//@category Analysis
+
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileOptions;
+import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.script.GhidraScript;
+import ghidra.program.model.address.*;
+import ghidra.program.model.listing.*;
+
+import java.io.*;
+
+public class GhidraTargeted extends GhidraScript {
+
+    // Key protocol functions to decompile
+    private static final String[][] TARGETS = {
+        // DataProcess framing/parsing
+        {"4200c180", "DataProcess_Recv (packet framing, Send/Recv logging)"},
+        {"4200c402", "parse_DATA_TRANSMISSION (0xC2 handler)"},
+        {"4200c468", "parse_GET_PARAM (0xC3 handler)"},
+        {"4200c42a", "parse_SET_PARAM (0xC4 handler)"},
+
+        // RS485 handlers (Modbus bridge)
+        {"4200ab1c", "RS485_DataCallback (register read response)"},
+        {"4200ac04", "RS485_SendMessage_variant1 (holding regs)"},
+        {"4200acca", "RS485_SendMessage_variant2 (input regs)"},
+        {"4200ae70", "RS485App_MainHandler (state machine)"},
+        {"4200adaa", "RS485_SendToInverter (forward command)"},
+
+        // Parameter/heartbeat
+        {"42009dc0", "Heartbeat_Send"},
+        {"42009e34", "GetParam_ForwardToRS485"},
+        {"4200a064", "SetParam_ForwardToRS485"},
+
+        // NVS config
+        {"42009376", "NVS_WriteParam"},
+        {"42009568", "NVS_SetParam"},
+        {"42009706", "NVS_GetParam"},
+        {"420098c6", "NVS_InitDefaults (hido-iot.com)"},
+
+        // TCP client (cloud connection)
+        {"4200a92a", "TCPClientApp_Init"},
+        {"4200a506", "TCPClient_HeartbeatTimer"},
+        {"4200a884", "TCPClient_OnConnect"},
+
+        // Packet building and CRC
+        {"4200de8c", "BuildPacket (frame builder with func code)"},
+        {"4200de42", "ComputeCRC16 (CRC-16/Modbus checksum)"},
+
+        // Cloud emulation gaps - heartbeat/send/response
+        {"4200c216", "FramePreambleBuilder (build frame header with serial + func)"},
+        {"4200c3b8", "HeartbeatBuilder (build heartbeat frame)"},
+        {"42009c02", "DataProcess_Send (send packet to transport)"},
+        {"4200c260", "DataProcess_ResponseBuilder (build response frame)"},
+        {"4200db40", "TCPClient_SendData (send data on TCP socket)"},
+        {"4200a472", "TCPClientApp_SetSerial (set dongle serial)"},
+        {"4200dcce", "TCPClient_Create (create TCP client object)"},
+        {"4200dc16", "TCPClient_RegisterCallback (register recv callback)"},
+        {"4200dd3e", "TCPClient_Start (start TCP connection)"},
+        {"4200dc58", "TCPClient_Disconnect (disconnect/reset)"},
+        {"4200db1a", "TCPClient_SetTimer (set heartbeat timer)"},
+        {"4200a3fe", "DataProcess_GetContext (get DataProcess context)"},
+        {"4200a494", "DataProcess_Create (create DataProcess object)"},
+
+        // Cloud protocol dispatch (all 3 transport variants)
+        {"4200b422", "DataProcessRecv_Generic (generic protocol dispatch)"},
+        {"4200a688", "DataProcessRecv_TCPClient (cloud TCP dispatch)"},
+        {"420082dc", "DataProcessRecv_BLE (BLE dispatch)"},
+
+        // TCP server (local dongle TCP port 8000)
+        {"4200d3ec", "TCPServer_MainHandler (local TCP server)"},
+
+        // Cloud data forwarding callbacks
+        {"4200aaec", "RS485_DataReadyCallback (data ready after Modbus read)"},
+        {"4200aa4a", "RS485_StatusCallback (status register callback)"},
+
+        // RS485 Service (UART layer)
+        {"4200cb8c", "RS485Service_Init"},
+        {"4200ca48", "RS485Service_SendMessage"},
+        {"4200c9d4", "RS485Service_GetState"},
+        {"4200cd2c", "UART_ReceiveLoop"},
+        {"4200cd90", "UART_SendBytes"},
+
+        // Factory reset
+        {"4200be14", "Factory_ResetToDefaults"},
+
+        // BLE app
+        {"4200907e", "BLEApp_Init"},
+
+        // WiFi app
+        {"42007b76", "WIFIApp_PollCallback (on_poll handler)"},
+        {"4200a902", "WIFIApp_IsConnected (wifi connection check)"},
+
+        // Main
+        {"4200883c", "app_main"},
+    };
+
+    @Override
+    public void run() throws Exception {
+        String[] args = getScriptArgs();
+        String outputDir = args.length > 0 ? args[0] : "/tmp/ghidra_esp32_output";
+        new File(outputDir).mkdirs();
+
+        DecompInterface decomp = new DecompInterface();
+        DecompileOptions opts = new DecompileOptions();
+        decomp.setOptions(opts);
+        decomp.openProgram(currentProgram);
+
+        FunctionManager funcMgr = currentProgram.getFunctionManager();
+        AddressSpace space = currentProgram.getAddressFactory().getDefaultAddressSpace();
+
+        String path = outputDir + "/decompiled_targeted.c";
+        int count = 0;
+
+        try (PrintWriter pw = new PrintWriter(new FileWriter(path))) {
+            pw.println("// Targeted decompilation of ESP32-C3 dongle protocol functions");
+            pw.println("// Generated by Ghidra headless analysis");
+            pw.println();
+
+            for (String[] target : TARGETS) {
+                String addrStr = target[0];
+                String desc = target[1];
+                Address addr = space.getAddress(Long.parseUnsignedLong(addrStr, 16));
+
+                Function func = funcMgr.getFunctionAt(addr);
+                if (func == null) {
+                    func = funcMgr.getFunctionContaining(addr);
+                }
+
+                if (func == null) {
+                    pw.printf("// === 0x%s: %s === (function not found)%n%n", addrStr, desc);
+                    println("WARNING: No function at 0x" + addrStr + " (" + desc + ")");
+                    continue;
+                }
+
+                DecompileResults result = decomp.decompileFunction(func, 60, monitor);
+                if (result != null && result.getDecompiledFunction() != null) {
+                    String code = result.getDecompiledFunction().getC();
+                    if (code != null) {
+                        pw.printf("// === 0x%s: %s ===%n", addrStr, desc);
+                        pw.printf("// Function: %s @ %s (%d bytes)%n%n",
+                            func.getName(), func.getEntryPoint(),
+                            func.getBody().getNumAddresses());
+                        pw.println(code);
+                        pw.println("=" .repeat(80));
+                        pw.println();
+                        count++;
+                    }
+                } else {
+                    pw.printf("// === 0x%s: %s === (decompilation failed)%n%n", addrStr, desc);
+                }
+            }
+        }
+
+        println("Decompiled " + count + "/" + TARGETS.length + " targeted functions to " + path);
+        decomp.dispose();
+    }
+}
