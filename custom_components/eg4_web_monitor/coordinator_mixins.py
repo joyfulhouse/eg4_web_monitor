@@ -2613,7 +2613,7 @@ class ParameterManagementMixin(_MixinBase):
             if self._all_parameter_fetches_complete():
                 self._last_parameter_refresh = dt_util.utcnow()
             else:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Parameter refresh incomplete for at least one inverter; "
                     "serving last-known values and retrying in ~%d minutes "
                     "instead of waiting the full parameter interval",
