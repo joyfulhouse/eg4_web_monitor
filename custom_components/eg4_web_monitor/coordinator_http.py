@@ -436,7 +436,7 @@ class HTTPUpdateMixin(_MixinBase):
 
             # Check if hourly parameter refresh is due
             if self._should_refresh_parameters():
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Hourly parameter refresh is due, refreshing all device parameters"
                 )
                 task = self.hass.async_create_task(self._hourly_parameter_refresh())

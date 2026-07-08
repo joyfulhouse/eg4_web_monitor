@@ -8,6 +8,7 @@ Covers methods not already tested in test_coordinator.py:
 - _log_transport_error
 """
 
+import logging
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
@@ -3459,6 +3460,39 @@ class TestLinkDownParameterRefreshGate:
         up.refresh.assert_awaited_once_with(force=True, include_parameters=True)
         assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
         assert coordinator.data["parameters"]["DOWN1"] == {"HOLD_Y": 2}
+
+    async def test_routine_parameter_refresh_logs_at_debug(
+        self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
+    ):
+        """Issue #345: the routine per-cycle parameter-refresh start/finish
+        messages log at DEBUG, not INFO, so a default install's log stays
+        clean.  These fire on every parameter-refresh cycle and carry no
+        actionable signal at INFO level."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        up = self._fake_inverter(link_down=False, parameters={"HOLD_X": 1})
+        coordinator._inverter_cache = {"UP1": up}
+        coordinator.data = {"devices": {"UP1": {"type": "inverter"}}}
+
+        start_msg = "Refreshing parameters for all inverter devices"
+        done_msg = "Successfully refreshed parameters for"
+
+        with caplog.at_level(logging.DEBUG):
+            await coordinator.refresh_all_device_parameters()
+
+        debug_text = "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert start_msg in debug_text
+        assert done_msg in debug_text
+        # And never at INFO or above.
+        higher = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO
+            and (start_msg in r.getMessage() or done_msg in r.getMessage())
+        ]
+        assert higher == []
 
     async def test_async_refresh_device_parameters_refreshes_down_link(
         self, hass, local_config_entry

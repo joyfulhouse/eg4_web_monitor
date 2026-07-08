@@ -2470,7 +2470,7 @@ class ParameterManagementMixin(_MixinBase):
     async def refresh_all_device_parameters(self) -> None:
         """Refresh parameters for all inverter devices when any parameter changes."""
         try:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Refreshing parameters for all inverter devices due to parameter change"
             )
 
@@ -2508,7 +2508,7 @@ class ParameterManagementMixin(_MixinBase):
                 else:
                     success_count += 1
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Successfully refreshed parameters for %d/%d inverters",
                 success_count,
                 len(inverter_serials),
