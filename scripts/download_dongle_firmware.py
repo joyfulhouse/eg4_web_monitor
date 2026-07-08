@@ -67,6 +67,14 @@ def parse_args() -> argparse.Namespace:
         default=30,
         help="HTTP timeout in seconds (default: 30)",
     )
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help=(
+            "Disable TLS certificate verification (opt-in; some LuxPower "
+            "servers present invalid certificates)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -237,8 +245,8 @@ def analyze_firmware(filepath: Path) -> None:
     print(f"\n    --- Analysis of {filepath.name} ---")
     print(f"    Size: {size:,} bytes ({size / 1024:.1f} KB)")
 
-    # Hashes
-    md5 = hashlib.md5(data).hexdigest()
+    # Hashes (checksums for firmware identification, not security)
+    md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
     sha256 = hashlib.sha256(data).hexdigest()
     print(f"    MD5:    {md5}")
     print(f"    SHA256: {sha256}")
@@ -440,9 +448,15 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     print(f"[*] Output directory: {args.output_dir.resolve()}")
 
+    # Verify TLS by default; only skip when the operator opts in via --insecure
+    # (some LuxPower servers present invalid certificates).
+    verify_tls = not args.insecure
+    if not verify_tls:
+        print("[!] WARNING: TLS certificate verification disabled (--insecure)")
+
     with httpx.Client(
         timeout=args.timeout,
-        verify=False,  # Some LuxPower servers have cert issues
+        verify=verify_tls,
         follow_redirects=True,
     ) as client:
         # Step 1: Fetch firmware list

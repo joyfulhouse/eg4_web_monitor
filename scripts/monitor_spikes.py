@@ -5,12 +5,12 @@ Polls HA API every 30 seconds, records values for key sensors,
 and flags any readings that look like spikes (sudden large jumps).
 """
 
-import json
 import os
 import sys
 import time
-import urllib.request
 from datetime import datetime
+
+import httpx
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
@@ -101,12 +101,14 @@ def get_threshold(entity_id: str) -> float:
 
 
 def fetch_states() -> dict[str, str]:
-    req = urllib.request.Request(
+    resp = httpx.get(
         f"{BASE_URL}/api/states",
         headers={"Authorization": f"Bearer {TOKEN}"},
+        timeout=10,
+        follow_redirects=True,
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read())
+    resp.raise_for_status()
+    data = resp.json()
     return {s["entity_id"]: s["state"] for s in data}
 
 
