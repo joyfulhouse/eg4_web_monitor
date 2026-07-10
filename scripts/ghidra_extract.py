@@ -12,6 +12,7 @@ Run via Ghidra headless:
 # This script runs inside Ghidra's Jython environment
 # pylint: disable=undefined-variable
 import os
+import tempfile
 
 from ghidra.app.decompiler import DecompInterface, DecompileOptions
 from ghidra.util.task import ConsoleTaskMonitor
@@ -22,7 +23,7 @@ def get_output_dir():
     args = getScriptArgs()  # noqa: F821
     if args:
         return args[0]
-    return "/tmp/ghidra_esp32_output"
+    return os.path.join(tempfile.gettempdir(), "ghidra_esp32_output")
 
 
 def setup_decompiler(program):

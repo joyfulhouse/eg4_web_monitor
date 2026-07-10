@@ -67,6 +67,11 @@ def parse_args() -> argparse.Namespace:
         default=30,
         help="HTTP timeout in seconds (default: 30)",
     )
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable TLS certificate verification (some LuxPower servers have certificate issues)",
+    )
     return parser.parse_args()
 
 
@@ -238,7 +243,7 @@ def analyze_firmware(filepath: Path) -> None:
     print(f"    Size: {size:,} bytes ({size / 1024:.1f} KB)")
 
     # Hashes
-    md5 = hashlib.md5(data).hexdigest()
+    md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
     sha256 = hashlib.sha256(data).hexdigest()
     print(f"    MD5:    {md5}")
     print(f"    SHA256: {sha256}")
@@ -442,7 +447,7 @@ def main() -> None:
 
     with httpx.Client(
         timeout=args.timeout,
-        verify=False,  # Some LuxPower servers have cert issues
+        verify=not args.insecure,  # TLS verified by default; opt out with --insecure
         follow_redirects=True,
     ) as client:
         # Step 1: Fetch firmware list
