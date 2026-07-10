@@ -89,14 +89,16 @@ async def test_out_of_range_message_is_exact(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("entity_type", "min_v", "max_v", "label"), ENTITY_CASES)
+@pytest.mark.parametrize("side", ("low", "high"))
 async def test_non_integer_message_is_exact(
     entity_type: type[EG4BaseNumberEntity],
     min_v: int,
     max_v: int,
     label: str,
+    side: str,
 ) -> None:
     """In-range fractional values preserve the exact validation message."""
-    value = min_v + 0.5
+    value = min_v + 0.5 if side == "low" else max_v - 0.5
     coordinator = _mock_coordinator(has_local=True)
     entity = entity_type(coordinator, "1234567890")
     _prep(entity)
@@ -109,15 +111,18 @@ async def test_non_integer_message_is_exact(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("entity_type", "min_v", "max_v", "label"), ENTITY_CASES)
+@pytest.mark.parametrize("bound", ("min", "max"))
 async def test_in_range_integer_succeeds(
     entity_type: type[EG4BaseNumberEntity],
     min_v: int,
     max_v: int,
     label: str,
+    bound: str,
 ) -> None:
-    """An in-range integer reaches the mocked write successfully."""
+    """Exact boundary integers reach the mocked write successfully."""
+    value = float(min_v) if bound == "min" else float(max_v)
     coordinator = _mock_coordinator(has_local=True)
     entity = entity_type(coordinator, "1234567890")
     _prep(entity)
 
-    await entity.async_set_native_value(float(min_v))
+    await entity.async_set_native_value(value)
