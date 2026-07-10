@@ -954,6 +954,9 @@
     "tz_marker_unresolvable": {
       "message": "O fuso horário utilizado anteriormente para {statistic_id} ({old_timezone}) já não pode ser resolvido, pelo que as estatísticas existentes não podem ser verificadas com segurança em relação ao fuso horário atualmente resolvido ({new_timezone}). Limpe manualmente as estatísticas desta série antes de executar novamente a importação."
     },
+    "tz_marker_missing_misaligned": {
+      "message": "As estatísticas existentes de {statistic_id} não têm um marcador de fuso horário registado e não estão alinhadas com a meia-noite local do fuso horário atualmente resolvido ({new_timezone}), pelo que não é possível verificar em que fuso horário foram originalmente gravadas. Limpe manualmente as estatísticas desta série antes de executar novamente a importação."
+    },
     "entry_not_found": {
       "message": "Entrada de configuração {entry_id} não encontrada. Por favor, verifique se o ID da entrada está correto."
     },

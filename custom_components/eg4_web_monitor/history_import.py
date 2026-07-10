@@ -34,12 +34,20 @@ Design notes:
   gaps. An earlier full-range guard still lost response-gap days and could
   never migrate history longer than the request cap, so it was removed. If the
   old timezone marker cannot be resolved, the import fails closed and requests
-  a manual reset rather than guessing. A first-ever import has no marker to
-  compare and never triggers a rebuild. Recorder clear/write calls remain
-  enqueue-only, so this module cannot observe or retry their failures, but the
-  re-key rebuild is naturally idempotent after a partial failure: a later
-  coherent re-import derives the same result from the rows actually in the
-  database without widening a destructive gap across retries.
+  a manual reset rather than guessing. Because the recorder's clear and write
+  calls are both enqueue-only (this module cannot observe or retry their
+  failure), a migration first persists the fully re-keyed history to a separate
+  recovery-snapshot Store, then clears, writes, and only advances the timezone
+  marker after re-reading the recorder and confirming every written row is
+  present. If verification fails or the process is interrupted before it runs,
+  the marker is left unadvanced and the snapshot is kept, so the next import
+  retries from the snapshot rather than the possibly empty or partially written
+  database alone. Residual limits: if a second resolved-timezone change happens
+  before an interrupted migration's snapshot has been verified, or if the
+  snapshot's own timezone key later becomes unresolvable, recovery is best
+  effort rather than guaranteed-correct. An unresolvable stored marker with
+  existing rows to protect fails closed instead of guessing; an unresolvable
+  snapshot is left orphaned while recovery falls back to the stored marker.
 - Concurrency: imports for the same plant serialize on a per-plant
   asyncio.Lock held across the whole read-recompute-write section —
   without it, two concurrent imports would each snapshot stale history
@@ -53,7 +61,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -101,6 +109,27 @@ FETCH_DELAY_SECONDS = 0.5
 # statistic ID. A changed timezone shifts local midnight's UTC row start.
 HISTORY_IMPORT_TZ_STORAGE_VERSION = 1
 HISTORY_IMPORT_TZ_STORAGE_KEY = f"{DOMAIN}_history_import_tz"
+
+HISTORY_IMPORT_MIGRATION_STORAGE_VERSION = 1
+HISTORY_IMPORT_MIGRATION_STORAGE_KEY = f"{DOMAIN}_history_import_migration"
+
+
+class _PendingMigration(TypedDict):
+    """A recovery snapshot for an in-progress tz-change rebuild.
+
+    Written just before the destructive ``async_clear_statistics`` call, so
+    a crash/DB failure between the clear and the verified write leaves this
+    behind as the only surviving record of the re-keyed history that was
+    about to be (re)written. ``rows`` are keyed by ISO calendar date rather
+    than UTC datetime because the whole point of a migration is that the
+    UTC-midnight mapping for a given day is CHANGING — the snapshot must be
+    reconstructed against ``tz_key`` (its own target timezone), never
+    against whatever timezone happens to be resolved when it's recovered.
+    """
+
+    tz_key: str
+    rows: dict[str, float]
+
 
 # Per-plant import locks: concurrent service calls for the same plant must
 # serialize across the whole read-recompute-write section, or each call
@@ -588,6 +617,50 @@ def _rekey_rows_to_new_tz(
     return rekeyed
 
 
+def _rows_to_snapshot_payload(rows: dict[datetime, float], tz: Any) -> dict[str, float]:
+    """Serialize UTC-keyed rows to an ISO-date-keyed payload for storage."""
+    return {
+        start.astimezone(tz).date().isoformat(): value for start, value in rows.items()
+    }
+
+
+def _snapshot_rows_to_starts(
+    rows_by_day: dict[str, float], tz: Any
+) -> dict[datetime, float]:
+    """Reconstruct UTC-keyed rows from an ISO-date-keyed snapshot payload."""
+    result: dict[datetime, float] = {}
+    for day_iso, value in rows_by_day.items():
+        day = date.fromisoformat(day_iso)
+        result[dt_util.as_utc(datetime(day.year, day.month, day.day, tzinfo=tz))] = (
+            value
+        )
+    return result
+
+
+def _existing_rows_aligned_to_tz(existing_rows: dict[datetime, float], tz: Any) -> bool:
+    """Return whether every row's UTC start is already tz's local midnight.
+
+    Used only when no timezone marker was ever recorded for this series —
+    either a genuinely first-ever import, or a series backfilled before
+    this integration version's tz-tracking feature existed. Rows that
+    already line up with the CURRENT timezone's local midnight are the
+    ordinary pre-marker-upgrade case (nothing to do, just start tracking
+    the marker from here). Any row that does NOT line up was provably
+    written under some other, unknown timezone with no record of what it
+    was — there is nothing to re-key it against.
+    """
+    for start in existing_rows:
+        local = start.astimezone(tz)
+        if (local.hour, local.minute, local.second, local.microsecond) != (
+            0,
+            0,
+            0,
+            0,
+        ):
+            return False
+    return True
+
+
 def _build_statistics(
     existing_rows: dict[datetime, float],
     new_rows: dict[datetime, float],
@@ -660,57 +733,123 @@ async def _merge_and_write(
         markers = await store.async_load() or {}
         previous = markers.get(statistic_id)
 
+        migration_store = Store[dict[str, _PendingMigration]](
+            hass,
+            HISTORY_IMPORT_MIGRATION_STORAGE_VERSION,
+            HISTORY_IMPORT_MIGRATION_STORAGE_KEY,
+        )
+        migrations = await migration_store.async_load() or {}
+        pending_migration = migrations.get(statistic_id)
+
         existing_rows = await _load_existing_rows(hass, statistic_id)
 
-        # No marker means this is the first known import for the series. There
-        # is no prior timezone to compare and nothing that should be cleared.
-        if previous is not None and previous != tz_key:
-            old_tz = _resolve_stored_tz(previous)
-            if old_tz is None:
+        verify_before_marker = False
+
+        if pending_migration is not None:
+            snapshot_tz = _resolve_stored_tz(pending_migration["tz_key"])
+            if snapshot_tz is not None:
+                snapshot_rows = _snapshot_rows_to_starts(
+                    pending_migration["rows"], snapshot_tz
+                )
+                # DB rows (if the interrupted attempt's write actually landed)
+                # take precedence per key; the snapshot fills in anything an
+                # interrupted clear/write left missing so no day is lost.
+                existing_rows = {**snapshot_rows, **existing_rows}
+                # The snapshot is the most recent COMPLETE picture of intended
+                # state for this series — more current than a marker that was
+                # never advanced because the previous attempt was never
+                # verified. Treating it as the effective "previous" timezone
+                # lets the normal comparison below either resume cleanly (if
+                # nothing has changed since) or correctly re-key again (if the
+                # resolved timezone changed AGAIN before the last attempt could
+                # be verified).
+                previous = pending_migration["tz_key"]
+                verify_before_marker = True
+            else:
+                # An unresolvable snapshot timezone can't be safely recovered
+                # from. Log and fall back to the stored marker; this leaves an
+                # orphaned snapshot entry behind (a known, documented residual
+                # limit — see the module docstring) rather than silently
+                # discarding it or blocking every future import for this series.
+                _LOGGER.warning(
+                    "Recovery snapshot for %s references an unresolvable "
+                    "timezone (%r); ignoring it and falling back to the stored "
+                    "marker",
+                    statistic_id,
+                    pending_migration["tz_key"],
+                )
+
+        if previous is None:
+            if existing_rows and not _existing_rows_aligned_to_tz(existing_rows, tz):
                 raise ServiceValidationError(
-                    f"The timezone previously used for {statistic_id} "
-                    f"({previous!r}) can no longer be resolved, so it is not "
-                    "possible to verify whether existing statistics need to "
-                    "be re-anchored to the currently resolved timezone "
-                    f"({tz_key}). Manually clear this series' statistics "
-                    "(Settings > Devices & Services > ... or Developer "
-                    "Tools > Statistics) before re-running the import under "
-                    "the new timezone.",
+                    f"Existing statistics for {statistic_id} have no recorded "
+                    "timezone marker and are not aligned to the currently "
+                    f"resolved timezone's ({tz_key}) local midnight, so it is "
+                    "not possible to verify what timezone they were originally "
+                    "written under. Manually clear this series' statistics "
+                    "before re-running the import.",
                     translation_domain=DOMAIN,
-                    translation_key="tz_marker_unresolvable",
+                    translation_key="tz_marker_missing_misaligned",
                     translation_placeholders={
                         "statistic_id": statistic_id,
-                        "old_timezone": previous,
                         "new_timezone": tz_key,
                     },
                 )
-
-            if existing_rows:
+            # Either no existing rows, or they already line up with the
+            # current timezone's midnight (the ordinary pre-marker-upgrade
+            # case) — nothing to re-key.
+        elif previous != tz_key:
+            old_tz = _resolve_stored_tz(previous)
+            if old_tz is None:
+                if existing_rows:
+                    raise ServiceValidationError(
+                        f"The timezone previously used for {statistic_id} "
+                        f"({previous!r}) can no longer be resolved, so it is "
+                        "not possible to verify whether existing statistics "
+                        "need to be re-anchored to the currently resolved "
+                        f"timezone ({tz_key}). Manually clear this series' "
+                        "statistics (Settings > Devices & Services > ... or "
+                        "Developer Tools > Statistics) before re-running the "
+                        "import under the new timezone.",
+                        translation_domain=DOMAIN,
+                        translation_key="tz_marker_unresolvable",
+                        translation_placeholders={
+                            "statistic_id": statistic_id,
+                            "old_timezone": previous,
+                            "new_timezone": tz_key,
+                        },
+                    )
+                # Nothing to protect (empty series) — fall through, and replace
+                # the marker with the current key below.
+            elif existing_rows:
                 existing_days = {
                     start.astimezone(old_tz).date() for start in existing_rows
                 }
                 span_start = min(min(existing_days), start_date)
                 span_end = max(max(existing_days), end_date)
-            else:
-                span_start, span_end = start_date, end_date
-
-            tz_change_is_real = not _tz_produces_same_utc_starts(
-                old_tz, tz, span_start, span_end
-            )
-            if tz_change_is_real and existing_rows:
-                _LOGGER.warning(
-                    "Resolved timezone changed for %s from %s to %s; "
-                    "re-anchoring %d existing row(s) to the new timezone's "
-                    "local midnight before rebuilding",
-                    statistic_id,
-                    previous,
-                    tz_key,
-                    len(existing_rows),
+                tz_change_is_real = not _tz_produces_same_utc_starts(
+                    old_tz, tz, span_start, span_end
                 )
-                existing_rows = _rekey_rows_to_new_tz(existing_rows, old_tz, tz)
-                recorder = get_instance(hass)
-                recorder.async_clear_statistics([statistic_id])
-                await recorder.async_block_till_done()
+                if tz_change_is_real:
+                    _LOGGER.warning(
+                        "Resolved timezone changed for %s from %s to %s; "
+                        "re-anchoring %d existing row(s) to the new timezone's "
+                        "local midnight before rebuilding",
+                        statistic_id,
+                        previous,
+                        tz_key,
+                        len(existing_rows),
+                    )
+                    existing_rows = _rekey_rows_to_new_tz(existing_rows, old_tz, tz)
+                    migrations[statistic_id] = {
+                        "tz_key": tz_key,
+                        "rows": _rows_to_snapshot_payload(existing_rows, tz),
+                    }
+                    await migration_store.async_save(migrations)
+                    verify_before_marker = True
+                    recorder = get_instance(hass)
+                    recorder.async_clear_statistics([statistic_id])
+                    await recorder.async_block_till_done()
 
         statistics = _build_statistics(existing_rows, new_rows, tz)
         metadata: StatisticMetaData = {
@@ -723,6 +862,29 @@ async def _merge_and_write(
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         }
         async_add_external_statistics(hass, metadata, statistics)
+
+        if verify_before_marker:
+            recorder = get_instance(hass)
+            await recorder.async_block_till_done()
+            verify_rows = await _load_existing_rows(hass, statistic_id)
+            written_starts = {dt_util.as_utc(row["start"]) for row in statistics}
+            missing = written_starts - set(verify_rows)
+            if missing:
+                _LOGGER.error(
+                    "Verification failed after rebuilding %s under %s: %d "
+                    "row(s) missing from the recorder after the write; the "
+                    "timezone marker was not advanced and the recovery "
+                    "snapshot was kept so the next import retries this "
+                    "migration",
+                    statistic_id,
+                    tz_key,
+                    len(missing),
+                )
+                return len(statistics)
+            if statistic_id in migrations:
+                del migrations[statistic_id]
+                await migration_store.async_save(migrations)
+
         markers[statistic_id] = tz_key
         await store.async_save(markers)
 

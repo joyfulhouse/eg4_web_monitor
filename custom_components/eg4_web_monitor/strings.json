@@ -954,6 +954,9 @@
     "tz_marker_unresolvable": {
       "message": "The timezone previously used for {statistic_id} ({old_timezone}) can no longer be resolved, so existing statistics cannot be safely verified against the currently resolved timezone ({new_timezone}). Manually clear this series' statistics before re-running the import."
     },
+    "tz_marker_missing_misaligned": {
+      "message": "Existing statistics for {statistic_id} have no recorded timezone marker and are not aligned to the currently resolved timezone's ({new_timezone}) local midnight, so it is not possible to verify what timezone they were originally written under. Manually clear this series' statistics before re-running the import."
+    },
     "entry_not_found": {
       "message": "Configuration entry {entry_id} not found. Please verify the entry ID is correct."
     },

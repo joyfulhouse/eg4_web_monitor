@@ -954,6 +954,9 @@
     "tz_marker_unresolvable": {
       "message": "De eerder voor {statistic_id} gebruikte tijdzone ({old_timezone}) kan niet meer worden vastgesteld. Daardoor kunnen de bestaande statistieken niet veilig worden gecontroleerd aan de hand van de momenteel vastgestelde tijdzone ({new_timezone}). Wis de statistieken van deze reeks handmatig voordat u de import opnieuw uitvoert."
     },
+    "tz_marker_missing_misaligned": {
+      "message": "Voor de bestaande statistieken van {statistic_id} is geen tijdzonemarkering opgeslagen en de tijdstippen vallen niet op lokale middernacht in de momenteel vastgestelde tijdzone ({new_timezone}). Daardoor kan niet worden vastgesteld in welke tijdzone ze oorspronkelijk zijn geschreven. Wis de statistieken van deze reeks handmatig voordat u de import opnieuw uitvoert."
+    },
     "entry_not_found": {
       "message": "Configuratie-invoer {entry_id} niet gevonden. Controleer of de invoer-ID correct is."
     },

@@ -954,6 +954,9 @@
     "tz_marker_unresolvable": {
       "message": "無法再解析 {statistic_id} 先前使用的時區 ({old_timezone})，因此無法根據目前解析的時區 ({new_timezone}) 安全驗證現有統計資料。請先手動清除此序列的統計資料，然後再重新執行匯入。"
     },
+    "tz_marker_missing_misaligned": {
+      "message": "{statistic_id} 的現有統計資料沒有記錄時區標記，且未與目前解析時區 ({new_timezone}) 的當地午夜對齊，因此無法驗證這些資料最初是依哪個時區寫入的。請先手動清除此序列的統計資料，然後再重新執行匯入。"
+    },
     "entry_not_found": {
       "message": "未找到設定項目 {entry_id}。請驗證項目 ID 是否正確。"
     },
