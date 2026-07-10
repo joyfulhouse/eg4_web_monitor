@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "The resolved timezone for {statistic_id} changed from {old_timezone} to {new_timezone}. Re-run the import with a date range covering {first_existing_date} to {last_existing_date} so existing statistics can be rebuilt without losing data outside the requested range."
+    },
     "entry_not_found": {
       "message": "Configuration entry {entry_id} not found. Please verify the entry ID is correct."
     },

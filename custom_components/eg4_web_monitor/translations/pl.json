@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "Rozpoznana strefa czasowa dla {statistic_id} zmieniła się z {old_timezone} na {new_timezone}. Uruchom import ponownie dla zakresu dat od {first_existing_date} do {last_existing_date}, aby można było odbudować istniejące statystyki bez utraty danych spoza żądanego zakresu."
+    },
     "entry_not_found": {
       "message": "Nie znaleziono wpisu konfiguracji {entry_id}. Sprawdz, czy ID wpisu jest poprawne."
     },

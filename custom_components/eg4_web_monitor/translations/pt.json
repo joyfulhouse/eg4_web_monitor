@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "O fuso horário resolvido para {statistic_id} mudou de {old_timezone} para {new_timezone}. Execute novamente a importação com um intervalo de datas que cubra de {first_existing_date} a {last_existing_date}, para que as estatísticas existentes possam ser reconstruídas sem perder dados fora do intervalo solicitado."
+    },
     "entry_not_found": {
       "message": "Entrada de configuração {entry_id} não encontrada. Por favor, verifique se o ID da entrada está correto."
     },

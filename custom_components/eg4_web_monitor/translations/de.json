@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "Die aufgelöste Zeitzone für {statistic_id} wurde von {old_timezone} in {new_timezone} geändert. Führen Sie den Import erneut mit einem Datumsbereich von {first_existing_date} bis {last_existing_date} aus, damit vorhandene Statistiken neu erstellt werden können, ohne Daten außerhalb des angeforderten Bereichs zu verlieren."
+    },
     "entry_not_found": {
       "message": "Konfigurationseintrag {entry_id} nicht gefunden. Bitte überprüfen Sie, ob die Eintrags-ID korrekt ist."
     },

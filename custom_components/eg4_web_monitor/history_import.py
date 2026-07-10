@@ -24,12 +24,18 @@ Design notes:
   DST-aware) timezone is preferred whenever the station timezone is a
   fixed offset or cannot be parsed. Genuine IANA station timezones are
   used as-is.
-- Idempotency: the recorder upserts rows on (statistic_id, start), and
-  this module recomputes the cumulative ``sum`` across ALL known rows
-  (existing + new) from the earliest point, so overlapping re-imports
-  converge to the same result instead of double counting. If the resolved
-  timezone changes, existing rows are cleared before rebuilding so shifted
-  UTC starts cannot duplicate a calendar day.
+- Idempotency: the recorder upserts rows on (statistic_id, start), and this
+  module recomputes the cumulative ``sum`` across ALL known rows (existing +
+  new) from the earliest point, so overlapping re-imports converge instead of
+  double counting. A resolved-timezone change clears existing rows only when
+  the requested range covers their full known span; a first-ever import with
+  no prior marker intentionally never clears because there is nothing to
+  compare or protect. Recorder clear/write calls are enqueue-only and log
+  failures instead of raising them to this caller, so the persisted marker can
+  in principle get ahead of the database. Requiring a full-span rebuild bounds
+  that residual window to recoverable marker/database staleness that a future
+  re-import will detect and guard again, rather than silently losing history
+  outside the requested range.
 - Concurrency: imports for the same plant serialize on a per-plant
   asyncio.Lock held across the whole read-recompute-write section —
   without it, two concurrent imports would each snapshot stale history
@@ -42,7 +48,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import homeassistant.helpers.config_validation as cv
@@ -97,6 +103,11 @@ HISTORY_IMPORT_TZ_STORAGE_KEY = f"{DOMAIN}_history_import_tz"
 # would snapshot stale history and write undercounted sums. Keyed by plant
 # slug (the statistic-ID namespace, shared even across duplicate entries).
 _IMPORT_LOCKS: dict[str, asyncio.Lock] = {}
+
+# The timezone marker Store is shared by every plant/statistic ID. Hold this
+# lock across each complete load-decide-write-save sequence to prevent two
+# cross-plant imports from losing one another's marker updates.
+_TZ_MARKER_LOCK = asyncio.Lock()
 
 IMPORT_HISTORICAL_DATA_SCHEMA = vol.Schema(
     {
@@ -247,6 +258,8 @@ async def async_import_historical_data(
                 f"{plant_name} {spec.label}",
                 values,
                 coordinator,
+                start_date=start_date,
+                end_date=end_date,
                 dry_run=dry_run,
             )
             if not dry_run:
@@ -527,55 +540,53 @@ def _resolve_statistics_timezone(coordinator: EG4DataUpdateCoordinator) -> Any:
     return station_tz
 
 
-async def _merge_and_write(
-    hass: HomeAssistant,
-    statistic_id: str,
-    name: str,
-    new_day_values: dict[date, float],
-    coordinator: EG4DataUpdateCoordinator,
-    *,
-    dry_run: bool,
-) -> int:
-    """Merge new daily values with existing rows and write statistics.
+def _resolve_stored_tz(tz_key: str) -> Any:
+    """Best-effort resolve a previously stored timezone key to a tzinfo.
 
-    The cumulative sum is recomputed across the FULL merged series from its
-    earliest row, so re-imports and overlapping ranges always converge to
-    consistent, monotonic sums. The recorder upserts on
-    (statistic_id, start), making the whole operation idempotent.
-
-    Returns:
-        Number of statistics rows that would be (or were) written.
+    Return ``None`` when an older marker format or the current zoneinfo
+    database cannot resolve the stored key.
     """
-    tz = _resolve_statistics_timezone(coordinator)
-    tz_key = getattr(tz, "key", None) or str(tz)
+    return dt_util.get_time_zone(tz_key)
 
-    new_rows: dict[datetime, float] = {}
-    for day, kwh in new_day_values.items():
-        local_midnight = datetime(day.year, day.month, day.day, tzinfo=tz)
-        new_rows[dt_util.as_utc(local_midnight)] = kwh
 
-    if dry_run:
-        existing_rows = await _load_existing_rows(hass, statistic_id)
-    else:
-        store = Store[dict[str, str]](
-            hass, HISTORY_IMPORT_TZ_STORAGE_VERSION, HISTORY_IMPORT_TZ_STORAGE_KEY
-        )
-        markers = await store.async_load() or {}
-        previous = markers.get(statistic_id)
-        if previous is not None and previous != tz_key:
-            _LOGGER.warning(
-                "Resolved timezone changed for %s; clearing existing statistics "
-                "before writing rows in %s",
-                statistic_id,
-                tz_key,
-            )
-            recorder = get_instance(hass)
-            recorder.async_clear_statistics([statistic_id])
-            await recorder.async_block_till_done()
-            existing_rows = {}
-        else:
-            existing_rows = await _load_existing_rows(hass, statistic_id)
+def _tz_produces_same_utc_starts(
+    old_tz: Any, new_tz: Any, start_date: date, end_date: date
+) -> bool:
+    """Return whether two zones produce equal UTC midnights for every day."""
+    day = start_date
+    while day <= end_date:
+        old_utc = dt_util.as_utc(datetime(day.year, day.month, day.day, tzinfo=old_tz))
+        new_utc = dt_util.as_utc(datetime(day.year, day.month, day.day, tzinfo=new_tz))
+        if old_utc != new_utc:
+            return False
+        day += timedelta(days=1)
+    return True
 
+
+def _is_tz_change_significant(
+    previous_key: str | None,
+    tz_key: str,
+    tz: Any,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    """Return whether a stored marker change can shift requested row starts."""
+    if previous_key is None or previous_key == tz_key:
+        return False
+    old_tz = _resolve_stored_tz(previous_key)
+    if old_tz is not None and _tz_produces_same_utc_starts(
+        old_tz, tz, start_date, end_date
+    ):
+        return False
+    return True
+
+
+def _build_statistics(
+    existing_rows: dict[datetime, float],
+    new_rows: dict[datetime, float],
+    tz: Any,
+) -> list[StatisticData]:
+    """Merge daily rows and rebuild cumulative sums from the earliest row."""
     merged = {**existing_rows, **new_rows}
 
     statistics: list[StatisticData] = []
@@ -590,8 +601,44 @@ async def _merge_and_write(
         statistics.append(
             {"start": start.astimezone(tz), "state": state, "sum": running_sum}
         )
+    return statistics
+
+
+async def _merge_and_write(
+    hass: HomeAssistant,
+    statistic_id: str,
+    name: str,
+    new_day_values: dict[date, float],
+    coordinator: EG4DataUpdateCoordinator,
+    *,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+) -> int:
+    """Merge new daily values with existing rows and write statistics.
+
+    The cumulative sum is recomputed across the FULL merged series from its
+    earliest row, so re-imports and overlapping ranges always converge to
+    consistent, monotonic sums. The recorder upserts on
+    (statistic_id, start), making the whole operation idempotent. The requested
+    ``start_date`` and ``end_date`` guard any whole-series clear after a
+    resolved-timezone change; gaps in ``new_day_values`` do not narrow that
+    safety check.
+
+    Returns:
+        Number of statistics rows that would be (or were) written.
+    """
+    tz = _resolve_statistics_timezone(coordinator)
+    tz_key = getattr(tz, "key", None) or str(tz)
+
+    new_rows: dict[datetime, float] = {}
+    for day, kwh in new_day_values.items():
+        local_midnight = datetime(day.year, day.month, day.day, tzinfo=tz)
+        new_rows[dt_util.as_utc(local_midnight)] = kwh
 
     if dry_run:
+        existing_rows = await _load_existing_rows(hass, statistic_id)
+        statistics = _build_statistics(existing_rows, new_rows, tz)
         _LOGGER.debug(
             "Dry run: would write %d rows for %s (%d new/updated)",
             len(statistics),
@@ -600,27 +647,87 @@ async def _merge_and_write(
         )
         return len(statistics)
 
-    metadata: StatisticMetaData = {
-        "has_sum": True,
-        "mean_type": StatisticMeanType.NONE,
-        "name": name,
-        "source": DOMAIN,
-        "statistic_id": statistic_id,
-        "unit_class": EnergyConverter.UNIT_CLASS,
-        "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
-    }
-    async_add_external_statistics(hass, metadata, statistics)
-    markers[statistic_id] = tz_key
-    await store.async_save(markers)
+    async with _TZ_MARKER_LOCK:
+        store = Store[dict[str, str]](
+            hass, HISTORY_IMPORT_TZ_STORAGE_VERSION, HISTORY_IMPORT_TZ_STORAGE_KEY
+        )
+        markers = await store.async_load() or {}
+        previous = markers.get(statistic_id)
 
-    _LOGGER.debug(
-        "Wrote %d rows for %s (%d new/updated, %d pre-existing)",
-        len(statistics),
-        statistic_id,
-        len(new_rows),
-        len(existing_rows),
-    )
-    return len(statistics)
+        # No marker means this is the first known import for the series. There
+        # is no prior timezone to compare and nothing that should be cleared.
+        tz_change_is_significant = _is_tz_change_significant(
+            previous, tz_key, tz, start_date, end_date
+        )
+        existing_rows = await _load_existing_rows(hass, statistic_id)
+
+        if tz_change_is_significant and previous is not None:
+            if existing_rows:
+                # Legacy marker strings may no longer resolve. In that edge
+                # case, use the current zone as a best-effort approximation of
+                # the existing rows' calendar-day span.
+                day_tz = _resolve_stored_tz(previous) or tz
+                existing_days = {
+                    start.astimezone(day_tz).date() for start in existing_rows
+                }
+                first_existing = min(existing_days)
+                last_existing = max(existing_days)
+                if start_date > first_existing or end_date < last_existing:
+                    raise ServiceValidationError(
+                        f"The resolved timezone for {statistic_id} changed from "
+                        f"{previous} to {tz_key}. Re-importing only part of the "
+                        "previously-imported history would leave stale rows at "
+                        "the old timezone's midnight and cause double counting. "
+                        "Re-run the import with a date range covering "
+                        f"{first_existing.isoformat()} to "
+                        f"{last_existing.isoformat()} (the full span of existing "
+                        "statistics for this series) so they can be rebuilt "
+                        "safely.",
+                        translation_domain=DOMAIN,
+                        translation_key="tz_change_range_required",
+                        translation_placeholders={
+                            "statistic_id": statistic_id,
+                            "old_timezone": previous,
+                            "new_timezone": tz_key,
+                            "first_existing_date": first_existing.isoformat(),
+                            "last_existing_date": last_existing.isoformat(),
+                        },
+                    )
+
+            _LOGGER.warning(
+                "Resolved timezone changed for %s from %s to %s; requested "
+                "range covers the existing span, clearing before rebuilding",
+                statistic_id,
+                previous,
+                tz_key,
+            )
+            recorder = get_instance(hass)
+            recorder.async_clear_statistics([statistic_id])
+            await recorder.async_block_till_done()
+            existing_rows = {}
+
+        statistics = _build_statistics(existing_rows, new_rows, tz)
+        metadata: StatisticMetaData = {
+            "has_sum": True,
+            "mean_type": StatisticMeanType.NONE,
+            "name": name,
+            "source": DOMAIN,
+            "statistic_id": statistic_id,
+            "unit_class": EnergyConverter.UNIT_CLASS,
+            "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
+        }
+        async_add_external_statistics(hass, metadata, statistics)
+        markers[statistic_id] = tz_key
+        await store.async_save(markers)
+
+        _LOGGER.debug(
+            "Wrote %d rows for %s (%d new/updated, %d pre-existing)",
+            len(statistics),
+            statistic_id,
+            len(new_rows),
+            len(existing_rows),
+        )
+        return len(statistics)
 
 
 async def _load_existing_rows(

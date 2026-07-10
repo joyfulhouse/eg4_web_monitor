@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "Le fuseau horaire résolu pour {statistic_id} est passé de {old_timezone} à {new_timezone}. Relancez l’importation avec une plage de dates couvrant du {first_existing_date} au {last_existing_date} afin de reconstruire les statistiques existantes sans perdre les données situées hors de la plage demandée."
+    },
     "entry_not_found": {
       "message": "Entree de configuration {entry_id} introuvable. Veuillez verifier que l'ID de l'entree est correct."
     },

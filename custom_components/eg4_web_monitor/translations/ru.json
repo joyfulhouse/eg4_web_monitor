@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "Определённый часовой пояс для {statistic_id} изменился с {old_timezone} на {new_timezone}. Повторно запустите импорт с диапазоном дат от {first_existing_date} до {last_existing_date}, чтобы перестроить существующую статистику без потери данных за пределами запрошенного диапазона."
+    },
     "entry_not_found": {
       "message": "Запись конфигурации {entry_id} не найдена. Проверьте правильность ID записи."
     },

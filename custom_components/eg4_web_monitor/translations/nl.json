@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "De vastgestelde tijdzone voor {statistic_id} is gewijzigd van {old_timezone} naar {new_timezone}. Voer de import opnieuw uit met een datumbereik van {first_existing_date} tot en met {last_existing_date}, zodat bestaande statistieken opnieuw kunnen worden opgebouwd zonder gegevens buiten het aangevraagde bereik te verliezen."
+    },
     "entry_not_found": {
       "message": "Configuratie-invoer {entry_id} niet gevonden. Controleer of de invoer-ID correct is."
     },

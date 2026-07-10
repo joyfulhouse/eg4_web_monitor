@@ -951,6 +951,9 @@
     }
   },
   "exceptions": {
+    "tz_change_range_required": {
+      "message": "{statistic_id} 的已解析時區已從 {old_timezone} 變更為 {new_timezone}。請使用涵蓋 {first_existing_date} 至 {last_existing_date} 的日期範圍重新執行匯入，以便重建現有統計資料，同時避免遺失要求範圍之外的資料。"
+    },
     "entry_not_found": {
       "message": "未找到設定項目 {entry_id}。請驗證項目 ID 是否正確。"
     },

@@ -119,6 +119,36 @@ def mock_config_entry(mock_coordinator):
     return entry
 
 
+@pytest.fixture
+def fake_marker_store():
+    """Provide a shared in-memory replacement for the timezone marker Store."""
+
+    class FakeMarkerStore:
+        data: dict[str, str] = {}
+        saved_payloads: list[dict[str, str]] = []
+        yield_on_load = False
+
+        @classmethod
+        def __class_getitem__(cls, _item):
+            return cls
+
+        def __init__(self, _hass, _version, _key):
+            pass
+
+        async def async_load(self):
+            snapshot = dict(type(self).data)
+            if type(self).yield_on_load:
+                await asyncio.sleep(0)
+            return snapshot
+
+        async def async_save(self, data):
+            payload = dict(data)
+            type(self).data = payload
+            type(self).saved_payloads.append(payload)
+
+    return FakeMarkerStore
+
+
 async def _setup_loaded_entry(hass, entry, coordinator):
     """Register the services and bring the entry into LOADED state."""
     await async_setup(hass, {})
@@ -732,6 +762,8 @@ class TestMergeAndIdempotency:
                 "Test Plant PV yield",
                 {date(2025, 1, 2): 2.0, date(2025, 1, 3): 3.5},
                 mock_coordinator,
+                start_date=date(2025, 1, 2),
+                end_date=date(2025, 1, 3),
                 dry_run=False,
             )
 
@@ -766,6 +798,8 @@ class TestMergeAndIdempotency:
                 "Test Plant PV yield",
                 new_values,
                 mock_coordinator,
+                start_date=min(new_values),
+                end_date=max(new_values),
                 dry_run=False,
             )
         first_rows = mock_add_1.call_args.args[2]
@@ -788,6 +822,8 @@ class TestMergeAndIdempotency:
                 "Test Plant PV yield",
                 new_values,
                 mock_coordinator,
+                start_date=min(new_values),
+                end_date=max(new_values),
                 dry_run=False,
             )
         second_rows = mock_add_2.call_args.args[2]
@@ -823,6 +859,8 @@ class TestMergeAndIdempotency:
                 "Test Plant PV yield",
                 {date(2025, 1, 1): 5.0, date(2025, 1, 2): 6.0},
                 mock_coordinator,
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 1, 2),
                 dry_run=False,
             )
 
@@ -862,6 +900,8 @@ class TestMergeAndIdempotency:
                 "Test Plant PV yield",
                 {date(2025, 1, 1): 5.0},
                 mock_coordinator,
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 1, 1),
                 dry_run=True,
             )
 
@@ -900,7 +940,7 @@ class TestTimezoneChangeIdempotency:
                     del store[key]
 
         recorder = MagicMock()
-        recorder.async_clear_statistics = fake_clear
+        recorder.async_clear_statistics = MagicMock(side_effect=fake_clear)
         recorder.async_block_till_done = AsyncMock()
 
         mock_coordinator.station.timezone = None
@@ -926,6 +966,8 @@ class TestTimezoneChangeIdempotency:
                 "Test Plant PV yield",
                 {imported_day: 5.0},
                 mock_coordinator,
+                start_date=imported_day,
+                end_date=imported_day,
                 dry_run=False,
             )
 
@@ -936,6 +978,8 @@ class TestTimezoneChangeIdempotency:
                 "Test Plant PV yield",
                 {imported_day: 5.0},
                 mock_coordinator,
+                start_date=imported_day,
+                end_date=imported_day,
                 dry_run=False,
             )
 
@@ -943,6 +987,347 @@ class TestTimezoneChangeIdempotency:
             values for (sid, _start), values in store.items() if sid == statistic_id
         ]
         assert rows == [(5.0, 5.0)]
+        recorder.async_clear_statistics.assert_called_once_with([statistic_id])
+        recorder.async_block_till_done.assert_awaited_once()
+
+    async def test_partial_range_timezone_change_is_rejected(
+        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+    ):
+        """A timezone change cannot clear history outside the requested range."""
+        statistic_id = "eg4_web_monitor:plant_12345_yield"
+        day_values = {
+            date(2025, 1, 1): 1.0,
+            date(2025, 1, 2): 2.0,
+            date(2025, 1, 3): 3.0,
+            date(2025, 1, 4): 4.0,
+            date(2025, 1, 5): 5.0,
+        }
+        statistics_store: dict[tuple[str, datetime], tuple[float, float]] = {}
+
+        def fake_add(_hass, metadata, rows):
+            for row in rows:
+                statistics_store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(_hass, requested_statistic_id):
+            return {
+                start: state
+                for (stored_statistic_id, start), (state, _sum) in (
+                    statistics_store.items()
+                )
+                if stored_statistic_id == requested_statistic_id
+            }
+
+        recorder = MagicMock()
+        recorder.async_block_till_done = AsyncMock()
+
+        mock_coordinator.station.timezone = None
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics",
+                side_effect=fake_add,
+            ) as mock_add,
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=fake_load,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.get_instance",
+                return_value=recorder,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.Store",
+                new=fake_marker_store,
+            ),
+        ):
+            await hass.config.async_set_time_zone("America/Los_Angeles")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                day_values,
+                mock_coordinator,
+                start_date=min(day_values),
+                end_date=max(day_values),
+                dry_run=False,
+            )
+            original_rows = dict(statistics_store)
+
+            await hass.config.async_set_time_zone("America/New_York")
+            with pytest.raises(
+                ServiceValidationError, match="2025-01-01 to 2025-01-05"
+            ):
+                await _merge_and_write(
+                    hass,
+                    statistic_id,
+                    "Test Plant PV yield",
+                    {
+                        date(2025, 1, 4): 4.0,
+                        date(2025, 1, 5): 5.0,
+                    },
+                    mock_coordinator,
+                    start_date=date(2025, 1, 4),
+                    end_date=date(2025, 1, 5),
+                    dry_run=False,
+                )
+
+        assert statistics_store == original_rows
+        assert len(statistics_store) == 5
+        recorder.async_clear_statistics.assert_not_called()
+        assert mock_add.call_count == 1
+        assert fake_marker_store.data == {statistic_id: "America/Los_Angeles"}
+        assert fake_marker_store.saved_payloads == [
+            {statistic_id: "America/Los_Angeles"}
+        ]
+
+    async def test_covering_range_timezone_change_rebuilds_without_double_count(
+        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+    ):
+        """A covering range replaces old-midnight rows and rebuilds sums."""
+        statistic_id = "eg4_web_monitor:plant_12345_yield"
+        day_values = {
+            date(2025, 1, 1): 1.0,
+            date(2025, 1, 2): 2.0,
+            date(2025, 1, 3): 3.0,
+            date(2025, 1, 4): 4.0,
+            date(2025, 1, 5): 5.0,
+        }
+        statistics_store: dict[tuple[str, datetime], tuple[float, float]] = {}
+
+        def fake_add(_hass, metadata, rows):
+            for row in rows:
+                statistics_store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(_hass, requested_statistic_id):
+            return {
+                start: state
+                for (stored_statistic_id, start), (state, _sum) in (
+                    statistics_store.items()
+                )
+                if stored_statistic_id == requested_statistic_id
+            }
+
+        def fake_clear(statistic_ids):
+            for key in list(statistics_store):
+                if key[0] in statistic_ids:
+                    del statistics_store[key]
+
+        recorder = MagicMock()
+        recorder.async_clear_statistics = MagicMock(side_effect=fake_clear)
+        recorder.async_block_till_done = AsyncMock()
+
+        mock_coordinator.station.timezone = None
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics",
+                side_effect=fake_add,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=fake_load,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.get_instance",
+                return_value=recorder,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.Store",
+                new=fake_marker_store,
+            ),
+        ):
+            await hass.config.async_set_time_zone("America/Los_Angeles")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                day_values,
+                mock_coordinator,
+                start_date=min(day_values),
+                end_date=max(day_values),
+                dry_run=False,
+            )
+            old_starts = {
+                start for sid, start in statistics_store if sid == statistic_id
+            }
+
+            await hass.config.async_set_time_zone("America/New_York")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                day_values,
+                mock_coordinator,
+                start_date=date(2024, 12, 31),
+                end_date=date(2025, 1, 6),
+                dry_run=False,
+            )
+
+        ordered_rows = sorted(
+            (start, values)
+            for (sid, start), values in statistics_store.items()
+            if sid == statistic_id
+        )
+        new_york = zoneinfo.ZoneInfo("America/New_York")
+        expected_starts = [
+            dt_util.as_utc(datetime(day.year, day.month, day.day, tzinfo=new_york))
+            for day in day_values
+        ]
+        assert len(ordered_rows) == 5
+        assert [start for start, _values in ordered_rows] == expected_starts
+        assert old_starts.isdisjoint(expected_starts)
+        assert [state for _start, (state, _sum) in ordered_rows] == [
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+        assert [running_sum for _start, (_state, running_sum) in ordered_rows] == [
+            1.0,
+            3.0,
+            6.0,
+            10.0,
+            15.0,
+        ]
+        recorder.async_clear_statistics.assert_called_once_with([statistic_id])
+        recorder.async_block_till_done.assert_awaited_once()
+        assert fake_marker_store.data == {statistic_id: "America/New_York"}
+
+    async def test_equivalent_timezone_alias_does_not_clear(
+        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+    ):
+        """Equivalent timezone keys merge normally without a destructive clear."""
+        statistic_id = "eg4_web_monitor:plant_12345_yield"
+        imported_day = date(2025, 1, 15)
+        statistics_store: dict[tuple[str, datetime], tuple[float, float]] = {}
+
+        def fake_add(_hass, metadata, rows):
+            for row in rows:
+                statistics_store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(_hass, requested_statistic_id):
+            return {
+                start: state
+                for (stored_statistic_id, start), (state, _sum) in (
+                    statistics_store.items()
+                )
+                if stored_statistic_id == requested_statistic_id
+            }
+
+        recorder = MagicMock()
+        recorder.async_block_till_done = AsyncMock()
+
+        mock_coordinator.station.timezone = None
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics",
+                side_effect=fake_add,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=fake_load,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.get_instance",
+                return_value=recorder,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.Store",
+                new=fake_marker_store,
+            ),
+        ):
+            await hass.config.async_set_time_zone("UTC")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                {imported_day: 5.0},
+                mock_coordinator,
+                start_date=imported_day,
+                end_date=imported_day,
+                dry_run=False,
+            )
+
+            await hass.config.async_set_time_zone("Etc/UTC")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                {imported_day: 5.0},
+                mock_coordinator,
+                start_date=imported_day,
+                end_date=imported_day,
+                dry_run=False,
+            )
+
+        rows = [
+            values
+            for (stored_statistic_id, _start), values in statistics_store.items()
+            if stored_statistic_id == statistic_id
+        ]
+        assert rows == [(5.0, 5.0)]
+        recorder.async_clear_statistics.assert_not_called()
+        recorder.async_block_till_done.assert_not_awaited()
+        assert fake_marker_store.data == {statistic_id: "Etc/UTC"}
+
+    async def test_concurrent_marker_writes_preserve_both_statistic_ids(
+        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+    ):
+        """Cross-plant writes serialize the shared marker load-modify-save."""
+        statistic_ids = (
+            "eg4_web_monitor:plant_alpha_yield",
+            "eg4_web_monitor:plant_beta_yield",
+        )
+        imported_day = date(2025, 1, 15)
+        fake_marker_store.yield_on_load = True
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics"
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.Store",
+                new=fake_marker_store,
+            ),
+        ):
+            await hass.config.async_set_time_zone("America/Los_Angeles")
+            await asyncio.gather(
+                *(
+                    _merge_and_write(
+                        hass,
+                        statistic_id,
+                        "Test Plant PV yield",
+                        {imported_day: 5.0},
+                        mock_coordinator,
+                        start_date=imported_day,
+                        end_date=imported_day,
+                        dry_run=False,
+                    )
+                    for statistic_id in statistic_ids
+                )
+            )
+
+        expected_markers = {
+            statistic_id: "America/Los_Angeles" for statistic_id in statistic_ids
+        }
+        assert fake_marker_store.data == expected_markers
+        assert fake_marker_store.saved_payloads[-1] == expected_markers
 
 
 class TestTimezoneResolution:
@@ -972,6 +1357,8 @@ class TestTimezoneResolution:
                 "Test Plant PV yield",
                 {date(2025, 1, 15): 1.0, date(2025, 7, 15): 2.0},
                 mock_coordinator,
+                start_date=date(2025, 1, 15),
+                end_date=date(2025, 7, 15),
                 dry_run=False,
             )
 
@@ -1008,6 +1395,8 @@ class TestTimezoneResolution:
                 "Test Plant PV yield",
                 {date(2025, 1, 1): 5.0},
                 mock_coordinator,
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 1, 1),
                 dry_run=False,
             )
 
@@ -1043,6 +1432,8 @@ class TestTimezoneResolution:
                 "Test Plant PV yield",
                 spring,
                 mock_coordinator,
+                start_date=min(spring),
+                end_date=max(spring),
                 dry_run=False,
             )
             await _merge_and_write(
@@ -1051,6 +1442,8 @@ class TestTimezoneResolution:
                 "Test Plant PV yield",
                 fall,
                 mock_coordinator,
+                start_date=min(fall),
+                end_date=max(fall),
                 dry_run=False,
             )
 
