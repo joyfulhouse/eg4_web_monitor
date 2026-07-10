@@ -951,8 +951,8 @@
     }
   },
   "exceptions": {
-    "tz_change_range_required": {
-      "message": "{statistic_id} の解決済みタイムゾーンが {old_timezone} から {new_timezone} に変更されました。既存の統計を要求範囲外のデータを失わずに再構築できるよう、{first_existing_date} から {last_existing_date} までを含む日付範囲でインポートを再実行してください。"
+    "tz_marker_unresolvable": {
+      "message": "{statistic_id} で以前使用していたタイムゾーン（{old_timezone}）を解決できなくなったため、現在解決されているタイムゾーン（{new_timezone}）に対して既存の統計を安全に検証できません。インポートを再実行する前に、この系列の統計を手動で消去してください。"
     },
     "entry_not_found": {
       "message": "設定エントリ {entry_id} が見つかりません。エントリIDが正しいことを確認してください。"

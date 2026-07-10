@@ -951,8 +951,8 @@
     }
   },
   "exceptions": {
-    "tz_change_range_required": {
-      "message": "{statistic_id} 的已解析时区已从 {old_timezone} 更改为 {new_timezone}。请使用涵盖 {first_existing_date} 至 {last_existing_date} 的日期范围重新运行导入，以便重建现有统计数据，同时避免丢失请求范围之外的数据。"
+    "tz_marker_unresolvable": {
+      "message": "无法再解析 {statistic_id} 先前使用的时区 ({old_timezone})，因此无法根据当前解析的时区 ({new_timezone}) 安全验证现有统计数据。请先手动清除此序列的统计数据，然后再重新运行导入。"
     },
     "entry_not_found": {
       "message": "未找到配置条目 {entry_id}。请验证条目 ID 是否正确。"

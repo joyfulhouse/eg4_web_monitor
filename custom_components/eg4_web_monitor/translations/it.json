@@ -951,8 +951,8 @@
     }
   },
   "exceptions": {
-    "tz_change_range_required": {
-      "message": "Il fuso orario risolto per {statistic_id} è cambiato da {old_timezone} a {new_timezone}. Esegui nuovamente l'importazione con un intervallo di date compreso tra {first_existing_date} e {last_existing_date}, in modo da ricostruire le statistiche esistenti senza perdere dati al di fuori dell'intervallo richiesto."
+    "tz_marker_unresolvable": {
+      "message": "Il fuso orario utilizzato in precedenza per {statistic_id} ({old_timezone}) non può più essere risolto, quindi le statistiche esistenti non possono essere verificate in modo sicuro rispetto al fuso orario attualmente risolto ({new_timezone}). Cancella manualmente le statistiche di questa serie prima di eseguire nuovamente l'importazione."
     },
     "entry_not_found": {
       "message": "Voce di configurazione {entry_id} non trovata. Verifica che l'ID della voce sia corretto."

@@ -27,15 +27,19 @@ Design notes:
 - Idempotency: the recorder upserts rows on (statistic_id, start), and this
   module recomputes the cumulative ``sum`` across ALL known rows (existing +
   new) from the earliest point, so overlapping re-imports converge instead of
-  double counting. A resolved-timezone change clears existing rows only when
-  the requested range covers their full known span; a first-ever import with
-  no prior marker intentionally never clears because there is nothing to
-  compare or protect. Recorder clear/write calls are enqueue-only and log
-  failures instead of raising them to this caller, so the persisted marker can
-  in principle get ahead of the database. Requiring a full-span rebuild bounds
-  that residual window to recoverable marker/database staleness that a future
-  re-import will detect and guard again, rather than silently losing history
-  outside the requested range.
+  double counting. On a resolved-timezone change, every existing row is
+  re-anchored to the new timezone's local midnight for the same calendar day;
+  the statistic is then cleared and fully rebuilt from that history plus fresh
+  data. This preserves every known day regardless of series length or response
+  gaps. An earlier full-range guard still lost response-gap days and could
+  never migrate history longer than the request cap, so it was removed. If the
+  old timezone marker cannot be resolved, the import fails closed and requests
+  a manual reset rather than guessing. A first-ever import has no marker to
+  compare and never triggers a rebuild. Recorder clear/write calls remain
+  enqueue-only, so this module cannot observe or retry their failures, but the
+  re-key rebuild is naturally idempotent after a partial failure: a later
+  coherent re-import derives the same result from the rows actually in the
+  database without widening a destructive gap across retries.
 - Concurrency: imports for the same plant serialize on a per-plant
   asyncio.Lock held across the whole read-recompute-write section —
   without it, two concurrent imports would each snapshot stale history
@@ -563,22 +567,25 @@ def _tz_produces_same_utc_starts(
     return True
 
 
-def _is_tz_change_significant(
-    previous_key: str | None,
-    tz_key: str,
-    tz: Any,
-    start_date: date,
-    end_date: date,
-) -> bool:
-    """Return whether a stored marker change can shift requested row starts."""
-    if previous_key is None or previous_key == tz_key:
-        return False
-    old_tz = _resolve_stored_tz(previous_key)
-    if old_tz is not None and _tz_produces_same_utc_starts(
-        old_tz, tz, start_date, end_date
-    ):
-        return False
-    return True
+def _rekey_rows_to_new_tz(
+    existing_rows: dict[datetime, float], old_tz: Any, new_tz: Any
+) -> dict[datetime, float]:
+    """Re-anchor rows from old-tz local midnights to new-tz local midnights.
+
+    Preserves every previously-imported day's value under its correct calendar
+    date, just moved to the UTC instant the new resolved timezone places that
+    date's midnight at. Iterates in start order so that if two old rows ever
+    mapped to the same calendar day (a pre-existing DB anomaly, not expected in
+    normal operation), the result is deterministic (last one wins).
+    """
+    rekeyed: dict[datetime, float] = {}
+    for start in sorted(existing_rows):
+        day = start.astimezone(old_tz).date()
+        new_start = dt_util.as_utc(
+            datetime(day.year, day.month, day.day, tzinfo=new_tz)
+        )
+        rekeyed[new_start] = existing_rows[start]
+    return rekeyed
 
 
 def _build_statistics(
@@ -620,10 +627,9 @@ async def _merge_and_write(
     The cumulative sum is recomputed across the FULL merged series from its
     earliest row, so re-imports and overlapping ranges always converge to
     consistent, monotonic sums. The recorder upserts on
-    (statistic_id, start), making the whole operation idempotent. The requested
-    ``start_date`` and ``end_date`` guard any whole-series clear after a
-    resolved-timezone change; gaps in ``new_day_values`` do not narrow that
-    safety check.
+    (statistic_id, start), making the whole operation idempotent. After a real
+    resolved-timezone change, all existing rows are re-keyed to the new local
+    midnights before the statistic is cleared and fully rebuilt.
 
     Returns:
         Number of statistics rows that would be (or were) written.
@@ -654,57 +660,57 @@ async def _merge_and_write(
         markers = await store.async_load() or {}
         previous = markers.get(statistic_id)
 
-        # No marker means this is the first known import for the series. There
-        # is no prior timezone to compare and nothing that should be cleared.
-        tz_change_is_significant = _is_tz_change_significant(
-            previous, tz_key, tz, start_date, end_date
-        )
         existing_rows = await _load_existing_rows(hass, statistic_id)
 
-        if tz_change_is_significant and previous is not None:
-            if existing_rows:
-                # Legacy marker strings may no longer resolve. In that edge
-                # case, use the current zone as a best-effort approximation of
-                # the existing rows' calendar-day span.
-                day_tz = _resolve_stored_tz(previous) or tz
-                existing_days = {
-                    start.astimezone(day_tz).date() for start in existing_rows
-                }
-                first_existing = min(existing_days)
-                last_existing = max(existing_days)
-                if start_date > first_existing or end_date < last_existing:
-                    raise ServiceValidationError(
-                        f"The resolved timezone for {statistic_id} changed from "
-                        f"{previous} to {tz_key}. Re-importing only part of the "
-                        "previously-imported history would leave stale rows at "
-                        "the old timezone's midnight and cause double counting. "
-                        "Re-run the import with a date range covering "
-                        f"{first_existing.isoformat()} to "
-                        f"{last_existing.isoformat()} (the full span of existing "
-                        "statistics for this series) so they can be rebuilt "
-                        "safely.",
-                        translation_domain=DOMAIN,
-                        translation_key="tz_change_range_required",
-                        translation_placeholders={
-                            "statistic_id": statistic_id,
-                            "old_timezone": previous,
-                            "new_timezone": tz_key,
-                            "first_existing_date": first_existing.isoformat(),
-                            "last_existing_date": last_existing.isoformat(),
-                        },
-                    )
+        # No marker means this is the first known import for the series. There
+        # is no prior timezone to compare and nothing that should be cleared.
+        if previous is not None and previous != tz_key:
+            old_tz = _resolve_stored_tz(previous)
+            if old_tz is None:
+                raise ServiceValidationError(
+                    f"The timezone previously used for {statistic_id} "
+                    f"({previous!r}) can no longer be resolved, so it is not "
+                    "possible to verify whether existing statistics need to "
+                    "be re-anchored to the currently resolved timezone "
+                    f"({tz_key}). Manually clear this series' statistics "
+                    "(Settings > Devices & Services > ... or Developer "
+                    "Tools > Statistics) before re-running the import under "
+                    "the new timezone.",
+                    translation_domain=DOMAIN,
+                    translation_key="tz_marker_unresolvable",
+                    translation_placeholders={
+                        "statistic_id": statistic_id,
+                        "old_timezone": previous,
+                        "new_timezone": tz_key,
+                    },
+                )
 
-            _LOGGER.warning(
-                "Resolved timezone changed for %s from %s to %s; requested "
-                "range covers the existing span, clearing before rebuilding",
-                statistic_id,
-                previous,
-                tz_key,
+            if existing_rows:
+                existing_days = {
+                    start.astimezone(old_tz).date() for start in existing_rows
+                }
+                span_start = min(min(existing_days), start_date)
+                span_end = max(max(existing_days), end_date)
+            else:
+                span_start, span_end = start_date, end_date
+
+            tz_change_is_real = not _tz_produces_same_utc_starts(
+                old_tz, tz, span_start, span_end
             )
-            recorder = get_instance(hass)
-            recorder.async_clear_statistics([statistic_id])
-            await recorder.async_block_till_done()
-            existing_rows = {}
+            if tz_change_is_real and existing_rows:
+                _LOGGER.warning(
+                    "Resolved timezone changed for %s from %s to %s; "
+                    "re-anchoring %d existing row(s) to the new timezone's "
+                    "local midnight before rebuilding",
+                    statistic_id,
+                    previous,
+                    tz_key,
+                    len(existing_rows),
+                )
+                existing_rows = _rekey_rows_to_new_tz(existing_rows, old_tz, tz)
+                recorder = get_instance(hass)
+                recorder.async_clear_statistics([statistic_id])
+                await recorder.async_block_till_done()
 
         statistics = _build_statistics(existing_rows, new_rows, tz)
         metadata: StatisticMetaData = {
