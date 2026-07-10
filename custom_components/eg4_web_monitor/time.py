@@ -385,11 +385,11 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             )
             write_ok = True
             if self.coordinator.is_transport_link_down(self.serial):
-                # The packed register cannot be re-read on a dead link (and
-                # refresh_all_device_parameters skips this serial). Leave
-                # refresh_ok False so the optimistic value is RETAINED —
-                # the acknowledged cloud write IS device truth — until
-                # fresh parameter data arrives on link recovery.
+                # The packed register cannot be re-read on a dead link. Skip
+                # the per-device parameter refresh and leave refresh_ok False
+                # so the optimistic value is RETAINED — the acknowledged
+                # cloud write IS device truth — until fresh parameter data
+                # arrives on link recovery.
                 refresh_ok = False
             else:
                 refresh_ok = await self._async_refresh_parameters()
@@ -514,8 +514,7 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             an error is already propagating).
         """
         try:
-            await self.coordinator.refresh_all_device_parameters()
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_refresh_device_parameters(self.serial)
         except Exception as err:
             _LOGGER.error("Failed to refresh parameters after schedule write: %s", err)
             return False
