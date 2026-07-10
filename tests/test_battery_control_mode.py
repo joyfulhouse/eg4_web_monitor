@@ -20,13 +20,11 @@ from custom_components.eg4_web_monitor.const import (
     is_control_active,
 )
 from custom_components.eg4_web_monitor.number import (
-    ACChargeEndVoltageNumber,
-    ACChargeStartVoltageNumber,
-    OffGridCutoffVoltageNumber,
-    OnGridCutoffVoltageNumber,
+    EG4VoltageNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
     SystemChargeVoltLimitNumber,
+    VOLTAGE_NUMBER_SPECS,
 )
 from custom_components.eg4_web_monitor.select import (
     EG4BatteryChargeControlSelect,
@@ -84,6 +82,14 @@ def _prep(entity: object) -> None:
     entity.entity_id = "number.test_entity"  # type: ignore[attr-defined]
     entity.platform = None  # type: ignore[attr-defined]
     entity.async_write_ha_state = MagicMock()  # type: ignore[attr-defined]
+
+
+def _voltage_number(
+    coordinator: MagicMock, key: str, serial: str = "1234567890"
+) -> EG4VoltageNumber:
+    """Construct a spec-driven voltage entity by stable key."""
+    spec = next(spec for spec in VOLTAGE_NUMBER_SPECS if spec.key == key)
+    return EG4VoltageNumber(coordinator, serial, spec)
 
 
 # ── Pure classification helpers ──────────────────────────────────────────────
@@ -148,7 +154,7 @@ class TestGatedEnabledDefault:
         coordinator = _mock_coordinator(
             configured=(CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE)
         )
-        volt_cutoff = OnGridCutoffVoltageNumber(coordinator, "1234567890")
+        volt_cutoff = _voltage_number(coordinator, "on_grid_cutoff_voltage")
         # Charge-side voltage entity stays disabled (charge mode is SOC)
         charge_volt = SystemChargeVoltLimitNumber(coordinator, "1234567890")
         assert volt_cutoff.entity_registry_enabled_default is True
@@ -254,13 +260,13 @@ class TestVoltageNumberEntities:
         coordinator = _mock_coordinator(
             parameters={"HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT": 40}
         )
-        volt = OffGridCutoffVoltageNumber(coordinator, "1234567890")
+        volt = _voltage_number(coordinator, "off_grid_cutoff_voltage")
         assert volt.native_value == 40.0
 
     @pytest.mark.asyncio
     async def test_write_local_uses_named_parameter(self) -> None:
         coordinator = _mock_coordinator(has_local=True)
-        volt = OnGridCutoffVoltageNumber(coordinator, "1234567890")
+        volt = _voltage_number(coordinator, "on_grid_cutoff_voltage")
         _prep(volt)
 
         await volt.async_set_native_value(48.0)
@@ -276,7 +282,7 @@ class TestVoltageNumberEntities:
         result = MagicMock()
         result.success = True
         coordinator.client.api.control.write_parameters = AsyncMock(return_value=result)
-        volt = OffGridCutoffVoltageNumber(coordinator, "1234567890")
+        volt = _voltage_number(coordinator, "off_grid_cutoff_voltage")
         _prep(volt)
 
         await volt.async_set_native_value(42.0)
@@ -288,7 +294,7 @@ class TestVoltageNumberEntities:
     @pytest.mark.asyncio
     async def test_ac_charge_voltage_rejects_fractional(self) -> None:
         coordinator = _mock_coordinator(has_local=True)
-        start = ACChargeStartVoltageNumber(coordinator, "1234567890")
+        start = _voltage_number(coordinator, "ac_charge_start_voltage")
         _prep(start)
 
         from homeassistant.exceptions import HomeAssistantError
@@ -299,7 +305,7 @@ class TestVoltageNumberEntities:
     @pytest.mark.asyncio
     async def test_ac_charge_end_voltage_whole_volt_writes_decivolts(self) -> None:
         coordinator = _mock_coordinator(has_local=True)
-        end = ACChargeEndVoltageNumber(coordinator, "1234567890")
+        end = _voltage_number(coordinator, "ac_charge_end_voltage")
         _prep(end)
 
         await end.async_set_native_value(58.0)

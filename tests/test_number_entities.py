@@ -19,6 +19,7 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeStartBatterySOCNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
+    EG4VoltageNumber,
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
     GridPeakShavingPowerNumber,
@@ -161,10 +162,17 @@ class TestNumberPlatformSetup:
         assert "StartChargePowerNumber" not in type_names
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
-        assert "OnGridCutoffVoltageNumber" in type_names
-        assert "OffGridCutoffVoltageNumber" in type_names
-        assert "ACChargeStartVoltageNumber" in type_names
-        assert "ACChargeEndVoltageNumber" in type_names
+        voltage_entities = [e for e in entities if isinstance(e, EG4VoltageNumber)]
+        assert len(voltage_entities) == 4
+        assert {
+            entity.unique_id.removeprefix("flexboss21_1234567890_")
+            for entity in voltage_entities
+        } == {
+            "on_grid_cutoff_voltage",
+            "off_grid_cutoff_voltage",
+            "ac_charge_start_voltage",
+            "ac_charge_end_voltage",
+        }
         # Forced-discharge stop voltage (reg 202, bead eg4-aa3t)
         assert "StopDischargeVoltageNumber" in type_names
         # Reg 67 keeps working on grid-tied families (GH #331)
