@@ -487,7 +487,10 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         (its own errors suppressed) re-reads the device so the entity shows
         the actual (mixed) state once the optimistic value is dropped by
         the caller's failure path. Skipped while the local transport link
-        is down — the re-read would hang on the dead link; the cloud param
+        is down — pylxpweb's _fetch_parameters guard (pylxpweb#206) already
+        skips the local read safely on a down link; callers gate to avoid
+        a pointless refresh whose cloud-fallback (HYBRID) or clean skip
+        (LOCAL) cannot read the just-written register anyway; cloud param
         poll or link recovery converges the entity later.
         """
         _LOGGER.warning(

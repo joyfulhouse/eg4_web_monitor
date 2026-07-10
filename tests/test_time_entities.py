@@ -1340,6 +1340,10 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={str(spec.base_register): _pack(8, 0)},
         )
+        # The real coordinator method swallows its own exceptions (coordinator_mixins.py),
+        # so this raise cannot occur in production — this test pins time.py's DEFENSIVE
+        # except-branch only; the production-reachable retain-optimistic path is the
+        # explicit link-down branch (covered by the link-down tests).
         coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
