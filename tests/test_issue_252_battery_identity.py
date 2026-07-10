@@ -1323,3 +1323,150 @@ class TestSetupOrderingInvariant:
 
             await hass.config_entries.async_unload(mock_config_entry.entry_id)
             await hass.async_block_till_done()
+
+
+# ── #342 resolver extraction — characterization + unit tests ──────────
+
+
+class TestCloudBatteryKeyResolverCharacterization:
+    """Behavior of the HYBRID/CLOUD collision + migration paths.
+
+    These pin the observable behavior of the (currently inline) key
+    resolution logic in both call sites before it is extracted into
+    ``_resolve_cloud_battery_key`` (#342), so the refactor cannot silently
+    change the collision-warning text, the disambiguated key, or the
+    migration-suppression side effect.
+    """
+
+    async def test_hybrid_distinct_index_batteries_get_canonical_keys(
+        self, hass, mock_config_entry
+    ):
+        """No collision: both batteries keep their canonical identity keys."""
+        mock_config_entry.add_to_hass(hass)
+        cloud = [_cloud_battery(0, BAT_SN_1), _cloud_battery(1, BAT_SN_2)]
+        coordinator = _make_coordinator(
+            hass, mock_config_entry, cloud=cloud, transport=[]
+        )
+
+        result = await _process(coordinator)
+        batteries = result["devices"][INV]["batteries"]
+
+        assert set(batteries) == {f"{INV}-{BAT_SN_1}", f"{INV}-{BAT_SN_2}"}
+        assert INV not in coordinator._battery_migration_suppressed
+
+    async def test_hybrid_colliding_identity_disambiguated_and_suppressed(
+        self, hass, mock_config_entry, caplog
+    ):
+        """Two cloud batteries sharing an identity: positional split + warn."""
+        mock_config_entry.add_to_hass(hass)
+        cloud = [_cloud_battery(0, BAT_SN_1), _cloud_battery(1, BAT_SN_1)]
+        coordinator = _make_coordinator(
+            hass, mock_config_entry, cloud=cloud, transport=[]
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await _process(coordinator)
+        batteries = result["devices"][INV]["batteries"]
+
+        # First battery keeps the canonical identity key; the collider is
+        # disambiguated positionally.
+        assert f"{INV}-{BAT_SN_1}" in batteries
+        assert f"{INV}-02" in batteries
+        assert INV in coordinator._battery_migration_suppressed
+        assert (
+            f"cloud batteries 0 and 1 both resolve to identity "
+            f"{f'{INV}-{BAT_SN_1}'!r}" in caplog.text
+        )
+
+    async def test_cloud_distinct_index_batteries_get_canonical_keys(
+        self, hass, mock_config_entry
+    ):
+        """CLOUD-only path: no collision, canonical keys used."""
+        mock_config_entry.add_to_hass(hass)
+        cloud = [_cloud_battery(0, BAT_SN_1), _cloud_battery(1, BAT_SN_2)]
+        coordinator = _make_coordinator(hass, mock_config_entry, cloud=cloud)
+
+        result = await _process(coordinator)
+        batteries = result["devices"][INV]["batteries"]
+
+        assert set(batteries) == {f"{INV}-{BAT_SN_1}", f"{INV}-{BAT_SN_2}"}
+        assert INV not in coordinator._battery_migration_suppressed
+
+    async def test_cloud_colliding_identity_disambiguated_and_suppressed(
+        self, hass, mock_config_entry, caplog
+    ):
+        """CLOUD-only path: colliding identity disambiguated + suppressed."""
+        mock_config_entry.add_to_hass(hass)
+        cloud = [_cloud_battery(0, BAT_SN_1), _cloud_battery(1, BAT_SN_1)]
+        coordinator = _make_coordinator(hass, mock_config_entry, cloud=cloud)
+
+        with caplog.at_level(logging.WARNING):
+            result = await _process(coordinator)
+        batteries = result["devices"][INV]["batteries"]
+
+        assert f"{INV}-{BAT_SN_1}" in batteries
+        assert f"{INV}-02" in batteries
+        assert INV in coordinator._battery_migration_suppressed
+        assert (
+            f"cloud batteries 0 and 1 both resolve to identity "
+            f"{f'{INV}-{BAT_SN_1}'!r}" in caplog.text
+        )
+
+
+class TestResolveCloudBatteryKey:
+    """Direct unit tests for the extracted ``_resolve_cloud_battery_key``."""
+
+    async def test_distinct_index_returns_migration_pair(self, hass, mock_config_entry):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        battery = _cloud_battery(0, BAT_SN_1)
+
+        resolved_key, identity_key, migration_pair = (
+            coordinator._resolve_cloud_battery_key(INV, battery, seen_keys={})
+        )
+
+        assert resolved_key == identity_key == f"{INV}-{BAT_SN_1}"
+        assert migration_pair == (f"{INV}-01", f"{INV}-{BAT_SN_1}")
+
+    async def test_colliding_index_returns_positional_key_and_no_migration(
+        self, hass, mock_config_entry
+    ):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        battery = _cloud_battery(1, BAT_SN_1)
+        identity = f"{INV}-{BAT_SN_1}"
+
+        resolved_key, identity_key, migration_pair = (
+            coordinator._resolve_cloud_battery_key(
+                INV, battery, seen_keys={identity: 0}
+            )
+        )
+
+        assert resolved_key == f"{INV}-02"
+        assert identity_key == identity
+        assert migration_pair is None
+
+    async def test_no_index_returns_identity_with_no_migration(
+        self, hass, mock_config_entry
+    ):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        battery = _cloud_battery(0, BAT_SN_1)
+        battery.battery_index = None
+
+        resolved_key, identity_key, migration_pair = (
+            coordinator._resolve_cloud_battery_key(INV, battery, seen_keys={})
+        )
+
+        assert resolved_key == identity_key == f"{INV}-{BAT_SN_1}"
+        assert migration_pair is None
+
+    async def test_does_not_mutate_seen_keys(self, hass, mock_config_entry):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        battery = _cloud_battery(0, BAT_SN_1)
+        seen_keys: dict[str, int] = {}
+
+        coordinator._resolve_cloud_battery_key(INV, battery, seen_keys=seen_keys)
+
+        assert seen_keys == {}

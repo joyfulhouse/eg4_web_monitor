@@ -682,6 +682,33 @@ class HTTPUpdateMixin(_MixinBase):
         device_data["batteries"] = current
         self._battery_carry_forward[inverter_serial] = dict(current)
 
+    def _resolve_cloud_battery_key(
+        self, serial: str, battery: Any, seen_keys: dict[str, int]
+    ) -> tuple[str, str, tuple[str, str] | None]:
+        """Return (resolved_key, identity_key, migration_pair | None).
+
+        ``identity_key`` is the pre-disambiguation cloud ``batteryKey`` — the
+        caller needs it to format the collision warning (``{identity_key!r}``)
+        and to look up ``seen_keys[identity_key]`` (the index of the battery
+        that first claimed the identity). On collision ``resolved_key`` is the
+        positional key (``f"{serial}-{c_idx+1:02d}"``) and ``migration_pair``
+        is ``None``; otherwise ``resolved_key == identity_key`` and
+        ``migration_pair`` is ``(legacy_positional_key, canonical_key)`` to
+        record. Side-effect free: does NOT mutate ``seen_keys``, register
+        migrations, or suppress.
+        """
+        identity_key = cloud_battery_key(serial, battery)
+        c_idx = getattr(battery, "battery_index", None)
+        if c_idx is None:
+            return identity_key, identity_key, None
+        if identity_key in seen_keys:
+            return f"{serial}-{c_idx + 1:02d}", identity_key, None
+        return (
+            identity_key,
+            identity_key,
+            (f"{serial}-{c_idx + 1:02d}", identity_key),
+        )
+
     async def _process_station_data(self) -> dict[str, Any]:
         """Process station data using device objects."""
         if not self.station:
@@ -1013,8 +1040,12 @@ class HTTPUpdateMixin(_MixinBase):
                     c_idx = getattr(cloud_batt, "battery_index", None)
                     if c_idx is None:
                         continue
-                    battery_key = cloud_battery_key(serial, cloud_batt)
-                    if battery_key in baseline_keys:
+                    battery_key, identity_key, migration_pair = (
+                        self._resolve_cloud_battery_key(
+                            serial, cloud_batt, baseline_keys
+                        )
+                    )
+                    if migration_pair is None:
                         # Duplicate battery identity in one payload: keep
                         # positional disambiguation for the colliding battery
                         # and stop trusting registry migration for this
@@ -1022,16 +1053,15 @@ class HTTPUpdateMixin(_MixinBase):
                         # the migration could misbind history).
                         self._suppress_battery_migration(
                             serial,
-                            f"cloud batteries {baseline_keys[battery_key]} "
+                            f"cloud batteries {baseline_keys[identity_key]} "
                             f"and {c_idx} both resolve to identity "
-                            f"{battery_key!r}",
+                            f"{identity_key!r}",
                             level=logging.WARNING,
                         )
-                        battery_key = f"{serial}-{c_idx + 1:02d}"
                     else:
-                        baseline_keys[battery_key] = c_idx
-                        # Legacy positional key the pre-#252 HYBRID path used.
-                        key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
+                        baseline_keys[identity_key] = c_idx
+                        legacy_key, canonical_key = migration_pair
+                        key_migrations[legacy_key] = canonical_key
                     device_data["batteries"][battery_key] = (
                         _build_individual_battery_mapping(cloud_batt)
                     )
@@ -1167,25 +1197,30 @@ class HTTPUpdateMixin(_MixinBase):
             cloud_seen_keys: dict[str, int] = {}
             for battery in batteries:
                 try:
-                    battery_key = cloud_battery_key(serial, battery)
                     c_idx = getattr(battery, "battery_index", None)
-                    if c_idx is not None and battery_key in cloud_seen_keys:
-                        # Duplicate battery identity in one payload — keep
-                        # positional disambiguation and stop trusting registry
-                        # migration for this inverter (#252).
-                        self._suppress_battery_migration(
-                            serial,
-                            f"cloud batteries {cloud_seen_keys[battery_key]} "
-                            f"and {c_idx} both resolve to identity "
-                            f"{battery_key!r}",
-                            level=logging.WARNING,
+                    battery_key, identity_key, migration_pair = (
+                        self._resolve_cloud_battery_key(
+                            serial, battery, cloud_seen_keys
                         )
-                        battery_key = f"{serial}-{c_idx + 1:02d}"
-                    elif c_idx is not None:
-                        cloud_seen_keys[battery_key] = c_idx
-                        # Legacy positional key a pre-#252 HYBRID/LOCAL install
-                        # would have used for this battery.
-                        cloud_key_migrations[f"{serial}-{c_idx + 1:02d}"] = battery_key
+                    )
+                    if c_idx is not None:
+                        if migration_pair is None:
+                            # Duplicate battery identity in one payload — keep
+                            # positional disambiguation and stop trusting
+                            # registry migration for this inverter (#252).
+                            self._suppress_battery_migration(
+                                serial,
+                                f"cloud batteries {cloud_seen_keys[identity_key]} "
+                                f"and {c_idx} both resolve to identity "
+                                f"{identity_key!r}",
+                                level=logging.WARNING,
+                            )
+                        else:
+                            cloud_seen_keys[identity_key] = c_idx
+                            # Legacy positional key a pre-#252 HYBRID/LOCAL
+                            # install would have used for this battery.
+                            legacy_key, canonical_key = migration_pair
+                            cloud_key_migrations[legacy_key] = canonical_key
                     battery_sensors = self._extract_battery_from_object(battery)
                     battery_sensors["battery_last_polled"] = dt_util.utcnow()
                     battery_sensors["battery_last_seen"] = dt_util.utcnow()
