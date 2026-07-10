@@ -136,6 +136,26 @@ _LOGGER = logging.getLogger(__name__)
 MAX_PARALLEL_UPDATES = 3
 
 
+def _coerce_int_in_range(
+    value: float,
+    *,
+    min_v: int,
+    max_v: int,
+    label: str,
+    unit: str = "%",
+    require_integer: bool = False,
+) -> int:
+    """Coerce ``value`` to int, validating range (and optionally integer-ness)."""
+    int_value = int(value)
+    if int_value < min_v or int_value > max_v:
+        raise HomeAssistantError(
+            f"{label} must be between {min_v}-{max_v}{unit}, got {int_value}"
+        )
+    if require_integer and abs(value - int_value) > 0.01:
+        raise HomeAssistantError(f"{label} must be an integer value, got {value}")
+    return int_value
+
+
 class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
     """Base class for EG4 number entities with shared read/write helpers.
 
@@ -1270,16 +1290,13 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge SOC limit."""
-        int_value = int(value)
-        if int_value < AC_CHARGE_SOC_LIMIT_MIN or int_value > AC_CHARGE_SOC_LIMIT_MAX:
-            raise HomeAssistantError(
-                f"AC charge SOC limit must be between "
-                f"{AC_CHARGE_SOC_LIMIT_MIN}-{AC_CHARGE_SOC_LIMIT_MAX}%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge SOC limit must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_SOC_LIMIT_MIN,
+            max_v=AC_CHARGE_SOC_LIMIT_MAX,
+            label="AC charge SOC limit",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
@@ -1331,20 +1348,13 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the SOC that starts AC charging (local named write or cloud)."""
-        int_value = int(value)
-        if (
-            int_value < AC_CHARGE_BATTERY_SOC_MIN
-            or int_value > AC_CHARGE_BATTERY_SOC_MAX
-        ):
-            raise HomeAssistantError(
-                f"AC charge start battery SOC must be between "
-                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
-                f"got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge start battery SOC must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            max_v=AC_CHARGE_BATTERY_SOC_MAX,
+            label="AC charge start battery SOC",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
@@ -1410,20 +1420,13 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the SOC that stops AC charging (local named write or cloud)."""
-        int_value = int(value)
-        if (
-            int_value < AC_CHARGE_BATTERY_SOC_MIN
-            or int_value > AC_CHARGE_BATTERY_SOC_MAX
-        ):
-            raise HomeAssistantError(
-                f"AC charge end battery SOC must be between "
-                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
-                f"got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge end battery SOC must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            max_v=AC_CHARGE_BATTERY_SOC_MAX,
+            label="AC charge end battery SOC",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
@@ -1891,15 +1894,13 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the forced discharge SOC limit."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"Forced discharge SOC limit must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Forced discharge SOC limit must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="Forced discharge SOC limit",
+            require_integer=True,
+        )
         # Cloud setter ships with pylxpweb > 0.9.36b3 — see the power
         # entity above for rationale.
         inverter = self.coordinator.get_inverter_object(self.serial)
@@ -2040,15 +2041,13 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the on-grid SOC cutoff."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"On-grid SOC cutoff must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"On-grid SOC cutoff must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="On-grid SOC cutoff",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -2093,15 +2092,13 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the off-grid SOC cutoff."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"Off-grid SOC cutoff must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Off-grid SOC cutoff must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="Off-grid SOC cutoff",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_OFFGRID_DISCHG_SOC,
