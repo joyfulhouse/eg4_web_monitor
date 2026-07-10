@@ -1243,6 +1243,30 @@ class TestChargeLastSwitch:
         coordinator.write_named_parameter.assert_not_called()
         coordinator.client.api.control.control_function.assert_not_called()
 
+    def test_charge_last_fold_preserves_identity_and_attrs(self):
+        """The WORKING_MODES fold must not rename the entity or change attrs.
+
+        Pre-fold EG4ChargeLastSwitch used entity_key="charge_last"; the folded
+        row derives the same key from FUNC_CHARGE_LAST. A drift here would
+        rename the entity and break user automations (#342 hard invariant).
+        """
+        coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": True})
+        switch = _make_charge_last_switch(coordinator)
+
+        # Entity identity: entity_key and unique_id must preserve the old key
+        assert "charge_last" in (switch.unique_id or "")
+        assert "charge_last_mode" not in (switch.unique_id or "")
+
+        # Extra attributes: legacy attrs (func_charge_last) allowed, but
+        # suppress the generic working-mode attrs to maintain pre-fold shape
+        attrs = switch.extra_state_attributes or {}
+        assert "func_charge_last" in attrs  # From legacy_attrs
+        assert attrs["func_charge_last"] is True
+        # generic working-mode attrs must stay suppressed for this row
+        assert "description" not in attrs
+        assert "function_parameter" not in attrs
+        assert "parameter_register" not in attrs
+
 
 # ── WorkingModeSwitch ────────────────────────────────────────────────
 
