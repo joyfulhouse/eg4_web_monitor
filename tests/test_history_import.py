@@ -126,6 +126,7 @@ def fake_marker_store():
     class FakeMarkerStore:
         data_by_store: dict[tuple[int, str], dict] = {}
         saved_payloads_by_store: dict[tuple[int, str], list[dict]] = {}
+        save_events: list[tuple[str, dict]] = []
         yield_on_load = False
 
         @classmethod
@@ -159,6 +160,7 @@ def fake_marker_store():
             payload = dict(data)
             type(self).data_by_store[self.store_id] = payload
             type(self).saved_payloads_by_store[self.store_id].append(payload)
+            type(self).save_events.append((self.store_id[1], payload))
 
     return FakeMarkerStore
 
@@ -1798,10 +1800,31 @@ class TestTimezoneChangeIdempotency:
             statistic_id: "America/New_York"
         }
 
+        marker_save_index = next(
+            index
+            for index, (key, _payload) in enumerate(fake_marker_store.save_events)
+            if key == history_import.HISTORY_IMPORT_TZ_STORAGE_KEY
+        )
+        snapshot_delete_index = next(
+            index
+            for index, (key, payload) in enumerate(fake_marker_store.save_events)
+            if key == history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY
+            and payload == {}
+        )
+        assert marker_save_index < snapshot_delete_index
+
+    @pytest.mark.parametrize(
+        "failure_mode",
+        ["missing", "extra_stale_row", "wrong_value"],
+    )
     async def test_migration_verification_failure_keeps_marker_and_snapshot(
-        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+        self,
+        hass: HomeAssistant,
+        mock_coordinator,
+        fake_marker_store,
+        failure_mode: str,
     ):
-        """Missing post-write rows preserve recovery state without raising."""
+        """Post-write mismatches preserve recovery state without raising."""
         statistic_id = "eg4_web_monitor:plant_12345_yield"
         imported_day = date(2025, 1, 15)
         old_tz = zoneinfo.ZoneInfo("America/Los_Angeles")
@@ -1815,6 +1838,20 @@ class TestTimezoneChangeIdempotency:
                 )
             ): 5.0
         }
+        written_start = dt_util.as_utc(
+            datetime(
+                imported_day.year,
+                imported_day.month,
+                imported_day.day,
+                tzinfo=zoneinfo.ZoneInfo("America/New_York"),
+            )
+        )
+        if failure_mode == "missing":
+            post_write_rows = {}
+        elif failure_mode == "extra_stale_row":
+            post_write_rows = {written_start: 6.0, **existing}
+        else:
+            post_write_rows = {written_start: 6.01}
         fake_marker_store.seed(
             history_import.HISTORY_IMPORT_TZ_STORAGE_KEY,
             {statistic_id: "America/Los_Angeles"},
@@ -1830,7 +1867,7 @@ class TestTimezoneChangeIdempotency:
             ),
             patch(
                 "custom_components.eg4_web_monitor.history_import._load_existing_rows",
-                new=AsyncMock(side_effect=[existing, {}]),
+                new=AsyncMock(side_effect=[existing, post_write_rows]),
             ),
             patch(
                 "custom_components.eg4_web_monitor.history_import.get_instance",

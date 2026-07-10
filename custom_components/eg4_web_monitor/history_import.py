@@ -867,26 +867,34 @@ async def _merge_and_write(
             recorder = get_instance(hass)
             await recorder.async_block_till_done()
             verify_rows = await _load_existing_rows(hass, statistic_id)
-            written_starts = {dt_util.as_utc(row["start"]) for row in statistics}
-            missing = written_starts - set(verify_rows)
-            if missing:
+            written = {dt_util.as_utc(row["start"]): row["state"] for row in statistics}
+            verification_ok = set(verify_rows) == set(written) and all(
+                abs(verify_rows[start] - written[start]) <= 1e-6 for start in written
+            )
+            if not verification_ok:
                 _LOGGER.error(
-                    "Verification failed after rebuilding %s under %s: %d "
-                    "row(s) missing from the recorder after the write; the "
-                    "timezone marker was not advanced and the recovery "
-                    "snapshot was kept so the next import retries this "
-                    "migration",
+                    "Verification failed after rebuilding %s under %s: the "
+                    "recorder's rows after the write do not exactly match "
+                    "what was written (extra/missing rows or a value mismatch "
+                    "— likely a failed or partial clear left stale rows "
+                    "behind); the timezone marker was not advanced and the "
+                    "recovery snapshot was kept so the next import retries "
+                    "this migration",
                     statistic_id,
                     tz_key,
-                    len(missing),
                 )
                 return len(statistics)
-            if statistic_id in migrations:
-                del migrations[statistic_id]
-                await migration_store.async_save(migrations)
 
         markers[statistic_id] = tz_key
         await store.async_save(markers)
+
+        # Save the verified marker before deleting its recovery snapshot. A
+        # crash between these writes then leaves an orphaned-but-harmless
+        # snapshot instead of a stale marker that could cause already-migrated
+        # data to be interpreted and re-keyed under the old timezone.
+        if verify_before_marker and statistic_id in migrations:
+            del migrations[statistic_id]
+            await migration_store.async_save(migrations)
 
         _LOGGER.debug(
             "Wrote %d rows for %s (%d new/updated, %d pre-existing)",
