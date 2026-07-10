@@ -305,7 +305,15 @@ async def test_voltage_number_write_dispatch(
             {"on_grid_cutoff_voltage", "off_grid_cutoff_voltage"},
         ),
         (
+            "off_grid_cutoff_voltage",
+            {"on_grid_cutoff_voltage", "off_grid_cutoff_voltage"},
+        ),
+        (
             "ac_charge_start_voltage",
+            {"ac_charge_start_voltage", "ac_charge_end_voltage"},
+        ),
+        (
+            "ac_charge_end_voltage",
             {"ac_charge_start_voltage", "ac_charge_end_voltage"},
         ),
     ],
@@ -329,7 +337,11 @@ async def test_voltage_number_refresh_fanout_is_pair_scoped(
         entity.async_write_ha_state = MagicMock()
         entity.async_update = AsyncMock()
 
-    value = 48.0 if source_key == "on_grid_cutoff_voltage" else 52.0
+    value = (
+        48.0
+        if source_key in ("on_grid_cutoff_voltage", "off_grid_cutoff_voltage")
+        else 52.0
+    )
     await entities[source_key].async_set_native_value(value)
 
     for key, entity in entities.items():

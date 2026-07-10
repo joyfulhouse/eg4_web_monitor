@@ -150,11 +150,34 @@ class TestGatedEnabledDefault:
         assert soc.entity_registry_enabled_default is False
         assert volt.entity_registry_enabled_default is True
 
-    def test_discharge_mode_gates_cutoffs_independently(self) -> None:
+    @pytest.mark.parametrize(
+        "spec_key", ["ac_charge_start_voltage", "ac_charge_end_voltage"]
+    )
+    def test_voltage_charge_mode_enables_ac_charge_voltage_specs(
+        self, spec_key: str
+    ) -> None:
+        """AC Charge Start/End Voltage share system_charge_volt_limit's
+        (charge, voltage) classification (CHARGE_VOLTAGE_CONTROLS)."""
+        coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_VOLTAGE, CONTROL_MODE_SOC)
+        )
+        entity = _voltage_number(coordinator, spec_key)
+        assert entity.entity_registry_enabled_default is True
+
+        soc_coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_SOC, CONTROL_MODE_SOC)
+        )
+        soc_entity = _voltage_number(soc_coordinator, spec_key)
+        assert soc_entity.entity_registry_enabled_default is False
+
+    @pytest.mark.parametrize(
+        "spec_key", ["on_grid_cutoff_voltage", "off_grid_cutoff_voltage"]
+    )
+    def test_discharge_mode_gates_cutoffs_independently(self, spec_key: str) -> None:
         coordinator = _mock_coordinator(
             configured=(CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE)
         )
-        volt_cutoff = _voltage_number(coordinator, "on_grid_cutoff_voltage")
+        volt_cutoff = _voltage_number(coordinator, spec_key)
         # Charge-side voltage entity stays disabled (charge mode is SOC)
         charge_volt = SystemChargeVoltLimitNumber(coordinator, "1234567890")
         assert volt_cutoff.entity_registry_enabled_default is True
