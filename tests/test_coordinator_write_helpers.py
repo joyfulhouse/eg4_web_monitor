@@ -73,6 +73,8 @@ async def test_refresh_if_linked_calls_refresh_when_linked(real_coordinator):
     real_coordinator.is_transport_link_down = MagicMock(return_value=False)
     await real_coordinator.refresh_inverter_params_if_linked("123")
     inv.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+    real_coordinator.get_inverter_object.assert_called_once_with("123")
+    real_coordinator.is_transport_link_down.assert_called_once_with("123")
 
 
 async def test_refresh_if_linked_skips_when_link_down(real_coordinator):
@@ -95,6 +97,18 @@ def test_params_local_raw_local_only_short_circuits(real_coordinator):
     assert real_coordinator.params_are_local_raw("123") is True
 
 
+def test_params_local_raw_local_only_wins_regardless_of_flag(real_coordinator):
+    """local-only returns True unconditionally — include_configured must not
+    weaken it (a wrong `is_local_only() and not include_configured` impl
+    would fail here; switch setup calls with include_configured=True)."""
+    real_coordinator.is_local_only = MagicMock(return_value=True)
+    real_coordinator.has_configured_local_transport = MagicMock(return_value=False)
+    real_coordinator.get_inverter_object = MagicMock(return_value=None)
+    assert real_coordinator.params_are_local_raw("123", include_configured=True) is True
+    real_coordinator.has_configured_local_transport.assert_not_called()
+    real_coordinator.get_inverter_object.assert_not_called()
+
+
 def test_params_local_raw_include_configured_branch(real_coordinator):
     real_coordinator.is_local_only = MagicMock(return_value=False)
     real_coordinator.has_configured_local_transport = MagicMock(return_value=True)
@@ -105,6 +119,7 @@ def test_params_local_raw_include_configured_branch(real_coordinator):
     assert real_coordinator.params_are_local_raw("123") is False
     # flag on -> configured transport counts -> True
     assert real_coordinator.params_are_local_raw("123", include_configured=True) is True
+    real_coordinator.has_configured_local_transport.assert_called_with("123")
 
 
 def test_params_local_raw_configured_flag_without_configured_transport(
@@ -133,6 +148,7 @@ def test_params_local_raw_live_transport_present(real_coordinator):
         return_value=MagicMock(transport=object())
     )
     assert real_coordinator.params_are_local_raw("123") is True
+    real_coordinator.get_inverter_object.assert_called_once_with("123")
 
 
 def test_params_local_raw_no_inverter_on_live_path(real_coordinator):
