@@ -48,6 +48,7 @@ def local_config_entry():
 @pytest.fixture
 def real_coordinator(hass, local_config_entry):
     """Create a real coordinator without replacing its write helpers."""
+    local_config_entry.add_to_hass(hass)
     return EG4DataUpdateCoordinator(hass, local_config_entry)
 
 
@@ -106,6 +107,25 @@ def test_params_local_raw_include_configured_branch(real_coordinator):
     assert real_coordinator.params_are_local_raw("123", include_configured=True) is True
 
 
+def test_params_local_raw_configured_flag_without_configured_transport(
+    real_coordinator,
+):
+    """include_configured=True alone must NOT short-circuit: with no configured
+    transport it falls through to the live-transport check."""
+    real_coordinator.is_local_only = MagicMock(return_value=False)
+    real_coordinator.has_configured_local_transport = MagicMock(return_value=False)
+    real_coordinator.get_inverter_object = MagicMock(
+        return_value=MagicMock(transport=None)
+    )
+    assert (
+        real_coordinator.params_are_local_raw("123", include_configured=True) is False
+    )
+    real_coordinator.get_inverter_object = MagicMock(
+        return_value=MagicMock(transport=object())
+    )
+    assert real_coordinator.params_are_local_raw("123", include_configured=True) is True
+
+
 def test_params_local_raw_live_transport_present(real_coordinator):
     real_coordinator.is_local_only = MagicMock(return_value=False)
     real_coordinator.has_configured_local_transport = MagicMock(return_value=False)
@@ -113,3 +133,11 @@ def test_params_local_raw_live_transport_present(real_coordinator):
         return_value=MagicMock(transport=object())
     )
     assert real_coordinator.params_are_local_raw("123") is True
+
+
+def test_params_local_raw_no_inverter_on_live_path(real_coordinator):
+    """A missing inverter object resolves False (getattr fallback, no raise)."""
+    real_coordinator.is_local_only = MagicMock(return_value=False)
+    real_coordinator.has_configured_local_transport = MagicMock(return_value=False)
+    real_coordinator.get_inverter_object = MagicMock(return_value=None)
+    assert real_coordinator.params_are_local_raw("123") is False
