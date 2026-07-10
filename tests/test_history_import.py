@@ -869,6 +869,82 @@ class TestMergeAndIdempotency:
         mock_add.assert_not_called()
 
 
+class TestTimezoneChangeIdempotency:
+    """Re-import behavior when the resolved statistics timezone changes."""
+
+    async def test_timezone_change_does_not_double_count_day(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """A timezone change replaces the stale row for the same calendar day."""
+        statistic_id = "eg4_web_monitor:plant_12345_yield"
+        imported_day = date(2025, 1, 15)
+        store: dict[tuple[str, datetime], tuple[float, float]] = {}
+
+        def fake_add(hass_, metadata, rows):
+            for row in rows:
+                store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(hass_, requested_statistic_id):
+            return {
+                start: state
+                for (stored_statistic_id, start), (state, _sum) in store.items()
+                if stored_statistic_id == requested_statistic_id
+            }
+
+        def fake_clear(statistic_ids):
+            for key in list(store):
+                if key[0] in statistic_ids:
+                    del store[key]
+
+        recorder = MagicMock()
+        recorder.async_clear_statistics = fake_clear
+        recorder.async_block_till_done = AsyncMock()
+
+        mock_coordinator.station.timezone = None
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics",
+                side_effect=fake_add,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=fake_load,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.get_instance",
+                return_value=recorder,
+            ),
+        ):
+            await hass.config.async_set_time_zone("America/Los_Angeles")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                {imported_day: 5.0},
+                mock_coordinator,
+                dry_run=False,
+            )
+
+            await hass.config.async_set_time_zone("America/New_York")
+            await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                {imported_day: 5.0},
+                mock_coordinator,
+                dry_run=False,
+            )
+
+        rows = [
+            values for (sid, _start), values in store.items() if sid == statistic_id
+        ]
+        assert rows == [(5.0, 5.0)]
+
+
 class TestTimezoneResolution:
     """Station timezone handling for daily row placement."""
 

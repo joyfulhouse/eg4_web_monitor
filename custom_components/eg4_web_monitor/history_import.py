@@ -27,7 +27,9 @@ Design notes:
 - Idempotency: the recorder upserts rows on (statistic_id, start), and
   this module recomputes the cumulative ``sum`` across ALL known rows
   (existing + new) from the earliest point, so overlapping re-imports
-  converge to the same result instead of double counting.
+  converge to the same result instead of double counting. If the resolved
+  timezone changes, existing rows are cleared before rebuilding so shifted
+  UTC starts cannot duplicate a calendar day.
 - Concurrency: imports for the same plant serialize on a per-plant
   asyncio.Lock held across the whole read-recompute-write section —
   without it, two concurrent imports would each snapshot stale history
@@ -59,6 +61,7 @@ from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.recorder import get_instance
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import EnergyConverter
 
@@ -83,6 +86,11 @@ MAX_RANGE_DAYS = 731
 
 # Delay between cloud requests to stay gentle on the EG4 API.
 FETCH_DELAY_SECONDS = 0.5
+
+# Resolved timezone used by the last successful statistics write, keyed by
+# statistic ID. A changed timezone shifts local midnight's UTC row start.
+HISTORY_IMPORT_TZ_STORAGE_VERSION = 1
+HISTORY_IMPORT_TZ_STORAGE_KEY = f"{DOMAIN}_history_import_tz"
 
 # Per-plant import locks: concurrent service calls for the same plant must
 # serialize across the whole read-recompute-write section, or each call
@@ -539,13 +547,35 @@ async def _merge_and_write(
         Number of statistics rows that would be (or were) written.
     """
     tz = _resolve_statistics_timezone(coordinator)
+    tz_key = getattr(tz, "key", None) or str(tz)
 
     new_rows: dict[datetime, float] = {}
     for day, kwh in new_day_values.items():
         local_midnight = datetime(day.year, day.month, day.day, tzinfo=tz)
         new_rows[dt_util.as_utc(local_midnight)] = kwh
 
-    existing_rows = await _load_existing_rows(hass, statistic_id)
+    if dry_run:
+        existing_rows = await _load_existing_rows(hass, statistic_id)
+    else:
+        store = Store[dict[str, str]](
+            hass, HISTORY_IMPORT_TZ_STORAGE_VERSION, HISTORY_IMPORT_TZ_STORAGE_KEY
+        )
+        markers = await store.async_load() or {}
+        previous = markers.get(statistic_id)
+        if previous is not None and previous != tz_key:
+            _LOGGER.warning(
+                "Resolved timezone changed for %s; clearing existing statistics "
+                "before writing rows in %s",
+                statistic_id,
+                tz_key,
+            )
+            recorder = get_instance(hass)
+            recorder.async_clear_statistics([statistic_id])
+            await recorder.async_block_till_done()
+            existing_rows = {}
+        else:
+            existing_rows = await _load_existing_rows(hass, statistic_id)
+
     merged = {**existing_rows, **new_rows}
 
     statistics: list[StatisticData] = []
@@ -580,6 +610,8 @@ async def _merge_and_write(
         "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
     }
     async_add_external_statistics(hass, metadata, statistics)
+    markers[statistic_id] = tz_key
+    await store.async_save(markers)
 
     _LOGGER.debug(
         "Wrote %d rows for %s (%d new/updated, %d pre-existing)",
