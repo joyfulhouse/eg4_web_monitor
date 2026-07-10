@@ -1412,6 +1412,31 @@ class TestCloudBatteryKeyResolverCharacterization:
             f"{f'{INV}-{BAT_SN_1}'!r}" in caplog.text
         )
 
+    async def test_cloud_indexless_collision_publishes_under_identity_without_suppression(
+        self, hass, mock_config_entry, caplog
+    ):
+        """Index-less CLOUD collision: last-write-wins, no suppress/warn.
+
+        A battery with ``battery_index is None`` sharing an identity key with
+        an earlier indexed battery skips the collision-detection branch
+        entirely (it is gated on ``c_idx is not None``), so it silently
+        overwrites the earlier entry instead of being disambiguated.
+        """
+        mock_config_entry.add_to_hass(hass)
+        indexless = _cloud_battery(1, BAT_SN_1)
+        indexless.battery_index = None
+        cloud = [_cloud_battery(0, BAT_SN_1), indexless]
+        coordinator = _make_coordinator(hass, mock_config_entry, cloud=cloud)
+
+        with caplog.at_level(logging.WARNING):
+            result = await _process(coordinator)
+        batteries = result["devices"][INV]["batteries"]
+
+        # Published under the shared identity key; nothing disambiguated.
+        assert set(batteries) == {f"{INV}-{BAT_SN_1}"}
+        assert INV not in coordinator._battery_migration_suppressed
+        assert "both resolve to identity" not in caplog.text
+
 
 class TestResolveCloudBatteryKey:
     """Direct unit tests for the extracted ``_resolve_cloud_battery_key``."""
