@@ -243,9 +243,6 @@ async def async_setup_entry(
                 # Add off-grid mode switch (Green Mode)
                 entities.append(EG4OffGridModeSwitch(coordinator, serial))
 
-                # Add charge last switch (reg 110 bit 4) — issue #177
-                entities.append(EG4ChargeLastSwitch(coordinator, serial))
-
                 # Add working mode switches
                 sellback_supported = supports_grid_sellback(device_data)
                 params_local_raw = _params_are_local_raw(coordinator, serial)
@@ -725,80 +722,6 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
         )
 
 
-class EG4ChargeLastSwitch(EG4BaseSwitch):
-    """Switch to control the battery Charge Last function.
-
-    Charge Last (FUNC_CHARGE_LAST, register 110 bit 4) flips the PV surplus
-    priority. Disabled (default, "charge first"): PV charges the battery
-    before exporting surplus to the grid. Enabled ("charge last"): PV serves
-    house loads and grid export first and charges the battery last — useful
-    to reserve battery headroom for peak production when PV capacity exceeds
-    the export limit (issue #177).
-
-    Local writes go through the named-parameter map (read-modify-write of
-    register 110); cloud writes use the function-control API — the same
-    routes pylxpweb's own get/set_charge_last helpers use.
-    """
-
-    def __init__(
-        self,
-        coordinator: EG4DataUpdateCoordinator,
-        serial: str,
-    ) -> None:
-        """Initialize the charge last switch."""
-        super().__init__(
-            coordinator=coordinator,
-            serial=serial,
-            entity_key="charge_last",
-            name="Charge Last",
-            icon="mdi:battery-clock",
-            entity_category=EntityCategory.CONFIG,
-        )
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if charge last mode is enabled."""
-        # Use optimistic state if available (for immediate UI feedback)
-        if self._optimistic_state is not None:
-            return self._optimistic_state
-
-        # Check parameter data from coordinator
-        return bool(self._parameter_data.get(PARAM_FUNC_CHARGE_LAST, False))
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return extra state attributes."""
-        attributes: dict[str, Any] = {}
-
-        # Add parameter details if available
-        if self._parameter_data:
-            func_charge_last = self._parameter_data.get(PARAM_FUNC_CHARGE_LAST)
-            if func_charge_last is not None:
-                attributes["func_charge_last"] = func_charge_last
-
-        # Add optimistic state indicator for debugging
-        if self._optimistic_state is not None:
-            attributes["optimistic_state"] = self._optimistic_state
-
-        return attributes if attributes else None
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable charge last mode."""
-        await self._execute_local_with_fallback(
-            action_name="charge last",
-            parameter=PARAM_FUNC_CHARGE_LAST,
-            value=True,
-        )
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Disable charge last mode."""
-        await self._execute_local_with_fallback(
-            action_name="charge last",
-            parameter=PARAM_FUNC_CHARGE_LAST,
-            value=False,
-        )
-
-
 # Mapping of working mode parameters to inverter method names (HTTP API)
 _WORKING_MODE_METHODS = {
     "FUNC_AC_CHARGE": ("enable_ac_charge_mode", "disable_ac_charge_mode"),
@@ -823,6 +746,11 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_GRID_PEAK_SHAVING": PARAM_FUNC_GRID_PEAK_SHAVING,  # Register 179, bit 7
     "FUNC_BATTERY_BACKUP_CTRL": PARAM_FUNC_BATTERY_BACKUP_CTRL,  # Register 233, bit 1
     "FUNC_FEED_IN_GRID_EN": PARAM_FUNC_FEED_IN_GRID_EN,  # Register 21, bit 15
+    # Register 110, bit 4 (GH #177) — "Charge Last" in the portal. The
+    # name resolves locally across the supported register maps. Deliberately
+    # absent from _WORKING_MODE_METHODS: the cloud path goes through the
+    # generic function-control API — the same route the vendor website uses.
+    "FUNC_CHARGE_LAST": PARAM_FUNC_CHARGE_LAST,
     # Register 179, bit 3 (GH #135) — pinned 2026-06-12 via authorized live
     # cloud toggles raw-verified on BOTH 12K-hybrid models (FlexBOSS21
     # 52842P0581 and 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, XOR
@@ -933,6 +861,20 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes."""
+        legacy_attrs = self._mode_config.get("legacy_attrs")
+        if isinstance(legacy_attrs, dict):
+            # A folded standalone switch may opt into its historical attribute
+            # names and None-on-empty behavior without changing other modes.
+            legacy_attributes = {
+                attribute_name: self._parameter_data[parameter_key]
+                for attribute_name, parameter_key in legacy_attrs.items()
+                if parameter_key in self._parameter_data
+                and self._parameter_data[parameter_key] is not None
+            }
+            if self._optimistic_state is not None:
+                legacy_attributes["optimistic_state"] = self._optimistic_state
+            return legacy_attributes if legacy_attributes else None
+
         attributes: dict[str, Any] = {
             "description": self._mode_config["description"],
             "function_parameter": self._mode_config["param"],
@@ -960,6 +902,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
     async def _execute_working_mode(self, turn_on: bool) -> None:
         """Execute working mode toggle, preferring local transport."""
         param = self._mode_config["param"]
+        action_name = self._mode_config.get("action_name", f"working mode {param}")
         param_name = _WORKING_MODE_PARAMETERS.get(param)
         methods = _WORKING_MODE_METHODS.get(param)
 
@@ -975,7 +918,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         if param_name and methods:
             # Both local and cloud paths available — use fallback pattern
             await self._execute_local_with_fallback(
-                action_name=f"working mode {param}",
+                action_name=action_name,
                 parameter=param_name,
                 value=turn_on,
                 cloud_enable_method=methods[0],
@@ -988,7 +931,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             # vendor websites use for FUNC_ bits (e.g. FUNC_RUN_WITHOUT_GRID,
             # GH #274).
             await self._execute_local_with_fallback(
-                action_name=f"working mode {param}",
+                action_name=action_name,
                 parameter=param_name,
                 value=turn_on,
             )
@@ -1001,7 +944,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             # state until link recovery (#310). Pure-cloud stays unseeded
             # via the has_local_transport guard in the seeding helper.
             await self._execute_switch_action(
-                action_name=f"working mode {param}",
+                action_name=action_name,
                 enable_method=methods[0],
                 disable_method=methods[1],
                 turn_on=turn_on,

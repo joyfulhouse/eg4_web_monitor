@@ -24,7 +24,6 @@ from custom_components.eg4_web_monitor.switch import (
     async_setup_entry,
     EG4QuickChargeSwitch,
     EG4BatteryBackupSwitch,
-    EG4ChargeLastSwitch,
     EG4OffGridModeSwitch,
     EG4WorkingModeSwitch,
     EG4DSTSwitch,
@@ -273,7 +272,11 @@ class TestSwitchPlatformSetup:
         assert "EG4QuickChargeSwitch" in type_names
         assert "EG4BatteryBackupSwitch" in type_names
         assert "EG4OffGridModeSwitch" in type_names
-        assert "EG4ChargeLastSwitch" in type_names
+        assert any(
+            isinstance(e, EG4WorkingModeSwitch)
+            and e._mode_config["param"] == "FUNC_CHARGE_LAST"
+            for e in entities
+        )
         assert any(n == "EG4WorkingModeSwitch" for n in type_names)
 
     @pytest.mark.asyncio
@@ -299,7 +302,11 @@ class TestSwitchPlatformSetup:
         type_names = [type(e).__name__ for e in entities]
         assert "EG4QuickChargeSwitch" in type_names
         assert "EG4OffGridModeSwitch" in type_names
-        assert "EG4ChargeLastSwitch" in type_names
+        assert any(
+            isinstance(e, EG4WorkingModeSwitch)
+            and e._mode_config["param"] == "FUNC_CHARGE_LAST"
+            for e in entities
+        )
 
     @pytest.mark.asyncio
     async def test_setup_unknown_model_and_family_creates_no_controls(self, hass):
@@ -322,7 +329,11 @@ class TestSwitchPlatformSetup:
         type_names = [type(e).__name__ for e in entities]
         assert "EG4QuickChargeSwitch" not in type_names
         assert "EG4OffGridModeSwitch" not in type_names
-        assert "EG4ChargeLastSwitch" not in type_names
+        assert not any(
+            isinstance(e, EG4WorkingModeSwitch)
+            and e._mode_config["param"] == "FUNC_CHARGE_LAST"
+            for e in entities
+        )
 
     @pytest.mark.asyncio
     async def test_setup_quick_charge_local_mode(self, hass):
@@ -485,7 +496,11 @@ class TestSwitchPlatformSetup:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         # Charge Last entity was created via setup...
-        assert any(isinstance(e, EG4ChargeLastSwitch) for e in entities)
+        assert any(
+            isinstance(e, EG4WorkingModeSwitch)
+            and e._mode_config["param"] == "FUNC_CHARGE_LAST"
+            for e in entities
+        )
         # ...without any write on either transport
         coordinator.write_named_parameter.assert_not_called()
         coordinator.client.api.control.control_function.assert_not_called()
@@ -1052,32 +1067,41 @@ class TestOffGridModeSwitch:
 # ── ChargeLastSwitch ─────────────────────────────────────────────────
 
 
+def _make_charge_last_switch(coordinator) -> EG4WorkingModeSwitch:
+    """Build the Charge Last working-mode switch under test."""
+    return EG4WorkingModeSwitch(
+        coordinator=coordinator,
+        serial="1234567890",
+        mode_config=WORKING_MODES["charge_last_mode"],
+    )
+
+
 class TestChargeLastSwitch:
     """Test Charge Last switch entity (FUNC_CHARGE_LAST, reg 110 bit 4)."""
 
     def test_is_on_from_params(self):
         """FUNC_CHARGE_LAST parameter drives is_on."""
         coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": True})
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         assert switch.is_on is True
 
     def test_is_on_false_default(self):
         """Default state should be False when param missing."""
         coordinator = _mock_coordinator()
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         assert switch.is_on is False
 
     def test_is_on_optimistic_overrides(self):
         """Optimistic state takes precedence over parameter data."""
         coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": False})
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         switch._optimistic_state = True
         assert switch.is_on is True
 
     def test_extra_state_attributes(self):
         """Extra attributes expose the raw FUNC_CHARGE_LAST parameter."""
         coordinator = _mock_coordinator(parameters={"FUNC_CHARGE_LAST": True})
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         attrs = switch.extra_state_attributes
         assert attrs["func_charge_last"] is True
 
@@ -1085,7 +1109,7 @@ class TestChargeLastSwitch:
     async def test_turn_on_local(self):
         """Local transport: writes PARAM_FUNC_CHARGE_LAST=True."""
         coordinator = _mock_coordinator(has_local=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -1097,7 +1121,7 @@ class TestChargeLastSwitch:
     async def test_turn_off_local(self):
         """Local transport: writes PARAM_FUNC_CHARGE_LAST=False."""
         coordinator = _mock_coordinator(has_local=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_off()
 
@@ -1109,7 +1133,7 @@ class TestChargeLastSwitch:
     async def test_turn_on_cloud(self):
         """Cloud only: writes via control_function(serial, param, True)."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -1124,7 +1148,7 @@ class TestChargeLastSwitch:
     async def test_turn_off_cloud(self):
         """Cloud only: writes via control_function(serial, param, False)."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_off()
 
@@ -1141,7 +1165,7 @@ class TestChargeLastSwitch:
         coordinator.client.api.control.control_function = AsyncMock(
             return_value=failed_response
         )
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         with pytest.raises(HomeAssistantError, match="charge last"):
@@ -1155,7 +1179,7 @@ class TestChargeLastSwitch:
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Modbus timeout")
         )
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -1168,7 +1192,7 @@ class TestChargeLastSwitch:
     async def test_local_success_no_cloud_call(self):
         """Local write succeeds -> cloud API NOT called."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_on()
 
@@ -1179,7 +1203,7 @@ class TestChargeLastSwitch:
     async def test_no_transport_raises(self):
         """No local or HTTP raises HomeAssistantError."""
         coordinator = _mock_coordinator(has_local=False, has_http=False)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         with pytest.raises(HomeAssistantError, match="No transport available"):
@@ -1196,7 +1220,7 @@ class TestChargeLastSwitch:
         The guard fires at call time, before any write is attempted.
         """
         coordinator = _mock_coordinator(has_local=True, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         with pytest.raises(ValueError, match="together or both omitted"):
@@ -1437,7 +1461,7 @@ class TestCloudFallbackParameterSeeding:
             side_effect=HomeAssistantError("Modbus timeout")
         )
         self._wire_note_parameters_written(coordinator)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         await switch.async_turn_on()
@@ -1537,7 +1561,7 @@ class TestCloudFallbackParameterSeeding:
         """CLOUD-only (no transport attached): the cloud parameter cache
         refreshes normally — no seeding."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         await switch.async_turn_on()
@@ -1562,7 +1586,7 @@ class TestCloudFallbackParameterSeeding:
         """Local write succeeds: no cloud write, no seed — the existing
         optimistic in-place parameter update already covers it."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
-        switch = EG4ChargeLastSwitch(coordinator, "1234567890")
+        switch = _make_charge_last_switch(coordinator)
         _prep(switch)
 
         await switch.async_turn_on()
