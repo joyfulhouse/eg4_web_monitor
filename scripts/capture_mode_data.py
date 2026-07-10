@@ -8,7 +8,8 @@ Outputs JSON to stdout for piping/comparison.
 import json
 import os
 import sys
-from urllib.request import Request, urlopen
+
+import httpx
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "unknown"
 TOKEN = os.environ.get("HA_LONG_LIVED_TOKEN", "")
@@ -18,12 +19,14 @@ if not TOKEN:
     print("ERROR: Set HA_LONG_LIVED_TOKEN", file=sys.stderr)
     sys.exit(1)
 
-req = Request(
+resp = httpx.get(
     f"{BASE_URL}/api/states",
     headers={"Authorization": f"Bearer {TOKEN}"},
+    timeout=15,
+    follow_redirects=True,
 )
-with urlopen(req, timeout=15) as resp:
-    states = json.loads(resp.read())
+resp.raise_for_status()
+states = resp.json()
 
 PREFIXES = ["flexboss", "18kpv", "12kpv", "gridboss", "parallel_group", "station_"]
 eg4_all = [s for s in states if any(p in s["entity_id"].lower() for p in PREFIXES)]
