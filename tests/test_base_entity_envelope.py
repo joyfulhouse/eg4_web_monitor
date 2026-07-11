@@ -201,6 +201,30 @@ async def test_switch_false_success_clears_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_switch_write_failure_never_seeds() -> None:
+    """A failed write must not seed the parameter cache (#310 seed is
+    an acknowledgement of a SUCCESSFUL write; seeding on failure would
+    publish a state the device never confirmed)."""
+    events: list[str] = []
+    entity, _coordinator, inverter = _make_entity(events)
+    inverter.enable_test = AsyncMock(
+        side_effect=lambda: events.append("write") or False
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await entity._execute_switch_action(
+            "test action",
+            "enable_test",
+            "disable_test",
+            True,
+            seed_param_key="FUNC_TEST",
+        )
+
+    entity._seed_cloud_written_parameter.assert_not_called()
+    assert events == ["optimistic-set", "write", "clear"]
+
+
+@pytest.mark.asyncio
 async def test_switch_plain_exception_is_wrapped() -> None:
     """Plain switch write exceptions become HomeAssistantError failures."""
     events: list[str] = []
@@ -301,6 +325,26 @@ async def test_cloud_function_false_success_clears_once() -> None:
 
     assert events == ["optimistic-set", "write", "clear"]
     _assert_state_write_counts(entity, optimistic_value=False, clear_count=1)
+
+
+@pytest.mark.asyncio
+async def test_cloud_function_write_failure_never_seeds() -> None:
+    """A failed cloud function write must not seed the parameter cache."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    coordinator.client.api.control.control_function.side_effect = (
+        lambda _serial, _parameter, _value: (
+            events.append("write") or SimpleNamespace(success=False)
+        )
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await entity._execute_cloud_function_action(
+            "test action", "FUNC_TEST", False, seed_param_key="FUNC_TEST"
+        )
+
+    entity._seed_cloud_written_parameter.assert_not_called()
+    assert events == ["optimistic-set", "write", "clear"]
 
 
 @pytest.mark.asyncio

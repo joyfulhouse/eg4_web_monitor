@@ -1020,7 +1020,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         action_name: str,
         value: bool,
         *,
-        do_write: Callable[[], Awaitable[bool]],
+        do_write: Callable[[], Awaitable[None]],
         do_refresh: Callable[[], Awaitable[None]],
         pre_delay_refresh: Callable[[], Awaitable[None]] | None = None,
         api_delay: float = 1.0,
@@ -1036,6 +1036,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         The optimistic state is cleared AFTER ``do_refresh`` completes to
         prevent the "bounce" effect where the entity briefly shows the wrong
         state while waiting for API data to propagate.
+
+        Callers emit their path-specific debug log BEFORE invoking this
+        envelope — the pinned log ordering is debug → optimistic publish →
+        write. A logging handler that itself raises therefore escapes
+        unwrapped (no optimistic state exists yet to clear); accepted, since
+        wrapping it would require moving the log after the optimistic
+        publish and changing the documented ordering.
         """
         action_verb = "Enabling" if value else "Disabling"
 
@@ -1150,7 +1157,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         inverter: Any = None
 
-        async def do_write() -> bool:
+        async def do_write() -> None:
             nonlocal inverter
             inverter = self._get_inverter_or_raise()
 
@@ -1180,7 +1187,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 action_name,
                 self._serial,
             )
-            return True
 
         async def pre_delay_refresh() -> None:
             await inverter.refresh()
@@ -1370,7 +1376,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             parameter,
         )
 
-        async def do_write() -> bool:
+        async def do_write() -> None:
             response = await client.api.control.control_function(
                 self._serial, parameter, value
             )
@@ -1385,7 +1391,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 action_name,
                 self._serial,
             )
-            return True
 
         async def do_refresh() -> None:
             await self.coordinator.async_refresh_device_parameters(self._serial)
