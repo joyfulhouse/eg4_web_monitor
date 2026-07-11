@@ -71,6 +71,7 @@ def _mock_coordinator(
     coordinator.last_update_success = True
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_request_refresh = AsyncMock()
+    coordinator.async_refresh_device_parameters = AsyncMock()
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_register = AsyncMock(return_value=True)
     coordinator.get_device_info = MagicMock(return_value=None)
@@ -894,7 +895,9 @@ class TestWritePaths:
         coordinator.write_register.assert_awaited_once_with(
             register, (30 << 8) | 6, serial="1234567890"
         )
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
+        )
         coordinator.client.api.control.write_parameter.assert_not_awaited()
 
     @pytest.mark.parametrize(
@@ -947,7 +950,9 @@ class TestWritePaths:
             ("1234567890", minute_param, "5"),
         ]
         coordinator.write_register.assert_not_awaited()
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
+        )
 
     @pytest.mark.asyncio
     async def test_cloud_write_failure_raises(self):
@@ -990,7 +995,9 @@ class TestWritePaths:
             ("1234567890", "HOLD_AC_CHARGE_START_HOUR", "8"),
             ("1234567890", "HOLD_AC_CHARGE_START_MINUTE", "15"),
         ]
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
+        )
 
     @pytest.mark.asyncio
     async def test_local_only_write_failure_still_raises(self):
@@ -1041,6 +1048,7 @@ class TestWritePaths:
         await entity.async_set_value(time(20, 30))
 
         coordinator.write_register.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_not_awaited()
         coordinator.refresh_all_device_parameters.assert_not_awaited()
         assert entity._optimistic_retained is True
         assert entity.native_value == time(20, 30)
@@ -1099,6 +1107,102 @@ class TestWritePaths:
         )
 
 
+# ── Parameter refresh convergence and scope ─────────────────────────
+
+
+class TestParameterRefreshScope:
+    """Post-write refreshes converge schedule entities from parameter data."""
+
+    @pytest.mark.asyncio
+    async def test_successful_write_refreshes_same_serial_schedule_siblings(self):
+        """A refreshed cache converges both boundaries on the written device."""
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            serial=serial,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+                "HOLD_AC_CHARGE_END_HOUR": "9",
+                "HOLD_AC_CHARGE_END_MINUTE": "0",
+            },
+        )
+
+        async def _refresh_device(refresh_serial: str) -> None:
+            assert refresh_serial == serial
+            coordinator.data["parameters"][serial] = {
+                "HOLD_AC_CHARGE_START_HOUR": "20",
+                "HOLD_AC_CHARGE_START_MINUTE": "30",
+                "HOLD_AC_CHARGE_END_HOUR": "21",
+                "HOLD_AC_CHARGE_END_MINUTE": "45",
+            }
+            await coordinator.async_request_refresh()
+
+        coordinator.async_refresh_device_parameters = AsyncMock(
+            side_effect=_refresh_device
+        )
+        written_entity = _entity(coordinator, serial=serial, is_end=False)
+        sibling_entity = _entity(coordinator, serial=serial, is_end=True)
+        _prep(written_entity)
+
+        assert written_entity.native_value == time(8, 0)
+        assert sibling_entity.native_value == time(9, 0)
+
+        await written_entity.async_set_value(time(20, 30))
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(serial)
+        coordinator.async_request_refresh.assert_awaited_once_with()
+        assert written_entity.native_value == time(20, 30)
+        assert sibling_entity.native_value == time(21, 45)
+
+    @pytest.mark.asyncio
+    async def test_successful_write_refreshes_only_written_serial(self):
+        """A write refreshes its serial without changing another device's cache."""
+        written_serial = "1234567890"
+        other_serial = "0987654321"
+        coordinator = _mock_coordinator(
+            serial=written_serial,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            },
+        )
+        coordinator.data["devices"][other_serial] = {
+            "type": "inverter",
+            "model": "FlexBOSS21",
+        }
+        coordinator.data["device_info"][other_serial] = {
+            "deviceTypeText4APP": "FlexBOSS21"
+        }
+        coordinator.data["parameters"][other_serial] = {
+            "HOLD_AC_CHARGE_START_HOUR": "10",
+            "HOLD_AC_CHARGE_START_MINUTE": "0",
+        }
+
+        async def _refresh_device(refresh_serial: str) -> None:
+            coordinator.data["parameters"][refresh_serial] = {
+                "HOLD_AC_CHARGE_START_HOUR": "20",
+                "HOLD_AC_CHARGE_START_MINUTE": "30",
+            }
+            await coordinator.async_request_refresh()
+
+        coordinator.async_refresh_device_parameters = AsyncMock(
+            side_effect=_refresh_device
+        )
+        written_entity = _entity(coordinator, serial=written_serial)
+        other_entity = _entity(coordinator, serial=other_serial)
+        _prep(written_entity)
+
+        assert other_entity.native_value == time(10, 0)
+
+        await written_entity.async_set_value(time(20, 30))
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            written_serial
+        )
+        coordinator.refresh_all_device_parameters.assert_not_awaited()
+        assert other_entity.native_value == time(10, 0)
+
+
 # ── Failure convergence (PR #283 review P1/P2) ───────────────────────
 
 
@@ -1135,14 +1239,15 @@ class TestWriteFailureConvergence:
             side_effect=[ok, failed]
         )
 
-        async def _refresh_mixed(*args, **kwargs):
+        async def _refresh_mixed(refresh_serial: str):
+            assert refresh_serial == serial
             # Device truth after the partial write: hour landed, minute not.
             coordinator.data["parameters"][serial] = {
                 f"{prefix}_START_HOUR": "20",
                 f"{prefix}_START_MINUTE": "0",
             }
 
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=_refresh_mixed
         )
 
@@ -1152,7 +1257,7 @@ class TestWriteFailureConvergence:
         with pytest.raises(HomeAssistantError, match="partially applied"):
             await entity.async_set_value(time(20, 30))
 
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(serial)
         # Optimistic dropped; entity shows the re-read (mixed) device state.
         assert entity._optimistic_value is None
         assert entity.native_value == time(20, 0)
@@ -1175,13 +1280,14 @@ class TestWriteFailureConvergence:
             side_effect=[ok, ConnectionError("boom")]
         )
 
-        async def _refresh_mixed(*args, **kwargs):
+        async def _refresh_mixed(refresh_serial: str):
+            assert refresh_serial == serial
             coordinator.data["parameters"][serial] = {
                 "HOLD_AC_CHARGE_START_HOUR": "20",
                 "HOLD_AC_CHARGE_START_MINUTE": "0",
             }
 
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=_refresh_mixed
         )
 
@@ -1191,7 +1297,7 @@ class TestWriteFailureConvergence:
         with pytest.raises(HomeAssistantError, match="partially applied"):
             await entity.async_set_value(time(20, 30))
 
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(serial)
         assert entity._optimistic_value is None
         assert entity.native_value == time(20, 0)
 
@@ -1217,7 +1323,7 @@ class TestWriteFailureConvergence:
             await entity.async_set_value(time(20, 30))
 
         assert "partially applied" not in str(excinfo.value)
-        coordinator.refresh_all_device_parameters.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_not_awaited()
         assert entity._optimistic_value is None
         assert entity.native_value == time(8, 0)
 
@@ -1234,7 +1340,11 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={str(spec.base_register): _pack(8, 0)},
         )
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        # The real coordinator method swallows its own exceptions (coordinator_mixins.py),
+        # so this raise cannot occur in production — this test pins time.py's DEFENSIVE
+        # except-branch only; the production-reachable retain-optimistic path is the
+        # explicit link-down branch (covered by the link-down tests).
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
 
@@ -1257,7 +1367,7 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
         )
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
         entity = _entity(coordinator, window=1, is_end=False)
@@ -1283,7 +1393,7 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
         )
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
         entity = _entity(coordinator, window=1, is_end=False)
@@ -1308,7 +1418,7 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
         )
-        coordinator.refresh_all_device_parameters = AsyncMock(
+        coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
         entity = _entity(coordinator, window=1, is_end=False)
@@ -1408,7 +1518,9 @@ class TestWriteTimeFamilies:
         )
         coordinator.client.api.control.write_parameter.assert_not_awaited()
         coordinator.write_register.assert_not_awaited()
-        coordinator.refresh_all_device_parameters.assert_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
+        )
 
     @pytest.mark.asyncio
     async def test_cloud_write_time_failure_raises(self):

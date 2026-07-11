@@ -951,6 +951,12 @@
     }
   },
   "exceptions": {
+    "tz_marker_unresolvable": {
+      "message": "Le fuseau horaire précédemment utilisé pour {statistic_id} ({old_timezone}) ne peut plus être résolu. Les statistiques existantes ne peuvent donc pas être vérifiées en toute sécurité par rapport au fuseau horaire actuellement résolu ({new_timezone}). Effacez manuellement les statistiques de cette série avant de relancer l’importation."
+    },
+    "tz_marker_missing_misaligned": {
+      "message": "Les statistiques existantes de {statistic_id} ne possèdent aucun marqueur de fuseau horaire enregistré et ne sont pas alignées sur minuit local dans le fuseau horaire actuellement résolu ({new_timezone}). Il est donc impossible de vérifier dans quel fuseau horaire elles ont été écrites à l’origine. Effacez manuellement les statistiques de cette série avant de relancer l’importation."
+    },
     "entry_not_found": {
       "message": "Entree de configuration {entry_id} introuvable. Veuillez verifier que l'ID de l'entree est correct."
     },

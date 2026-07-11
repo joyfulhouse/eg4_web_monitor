@@ -951,6 +951,12 @@
     }
   },
   "exceptions": {
+    "tz_marker_unresolvable": {
+      "message": "{statistic_id} で以前使用していたタイムゾーン（{old_timezone}）を解決できなくなったため、現在解決されているタイムゾーン（{new_timezone}）に対して既存の統計を安全に検証できません。インポートを再実行する前に、この系列の統計を手動で消去してください。"
+    },
+    "tz_marker_missing_misaligned": {
+      "message": "{statistic_id} の既存の統計には記録されたタイムゾーンマーカーがなく、現在解決されているタイムゾーン（{new_timezone}）の現地時刻の午前0時にも揃っていないため、どのタイムゾーンで書き込まれたかを確認できません。インポートを再実行する前に、この系列の統計を手動で消去してください。"
+    },
     "entry_not_found": {
       "message": "設定エントリ {entry_id} が見つかりません。エントリIDが正しいことを確認してください。"
     },
