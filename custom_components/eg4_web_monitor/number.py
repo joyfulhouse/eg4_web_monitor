@@ -91,6 +91,7 @@ from .const import (
     QUICK_CHARGE_DURATION_STEP,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
+    REG_START_PV_VOLT,
     AC_CHARGE_BATTERY_SOC_MAX,
     AC_CHARGE_BATTERY_SOC_MIN,
     AC_CHARGE_BATTERY_SOC_STEP,
@@ -470,6 +471,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         param_name: str,
         register: int,
         label: str,
+        cloud_write: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Write a decivolt voltage register (local by name, cloud by raw register).
 
@@ -477,6 +479,8 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         the named parameter via the transport's name map; the cloud path writes
         the raw register address directly (avoiding read/write name aliasing).
         In HYBRID mode a failed local write falls back to the cloud path.
+        ``cloud_write`` overrides the raw-register cloud path for parameters
+        whose verified cloud route differs (e.g. named volts writes).
         """
         raw_value = int(round(value * 10))
         _LOGGER.info("Setting %s for %s to %.1f V", label, self.serial, value)
@@ -488,7 +492,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             )
             await asyncio.sleep(0.5)
 
-        async def _cloud_write() -> None:
+        async def _cloud_write_raw_register() -> None:
             client = self.coordinator.require_client()
             result = await client.api.control.write_parameters(
                 self.serial, {register: raw_value}
@@ -503,7 +507,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 self.serial,
                 label,
                 local_write=_local_write,
-                cloud_write=_cloud_write,
+                cloud_write=cloud_write or _cloud_write_raw_register,
                 local_values={param_name: raw_value},
             )
             await self._refresh_related_entities()
@@ -626,7 +630,6 @@ async def async_setup_entry(
                         # Always-on controls (power, current)
                         ACChargePowerNumber(coordinator, serial),
                         PVChargePowerNumber(coordinator, serial),
-                        PVStartVoltageNumber(coordinator, serial),
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         # SOC limit controls (enabled when the matching control
@@ -1026,91 +1029,6 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             cloud_kwargs={"power_kw": int_value},
             label=f"PV charge power to {int_value} kW",
         )
-
-
-class PVStartVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for PV Start Voltage control (register 22).
-
-    Controls the minimum PV voltage at which the MPPT tracker activates.
-    Lowering this value (e.g. to 140V) keeps the MPPT engaged across a wider
-    voltage range, reducing connect/disconnect cycling that can cause internal
-    DC bus voltage spikes (vbus out of range / E019 faults).
-
-    Register stores decivolts (raw 1400 = 140.0V).
-    Cloud API accepts human-readable volts (valueText=140).
-    Firmware rejects values below 140V (error code 3).
-    """
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "PV Start Voltage"
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_pv_start_voltage"
-        self._attr_native_min_value = PV_START_VOLTAGE_MIN
-        self._attr_native_max_value = PV_START_VOLTAGE_MAX
-        self._attr_native_step = PV_START_VOLTAGE_STEP
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:solar-power-variant"
-        self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (PVStartVoltageNumber,)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current PV start voltage (raw decivolts / 10 -> V)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_START_PV_VOLT,
-            value_min=90,
-            value_max=500,
-            as_float=False,
-            param_transform=lambda v: float(v) / 10.0,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the PV start voltage."""
-        int_value = int(value)
-        if int_value < PV_START_VOLTAGE_MIN or int_value > PV_START_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"PV start voltage must be between "
-                f"{PV_START_VOLTAGE_MIN}-{PV_START_VOLTAGE_MAX} V, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"PV start voltage must be an integer value, got {value}"
-            )
-
-        _LOGGER.info("Setting PV start voltage for %s to %d V", self.serial, int_value)
-
-        async def _local_write() -> None:
-            # Local Modbus: write raw decivolts (140V -> 1400)
-            await self.coordinator.write_named_parameter(
-                PARAM_HOLD_START_PV_VOLT, int_value * 10, serial=self.serial
-            )
-            await asyncio.sleep(0.5)
-
-        async def _cloud_write() -> None:
-            # Cloud API: write human-readable volts
-            client = self.coordinator.require_client()
-            result = await client.api.control.write_parameter(
-                self.serial, "HOLD_START_PV_VOLT", str(int_value)
-            )
-            if not result.success:
-                raise HomeAssistantError(
-                    f"Failed to set PV start voltage to {int_value} V"
-                )
-            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
-
-        with optimistic_value_context(self, value):
-            await async_write_with_cloud_fallback(
-                self.coordinator,
-                self.serial,
-                f"PV start voltage to {int_value} V",
-                local_write=_local_write,
-                cloud_write=_cloud_write,
-                local_values={PARAM_HOLD_START_PV_VOLT: int_value * 10},
-            )
-            await self._refresh_related_entities()
 
 
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
@@ -2277,11 +2195,25 @@ class VoltageNumberSpec:
     step: int | float
     precision: int
     require_whole: bool
-    control_key: str
+    control_key: str | None
     icon: str
     related_group: tuple[str, ...]
     read_value_min: int | float = 20
     read_value_max: int | float = 70
+    # Raw parameter values at or above this are decivolts and divided by 10;
+    # smaller values are already volts. The default suits battery-bank
+    # voltages (< 100 V); registers whose legit volts exceed 100 (e.g. PV
+    # start voltage, 140-500 V) need a threshold above their volts maximum.
+    decivolt_threshold: float = 100.0
+    # The default cloud path writes the raw register (decivolts). Set True
+    # for parameters whose verified cloud route is a named write in
+    # human-readable volts (portal valueText semantics).
+    cloud_write_volts_named: bool = False
+    # Whether native_value returns a float (True, battery voltages with
+    # fractional volts) or truncates to int (False — preserves the retired
+    # PV start class's integer state, e.g. "140" not "140.0", for
+    # exact-string automation conditions). Independent of display precision.
+    read_as_float: bool = True
 
 
 VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
@@ -2349,6 +2281,40 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         icon="mdi:battery-charging-high",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
     ),
+    VoltageNumberSpec(
+        # MPPT activation floor (register 22). Lowering it (e.g. to 140 V)
+        # keeps the MPPT engaged across a wider voltage range, reducing
+        # connect/disconnect cycling that can cause internal DC bus voltage
+        # spikes (vbus out of range / E019 faults). Firmware rejects values
+        # below 140 V (error code 3). No control_key: this is a PV control,
+        # not gated by the battery charge/discharge regime.
+        key="pv_start_voltage",
+        name="PV Start Voltage",
+        message_label="PV start voltage",
+        unique_id_suffix="pv_start_voltage",
+        param_key=PARAM_HOLD_START_PV_VOLT,
+        register=REG_START_PV_VOLT,
+        min_value=PV_START_VOLTAGE_MIN,
+        max_value=PV_START_VOLTAGE_MAX,
+        step=PV_START_VOLTAGE_STEP,
+        precision=0,
+        require_whole=True,
+        control_key=None,
+        icon="mdi:solar-power-variant",
+        related_group=("pv_start_voltage",),
+        read_value_min=90,
+        read_value_max=500,
+        # Legit volts run 90-500, raw decivolts 900-5000: 600 cleanly
+        # separates them (the battery default of 100 would mis-split —
+        # cloud's already-scaled 140 V is >= 100 and got divided again,
+        # the pure-CLOUD unknown-value bug this spec entry fixes).
+        decivolt_threshold=600,
+        # Verified cloud route writes the named parameter in volts
+        # (portal valueText=140); raw-register 22 writes are unproven.
+        cloud_write_volts_named=True,
+        # Integer state ("140"), matching the retired dedicated class.
+        read_as_float=False,
+    ),
 )
 
 
@@ -2380,8 +2346,20 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         # Contract-only: satisfies the base class's abstract method but is
         # never consulted — _refresh_related_entities below is fully
         # overridden to filter by spec.related_group instead (an isinstance
-        # check alone would over-refresh all four voltage specs at once).
+        # check alone would over-refresh every voltage spec at once).
         return (EG4VoltageNumber,)
+
+    def _volts_from_spec_param(self, raw: Any) -> float:
+        """Normalize a voltage parameter to volts using the spec's threshold.
+
+        Same magnitude heuristic as ``_volts_from_param`` (local Modbus
+        surfaces raw decivolts, cloud returns already-scaled volts), but the
+        split point comes from the spec so registers whose legit volts exceed
+        100 (PV start voltage) don't get their cloud values divided again.
+        """
+        value = float(raw)
+        threshold = self._spec.decivolt_threshold
+        return round(value / 10.0 if value >= threshold else value, 1)
 
     @property
     def native_value(self) -> float | None:
@@ -2390,8 +2368,8 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             param_key=self._spec.param_key,
             value_min=self._spec.read_value_min,
             value_max=self._spec.read_value_max,
-            as_float=True,
-            param_transform=self._volts_from_param,
+            as_float=self._spec.read_as_float,
+            param_transform=self._volts_from_spec_param,
             params_first=True,
         )
 
@@ -2418,11 +2396,30 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
                 f"{spec.message_label} must be between "
                 f"{spec.min_value}-{spec.max_value} V, got {value}"
             )
+
+        cloud_write: Callable[[], Awaitable[None]] | None = None
+        if spec.cloud_write_volts_named:
+            volts = int(write_value)
+
+            async def _cloud_write_named_volts() -> None:
+                client = self.coordinator.require_client()
+                result = await client.api.control.write_parameter(
+                    self.serial, spec.param_key, str(volts)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set {spec.message_label} to {volts} V"
+                    )
+                await self.coordinator.refresh_inverter_params_if_linked(self.serial)
+
+            cloud_write = _cloud_write_named_volts
+
         await self._write_voltage_register(
             value=write_value,
             param_name=spec.param_key,
             register=spec.register,
             label=spec.name,
+            cloud_write=cloud_write,
         )
 
     async def _refresh_related_entities(self) -> None:
