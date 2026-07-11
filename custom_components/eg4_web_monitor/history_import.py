@@ -657,7 +657,14 @@ def _existing_rows_aligned_to_tz(existing_rows: dict[datetime, float], tz: Any) 
             0,
             0,
         ):
-            return False
+            # Check for DST transition gaps where midnight is skipped and
+            # the day starts at a different local hour (e.g., 01:00).
+            local_date = local.date()
+            nominal_midnight = datetime.combine(
+                local_date, datetime.min.time(), tzinfo=tz
+            )
+            if start != dt_util.as_utc(nominal_midnight):
+                return False
     return True
 
 

@@ -2586,3 +2586,28 @@ class TestLoadExistingRows:
         assert rows == {dt_util.utc_from_timestamp(ts1): 1.5}
         # statistics_during_period invoked through the recorder executor
         assert recorder.async_add_executor_job.await_count == 1
+
+
+class TestExistingRowsAlignedToTz:
+    """Testing _existing_rows_aligned_to_tz with DST transition edges."""
+
+    def test_ordinary_and_dst_midnight_alignment(self):
+        """Test that _existing_rows_aligned_to_tz permits DST midnight transitions."""
+        from custom_components.eg4_web_monitor.history_import import (
+            _existing_rows_aligned_to_tz,
+        )
+
+        # 1. Ordinary day aligned to America/Havana midnight
+        havana = zoneinfo.ZoneInfo("America/Havana")
+        ordinary_local = datetime(2024, 3, 9, 0, 0, tzinfo=havana)
+        ordinary_utc = dt_util.as_utc(ordinary_local)
+        assert _existing_rows_aligned_to_tz({ordinary_utc: 10.0}, havana) is True
+
+        # 2. DST transition day in America/Havana (2024-03-10):
+        # DST starts at midnight (00:00 becomes 01:00). Start of day is at 01:00.
+        dst_start_utc = datetime(2024, 3, 10, 5, 0, tzinfo=dt_util.UTC)  # 01:00 Havana
+        assert _existing_rows_aligned_to_tz({dst_start_utc: 10.0}, havana) is True
+
+        # 3. Misaligned day (12:00 Havana)
+        misaligned_utc = datetime(2024, 3, 10, 16, 0, tzinfo=dt_util.UTC)
+        assert _existing_rows_aligned_to_tz({misaligned_utc: 10.0}, havana) is False
