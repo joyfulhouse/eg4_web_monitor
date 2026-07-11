@@ -649,7 +649,7 @@ class LocalTransportMixin(_MixinBase):
 
             if failed_ranges:
                 complete = False
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Parameter read incomplete (register range(s) %s failed); "
                     "keeping last-known values for those parameters and "
                     "retrying early (#282)",
@@ -2054,7 +2054,7 @@ class LocalTransportMixin(_MixinBase):
             missed = expected_param_serials - self._param_completed_this_cycle
             self._param_retry_pending |= missed
             if missed:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Parameter read pending for %s this cycle; keeping "
                     "last-known values and retrying within ~%d minutes",
                     sorted(missed),

@@ -8,6 +8,7 @@ Covers methods not already tested in test_coordinator.py:
 - _log_transport_error
 """
 
+import logging
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
@@ -191,6 +192,35 @@ class TestReadModbusParameters:
             # EG4_HYBRID/OFFGRID-gated (pylxpweb #209, #328).
         ]
         assert "PARAM_A" in result
+
+    async def test_incomplete_read_logs_at_debug(
+        self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
+    ):
+        """Issue #345: when register ranges fail, the incomplete-read notice
+        repeats every retry cycle during a degraded read and logs at DEBUG,
+        not INFO."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        mock_transport = make_transport_spec()
+        mock_transport.read_named_parameters.side_effect = Exception("range NAK")
+
+        msg = "Parameter read incomplete"
+        with caplog.at_level(logging.DEBUG):
+            _, complete = await coordinator._read_modbus_parameters(
+                mock_transport,
+                {"features": {"inverter_family": "LXP"}},
+            )
+
+        assert complete is False
+        assert msg in "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and msg in r.getMessage()
+        ] == []
 
     async def test_hybrid_device_reads_schedule_ranges(self, hass, local_config_entry):
         """EG4_HYBRID devices additionally poll Peak Shaving (209-212),
@@ -641,7 +671,7 @@ class TestStickyParameterCarryForward:
         return coordinator
 
     async def test_partial_read_carries_forward_and_queues_retry(
-        self, hass, local_config_entry
+        self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
     ):
         coordinator = self._seed_coordinator(hass, local_config_entry)
 
@@ -661,7 +691,8 @@ class TestStickyParameterCarryForward:
                 coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
             ),
         ):
-            result = await coordinator._async_update_local_data()
+            with caplog.at_level(logging.DEBUG):
+                result = await coordinator._async_update_local_data()
 
         assert result["parameters"]["INV001"] == {
             "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 101,  # carried forward, NOT blanked
@@ -673,6 +704,16 @@ class TestStickyParameterCarryForward:
         assert coordinator._last_parameter_refresh is not None
         assert coordinator._last_parameter_attempt is not None
         assert "INV001" in coordinator._param_retry_pending
+        # Issue #345: the per-cycle pending-retry notice is DEBUG, not INFO.
+        pending_msg = "Parameter read pending"
+        assert pending_msg in "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and pending_msg in r.getMessage()
+        ] == []
 
     async def test_complete_read_replaces_and_stamps_throttle(
         self, hass, local_config_entry
@@ -3459,6 +3500,39 @@ class TestLinkDownParameterRefreshGate:
         up.refresh.assert_awaited_once_with(force=True, include_parameters=True)
         assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
         assert coordinator.data["parameters"]["DOWN1"] == {"HOLD_Y": 2}
+
+    async def test_routine_parameter_refresh_logs_at_debug(
+        self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
+    ):
+        """Issue #345: the routine per-cycle parameter-refresh start/finish
+        messages log at DEBUG, not INFO, so a default install's log stays
+        clean.  These fire on every parameter-refresh cycle and carry no
+        actionable signal at INFO level."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        up = self._fake_inverter(link_down=False, parameters={"HOLD_X": 1})
+        coordinator._inverter_cache = {"UP1": up}
+        coordinator.data = {"devices": {"UP1": {"type": "inverter"}}}
+
+        start_msg = "Refreshing parameters for all inverter devices"
+        done_msg = "Successfully refreshed parameters for"
+
+        with caplog.at_level(logging.DEBUG):
+            await coordinator.refresh_all_device_parameters()
+
+        debug_text = "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert start_msg in debug_text
+        assert done_msg in debug_text
+        # And never at INFO or above.
+        higher = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO
+            and (start_msg in r.getMessage() or done_msg in r.getMessage())
+        ]
+        assert higher == []
 
     async def test_async_refresh_device_parameters_refreshes_down_link(
         self, hass, local_config_entry

@@ -228,6 +228,50 @@ class TestAsyncUpdateHttpData:
 
         mock_station.refresh_all_data.assert_called()
 
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_hourly_refresh_due_logs_at_debug(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry, caplog
+    ):
+        """Issue #345: the per-cycle "Hourly parameter refresh is due"
+        message logs at DEBUG, not INFO — it fires whenever the refresh is
+        due and carries no actionable signal at INFO level."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.station = _mock_station([_mock_inverter()])
+
+        msg = "Hourly parameter refresh is due"
+
+        with patch.object(coordinator, "_should_refresh_parameters", return_value=True):
+            with patch.object(
+                coordinator, "_hourly_parameter_refresh", new=AsyncMock()
+            ):
+                with patch.object(
+                    coordinator,
+                    "_process_inverter_object",
+                    new=AsyncMock(
+                        return_value={
+                            "type": "inverter",
+                            "model": "FlexBOSS21",
+                            "sensors": {},
+                            "batteries": {},
+                        }
+                    ),
+                ):
+                    with caplog.at_level(logging.DEBUG):
+                        await coordinator._async_update_http_data()
+
+        debug_text = "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert msg in debug_text
+        # And never at INFO or above.
+        assert [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and msg in r.getMessage()
+        ] == []
+
 
 # ── HTTP error handling ──────────────────────────────────────────────
 
@@ -2074,6 +2118,38 @@ class TestHybridParameterRetry:
 
         assert coordinator._last_parameter_refresh is None
         assert coordinator._last_parameter_attempt is not None
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_incomplete_refresh_message_logs_at_debug(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry, caplog
+    ):
+        """Issue #345: the incomplete-fetch retry notice repeats every retry
+        cycle during a degraded read and logs at DEBUG, not INFO."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.data = {"devices": {"INV001": {"type": "inverter"}}}
+
+        inv = MagicMock()
+        inv.parameters_complete = False  # last fetch dropped a range
+        coordinator._inverter_cache = {"INV001": inv}
+
+        msg = "Parameter refresh incomplete"
+        with patch.object(
+            coordinator, "refresh_all_device_parameters", new_callable=AsyncMock
+        ):
+            with caplog.at_level(logging.DEBUG):
+                await coordinator._hourly_parameter_refresh()
+
+        debug_text = "\n".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        )
+        assert msg in debug_text
+        assert [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.INFO and msg in r.getMessage()
+        ] == []
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
