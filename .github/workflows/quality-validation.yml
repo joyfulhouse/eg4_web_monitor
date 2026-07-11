@@ -787,12 +787,14 @@ jobs:
 
       - name: Install mypy and dependencies with uv
         run: |
-          # Match tests/requirements-test.txt's pre-release pin so mypy
-          # type-checks against the SAME pylxpweb the tests use, not the older
-          # stable (bare "pylxpweb" -> 0.9.35, which lacks new attributes such
-          # as InverterRuntimeData.rectifier_power). The pre-release marker lets
-          # uv resolve the latest 0.9.36 beta.
-          uv pip install --system 'homeassistant>=2025.11.0' mypy 'pylxpweb>=0.9.37'
+          # Read the pylxpweb pin from tests/requirements-test.txt so mypy
+          # type-checks against the SAME pylxpweb the tests use. A hardcoded
+          # ">=stable" specifier here resolved the latest stable and missed
+          # pre-release-only attributes (bit us on 0.9.37 -> 0.9.38b1: mypy
+          # couldn't see run_firmware_update_to_completion).
+          PYLXPWEB_PIN=$(grep -oE '^pylxpweb[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
+          echo "Using pin: $PYLXPWEB_PIN"
+          uv pip install --system 'homeassistant>=2025.11.0' mypy "$PYLXPWEB_PIN"
 
       - name: Verify strict typing configuration
         run: |

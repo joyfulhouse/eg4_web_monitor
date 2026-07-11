@@ -1,10 +1,12 @@
 """Tests for EG4 firmware update entities."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.update import UpdateEntityFeature
 from homeassistant.const import EntityCategory
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.const import ENTITY_PREFIX
 from custom_components.eg4_web_monitor.update import (
@@ -39,9 +41,19 @@ def _mock_coordinator(
     else:
         coordinator.data = {"devices": {}}
 
-    # _get_device_object default: returns a mock device
+    # _get_device_object default: returns a mock device whose orchestrated
+    # update converges in one step (issue #353 result contract).
     mock_device = MagicMock()
     mock_device.start_firmware_update = AsyncMock()
+    mock_device.run_firmware_update_to_completion = AsyncMock(
+        return_value=SimpleNamespace(
+            success=True,
+            converged=True,
+            steps_run=1,
+            message="Firmware update complete after 1 step(s)",
+            final_version="ccaa-1E1515",
+        )
+    )
     coordinator._get_device_object = MagicMock(return_value=mock_device)
 
     return coordinator
@@ -438,8 +450,8 @@ class TestAsyncInstall:
     """Test the firmware install action."""
 
     @pytest.mark.asyncio
-    async def test_install_calls_device_and_refreshes(self):
-        """Install triggers start_firmware_update then coordinator refresh."""
+    async def test_install_runs_to_completion_and_refreshes(self):
+        """Install runs the multi-step orchestrator then refreshes (#353)."""
         coordinator = _mock_coordinator(
             devices={"SN1": {"type": "inverter", "model": "X"}}
         )
@@ -448,34 +460,94 @@ class TestAsyncInstall:
         await entity.async_install(version=None, backup=False)
 
         device = coordinator._get_device_object("SN1")
-        device.start_firmware_update.assert_called_once()
+        device.run_firmware_update_to_completion.assert_called_once()
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_install_device_not_found(self):
-        """When device object is None, install logs error and returns."""
+    async def test_install_device_not_found_raises(self):
+        """When device object is None, install raises instead of silently
+        returning (#353 — silent no-op looked like success)."""
         coordinator = _mock_coordinator(
             devices={"SN1": {"type": "inverter", "model": "X"}}
         )
         coordinator._get_device_object = MagicMock(return_value=None)
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
 
-        # Should not raise
-        await entity.async_install(version=None, backup=False)
+        with pytest.raises(HomeAssistantError, match="not found"):
+            await entity.async_install(version=None, backup=False)
 
         coordinator.async_request_refresh.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_install_reraises_exceptions(self):
-        """Exceptions from start_firmware_update are re-raised."""
+    async def test_install_failure_result_raises(self):
+        """A non-success orchestration result raises with its message —
+        a refused start must not log 'initiated' and vanish (#353)."""
         coordinator = _mock_coordinator(
             devices={"SN1": {"type": "inverter", "model": "X"}}
         )
         device = coordinator._get_device_object("SN1")
-        device.start_firmware_update = AsyncMock(
+        device.run_firmware_update_to_completion = AsyncMock(
+            return_value=SimpleNamespace(
+                success=False,
+                converged=False,
+                steps_run=1,
+                message="API refused to start the firmware update",
+                final_version="ccaa-1E1415",
+            )
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        with pytest.raises(HomeAssistantError, match="API refused"):
+            await entity.async_install(version=None, backup=False)
+
+        # Refresh still happens (finally) so state reflects reality.
+        coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_does_not_mask_success(self):
+        """A failing post-install refresh is swallowed: a successful update
+        must not surface as an installation error (codex P2)."""
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        coordinator.async_request_refresh = AsyncMock(
+            side_effect=RuntimeError("refresh boom")
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        await entity.async_install(version=None, backup=False)  # no raise
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_does_not_mask_orchestrator_error(self):
+        """The orchestrator's exception wins over a refresh exception."""
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        device = coordinator._get_device_object("SN1")
+        device.run_firmware_update_to_completion = AsyncMock(
+            side_effect=RuntimeError("update boom")
+        )
+        coordinator.async_request_refresh = AsyncMock(
+            side_effect=RuntimeError("refresh boom")
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        with pytest.raises(RuntimeError, match="update boom"):
+            await entity.async_install(version=None, backup=False)
+
+    @pytest.mark.asyncio
+    async def test_install_reraises_exceptions(self):
+        """Exceptions from the orchestrator are re-raised; refresh still runs."""
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        device = coordinator._get_device_object("SN1")
+        device.run_firmware_update_to_completion = AsyncMock(
             side_effect=RuntimeError("connection lost")
         )
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
 
         with pytest.raises(RuntimeError, match="connection lost"):
             await entity.async_install(version=None, backup=False)
+
+        coordinator.async_request_refresh.assert_called_once()
