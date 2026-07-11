@@ -20,6 +20,13 @@ from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Install locks keyed by device serial, at MODULE level so they survive
+# config-entry reloads: a reload creates a replacement entity (and would
+# create a fresh per-instance lock) while an in-flight install coroutine
+# still holds the old entity — both could then reach the update API during
+# backend visibility lag (codex review of the post-beta.1 scan fixes).
+_INSTALL_LOCKS: dict[str, asyncio.Lock] = {}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -88,8 +95,9 @@ class EG4FirmwareUpdateEntity(
         # coordinator-derived (lags a poll cycle) — so two same-window
         # update.install calls would both pass HA's guard and could both
         # reach standardUpdate/run before either registers server-side
-        # (post-beta.1 scan P2).
-        self._install_lock = asyncio.Lock()
+        # (post-beta.1 scan P2). Shared per-serial via the module registry
+        # so a config-entry reload cannot mint a second, independent lock.
+        self._install_lock = _INSTALL_LOCKS.setdefault(serial, asyncio.Lock())
 
     @property
     def device_info(self) -> DeviceInfo | None:

@@ -590,3 +590,22 @@ class TestAsyncInstall:
             await entity.async_install(version=None, backup=False)
 
         coordinator.async_request_refresh.assert_called_once()
+
+
+class TestInstallLockLifetime:
+    """The install lock must survive entity replacement (config reload)."""
+
+    def test_lock_shared_across_entity_instances_for_same_serial(self):
+        """Two entity instances for the same serial share one lock; a
+        different serial gets its own (codex review: per-instance locks
+        would let a reloaded entity race an in-flight install)."""
+        c1 = _mock_coordinator(devices={"SN1": {"type": "inverter", "model": "X"}})
+        c2 = _mock_coordinator(devices={"SN1": {"type": "inverter", "model": "X"}})
+        c3 = _mock_coordinator(devices={"SN2": {"type": "inverter", "model": "X"}})
+
+        e1 = EG4FirmwareUpdateEntity(c1, "SN1")
+        e2 = EG4FirmwareUpdateEntity(c2, "SN1")
+        e3 = EG4FirmwareUpdateEntity(c3, "SN2")
+
+        assert e1._install_lock is e2._install_lock
+        assert e1._install_lock is not e3._install_lock
