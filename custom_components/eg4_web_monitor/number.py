@@ -2377,6 +2377,10 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         self._attr_native_precision = spec.precision
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
+        # Contract-only: satisfies the base class's abstract method but is
+        # never consulted — _refresh_related_entities below is fully
+        # overridden to filter by spec.related_group instead (an isinstance
+        # check alone would over-refresh all four voltage specs at once).
         return (EG4VoltageNumber,)
 
     @property

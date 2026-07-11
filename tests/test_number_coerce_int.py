@@ -1,8 +1,12 @@
 """Characterization tests for SOC integer validation messages."""
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from _pytest.mark import ParameterSet
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.eg4_web_monitor.number import (
@@ -17,7 +21,7 @@ from custom_components.eg4_web_monitor.number import (
 from tests.test_number_entities import _mock_coordinator, _prep
 
 
-ENTITY_CASES: Sequence = (
+ENTITY_CASES: "Sequence[ParameterSet]" = (
     pytest.param(
         ACChargeSOCLimitNumber,
         0,
