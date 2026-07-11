@@ -5,6 +5,31 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0-beta.1] - 2026-07-11
+
+First beta of the 3.5.0 line.
+
+> Requires [pylxpweb 0.9.38b1](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.38b1)
+> (installed automatically).
+
+### Fixed
+
+- **Firmware updates run multi-step chains to completion and surface failures** ([#353](https://github.com/joyfulhouse/eg4_web_monitor/issues/353), reported by @eode): on devices whose firmware carries three version components (6000XP), a single update run advanced only one component (`ccaa-1E1415` instead of `ccaa-1E1515`) — the portal and phone app chain multiple runs, and the integration now does too (check → eligibility → start → poll → re-check until the device converges, with a step budget, per-step timeout, FAILED-step abort, and no-progress guard). The update entity also displayed the wrong target version (`ccaa-1515`, missing the leading byte) — the version construction now preserves the full prefix. A refused or failed update start now raises a visible Home Assistant error with the reason instead of logging "initiated" and silently stopping. **Multi-step hardware validation on a real 6000XP is pending — beta testers with multi-component devices, feedback welcome on #353.**
+- **One inverter's sensors all unknown after 3.4.0** ([#348](https://github.com/joyfulhouse/eg4_web_monitor/issues/348)): a no-BMS secondary inverter reports battery temperature `127` (0x7F placeholder), which tripped pylxpweb's data-corruption canary and rejected the whole payload every poll. The sentinel is now normalized to unknown for just that field (pylxpweb 0.9.38b1).
+- **Valid 0.1 kWh daily-energy ticks rejected** ([#346](https://github.com/joyfulhouse/eg4_web_monitor/issues/346), reported by @ivanfmartinez): the spike filter compared quantized floats without tolerance, so the smallest real increment (`4.4 - 4.3`) could overshoot its own bound by a float ulp and be logged + dropped (pylxpweb 0.9.38b1).
+- **PV Start Voltage unknown in cloud-only mode** ([#359](https://github.com/joyfulhouse/eg4_web_monitor/pull/359)): the read path divided the cloud's already-scaled volts by 10, pushing the value out of range; the entity now reads correctly in all modes (and its write keeps the verified named-parameter cloud route).
+
+### Changed
+
+- **Quieter logs at INFO level** ([#345](https://github.com/joyfulhouse/eg4_web_monitor/issues/345), requested by @ivanfmartinez): routine per-cycle parameter-refresh messages and degraded-state retry notices demoted to DEBUG.
+- **Internal consolidation** ([#342](https://github.com/joyfulhouse/eg4_web_monitor/issues/342)): coordinator write-helper unit tests, shared validation/write helpers across number entities (`VoltageNumberSpec` table), table-driven Charge Last switch, per-device schedule refresh, and a timezone-change-safe history-import migration (statistics re-keyed with snapshot + verify before any destructive step). No entity IDs or behavior contracts changed; 2086 tests (from 1952).
+
+### Developer
+
+- CI strict-typing job now reads the pylxpweb pin from `tests/requirements-test.txt` (a hardcoded specifier had let mypy check against a stale stable release).
+- Firmware reverse-engineering tooling and analysis notes added under `scripts/`/`docs/` (dongle firmware download/extraction helpers; no integration code changes).
+- Dev-tooling scripts hardened per Bandit (httpx with TLS verification by default, `--insecure` opt-in; MD5 marked non-security; temp paths via `tempfile`).
+
 ## [3.4.0] - 2026-07-07
 
 Stable release consolidating the `3.4.0-beta.1`–`3.4.0-beta.27` and `3.4.0-rc.1`
