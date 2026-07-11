@@ -951,6 +951,12 @@
     }
   },
   "exceptions": {
+    "tz_marker_unresolvable": {
+      "message": "La zona horaria utilizada anteriormente para {statistic_id} ({old_timezone}) ya no se puede resolver, por lo que las estadísticas existentes no se pueden verificar de forma segura con la zona horaria resuelta actualmente ({new_timezone}). Borre manualmente las estadísticas de esta serie antes de volver a ejecutar la importación."
+    },
+    "tz_marker_missing_misaligned": {
+      "message": "Las estadísticas existentes de {statistic_id} no tienen un marcador de zona horaria registrado y no están alineadas con la medianoche local de la zona horaria resuelta actualmente ({new_timezone}), por lo que no es posible verificar con qué zona horaria se escribieron originalmente. Borre manualmente las estadísticas de esta serie antes de volver a ejecutar la importación."
+    },
     "entry_not_found": {
       "message": "Entrada de configuracion {entry_id} no encontrada. Por favor verifique que el ID de entrada sea correcto."
     },

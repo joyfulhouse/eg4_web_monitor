@@ -156,3 +156,16 @@ docker-compose.override.yml.trash/
 
 # Local scratchpad and one-off scripts (not part of the integration)
 scratchpad/
+
+# Firmware reverse-engineering artifacts — derived from EG4's copyrighted
+# firmware (binaries, packet captures, Ghidra decompilation, string/register
+# dumps). Not redistributed; regenerable from the scripts/ tooling. Only the
+# .md analysis notes under these directories are tracked.
+docs/reference/firmware/**
+docs/reference/firmware_re/**
+!docs/reference/firmware/
+!docs/reference/firmware_re/
+!docs/reference/firmware/**/
+!docs/reference/firmware_re/**/
+!docs/reference/firmware/**/*.md
+!docs/reference/firmware_re/**/*.md

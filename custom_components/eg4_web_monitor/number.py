@@ -5,6 +5,7 @@ import logging
 import math
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING
 
 from homeassistant.const import EntityCategory
@@ -90,6 +91,7 @@ from .const import (
     QUICK_CHARGE_DURATION_STEP,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
+    REG_START_PV_VOLT,
     AC_CHARGE_BATTERY_SOC_MAX,
     AC_CHARGE_BATTERY_SOC_MIN,
     AC_CHARGE_BATTERY_SOC_STEP,
@@ -134,6 +136,26 @@ _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 3
+
+
+def _coerce_int_in_range(
+    value: float,
+    *,
+    min_v: int | float,
+    max_v: int | float,
+    label: str,
+    unit: str = "%",
+    require_integer: bool = False,
+) -> int:
+    """Coerce ``value`` to int, validating range (and optionally integer-ness)."""
+    int_value = int(value)
+    if int_value < min_v or int_value > max_v:
+        raise HomeAssistantError(
+            f"{label} must be between {min_v}-{max_v}{unit}, got {int_value}"
+        )
+    if require_integer and abs(value - int_value) > 0.01:
+        raise HomeAssistantError(f"{label} must be an integer value, got {value}")
+    return int_value
 
 
 class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
@@ -449,6 +471,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         param_name: str,
         register: int,
         label: str,
+        cloud_write: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Write a decivolt voltage register (local by name, cloud by raw register).
 
@@ -456,6 +479,8 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         the named parameter via the transport's name map; the cloud path writes
         the raw register address directly (avoiding read/write name aliasing).
         In HYBRID mode a failed local write falls back to the cloud path.
+        ``cloud_write`` overrides the raw-register cloud path for parameters
+        whose verified cloud route differs (e.g. named volts writes).
         """
         raw_value = int(round(value * 10))
         _LOGGER.info("Setting %s for %s to %.1f V", label, self.serial, value)
@@ -467,7 +492,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             )
             await asyncio.sleep(0.5)
 
-        async def _cloud_write() -> None:
+        async def _cloud_write_raw_register() -> None:
             client = self.coordinator.require_client()
             result = await client.api.control.write_parameters(
                 self.serial, {register: raw_value}
@@ -482,7 +507,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 self.serial,
                 label,
                 local_write=_local_write,
-                cloud_write=_cloud_write,
+                cloud_write=cloud_write or _cloud_write_raw_register,
                 local_values={param_name: raw_value},
             )
             await self._refresh_related_entities()
@@ -605,7 +630,6 @@ async def async_setup_entry(
                         # Always-on controls (power, current)
                         ACChargePowerNumber(coordinator, serial),
                         PVChargePowerNumber(coordinator, serial),
-                        PVStartVoltageNumber(coordinator, serial),
                         BatteryChargeCurrentNumber(coordinator, serial),
                         BatteryDischargeCurrentNumber(coordinator, serial),
                         # SOC limit controls (enabled when the matching control
@@ -617,10 +641,10 @@ async def async_setup_entry(
                         # control mode is Voltage). Always created; disabled by
                         # default in SOC mode to reduce entity clutter.
                         SystemChargeVoltLimitNumber(coordinator, serial),
-                        OnGridCutoffVoltageNumber(coordinator, serial),
-                        OffGridCutoffVoltageNumber(coordinator, serial),
-                        ACChargeStartVoltageNumber(coordinator, serial),
-                        ACChargeEndVoltageNumber(coordinator, serial),
+                        *[
+                            EG4VoltageNumber(coordinator, serial, spec)
+                            for spec in VOLTAGE_NUMBER_SPECS
+                        ],
                         StopDischargeVoltageNumber(coordinator, serial),
                     ]
                 )
@@ -1007,91 +1031,6 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         )
 
 
-class PVStartVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for PV Start Voltage control (register 22).
-
-    Controls the minimum PV voltage at which the MPPT tracker activates.
-    Lowering this value (e.g. to 140V) keeps the MPPT engaged across a wider
-    voltage range, reducing connect/disconnect cycling that can cause internal
-    DC bus voltage spikes (vbus out of range / E019 faults).
-
-    Register stores decivolts (raw 1400 = 140.0V).
-    Cloud API accepts human-readable volts (valueText=140).
-    Firmware rejects values below 140V (error code 3).
-    """
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "PV Start Voltage"
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_pv_start_voltage"
-        self._attr_native_min_value = PV_START_VOLTAGE_MIN
-        self._attr_native_max_value = PV_START_VOLTAGE_MAX
-        self._attr_native_step = PV_START_VOLTAGE_STEP
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:solar-power-variant"
-        self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (PVStartVoltageNumber,)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current PV start voltage (raw decivolts / 10 -> V)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_START_PV_VOLT,
-            value_min=90,
-            value_max=500,
-            as_float=False,
-            param_transform=lambda v: float(v) / 10.0,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the PV start voltage."""
-        int_value = int(value)
-        if int_value < PV_START_VOLTAGE_MIN or int_value > PV_START_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"PV start voltage must be between "
-                f"{PV_START_VOLTAGE_MIN}-{PV_START_VOLTAGE_MAX} V, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"PV start voltage must be an integer value, got {value}"
-            )
-
-        _LOGGER.info("Setting PV start voltage for %s to %d V", self.serial, int_value)
-
-        async def _local_write() -> None:
-            # Local Modbus: write raw decivolts (140V -> 1400)
-            await self.coordinator.write_named_parameter(
-                PARAM_HOLD_START_PV_VOLT, int_value * 10, serial=self.serial
-            )
-            await asyncio.sleep(0.5)
-
-        async def _cloud_write() -> None:
-            # Cloud API: write human-readable volts
-            client = self.coordinator.require_client()
-            result = await client.api.control.write_parameter(
-                self.serial, "HOLD_START_PV_VOLT", str(int_value)
-            )
-            if not result.success:
-                raise HomeAssistantError(
-                    f"Failed to set PV start voltage to {int_value} V"
-                )
-            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
-
-        with optimistic_value_context(self, value):
-            await async_write_with_cloud_fallback(
-                self.coordinator,
-                self.serial,
-                f"PV start voltage to {int_value} V",
-                local_write=_local_write,
-                cloud_write=_cloud_write,
-                local_values={PARAM_HOLD_START_PV_VOLT: int_value * 10},
-            )
-            await self._refresh_related_entities()
-
-
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
     """Number entity for Grid Peak Shaving Power control.
 
@@ -1270,16 +1209,13 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge SOC limit."""
-        int_value = int(value)
-        if int_value < AC_CHARGE_SOC_LIMIT_MIN or int_value > AC_CHARGE_SOC_LIMIT_MAX:
-            raise HomeAssistantError(
-                f"AC charge SOC limit must be between "
-                f"{AC_CHARGE_SOC_LIMIT_MIN}-{AC_CHARGE_SOC_LIMIT_MAX}%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge SOC limit must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_SOC_LIMIT_MIN,
+            max_v=AC_CHARGE_SOC_LIMIT_MAX,
+            label="AC charge SOC limit",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
@@ -1331,20 +1267,13 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the SOC that starts AC charging (local named write or cloud)."""
-        int_value = int(value)
-        if (
-            int_value < AC_CHARGE_BATTERY_SOC_MIN
-            or int_value > AC_CHARGE_BATTERY_SOC_MAX
-        ):
-            raise HomeAssistantError(
-                f"AC charge start battery SOC must be between "
-                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
-                f"got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge start battery SOC must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            max_v=AC_CHARGE_BATTERY_SOC_MAX,
+            label="AC charge start battery SOC",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
@@ -1410,20 +1339,13 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the SOC that stops AC charging (local named write or cloud)."""
-        int_value = int(value)
-        if (
-            int_value < AC_CHARGE_BATTERY_SOC_MIN
-            or int_value > AC_CHARGE_BATTERY_SOC_MAX
-        ):
-            raise HomeAssistantError(
-                f"AC charge end battery SOC must be between "
-                f"{AC_CHARGE_BATTERY_SOC_MIN}-{AC_CHARGE_BATTERY_SOC_MAX}%, "
-                f"got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge end battery SOC must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            max_v=AC_CHARGE_BATTERY_SOC_MAX,
+            label="AC charge end battery SOC",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
@@ -1891,15 +1813,13 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the forced discharge SOC limit."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"Forced discharge SOC limit must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Forced discharge SOC limit must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="Forced discharge SOC limit",
+            require_integer=True,
+        )
         # Cloud setter ships with pylxpweb > 0.9.36b3 — see the power
         # entity above for rationale.
         inverter = self.coordinator.get_inverter_object(self.serial)
@@ -2040,15 +1960,13 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the on-grid SOC cutoff."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"On-grid SOC cutoff must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"On-grid SOC cutoff must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="On-grid SOC cutoff",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -2093,15 +2011,13 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the off-grid SOC cutoff."""
-        int_value = int(value)
-        if int_value < 0 or int_value > 100:
-            raise HomeAssistantError(
-                f"Off-grid SOC cutoff must be between 0-100%, got {int_value}"
-            )
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"Off-grid SOC cutoff must be an integer value, got {value}"
-            )
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=0,
+            max_v=100,
+            label="Off-grid SOC cutoff",
+            require_integer=True,
+        )
         await self._write_parameter(
             value,
             local_param=PARAM_HOLD_OFFGRID_DISCHG_SOC,
@@ -2264,213 +2180,266 @@ class SystemChargeVoltLimitNumber(EG4BaseNumberEntity):
         )
 
 
-class OnGridCutoffVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for On-Grid discharge Cut-Off Voltage control (register 169)."""
+@dataclass(frozen=True)
+class VoltageNumberSpec:
+    """Declarative configuration for a voltage-register number entity."""
 
-    _control_key = "on_grid_cutoff_voltage"
+    key: str
+    name: str
+    message_label: str
+    unique_id_suffix: str
+    param_key: str
+    register: int
+    min_value: int | float
+    max_value: int | float
+    step: int | float
+    precision: int
+    require_whole: bool
+    control_key: str | None
+    icon: str
+    related_group: tuple[str, ...]
+    read_value_min: int | float = 20
+    read_value_max: int | float = 70
+    # Raw parameter values at or above this are decivolts and divided by 10;
+    # smaller values are already volts. The default suits battery-bank
+    # voltages (< 100 V); registers whose legit volts exceed 100 (e.g. PV
+    # start voltage, 140-500 V) need a threshold above their volts maximum.
+    decivolt_threshold: float = 100.0
+    # The default cloud path writes the raw register (decivolts). Set True
+    # for parameters whose verified cloud route is a named write in
+    # human-readable volts (portal valueText semantics).
+    cloud_write_volts_named: bool = False
+    # Whether native_value returns a float (True, battery voltages with
+    # fractional volts) or truncates to int (False — preserves the retired
+    # PV start class's integer state, e.g. "140" not "140.0", for
+    # exact-string automation conditions). Independent of display precision.
+    read_as_float: bool = True
 
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
+
+VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
+    VoltageNumberSpec(
+        key="on_grid_cutoff_voltage",
+        name="On-Grid Cut-Off Voltage",
+        message_label="On-grid cutoff voltage",
+        unique_id_suffix="on_grid_cutoff_voltage",
+        param_key=PARAM_HOLD_ONGRID_EOD_VOLTAGE,
+        register=REG_ONGRID_EOD_VOLTAGE,
+        min_value=CUTOFF_VOLTAGE_MIN,
+        max_value=CUTOFF_VOLTAGE_MAX,
+        step=CUTOFF_VOLTAGE_STEP,
+        precision=1,
+        require_whole=False,
+        control_key="on_grid_cutoff_voltage",
+        icon="mdi:battery-alert",
+        related_group=("on_grid_cutoff_voltage", "off_grid_cutoff_voltage"),
+    ),
+    VoltageNumberSpec(
+        key="off_grid_cutoff_voltage",
+        name="Off-Grid Cut-Off Voltage",
+        message_label="Off-grid cutoff voltage",
+        unique_id_suffix="off_grid_cutoff_voltage",
+        param_key=PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
+        register=REG_OFFGRID_EOD_VOLTAGE,
+        min_value=CUTOFF_VOLTAGE_MIN,
+        max_value=CUTOFF_VOLTAGE_MAX,
+        step=CUTOFF_VOLTAGE_STEP,
+        precision=1,
+        require_whole=False,
+        control_key="off_grid_cutoff_voltage",
+        icon="mdi:battery-outline",
+        related_group=("on_grid_cutoff_voltage", "off_grid_cutoff_voltage"),
+    ),
+    VoltageNumberSpec(
+        key="ac_charge_start_voltage",
+        name="AC Charge Start Voltage",
+        message_label="AC charge start voltage",
+        unique_id_suffix="ac_charge_start_voltage",
+        param_key=PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
+        register=REG_AC_CHARGE_START_VOLTAGE,
+        min_value=AC_CHARGE_VOLTAGE_MIN,
+        max_value=AC_CHARGE_VOLTAGE_MAX,
+        step=AC_CHARGE_VOLTAGE_STEP,
+        precision=0,
+        require_whole=True,
+        control_key="ac_charge_start_voltage",
+        icon="mdi:battery-charging-low",
+        related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
+    ),
+    VoltageNumberSpec(
+        key="ac_charge_end_voltage",
+        name="AC Charge End Voltage",
+        message_label="AC charge end voltage",
+        unique_id_suffix="ac_charge_end_voltage",
+        param_key=PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
+        register=REG_AC_CHARGE_END_VOLTAGE,
+        min_value=AC_CHARGE_VOLTAGE_MIN,
+        max_value=AC_CHARGE_VOLTAGE_MAX,
+        step=AC_CHARGE_VOLTAGE_STEP,
+        precision=0,
+        require_whole=True,
+        control_key="ac_charge_end_voltage",
+        icon="mdi:battery-charging-high",
+        related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
+    ),
+    VoltageNumberSpec(
+        # MPPT activation floor (register 22). Lowering it (e.g. to 140 V)
+        # keeps the MPPT engaged across a wider voltage range, reducing
+        # connect/disconnect cycling that can cause internal DC bus voltage
+        # spikes (vbus out of range / E019 faults). Firmware rejects values
+        # below 140 V (error code 3). No control_key: this is a PV control,
+        # not gated by the battery charge/discharge regime.
+        key="pv_start_voltage",
+        name="PV Start Voltage",
+        message_label="PV start voltage",
+        unique_id_suffix="pv_start_voltage",
+        param_key=PARAM_HOLD_START_PV_VOLT,
+        register=REG_START_PV_VOLT,
+        min_value=PV_START_VOLTAGE_MIN,
+        max_value=PV_START_VOLTAGE_MAX,
+        step=PV_START_VOLTAGE_STEP,
+        precision=0,
+        require_whole=True,
+        control_key=None,
+        icon="mdi:solar-power-variant",
+        related_group=("pv_start_voltage",),
+        read_value_min=90,
+        read_value_max=500,
+        # Legit volts run 90-500, raw decivolts 900-5000: 600 cleanly
+        # separates them (the battery default of 100 would mis-split —
+        # cloud's already-scaled 140 V is >= 100 and got divided again,
+        # the pure-CLOUD unknown-value bug this spec entry fixes).
+        decivolt_threshold=600,
+        # Verified cloud route writes the named parameter in volts
+        # (portal valueText=140); raw-register 22 writes are unproven.
+        cloud_write_volts_named=True,
+        # Integer state ("140"), matching the retired dedicated class.
+        read_as_float=False,
+    ),
+)
+
+
+class EG4VoltageNumber(EG4BaseNumberEntity):
+    """Spec-driven number entity for standard decivolt voltage registers."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        spec: VoltageNumberSpec,
+    ) -> None:
+        """Initialize a voltage-register number entity from its spec."""
+        self._spec = spec
+        self._control_key = spec.control_key
         super().__init__(coordinator, serial)
-        self._attr_name = "On-Grid Cut-Off Voltage"
+        self._attr_name = spec.name
         self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_on_grid_cutoff_voltage"
+            f"{self._clean_model}_{serial.lower()}_{spec.unique_id_suffix}"
         )
-        self._attr_native_min_value = CUTOFF_VOLTAGE_MIN
-        self._attr_native_max_value = CUTOFF_VOLTAGE_MAX
-        self._attr_native_step = CUTOFF_VOLTAGE_STEP
+        self._attr_native_min_value = spec.min_value
+        self._attr_native_max_value = spec.max_value
+        self._attr_native_step = spec.step
         self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:battery-alert"
-        self._attr_native_precision = 1
+        self._attr_icon = spec.icon
+        self._attr_native_precision = spec.precision
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (OnGridCutoffVoltageNumber, OffGridCutoffVoltageNumber)
+        # Contract-only: satisfies the base class's abstract method but is
+        # never consulted — _refresh_related_entities below is fully
+        # overridden to filter by spec.related_group instead (an isinstance
+        # check alone would over-refresh every voltage spec at once).
+        return (EG4VoltageNumber,)
+
+    def _volts_from_spec_param(self, raw: Any) -> float:
+        """Normalize a voltage parameter to volts using the spec's threshold.
+
+        Same magnitude heuristic as ``_volts_from_param`` (local Modbus
+        surfaces raw decivolts, cloud returns already-scaled volts), but the
+        split point comes from the spec so registers whose legit volts exceed
+        100 (PV start voltage) don't get their cloud values divided again.
+        """
+        value = float(raw)
+        threshold = self._spec.decivolt_threshold
+        return round(value / 10.0 if value >= threshold else value, 1)
 
     @property
     def native_value(self) -> float | None:
-        """Return the current on-grid cutoff voltage (decivolts → V)."""
+        """Return the current voltage, normalizing raw decivolts when needed."""
         return self._read_param_value(
-            param_key=PARAM_HOLD_ONGRID_EOD_VOLTAGE,
-            value_min=20,
-            value_max=70,
-            as_float=True,
-            param_transform=self._volts_from_param,
+            param_key=self._spec.param_key,
+            value_min=self._spec.read_value_min,
+            value_max=self._spec.read_value_max,
+            as_float=self._spec.read_as_float,
+            param_transform=self._volts_from_spec_param,
             params_first=True,
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the on-grid cutoff voltage."""
-        if value < CUTOFF_VOLTAGE_MIN or value > CUTOFF_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"On-grid cutoff voltage must be between "
-                f"{CUTOFF_VOLTAGE_MIN}-{CUTOFF_VOLTAGE_MAX} V, got {value}"
+        """Validate and write the configured voltage register."""
+        spec = self._spec
+        write_value = value
+        if spec.require_whole:
+            int_value = int(value)
+            if abs(value - int_value) > 0.01:
+                raise HomeAssistantError(
+                    f"{spec.message_label} must be a whole number of volts, got {value}"
+                )
+            int_value = _coerce_int_in_range(
+                value,
+                min_v=spec.min_value,
+                max_v=spec.max_value,
+                label=spec.message_label,
+                unit=" V",
             )
+            write_value = float(int_value)
+        elif value < spec.min_value or value > spec.max_value:
+            raise HomeAssistantError(
+                f"{spec.message_label} must be between "
+                f"{spec.min_value}-{spec.max_value} V, got {value}"
+            )
+
+        cloud_write: Callable[[], Awaitable[None]] | None = None
+        if spec.cloud_write_volts_named:
+            volts = int(write_value)
+
+            async def _cloud_write_named_volts() -> None:
+                client = self.coordinator.require_client()
+                result = await client.api.control.write_parameter(
+                    self.serial, spec.param_key, str(volts)
+                )
+                if not result.success:
+                    raise HomeAssistantError(
+                        f"Failed to set {spec.message_label} to {volts} V"
+                    )
+                await self.coordinator.refresh_inverter_params_if_linked(self.serial)
+
+            cloud_write = _cloud_write_named_volts
+
         await self._write_voltage_register(
-            value=value,
-            param_name=PARAM_HOLD_ONGRID_EOD_VOLTAGE,
-            register=REG_ONGRID_EOD_VOLTAGE,
-            label="On-Grid Cut-Off Voltage",
+            value=write_value,
+            param_name=spec.param_key,
+            register=spec.register,
+            label=spec.name,
+            cloud_write=cloud_write,
         )
 
-
-class OffGridCutoffVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for Off-Grid discharge Cut-Off Voltage control (register 100)."""
-
-    _control_key = "off_grid_cutoff_voltage"
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "Off-Grid Cut-Off Voltage"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_off_grid_cutoff_voltage"
-        )
-        self._attr_native_min_value = CUTOFF_VOLTAGE_MIN
-        self._attr_native_max_value = CUTOFF_VOLTAGE_MAX
-        self._attr_native_step = CUTOFF_VOLTAGE_STEP
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:battery-outline"
-        self._attr_native_precision = 1
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (OnGridCutoffVoltageNumber, OffGridCutoffVoltageNumber)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current off-grid cutoff voltage (decivolts → V)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
-            value_min=20,
-            value_max=70,
-            as_float=True,
-            param_transform=self._volts_from_param,
-            params_first=True,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the off-grid cutoff voltage."""
-        if value < CUTOFF_VOLTAGE_MIN or value > CUTOFF_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"Off-grid cutoff voltage must be between "
-                f"{CUTOFF_VOLTAGE_MIN}-{CUTOFF_VOLTAGE_MAX} V, got {value}"
-            )
-        await self._write_voltage_register(
-            value=value,
-            param_name=PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
-            register=REG_OFFGRID_EOD_VOLTAGE,
-            label="Off-Grid Cut-Off Voltage",
-        )
-
-
-class ACChargeStartVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for AC Charge Start Voltage control (register 158).
-
-    Whole-volt values only (firmware rejects fractional volts).
-    """
-
-    _control_key = "ac_charge_start_voltage"
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "AC Charge Start Voltage"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_charge_start_voltage"
-        )
-        self._attr_native_min_value = AC_CHARGE_VOLTAGE_MIN
-        self._attr_native_max_value = AC_CHARGE_VOLTAGE_MAX
-        self._attr_native_step = AC_CHARGE_VOLTAGE_STEP
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:battery-charging-low"
-        self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeStartVoltageNumber, ACChargeEndVoltageNumber)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current AC charge start voltage (decivolts → V)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
-            value_min=20,
-            value_max=70,
-            as_float=True,
-            param_transform=self._volts_from_param,
-            params_first=True,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge start voltage (whole volts only)."""
-        int_value = int(value)
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge start voltage must be a whole number of volts, got {value}"
-            )
-        if int_value < AC_CHARGE_VOLTAGE_MIN or int_value > AC_CHARGE_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"AC charge start voltage must be between "
-                f"{AC_CHARGE_VOLTAGE_MIN}-{AC_CHARGE_VOLTAGE_MAX} V, got {int_value}"
-            )
-        await self._write_voltage_register(
-            value=float(int_value),
-            param_name=PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
-            register=REG_AC_CHARGE_START_VOLTAGE,
-            label="AC Charge Start Voltage",
-        )
-
-
-class ACChargeEndVoltageNumber(EG4BaseNumberEntity):
-    """Number entity for AC Charge End Voltage control (register 159).
-
-    Whole-volt values only (firmware rejects fractional volts).
-    """
-
-    _control_key = "ac_charge_end_voltage"
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "AC Charge End Voltage"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_charge_end_voltage"
-        )
-        self._attr_native_min_value = AC_CHARGE_VOLTAGE_MIN
-        self._attr_native_max_value = AC_CHARGE_VOLTAGE_MAX
-        self._attr_native_step = AC_CHARGE_VOLTAGE_STEP
-        self._attr_native_unit_of_measurement = "V"
-        self._attr_icon = "mdi:battery-charging-high"
-        self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeStartVoltageNumber, ACChargeEndVoltageNumber)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current AC charge end voltage (decivolts → V)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
-            value_min=20,
-            value_max=70,
-            as_float=True,
-            param_transform=self._volts_from_param,
-            params_first=True,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the AC charge end voltage (whole volts only)."""
-        int_value = int(value)
-        if abs(value - int_value) > 0.01:
-            raise HomeAssistantError(
-                f"AC charge end voltage must be a whole number of volts, got {value}"
-            )
-        if int_value < AC_CHARGE_VOLTAGE_MIN or int_value > AC_CHARGE_VOLTAGE_MAX:
-            raise HomeAssistantError(
-                f"AC charge end voltage must be between "
-                f"{AC_CHARGE_VOLTAGE_MIN}-{AC_CHARGE_VOLTAGE_MAX} V, got {int_value}"
-            )
-        await self._write_voltage_register(
-            value=float(int_value),
-            param_name=PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
-            register=REG_AC_CHARGE_END_VOLTAGE,
-            label="AC Charge End Voltage",
-        )
+    async def _refresh_related_entities(self) -> None:
+        """Refresh only voltage entities in this spec's related group."""
+        try:
+            await self.coordinator.refresh_all_device_parameters()
+            platform = self.platform
+            if platform is not None:
+                related_entities = [
+                    entity
+                    for entity in platform.entities.values()
+                    if isinstance(entity, EG4VoltageNumber)
+                    and entity._spec.key in self._spec.related_group
+                ]
+                _LOGGER.info(
+                    "Updating %d related entities after parameter refresh",
+                    len(related_entities),
+                )
+                update_tasks = [entity.async_update() for entity in related_entities]
+                await asyncio.gather(*update_tasks, return_exceptions=True)
+                await self.coordinator.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("Failed to refresh parameters and entities: %s", e)

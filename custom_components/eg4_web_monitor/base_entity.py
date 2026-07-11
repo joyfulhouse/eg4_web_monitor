@@ -1015,6 +1015,84 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError(f"Inverter {self._serial} not found")
         return inverter
 
+    async def _optimistic_write_envelope(
+        self,
+        action_name: str,
+        value: bool,
+        *,
+        do_write: Callable[[], Awaitable[None]],
+        do_refresh: Callable[[], Awaitable[None]],
+        pre_delay_refresh: Callable[[], Awaitable[None]] | None = None,
+        api_delay: float = 1.0,
+        seed_param_key: str | None = None,
+    ) -> None:
+        """Execute a write with optimistic state and post-write refreshes.
+
+        Shared by ``_execute_switch_action`` and ``_execute_cloud_function_action``.
+        ``do_write`` performs its own precondition/success checks and raises
+        ``HomeAssistantError`` on failure — there is no false-return branch
+        here; failure flows through the single exception handler below.
+
+        The optimistic state is cleared AFTER ``do_refresh`` completes to
+        prevent the "bounce" effect where the entity briefly shows the wrong
+        state while waiting for API data to propagate.
+
+        Callers emit their path-specific debug log BEFORE invoking this
+        envelope — the pinned log ordering is debug → optimistic publish →
+        write. A logging handler that itself raises therefore escapes
+        unwrapped (no optimistic state exists yet to clear); accepted, since
+        wrapping it would require moving the log after the optimistic
+        publish and changing the documented ordering.
+        """
+        action_verb = "Enabling" if value else "Disabling"
+
+        try:
+            # Set optimistic state immediately for UI feedback.
+            self._optimistic_state = value
+            self.async_write_ha_state()
+
+            await do_write()
+
+            # Seed the acknowledged value BEFORE the refresh/optimistic-clear
+            # (#310): under a down local link the parameter refresh below
+            # cannot read the device locally (LOCAL-only: no data at all;
+            # HYBRID: cloud re-read can lag or fail), so without the seed
+            # this method could publish the STALE pre-write state when it
+            # clears the optimistic value — a wrong-then-corrected double
+            # transition (recorder pollution, automation misfires on the
+            # intermediate value).
+            if seed_param_key is not None:
+                self._seed_cloud_written_parameter(seed_param_key, value)
+
+            if pre_delay_refresh is not None:
+                await pre_delay_refresh()
+
+            # Wait for API to propagate changes before refreshing.
+            await asyncio.sleep(api_delay)
+            await do_refresh()
+
+            # Clear optimistic state AFTER refresh completes — at this point
+            # coordinator data should reflect the new state.
+            self._optimistic_state = None
+            self.async_write_ha_state()
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            _LOGGER.error(
+                "Failed to %s %s for device %s: %s",
+                action_verb.lower(),
+                action_name,
+                self._serial,
+                e,
+            )
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action_verb.lower()} {action_name}: {e}"
+            ) from e
+
     async def _execute_switch_action(
         self,
         action_name: str,
@@ -1070,18 +1148,17 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         )
         action_verb = "Enabling" if turn_on else "Disabling"
 
-        try:
-            _LOGGER.debug(
-                "%s %s via CLOUD API for device %s",
-                action_verb,
-                action_name,
-                self._serial,
-            )
+        _LOGGER.debug(
+            "%s %s via CLOUD API for device %s",
+            action_verb,
+            action_name,
+            self._serial,
+        )
 
-            # Set optimistic state immediately for UI feedback
-            self._optimistic_state = turn_on
-            self.async_write_ha_state()
+        inverter: Any = None
 
+        async def do_write() -> None:
+            nonlocal inverter
             inverter = self._get_inverter_or_raise()
 
             # Call the appropriate method: an inverter method looked up by
@@ -1092,8 +1169,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 else method_ref
             )
             if method is None:
-                self._optimistic_state = None
-                self.async_write_ha_state()
                 raise HomeAssistantError(f"Method {method_name} not found on inverter")
 
             # Only the enable (turn_on) path forwards enable_kwargs; the disable
@@ -1102,8 +1177,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 await method(**(enable_kwargs or {})) if turn_on else await method()
             )
             if not success:
-                self._optimistic_state = None
-                self.async_write_ha_state()
                 raise HomeAssistantError(
                     f"Failed to {action_verb.lower()} {action_name}"
                 )
@@ -1115,52 +1188,24 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self._serial,
             )
 
-            # Seed the acknowledged value BEFORE the refresh/optimistic-clear
-            # (#310): under a down local link the parameter refresh below
-            # cannot read the device locally (LOCAL-only: no data at all;
-            # HYBRID: cloud re-read can lag or fail), so without the seed
-            # this method could publish the STALE pre-write state when it
-            # clears the optimistic value — a wrong-then-corrected double
-            # transition (recorder pollution, automation misfires on the
-            # intermediate value).
-            if seed_param_key is not None:
-                self._seed_cloud_written_parameter(seed_param_key, turn_on)
-
-            # Refresh inverter data from API
+        async def pre_delay_refresh() -> None:
             await inverter.refresh()
 
-            # Wait for API to propagate changes before refreshing coordinator
-            # This prevents reading stale data during the coordinator refresh
-            await asyncio.sleep(api_delay)
-
-            # Request coordinator refresh (blocking wait for completion)
+        async def do_refresh() -> None:
             if refresh_params:
                 await self.coordinator.async_refresh_device_parameters(self._serial)
             else:
                 await self.coordinator.async_refresh()
 
-            # Clear optimistic state AFTER refresh completes
-            # At this point coordinator data should reflect the new state
-            self._optimistic_state = None
-            self.async_write_ha_state()
-
-        except HomeAssistantError:
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to %s %s for device %s: %s",
-                action_verb.lower(),
-                action_name,
-                self._serial,
-                e,
-            )
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise HomeAssistantError(
-                f"Failed to {action_verb.lower()} {action_name}: {e}"
-            ) from e
+        await self._optimistic_write_envelope(
+            action_name,
+            turn_on,
+            do_write=do_write,
+            do_refresh=do_refresh,
+            pre_delay_refresh=pre_delay_refresh,
+            api_delay=api_delay,
+            seed_param_key=seed_param_key,
+        )
 
     async def _execute_local_with_fallback(
         self,
@@ -1323,19 +1368,15 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         if client is None:
             raise HomeAssistantError(f"No cloud API available for {action_name}")
 
-        try:
-            _LOGGER.debug(
-                "%s %s via CLOUD function control for device %s (parameter %s)",
-                action_verb,
-                action_name,
-                self._serial,
-                parameter,
-            )
+        _LOGGER.debug(
+            "%s %s via CLOUD function control for device %s (parameter %s)",
+            action_verb,
+            action_name,
+            self._serial,
+            parameter,
+        )
 
-            # Set optimistic state immediately for UI feedback
-            self._optimistic_state = value
-            self.async_write_ha_state()
-
+        async def do_write() -> None:
             response = await client.api.control.control_function(
                 self._serial, parameter, value
             )
@@ -1351,41 +1392,17 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 self._serial,
             )
 
-            # Seed the acknowledged value BEFORE the refresh/optimistic-clear:
-            # under a down local link the parameter refresh below cannot read
-            # the device locally (LOCAL-only: skipped; HYBRID: cloud re-read
-            # can lag or fail), and is_on would otherwise revert to the stale
-            # pre-write cache value once the optimistic state clears (#310).
-            if seed_param_key is not None:
-                self._seed_cloud_written_parameter(seed_param_key, value)
-
-            # Wait for API to propagate changes before refreshing parameters
-            await asyncio.sleep(api_delay)
-
-            # Refresh device parameters so is_on reflects the new bit state
+        async def do_refresh() -> None:
             await self.coordinator.async_refresh_device_parameters(self._serial)
 
-            # Clear optimistic state AFTER refresh completes
-            self._optimistic_state = None
-            self.async_write_ha_state()
-
-        except HomeAssistantError:
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to %s %s for device %s: %s",
-                action_verb.lower(),
-                action_name,
-                self._serial,
-                e,
-            )
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise HomeAssistantError(
-                f"Failed to {action_verb.lower()} {action_name}: {e}"
-            ) from e
+        await self._optimistic_write_envelope(
+            action_name,
+            value,
+            do_write=do_write,
+            do_refresh=do_refresh,
+            api_delay=api_delay,
+            seed_param_key=seed_param_key,
+        )
 
     async def _execute_named_parameter_action(
         self,

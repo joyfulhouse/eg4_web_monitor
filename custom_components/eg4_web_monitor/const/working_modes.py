@@ -16,6 +16,11 @@ Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
   translation — issue #262 gotcha).
 - ``enabled_default``: set False to register the switch disabled by
   default (niche features, e.g. Share Battery — GH #288).
+- ``legacy_attrs``: map legacy state-attribute names to parameter keys when
+  folding a standalone switch into the table must preserve its exact
+  attribute shape (including returning None when no value is available).
+- ``action_name``: override the action label used in errors and logs when a
+  folded standalone switch has an established user-visible label.
 
 Cloud-only state parameters need no per-mode flag: switch.py setup probes
 the installed pylxpweb register map (``_local_params_can_carry``) and skips
@@ -43,6 +48,23 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "description": "Allow battery charging from AC grid power",
         "icon": "mdi:battery-charging-medium",
         "entity_category": EntityCategory.CONFIG,
+    },
+    # Charge Last (FUNC_CHARGE_LAST, register 110 bit 4, GH #177) flips PV
+    # surplus priority. Disabled ("charge first"), PV charges the battery
+    # before exporting surplus; enabled, PV serves house loads and grid
+    # export first, reserving battery headroom for peak production. The bit
+    # is available to every control-capable family and has no dedicated
+    # pylxpweb enable/disable methods, so cloud writes use the generic
+    # function-control API. ``legacy_attrs`` preserves the exact attribute
+    # contract of the former standalone switch during the table-driven fold.
+    "charge_last_mode": {
+        "name": "Charge Last",
+        "param": "FUNC_CHARGE_LAST",
+        "description": "Prioritize house loads and grid export before battery charging",
+        "icon": "mdi:battery-clock",
+        "entity_category": EntityCategory.CONFIG,
+        "legacy_attrs": {"func_charge_last": "FUNC_CHARGE_LAST"},
+        "action_name": "charge last",
     },
     "pv_charge_priority_mode": {
         "name": "PV Charge Priority Mode",
@@ -154,6 +176,7 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_BATTERY_BACKUP_CTRL": "FUNC_BATTERY_BACKUP_CTRL",
     "FUNC_GRID_PEAK_SHAVING": "FUNC_GRID_PEAK_SHAVING",
     "FUNC_AC_CHARGE": "FUNC_AC_CHARGE",
+    "FUNC_CHARGE_LAST": "FUNC_CHARGE_LAST",
     "FUNC_FORCED_CHG_EN": "FUNC_FORCED_CHG_EN",
     "FUNC_FORCED_DISCHG_EN": "FUNC_FORCED_DISCHG_EN",
     "FUNC_SET_TO_STANDBY": "FUNC_SET_TO_STANDBY",

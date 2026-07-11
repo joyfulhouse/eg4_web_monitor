@@ -951,6 +951,12 @@
     }
   },
   "exceptions": {
+    "tz_marker_unresolvable": {
+      "message": "Nie można już rozpoznać strefy czasowej używanej wcześniej dla {statistic_id} ({old_timezone}), dlatego istniejących statystyk nie można bezpiecznie zweryfikować względem obecnie rozpoznanej strefy czasowej ({new_timezone}). Przed ponownym uruchomieniem importu ręcznie wyczyść statystyki tej serii."
+    },
+    "tz_marker_missing_misaligned": {
+      "message": "Istniejące statystyki dla {statistic_id} nie mają zapisanego znacznika strefy czasowej i nie są wyrównane do lokalnej północy w obecnie rozpoznanej strefie czasowej ({new_timezone}), dlatego nie można sprawdzić, w jakiej strefie czasowej zostały pierwotnie zapisane. Przed ponownym uruchomieniem importu ręcznie wyczyść statystyki tej serii."
+    },
     "entry_not_found": {
       "message": "Nie znaleziono wpisu konfiguracji {entry_id}. Sprawdz, czy ID wpisu jest poprawne."
     },

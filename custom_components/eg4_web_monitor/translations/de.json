@@ -951,6 +951,12 @@
     }
   },
   "exceptions": {
+    "tz_marker_unresolvable": {
+      "message": "Die zuvor für {statistic_id} verwendete Zeitzone ({old_timezone}) kann nicht mehr aufgelöst werden. Daher lassen sich die vorhandenen Statistiken nicht sicher mit der aktuell aufgelösten Zeitzone ({new_timezone}) abgleichen. Löschen Sie die Statistiken dieser Reihe manuell, bevor Sie den Import erneut ausführen."
+    },
+    "tz_marker_missing_misaligned": {
+      "message": "Für die vorhandenen Statistiken von {statistic_id} ist keine Zeitzonenmarkierung gespeichert, und ihre Zeitpunkte entsprechen nicht der lokalen Mitternacht der aktuell aufgelösten Zeitzone ({new_timezone}). Daher lässt sich nicht feststellen, in welcher Zeitzone sie ursprünglich geschrieben wurden. Löschen Sie die Statistiken dieser Reihe manuell, bevor Sie den Import erneut ausführen."
+    },
     "entry_not_found": {
       "message": "Konfigurationseintrag {entry_id} nicht gefunden. Bitte überprüfen Sie, ob die Eintrags-ID korrekt ist."
     },
