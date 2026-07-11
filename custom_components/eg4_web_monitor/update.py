@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, cast
 
@@ -81,6 +82,14 @@ class EG4FirmwareUpdateEntity(
 
         # Entity naming
         self._attr_name = "Firmware"
+
+        # Serializes installs: HA deliberately skips its internal busy flag
+        # for native-progress entities, and this entity's in_progress is
+        # coordinator-derived (lags a poll cycle) — so two same-window
+        # update.install calls would both pass HA's guard and could both
+        # reach standardUpdate/run before either registers server-side
+        # (post-beta.1 scan P2).
+        self._install_lock = asyncio.Lock()
 
     @property
     def device_info(self) -> DeviceInfo | None:
@@ -199,6 +208,11 @@ class EG4FirmwareUpdateEntity(
         its own and pressing Install again resumes from the remaining
         components (the orchestrator re-checks before every run).
         """
+        if self._install_lock.locked():
+            raise HomeAssistantError(
+                f"Firmware update for {self._serial} is already running"
+            )
+
         _LOGGER.info("Installing firmware update for %s", self._serial)
 
         # Get device object from coordinator
@@ -209,7 +223,8 @@ class EG4FirmwareUpdateEntity(
             )
 
         try:
-            result = await device.run_firmware_update_to_completion()
+            async with self._install_lock:
+                result = await device.run_firmware_update_to_completion()
         except Exception as err:
             _LOGGER.error("Failed to run firmware update for %s: %s", self._serial, err)
             raise
