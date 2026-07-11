@@ -14,7 +14,7 @@ aiohttp>=3.10.0
 # Note: aiodns managed by homeassistant, pycares>=4.9.0 for Python 3.13
 pycares>=4.9.0,<5
 voluptuous>=0.15.0
-pylxpweb>=0.9.38b1  # keep in sync with manifest.json; #353 needs run_firmware_update_to_completion (>=0.9.38b1)
+pylxpweb>=0.9.38b2  # keep in sync with manifest.json; #353 orchestrator force-poll fix (>=0.9.38b2)
 
 # Code quality
 ruff>=0.8.0

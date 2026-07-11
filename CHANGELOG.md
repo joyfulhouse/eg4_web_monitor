@@ -5,6 +5,22 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0-beta.2] - 2026-07-11
+
+Fast-follow beta: fixes from a dual (Codex + Claude) bug scan of beta.1.
+
+> Requires [pylxpweb 0.9.38b2](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.38b2)
+> (installed automatically). **beta.1 users should upgrade before testing
+> firmware updates** — its orchestrator falsely abandoned running update
+> steps after ~7 minutes (fail-safe, but the update looked failed).
+
+### Fixed
+
+- **Firmware update orchestrator falsely abandoned running steps** (both scanners, independently): a status-cache interaction replayed a stale idle snapshot for the whole start-grace window, so every realistic multi-step update was reported "no firmware version progress" while the inverter was mid-flash. Every progress poll now bypasses the cache (pylxpweb 0.9.38b2).
+- **AC-charge settings read `enabled=false` in cloud mode** (pre-existing): the enable bit was read via a local-transport-only key shape; now routed through the transport/cloud-aware helper (pylxpweb 0.9.38b2).
+- **Concurrent firmware installs could double-fire**: HA skips its busy flag for native-progress entities and this entity's `in_progress` lags a poll cycle, so two same-window `update.install` calls could both reach the update API. Installs now serialize on a per-serial lock that survives config-entry reloads.
+- **Timezone-migration retry could bake in a duplicate day**: retrying an interrupted tz migration merged stale old-timezone rows left by the failed clear and verification then accepted them permanently (one calendar day double-counted). The retry now drops rows not aligned to the migration's target timezone and re-issues the clear. Alignment also now tolerates zones where DST begins at midnight (Havana/Santiago class), which previously mis-classified valid transition-day rows.
+
 ## [3.5.0-beta.1] - 2026-07-11
 
 First beta of the 3.5.0 line.
