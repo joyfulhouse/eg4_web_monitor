@@ -9,6 +9,7 @@ from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -182,25 +183,44 @@ class EG4FirmwareUpdateEntity(
     async def async_install(
         self, version: str | None, backup: bool, **kwargs: Any
     ) -> None:
-        """Install firmware update."""
+        """Install firmware update, running multi-step chains to completion.
+
+        Some devices (e.g. 6000XP) require the cloud update call once per
+        firmware component — a single call leaves them on a partial version
+        (issue #353). ``run_firmware_update_to_completion`` re-checks and
+        re-runs until the device converges, and its result is checked so a
+        refused start or partial chain surfaces as an error instead of
+        logging "initiated" and silently stopping short.
+        """
         _LOGGER.info("Installing firmware update for %s", self._serial)
 
         # Get device object from coordinator
         device = self.coordinator._get_device_object(self._serial)
         if not device:
-            _LOGGER.error("Device %s not found for firmware update", self._serial)
-            return
+            raise HomeAssistantError(
+                f"Device {self._serial} not found for firmware update"
+            )
 
         try:
-            # Start firmware update
-            await device.start_firmware_update()
-            _LOGGER.info("Firmware update initiated for %s", self._serial)
-
-            # Refresh coordinator data to update status
+            result = await device.run_firmware_update_to_completion()
+        except Exception as err:
+            _LOGGER.error("Failed to run firmware update for %s: %s", self._serial, err)
+            raise
+        finally:
+            # Refresh coordinator data so version/progress state updates
+            # regardless of outcome.
             await self.coordinator.async_request_refresh()
 
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to start firmware update for %s: %s", self._serial, err
+        if not result.success:
+            raise HomeAssistantError(
+                f"Firmware update for {self._serial} did not complete: "
+                f"{result.message} (steps run: {result.steps_run}, "
+                f"current version: {result.final_version or 'unknown'})"
             )
-            raise
+
+        _LOGGER.info(
+            "Firmware update for %s complete after %d step(s); version %s",
+            self._serial,
+            result.steps_run,
+            result.final_version,
+        )
