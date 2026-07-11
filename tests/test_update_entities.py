@@ -504,6 +504,45 @@ class TestAsyncInstall:
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_concurrent_install_rejected(self):
+        """Two same-window installs must not both reach the update API: HA
+        skips its busy flag for native-progress entities and in_progress is
+        coordinator-derived (lags), so the entity serializes via its own
+        lock (post-beta.1 scan P2)."""
+        import asyncio
+
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        device = coordinator._get_device_object("SN1")
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _slow_run():
+            started.set()
+            await release.wait()
+            return SimpleNamespace(
+                success=True,
+                converged=True,
+                steps_run=1,
+                message="ok",
+                final_version="V",
+            )
+
+        device.run_firmware_update_to_completion = AsyncMock(side_effect=_slow_run)
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        first = asyncio.create_task(entity.async_install(version=None, backup=False))
+        await started.wait()
+
+        with pytest.raises(HomeAssistantError, match="already running"):
+            await entity.async_install(version=None, backup=False)
+
+        release.set()
+        await first
+        assert device.run_firmware_update_to_completion.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_refresh_failure_does_not_mask_success(self):
         """A failing post-install refresh is swallowed: a successful update
         must not surface as an installation error (codex P2)."""
@@ -551,3 +590,22 @@ class TestAsyncInstall:
             await entity.async_install(version=None, backup=False)
 
         coordinator.async_request_refresh.assert_called_once()
+
+
+class TestInstallLockLifetime:
+    """The install lock must survive entity replacement (config reload)."""
+
+    def test_lock_shared_across_entity_instances_for_same_serial(self):
+        """Two entity instances for the same serial share one lock; a
+        different serial gets its own (codex review: per-instance locks
+        would let a reloaded entity race an in-flight install)."""
+        c1 = _mock_coordinator(devices={"SN1": {"type": "inverter", "model": "X"}})
+        c2 = _mock_coordinator(devices={"SN1": {"type": "inverter", "model": "X"}})
+        c3 = _mock_coordinator(devices={"SN2": {"type": "inverter", "model": "X"}})
+
+        e1 = EG4FirmwareUpdateEntity(c1, "SN1")
+        e2 = EG4FirmwareUpdateEntity(c2, "SN1")
+        e3 = EG4FirmwareUpdateEntity(c3, "SN2")
+
+        assert e1._install_lock is e2._install_lock
+        assert e1._install_lock is not e3._install_lock

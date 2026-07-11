@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, cast
 
@@ -18,6 +19,13 @@ from .const import ENTITY_PREFIX
 from .coordinator import EG4DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Install locks keyed by device serial, at MODULE level so they survive
+# config-entry reloads: a reload creates a replacement entity (and would
+# create a fresh per-instance lock) while an in-flight install coroutine
+# still holds the old entity — both could then reach the update API during
+# backend visibility lag (codex review of the post-beta.1 scan fixes).
+_INSTALL_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 async def async_setup_entry(
@@ -81,6 +89,15 @@ class EG4FirmwareUpdateEntity(
 
         # Entity naming
         self._attr_name = "Firmware"
+
+        # Serializes installs: HA deliberately skips its internal busy flag
+        # for native-progress entities, and this entity's in_progress is
+        # coordinator-derived (lags a poll cycle) — so two same-window
+        # update.install calls would both pass HA's guard and could both
+        # reach standardUpdate/run before either registers server-side
+        # (post-beta.1 scan P2). Shared per-serial via the module registry
+        # so a config-entry reload cannot mint a second, independent lock.
+        self._install_lock = _INSTALL_LOCKS.setdefault(serial, asyncio.Lock())
 
     @property
     def device_info(self) -> DeviceInfo | None:
@@ -199,6 +216,11 @@ class EG4FirmwareUpdateEntity(
         its own and pressing Install again resumes from the remaining
         components (the orchestrator re-checks before every run).
         """
+        if self._install_lock.locked():
+            raise HomeAssistantError(
+                f"Firmware update for {self._serial} is already running"
+            )
+
         _LOGGER.info("Installing firmware update for %s", self._serial)
 
         # Get device object from coordinator
@@ -209,7 +231,8 @@ class EG4FirmwareUpdateEntity(
             )
 
         try:
-            result = await device.run_firmware_update_to_completion()
+            async with self._install_lock:
+                result = await device.run_firmware_update_to_completion()
         except Exception as err:
             _LOGGER.error("Failed to run firmware update for %s: %s", self._serial, err)
             raise

@@ -657,7 +657,14 @@ def _existing_rows_aligned_to_tz(existing_rows: dict[datetime, float], tz: Any) 
             0,
             0,
         ):
-            return False
+            # Check for DST transition gaps where midnight is skipped and
+            # the day starts at a different local hour (e.g., 01:00).
+            local_date = local.date()
+            nominal_midnight = datetime.combine(
+                local_date, datetime.min.time(), tzinfo=tz
+            )
+            if start != dt_util.as_utc(nominal_midnight):
+                return False
     return True
 
 
@@ -751,10 +758,36 @@ async def _merge_and_write(
                 snapshot_rows = _snapshot_rows_to_starts(
                     pending_migration["rows"], snapshot_tz
                 )
-                # DB rows (if the interrupted attempt's write actually landed)
-                # take precedence per key; the snapshot fills in anything an
-                # interrupted clear/write left missing so no day is lost.
-                existing_rows = {**snapshot_rows, **existing_rows}
+                # Only DB rows aligned to the snapshot timezone's local
+                # midnight may take precedence per key (those are the
+                # interrupted attempt's own writes landing). Rows at OTHER
+                # midnights are leftovers of the failed clear this migration
+                # is retrying — merging them would rebuild them as intended
+                # data and verification would then bless the duplicate day
+                # permanently (post-beta.1 scan P2: a retained old-tz row
+                # plus its re-keyed twin double-counts that day).
+                aligned_db_rows = {
+                    start: value
+                    for start, value in existing_rows.items()
+                    if _existing_rows_aligned_to_tz({start: value}, snapshot_tz)
+                }
+                stale_count = len(existing_rows) - len(aligned_db_rows)
+                existing_rows = {**snapshot_rows, **aligned_db_rows}
+                if stale_count:
+                    # Re-issue the clear whose failure created this state so
+                    # the rebuild below starts from an empty series; the
+                    # post-write verification still gates the marker.
+                    _LOGGER.warning(
+                        "Retrying interrupted timezone migration for %s: "
+                        "%d stale row(s) not aligned to %s remain from the "
+                        "failed clear; clearing again before rebuilding",
+                        statistic_id,
+                        stale_count,
+                        pending_migration["tz_key"],
+                    )
+                    recorder = get_instance(hass)
+                    recorder.async_clear_statistics([statistic_id])
+                    await recorder.async_block_till_done()
                 # The snapshot is the most recent COMPLETE picture of intended
                 # state for this series — more current than a marker that was
                 # never advanced because the previous attempt was never

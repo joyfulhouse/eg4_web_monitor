@@ -1903,6 +1903,128 @@ class TestTimezoneChangeIdempotency:
             }
         }
 
+    async def test_pending_migration_retry_purges_stale_old_tz_rows(
+        self, hass: HomeAssistant, mock_coordinator, fake_marker_store
+    ):
+        """RETRY after a failed clear must not bake stale old-tz rows in.
+
+        Post-beta.1 scan P2 (codex): first attempt's clear fails leaving an
+        old-timezone (LA-midnight) row; the rebuild also landed the re-keyed
+        NY row, so verification correctly failed and kept the snapshot. On
+        retry, the recovery path used to merge the stale LA row as intended
+        data (snapshot tz == current tz skips the re-key branch), rebuild it,
+        and verification then blessed the duplicate day permanently. The fix
+        drops non-snapshot-tz-aligned DB rows from the merge and re-issues
+        the clear.
+        """
+        statistic_id = "eg4_web_monitor:plant_12345_yield"
+        migrated_day = date(2025, 1, 14)
+        fresh_day = date(2025, 1, 15)
+        la = zoneinfo.ZoneInfo("America/Los_Angeles")
+        ny = zoneinfo.ZoneInfo("America/New_York")
+        statistics_store: dict[tuple[str, datetime], tuple[float, float]] = {}
+
+        # DB state after the failed first attempt: the re-keyed NY row landed
+        # AND the stale LA-midnight twin survived the failed clear.
+        ny_start = dt_util.as_utc(datetime(2025, 1, 14, tzinfo=ny))
+        stale_la_start = dt_util.as_utc(datetime(2025, 1, 14, tzinfo=la))
+        statistics_store[(statistic_id, ny_start)] = (5.0, 5.0)
+        statistics_store[(statistic_id, stale_la_start)] = (5.0, 5.0)
+
+        fake_marker_store.seed(
+            history_import.HISTORY_IMPORT_TZ_STORAGE_KEY,
+            {statistic_id: "America/Los_Angeles"},
+        )
+        fake_marker_store.seed(
+            history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY,
+            {
+                statistic_id: {
+                    "tz_key": "America/New_York",
+                    "rows": {migrated_day.isoformat(): 5.0},
+                }
+            },
+        )
+
+        def fake_add(_hass, metadata, rows):
+            for row in rows:
+                statistics_store[(metadata["statistic_id"], row["start"])] = (
+                    row["state"],
+                    row["sum"],
+                )
+
+        async def fake_load(_hass, requested_statistic_id):
+            return {
+                start: state
+                for (stored_statistic_id, start), (state, _sum) in (
+                    statistics_store.items()
+                )
+                if stored_statistic_id == requested_statistic_id
+            }
+
+        def fake_clear(statistic_ids):
+            for key in [k for k in statistics_store if k[0] in statistic_ids]:
+                del statistics_store[key]
+
+        recorder = MagicMock()
+        recorder.async_block_till_done = AsyncMock()
+        recorder.async_clear_statistics = MagicMock(side_effect=fake_clear)
+
+        mock_coordinator.station.timezone = None
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.history_import."
+                "async_add_external_statistics",
+                side_effect=fake_add,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import._load_existing_rows",
+                new=fake_load,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.get_instance",
+                return_value=recorder,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.history_import.Store",
+                new=fake_marker_store,
+            ),
+        ):
+            await hass.config.async_set_time_zone("America/New_York")
+            rows_written = await _merge_and_write(
+                hass,
+                statistic_id,
+                "Test Plant PV yield",
+                {fresh_day: 6.0},
+                mock_coordinator,
+                start_date=fresh_day,
+                end_date=fresh_day,
+                dry_run=False,
+            )
+
+        # The clear was re-issued (that's the operation whose failure
+        # created this state).
+        recorder.async_clear_statistics.assert_called_once_with([statistic_id])
+
+        final_rows = sorted(
+            start
+            for (stored_statistic_id, start) in statistics_store
+            if stored_statistic_id == statistic_id
+        )
+        # Exactly two rows: NY-midnight Jan 14 (migrated) + NY Jan 15 (fresh).
+        # The stale LA-midnight row is GONE, not baked in as a third day.
+        assert rows_written == 2
+        assert final_rows == [
+            ny_start,
+            dt_util.as_utc(datetime(2025, 1, 15, tzinfo=ny)),
+        ]
+        # Marker advanced and snapshot deleted (verification passed cleanly).
+        markers = fake_marker_store.data(history_import.HISTORY_IMPORT_TZ_STORAGE_KEY)
+        assert markers[statistic_id] == "America/New_York"
+        migrations = fake_marker_store.data(
+            history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY
+        )
+        assert statistic_id not in migrations
+
     async def test_pending_migration_recovers_empty_database_without_data_loss(
         self, hass: HomeAssistant, mock_coordinator, fake_marker_store
     ):
@@ -2464,3 +2586,28 @@ class TestLoadExistingRows:
         assert rows == {dt_util.utc_from_timestamp(ts1): 1.5}
         # statistics_during_period invoked through the recorder executor
         assert recorder.async_add_executor_job.await_count == 1
+
+
+class TestExistingRowsAlignedToTz:
+    """Testing _existing_rows_aligned_to_tz with DST transition edges."""
+
+    def test_ordinary_and_dst_midnight_alignment(self):
+        """Test that _existing_rows_aligned_to_tz permits DST midnight transitions."""
+        from custom_components.eg4_web_monitor.history_import import (
+            _existing_rows_aligned_to_tz,
+        )
+
+        # 1. Ordinary day aligned to America/Havana midnight
+        havana = zoneinfo.ZoneInfo("America/Havana")
+        ordinary_local = datetime(2024, 3, 9, 0, 0, tzinfo=havana)
+        ordinary_utc = dt_util.as_utc(ordinary_local)
+        assert _existing_rows_aligned_to_tz({ordinary_utc: 10.0}, havana) is True
+
+        # 2. DST transition day in America/Havana (2024-03-10):
+        # DST starts at midnight (00:00 becomes 01:00). Start of day is at 01:00.
+        dst_start_utc = datetime(2024, 3, 10, 5, 0, tzinfo=dt_util.UTC)  # 01:00 Havana
+        assert _existing_rows_aligned_to_tz({dst_start_utc: 10.0}, havana) is True
+
+        # 3. Misaligned day (12:00 Havana)
+        misaligned_utc = datetime(2024, 3, 10, 16, 0, tzinfo=dt_util.UTC)
+        assert _existing_rows_aligned_to_tz({misaligned_utc: 10.0}, havana) is False
