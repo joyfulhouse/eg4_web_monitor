@@ -2209,6 +2209,11 @@ class VoltageNumberSpec:
     # for parameters whose verified cloud route is a named write in
     # human-readable volts (portal valueText semantics).
     cloud_write_volts_named: bool = False
+    # Whether native_value returns a float (True, battery voltages with
+    # fractional volts) or truncates to int (False — preserves the retired
+    # PV start class's integer state, e.g. "140" not "140.0", for
+    # exact-string automation conditions). Independent of display precision.
+    read_as_float: bool = True
 
 
 VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
@@ -2307,6 +2312,8 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         # Verified cloud route writes the named parameter in volts
         # (portal valueText=140); raw-register 22 writes are unproven.
         cloud_write_volts_named=True,
+        # Integer state ("140"), matching the retired dedicated class.
+        read_as_float=False,
     ),
 )
 
@@ -2339,7 +2346,7 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         # Contract-only: satisfies the base class's abstract method but is
         # never consulted — _refresh_related_entities below is fully
         # overridden to filter by spec.related_group instead (an isinstance
-        # check alone would over-refresh all four voltage specs at once).
+        # check alone would over-refresh every voltage spec at once).
         return (EG4VoltageNumber,)
 
     def _volts_from_spec_param(self, raw: Any) -> float:
@@ -2361,7 +2368,7 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             param_key=self._spec.param_key,
             value_min=self._spec.read_value_min,
             value_max=self._spec.read_value_max,
-            as_float=True,
+            as_float=self._spec.read_as_float,
             param_transform=self._volts_from_spec_param,
             params_first=True,
         )

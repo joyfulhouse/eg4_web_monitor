@@ -193,8 +193,10 @@ def test_pv_start_voltage_characterization() -> None:
     assert entity._control_key is None
     assert entity.entity_registry_enabled_default is True
     assert entity.extra_state_attributes is None
-    # LOCAL: raw decivolts (1400) normalize to volts.
-    assert entity.native_value == 140.0
+    # LOCAL: raw decivolts (1400) normalize to volts, and the state stays an
+    # int ("140" not "140.0") like the retired class (read_as_float=False).
+    assert entity.native_value == 140
+    assert isinstance(entity.native_value, int)
 
 
 def test_pv_start_voltage_cloud_read_not_divided_again() -> None:
@@ -205,7 +207,8 @@ def test_pv_start_voltage_cloud_read_not_divided_again() -> None:
     coordinator.is_local_only.return_value = False
     entity = _voltage_number(coordinator, "pv_start_voltage")
 
-    assert entity.native_value == 140.0
+    assert entity.native_value == 140
+    assert isinstance(entity.native_value, int)
 
 
 @pytest.mark.parametrize(
@@ -301,7 +304,14 @@ async def test_voltage_number_validation_messages(
     value: float,
     message: str,
 ) -> None:
-    """Validation messages remain byte-for-byte compatible."""
+    """Pin validation messages.
+
+    The four battery specs remain byte-for-byte compatible with their
+    retired classes. pv_start_voltage intentionally adopts the shared
+    whole-volt wording/order ("whole number of volts" checked before range)
+    instead of the retired class's "integer value" message — standardizing
+    with the other spec-driven entities.
+    """
     entity = _voltage_number(_mock_coordinator(parameters={}), spec_key)
 
     with pytest.raises(HomeAssistantError) as exc_info:
@@ -390,6 +400,31 @@ async def test_pv_start_voltage_write_dispatch_uses_named_cloud_route() -> None:
     await kwargs["cloud_write"]()
     write_parameter.assert_awaited_once_with(SERIAL, PARAM_HOLD_START_PV_VOLT, "140")
     coordinator.refresh_inverter_params_if_linked.assert_awaited_once_with(SERIAL)
+
+
+@pytest.mark.asyncio
+async def test_pv_start_voltage_cloud_write_end_to_end_uses_named_route() -> None:
+    """Pure-CLOUD end-to-end (no _write_voltage_register mock): the write
+    lands on the named volts route and NEVER touches raw register 22
+    (unproven on the cloud API)."""
+    coordinator = _mock_coordinator(parameters={})
+    coordinator.is_local_only.return_value = False
+    coordinator.has_local_transport.return_value = False
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+    entity.hass = MagicMock()
+    entity.entity_id = "number.pv_start_voltage"
+    platform = MagicMock()
+    platform.entities = {}
+    entity.platform = platform
+    entity.async_write_ha_state = MagicMock()
+
+    await entity.async_set_native_value(140.0)
+
+    coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+        SERIAL, PARAM_HOLD_START_PV_VOLT, "140"
+    )
+    coordinator.client.api.control.write_parameters.assert_not_awaited()
+    coordinator.write_named_parameter.assert_not_called()
 
 
 @pytest.mark.asyncio
