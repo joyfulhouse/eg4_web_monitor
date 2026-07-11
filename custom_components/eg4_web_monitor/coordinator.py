@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -880,6 +880,38 @@ class EG4DataUpdateCoordinator(
         for old_key in migrated:
             self._battery_key_migrations_done.add((inverter_serial, old_key))
 
+    async def _write_with_local_transport(
+        self,
+        *,
+        serial: str | None,
+        no_transport_message: str,
+        reconnect_message: str,
+        reconnect_args: tuple[Any, ...],
+        write: Callable[[Any], Awaitable[None]],
+        success_message: str,
+        success_args: tuple[Any, ...],
+        failure_message: str,
+        failure_args: tuple[Any, ...],
+        translated_error: Callable[[Exception], str],
+    ) -> bool:
+        """Run the shared local-transport write and error-translation shell."""
+        transport = self.get_local_transport(serial)
+        if not transport:
+            raise HomeAssistantError(no_transport_message)
+
+        try:
+            if not transport.is_connected:
+                _LOGGER.debug(reconnect_message, *reconnect_args)
+                await transport.connect()
+
+            await write(transport)
+            _LOGGER.debug(success_message, *success_args)
+            return True
+
+        except Exception as err:
+            _LOGGER.error(failure_message, *failure_args, err)
+            raise HomeAssistantError(translated_error(err)) from err
+
     async def write_named_parameter(
         self,
         parameter: str,
@@ -911,26 +943,22 @@ class EG4DataUpdateCoordinator(
             # Write an integer value
             await coordinator.write_named_parameter("HOLD_AC_CHARGE_SOC_LIMIT", 95)
         """
-        transport = self.get_local_transport(serial)
-        if not transport:
-            raise HomeAssistantError("No local transport available for parameter write")
-
-        try:
-            if not transport.is_connected:
-                _LOGGER.debug(
-                    "Reconnecting transport for %s before writing %s", serial, parameter
-                )
-                await transport.connect()
-
-            await transport.write_named_parameters({parameter: value})
-            _LOGGER.debug("Wrote parameter %s = %s", parameter, value)
-            return True
-
-        except Exception as err:
-            _LOGGER.error("Failed to write parameter %s: %s", parameter, err)
-            raise HomeAssistantError(
+        return await self._write_with_local_transport(
+            serial=serial,
+            no_transport_message="No local transport available for parameter write",
+            reconnect_message="Reconnecting transport for %s before writing %s",
+            reconnect_args=(serial, parameter),
+            write=lambda transport: transport.write_named_parameters(
+                {parameter: value}
+            ),
+            success_message="Wrote parameter %s = %s",
+            success_args=(parameter, value),
+            failure_message="Failed to write parameter %s: %s",
+            failure_args=(parameter,),
+            translated_error=lambda err: (
                 f"Failed to write parameter {parameter}: {err}"
-            ) from err
+            ),
+        )
 
     async def write_raw_parameter(
         self,
@@ -959,28 +987,18 @@ class EG4DataUpdateCoordinator(
         Raises:
             HomeAssistantError: If no local transport or write fails.
         """
-        transport = self.get_local_transport(serial)
-        if not transport:
-            raise HomeAssistantError("No local transport available for parameter write")
-
-        try:
-            if not transport.is_connected:
-                _LOGGER.debug(
-                    "Reconnecting transport for %s before writing register %d",
-                    serial,
-                    address,
-                )
-                await transport.connect()
-
-            await transport.write_parameters({address: value})
-            _LOGGER.debug("Wrote raw register %d = %s", address, value)
-            return True
-
-        except Exception as err:
-            _LOGGER.error("Failed to write register %d: %s", address, err)
-            raise HomeAssistantError(
-                f"Failed to write register {address}: {err}"
-            ) from err
+        return await self._write_with_local_transport(
+            serial=serial,
+            no_transport_message="No local transport available for parameter write",
+            reconnect_message="Reconnecting transport for %s before writing register %d",
+            reconnect_args=(serial, address),
+            write=lambda transport: transport.write_parameters({address: value}),
+            success_message="Wrote raw register %d = %s",
+            success_args=(address, value),
+            failure_message="Failed to write register %d: %s",
+            failure_args=(address,),
+            translated_error=lambda err: f"Failed to write register {address}: {err}",
+        )
 
     async def write_register(
         self,
@@ -1013,28 +1031,18 @@ class EG4DataUpdateCoordinator(
         Raises:
             HomeAssistantError: If no local transport or write fails.
         """
-        transport = self.get_local_transport(serial)
-        if not transport:
-            raise HomeAssistantError("No local transport available for register write")
-
-        try:
-            if not transport.is_connected:
-                _LOGGER.debug(
-                    "Reconnecting transport for %s before writing register %d",
-                    serial,
-                    register,
-                )
-                await transport.connect()
-
-            await transport.write_parameters({register: value})
-            _LOGGER.debug("Wrote register %d = %s", register, value)
-            return True
-
-        except Exception as err:
-            _LOGGER.error("Failed to write register %d: %s", register, err)
-            raise HomeAssistantError(
-                f"Failed to write register {register}: {err}"
-            ) from err
+        return await self._write_with_local_transport(
+            serial=serial,
+            no_transport_message="No local transport available for register write",
+            reconnect_message="Reconnecting transport for %s before writing register %d",
+            reconnect_args=(serial, register),
+            write=lambda transport: transport.write_parameters({register: value}),
+            success_message="Wrote register %d = %s",
+            success_args=(register, value),
+            failure_message="Failed to write register %d: %s",
+            failure_args=(register,),
+            translated_error=lambda err: f"Failed to write register {register}: {err}",
+        )
 
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 

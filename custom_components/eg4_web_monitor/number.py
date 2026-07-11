@@ -258,6 +258,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
     def _get_related_entity_types(self) -> tuple[type, ...]:
         """Return tuple of related entity types for parameter refresh."""
 
+    def _related_entity_predicate(self) -> Callable[[Any], bool]:
+        """Return the entity-selection predicate for parameter refreshes."""
+        related_types = self._get_related_entity_types()
+        return lambda entity: isinstance(entity, related_types)
+
     # ── Value read helpers ──────────────────────────────────────────
 
     def _params_are_local_raw(self) -> bool:
@@ -518,11 +523,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             await self.coordinator.refresh_all_device_parameters()
             platform = self.platform
             if platform is not None:
-                related_types = self._get_related_entity_types()
+                is_related_entity = self._related_entity_predicate()
                 related_entities = [
                     entity
                     for entity in platform.entities.values()
-                    if isinstance(entity, related_types)
+                    if is_related_entity(entity)
                 ]
                 _LOGGER.info(
                     "Updating %d related entities after parameter refresh",
@@ -1280,8 +1285,12 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
             # holdParam write (GH #331).
-            cloud_write=lambda: _write_cloud_named_soc(
-                self, PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC, int_value
+            cloud_write=lambda: _write_cloud_named_parameter(
+                self,
+                PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
+                int_value,
+                f"Failed to set {PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC} "
+                f"to {int_value}%",
             ),
             label=f"AC charge start battery SOC to {int_value}%",
         )
@@ -1352,27 +1361,31 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
             # holdParam write (GH #331).
-            cloud_write=lambda: _write_cloud_named_soc(
-                self, PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC, int_value
+            cloud_write=lambda: _write_cloud_named_parameter(
+                self,
+                PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
+                int_value,
+                f"Failed to set {PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC} to {int_value}%",
             ),
             label=f"AC charge end battery SOC to {int_value}%",
         )
 
 
-async def _write_cloud_named_soc(
-    entity: EG4BaseNumberEntity, param: str, soc: int
+async def _write_cloud_named_parameter(
+    entity: EG4BaseNumberEntity,
+    param: str,
+    value: int,
+    error_message: str,
 ) -> None:
-    """Write an off-grid AC-charge SOC holdParam via the cloud named write.
+    """Write a cloud holdParam value through the generic named-write API.
 
-    The portal's own call for the off-grid working-mode page (GH #331):
-    remoteSet/write with the holdParam name and the whole-percent value as
-    text. Bare writer — logging, optimistic state and the related-entity
-    refresh are provided by the callers' write wrappers.
+    Bare writer — logging, optimistic state and the related-entity refresh are
+    provided by the callers' write wrappers.
     """
     client = entity.coordinator.require_client()
-    result = await client.api.control.write_parameter(entity.serial, param, str(soc))
+    result = await client.api.control.write_parameter(entity.serial, param, str(value))
     if not result.success:
-        raise HomeAssistantError(f"Failed to set {param} to {soc}%")
+        raise HomeAssistantError(error_message)
     await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
 
 
@@ -1570,38 +1583,20 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
             local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
             local_value=int_value,
             # The named-param cloud writer is BOTH the cloud-mode path and
-            # the HYBRID local-failure fallback; pylxpweb's
-            # set_start_discharge_power is deliberately bypassed (see
-            # _write_cloud_named_parameter).
-            cloud_write=lambda: self._write_cloud_named_parameter(int_value),
+            # the HYBRID local-failure fallback. The website's own call
+            # (reporter-verified in the GH #272 browser console) is
+            # remoteSet/write with holdParam HOLD_P_TO_USER_START_DISCHG;
+            # pylxpweb's set_start_discharge_power is deliberately bypassed —
+            # its cloud leg writes the raw register by address and its read
+            # leg looks up a key that never exists on the server.
+            cloud_write=lambda: _write_cloud_named_parameter(
+                self,
+                PARAM_HOLD_P_TO_USER_START_DISCHG,
+                int_value,
+                f"Failed to set start discharge power threshold to {int_value} W",
+            ),
             label=f"start discharge power threshold to {int_value} W",
         )
-
-    async def _write_cloud_named_parameter(self, watts: int) -> None:
-        """Write the threshold via the generic cloud named-parameter API.
-
-        The website's own call (reporter-verified in the GH #272 browser
-        console): remoteSet/write with holdParam HOLD_P_TO_USER_START_DISCHG
-        and the watt value as text. pylxpweb's ``set_start_discharge_power``
-        is deliberately NOT used for cloud writes — its cloud leg writes the
-        raw register by address, and its cloud read leg looks up the wrong
-        key (the guessed HOLD_PTOUSER_START_DISCHARGE never exists on the
-        server), so the named-param call is the only website-verified path.
-
-        Bare writer: logging, ineffective-regime warning, optimistic state
-        and the related-entity refresh are provided by ``_write_parameter``.
-        """
-        client = self.coordinator.require_client()
-        result = await client.api.control.write_parameter(
-            self.serial,
-            PARAM_HOLD_P_TO_USER_START_DISCHG,
-            str(watts),
-        )
-        if not result.success:
-            raise HomeAssistantError(
-                f"Failed to set start discharge power threshold to {watts} W"
-            )
-        await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
 
 class StartChargePowerNumber(EG4BaseNumberEntity):
@@ -2344,9 +2339,9 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
         # Contract-only: satisfies the base class's abstract method but is
-        # never consulted — _refresh_related_entities below is fully
-        # overridden to filter by spec.related_group instead (an isinstance
-        # check alone would over-refresh every voltage spec at once).
+        # never consulted — _related_entity_predicate below narrows the
+        # refresh to spec.related_group instead (an isinstance check alone
+        # would over-refresh every voltage spec at once).
         return (EG4VoltageNumber,)
 
     def _volts_from_spec_param(self, raw: Any) -> float:
@@ -2402,15 +2397,12 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             volts = int(write_value)
 
             async def _cloud_write_named_volts() -> None:
-                client = self.coordinator.require_client()
-                result = await client.api.control.write_parameter(
-                    self.serial, spec.param_key, str(volts)
+                await _write_cloud_named_parameter(
+                    self,
+                    spec.param_key,
+                    volts,
+                    f"Failed to set {spec.message_label} to {volts} V",
                 )
-                if not result.success:
-                    raise HomeAssistantError(
-                        f"Failed to set {spec.message_label} to {volts} V"
-                    )
-                await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
             cloud_write = _cloud_write_named_volts
 
@@ -2422,24 +2414,9 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             cloud_write=cloud_write,
         )
 
-    async def _refresh_related_entities(self) -> None:
-        """Refresh only voltage entities in this spec's related group."""
-        try:
-            await self.coordinator.refresh_all_device_parameters()
-            platform = self.platform
-            if platform is not None:
-                related_entities = [
-                    entity
-                    for entity in platform.entities.values()
-                    if isinstance(entity, EG4VoltageNumber)
-                    and entity._spec.key in self._spec.related_group
-                ]
-                _LOGGER.info(
-                    "Updating %d related entities after parameter refresh",
-                    len(related_entities),
-                )
-                update_tasks = [entity.async_update() for entity in related_entities]
-                await asyncio.gather(*update_tasks, return_exceptions=True)
-                await self.coordinator.async_request_refresh()
-        except Exception as e:
-            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+    def _related_entity_predicate(self) -> Callable[[Any], bool]:
+        """Select voltage entities in this spec's parameter refresh group."""
+        return lambda entity: (
+            isinstance(entity, EG4VoltageNumber)
+            and entity._spec.key in self._spec.related_group
+        )
