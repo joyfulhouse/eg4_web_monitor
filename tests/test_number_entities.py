@@ -150,7 +150,6 @@ class TestNumberPlatformSetup:
         # Quick Charge Duration preference (HTTP-only, #251)
         assert "QuickChargeDurationNumber" in type_names
         assert "SystemChargeSOCLimitNumber" in type_names
-        assert "PVStartVoltageNumber" in type_names
         # Forced discharge controls (regs 82/83, GH #207 / PR #249)
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
@@ -163,7 +162,7 @@ class TestNumberPlatformSetup:
         # New voltage limit controls
         assert "SystemChargeVoltLimitNumber" in type_names
         voltage_entities = [e for e in entities if isinstance(e, EG4VoltageNumber)]
-        assert len(voltage_entities) == 4
+        assert len(voltage_entities) == 5
         assert {
             entity.unique_id.removeprefix("flexboss21_1234567890_")
             for entity in voltage_entities
@@ -172,6 +171,9 @@ class TestNumberPlatformSetup:
             "off_grid_cutoff_voltage",
             "ac_charge_start_voltage",
             "ac_charge_end_voltage",
+            # PV Start Voltage folded into the spec table (unique_id and
+            # entity identity preserved from the retired dedicated class).
+            "pv_start_voltage",
         }
         # Forced-discharge stop voltage (reg 202, bead eg4-aa3t)
         assert "StopDischargeVoltageNumber" in type_names

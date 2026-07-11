@@ -15,10 +15,12 @@ from custom_components.eg4_web_monitor.const import (
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_EOD_VOLTAGE,
+    PARAM_HOLD_START_PV_VOLT,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
     REG_OFFGRID_EOD_VOLTAGE,
     REG_ONGRID_EOD_VOLTAGE,
+    REG_START_PV_VOLT,
 )
 from custom_components.eg4_web_monitor.number import (
     EG4VoltageNumber,
@@ -54,6 +56,7 @@ def _mock_coordinator(*, parameters: dict[str, Any]) -> MagicMock:
     coordinator.refresh_inverter_params_if_linked = AsyncMock()
     result = MagicMock(success=True)
     coordinator.client.api.control.write_parameters = AsyncMock(return_value=result)
+    coordinator.client.api.control.write_parameter = AsyncMock(return_value=result)
     coordinator.require_client = MagicMock(return_value=coordinator.client)
     return coordinator
 
@@ -171,6 +174,57 @@ def test_voltage_number_characterization(
     assert entity.native_value == expected_native_value
 
 
+def test_pv_start_voltage_characterization() -> None:
+    """PV Start Voltage keeps the folded class's identity and presentation.
+
+    No control_key: always enabled, no regime attributes (it is a PV
+    control, not a battery charge/discharge limit).
+    """
+    coordinator = _mock_coordinator(parameters={PARAM_HOLD_START_PV_VOLT: 1400})
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+
+    assert entity.unique_id == "flexboss21_abc123_pv_start_voltage"
+    assert entity._attr_name == "PV Start Voltage"
+    assert entity._attr_native_min_value == 140
+    assert entity._attr_native_max_value == 500
+    assert entity._attr_native_step == 1
+    assert entity._attr_native_precision == 0
+    assert entity._attr_icon == "mdi:solar-power-variant"
+    assert entity._control_key is None
+    assert entity.entity_registry_enabled_default is True
+    assert entity.extra_state_attributes is None
+    # LOCAL: raw decivolts (1400) normalize to volts.
+    assert entity.native_value == 140.0
+
+
+def test_pv_start_voltage_cloud_read_not_divided_again() -> None:
+    """CLOUD: already-scaled 140 V must NOT be divided to 14 (the pure-CLOUD
+    unknown-value bug this spec entry fixes — the battery decivolt threshold
+    of 100 mis-split PV start's 140-500 V legit range)."""
+    coordinator = _mock_coordinator(parameters={PARAM_HOLD_START_PV_VOLT: 140.0})
+    coordinator.is_local_only.return_value = False
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+
+    assert entity.native_value == 140.0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (900, 90.0),  # min raw decivolts (90 V)
+        (1400, 140.0),  # typical raw decivolts
+        (5000, 500.0),  # max raw decivolts
+        (90, 90.0),  # min already-volts
+        (500, 500.0),  # max already-volts stays undivided
+    ],
+)
+def test_pv_start_voltage_threshold_split(raw: float, expected: float) -> None:
+    """Values >= 600 are decivolts; smaller values are already volts."""
+    coordinator = _mock_coordinator(parameters={})
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+    assert entity._volts_from_spec_param(raw) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("spec_key", "value", "message"),
@@ -224,6 +278,21 @@ def test_voltage_number_characterization(
             "ac_charge_end_voltage",
             61.0,
             "AC charge end voltage must be between 38-60 V, got 61",
+        ),
+        (
+            "pv_start_voltage",
+            140.5,
+            "PV start voltage must be a whole number of volts, got 140.5",
+        ),
+        (
+            "pv_start_voltage",
+            139.0,
+            "PV start voltage must be between 140-500 V, got 139",
+        ),
+        (
+            "pv_start_voltage",
+            501.0,
+            "PV start voltage must be between 140-500 V, got 501",
         ),
     ],
 )
@@ -293,7 +362,51 @@ async def test_voltage_number_write_dispatch(
         param_name=param_key,
         register=register,
         label=name,
+        cloud_write=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_pv_start_voltage_write_dispatch_uses_named_cloud_route() -> None:
+    """PV start dispatches with a named-volts cloud override (raw register 22
+    cloud writes are unproven; portal valueText semantics are the verified
+    route)."""
+    coordinator = _mock_coordinator(parameters={})
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+    entity._write_voltage_register = AsyncMock()
+
+    await entity.async_set_native_value(140.0)
+
+    kwargs = entity._write_voltage_register.await_args.kwargs
+    assert kwargs["value"] == 140.0
+    assert kwargs["param_name"] == PARAM_HOLD_START_PV_VOLT
+    assert kwargs["register"] == REG_START_PV_VOLT
+    assert kwargs["label"] == "PV Start Voltage"
+    assert kwargs["cloud_write"] is not None
+
+    # Exercise the override: named write in human-readable volts.
+    write_parameter = AsyncMock(return_value=MagicMock(success=True))
+    coordinator.client.api.control.write_parameter = write_parameter
+    await kwargs["cloud_write"]()
+    write_parameter.assert_awaited_once_with(SERIAL, PARAM_HOLD_START_PV_VOLT, "140")
+    coordinator.refresh_inverter_params_if_linked.assert_awaited_once_with(SERIAL)
+
+
+@pytest.mark.asyncio
+async def test_pv_start_voltage_named_cloud_write_failure_raises() -> None:
+    """A rejected named cloud write raises with the folded class's message."""
+    coordinator = _mock_coordinator(parameters={})
+    entity = _voltage_number(coordinator, "pv_start_voltage")
+    entity._write_voltage_register = AsyncMock()
+    await entity.async_set_native_value(150.0)
+    cloud_write = entity._write_voltage_register.await_args.kwargs["cloud_write"]
+
+    coordinator.client.api.control.write_parameter = AsyncMock(
+        return_value=MagicMock(success=False)
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await cloud_write()
+    assert str(exc_info.value) == "Failed to set PV start voltage to 150 V"
 
 
 @pytest.mark.asyncio
@@ -316,6 +429,10 @@ async def test_voltage_number_write_dispatch(
             "ac_charge_end_voltage",
             {"ac_charge_start_voltage", "ac_charge_end_voltage"},
         ),
+        (
+            "pv_start_voltage",
+            {"pv_start_voltage"},
+        ),
     ],
 )
 async def test_voltage_number_refresh_fanout_is_pair_scoped(
@@ -337,11 +454,12 @@ async def test_voltage_number_refresh_fanout_is_pair_scoped(
         entity.async_write_ha_state = MagicMock()
         entity.async_update = AsyncMock()
 
-    value = (
-        48.0
-        if source_key in ("on_grid_cutoff_voltage", "off_grid_cutoff_voltage")
-        else 52.0
-    )
+    if source_key in ("on_grid_cutoff_voltage", "off_grid_cutoff_voltage"):
+        value = 48.0
+    elif source_key == "pv_start_voltage":
+        value = 140.0
+    else:
+        value = 52.0
     await entities[source_key].async_set_native_value(value)
 
     for key, entity in entities.items():

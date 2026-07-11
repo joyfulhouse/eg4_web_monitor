@@ -152,6 +152,9 @@ REG_ONGRID_EOD_VOLTAGE = 169
 REG_OFFGRID_EOD_VOLTAGE = 100
 REG_AC_CHARGE_START_VOLTAGE = 158
 REG_AC_CHARGE_END_VOLTAGE = 159
+# PV start voltage (MPPT activation floor). Cloud writes go by name in
+# human-readable volts (verified route) — the address is spec metadata only.
+REG_START_PV_VOLT = 22
 # Start-charge threshold (GH #272): no name anywhere, LOCAL raw writes only.
 REG_PTOUSER_START_CHARGE = 117
 
