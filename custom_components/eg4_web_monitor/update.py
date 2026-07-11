@@ -191,6 +191,13 @@ class EG4FirmwareUpdateEntity(
         re-runs until the device converges, and its result is checked so a
         refused start or partial chain surfaces as an error instead of
         logging "initiated" and silently stopping short.
+
+        Long-running by design: a step takes 20-40 minutes and chains can
+        double that. HA keeps the service task alive past the 10s service
+        limit and this entity reports progress via in_progress/percentage.
+        If HA restarts mid-chain, the device finishes its current step on
+        its own and pressing Install again resumes from the remaining
+        components (the orchestrator re-checks before every run).
         """
         _LOGGER.info("Installing firmware update for %s", self._serial)
 
@@ -207,9 +214,17 @@ class EG4FirmwareUpdateEntity(
             _LOGGER.error("Failed to run firmware update for %s: %s", self._serial, err)
             raise
         finally:
-            # Refresh coordinator data so version/progress state updates
-            # regardless of outcome.
-            await self.coordinator.async_request_refresh()
+            # Best-effort refresh so entity state reflects reality on every
+            # outcome. Must not raise: an exception here would replace the
+            # orchestrator's exception (or discard its failure result).
+            try:
+                await self.coordinator.async_request_refresh()
+            except Exception:
+                _LOGGER.debug(
+                    "Post-install coordinator refresh failed for %s",
+                    self._serial,
+                    exc_info=True,
+                )
 
         if not result.success:
             raise HomeAssistantError(

@@ -504,6 +504,38 @@ class TestAsyncInstall:
         coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_refresh_failure_does_not_mask_success(self):
+        """A failing post-install refresh is swallowed: a successful update
+        must not surface as an installation error (codex P2)."""
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        coordinator.async_request_refresh = AsyncMock(
+            side_effect=RuntimeError("refresh boom")
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        await entity.async_install(version=None, backup=False)  # no raise
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_does_not_mask_orchestrator_error(self):
+        """The orchestrator's exception wins over a refresh exception."""
+        coordinator = _mock_coordinator(
+            devices={"SN1": {"type": "inverter", "model": "X"}}
+        )
+        device = coordinator._get_device_object("SN1")
+        device.run_firmware_update_to_completion = AsyncMock(
+            side_effect=RuntimeError("update boom")
+        )
+        coordinator.async_request_refresh = AsyncMock(
+            side_effect=RuntimeError("refresh boom")
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+
+        with pytest.raises(RuntimeError, match="update boom"):
+            await entity.async_install(version=None, backup=False)
+
+    @pytest.mark.asyncio
     async def test_install_reraises_exceptions(self):
         """Exceptions from the orchestrator are re-raised; refresh still runs."""
         coordinator = _mock_coordinator(
