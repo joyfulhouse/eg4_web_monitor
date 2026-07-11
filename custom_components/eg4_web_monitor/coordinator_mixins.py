@@ -974,6 +974,23 @@ class DeviceProcessingMixin(_MixinBase):
             return None
         return None  # neither read method available -> unknown
 
+    async def _poll_firmware_update_info(self, device: Any) -> dict[str, Any] | None:
+        """Poll and extract firmware update information for a device."""
+        firmware_update_info = None
+        try:
+            if hasattr(device, "check_firmware_updates"):
+                await device.check_firmware_updates()
+                if hasattr(device, "get_firmware_update_progress"):
+                    await device.get_firmware_update_progress()
+                firmware_update_info = self._extract_firmware_update_info(device)
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not check firmware updates for %s: %s",
+                device.serial_number,
+                e,
+            )
+        return firmware_update_info
+
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
     ) -> dict[str, Any]:
@@ -1026,19 +1043,7 @@ class DeviceProcessingMixin(_MixinBase):
         firmware_version = getattr(inverter, "firmware_version", "1.0.0")
 
         # Check for firmware updates (pylxpweb 0.3.7+)
-        firmware_update_info = None
-        try:
-            if hasattr(inverter, "check_firmware_updates"):
-                await inverter.check_firmware_updates()
-                if hasattr(inverter, "get_firmware_update_progress"):
-                    await inverter.get_firmware_update_progress()
-                firmware_update_info = self._extract_firmware_update_info(inverter)
-        except Exception as e:
-            _LOGGER.debug(
-                "Could not check firmware updates for %s: %s",
-                inverter.serial_number,
-                e,
-            )
+        firmware_update_info = await self._poll_firmware_update_info(inverter)
 
         processed: dict[str, Any] = {
             "serial": inverter.serial_number,
@@ -1821,19 +1826,7 @@ class DeviceProcessingMixin(_MixinBase):
         model = getattr(mid_device, "model", "GridBOSS")
         firmware_version = getattr(mid_device, "firmware_version", "1.0.0")
 
-        firmware_update_info = None
-        try:
-            if hasattr(mid_device, "check_firmware_updates"):
-                await mid_device.check_firmware_updates()
-                if hasattr(mid_device, "get_firmware_update_progress"):
-                    await mid_device.get_firmware_update_progress()
-                firmware_update_info = self._extract_firmware_update_info(mid_device)
-        except Exception as e:
-            _LOGGER.debug(
-                "Could not check firmware updates for %s: %s",
-                mid_device.serial_number,
-                e,
-            )
+        firmware_update_info = await self._poll_firmware_update_info(mid_device)
 
         processed: dict[str, Any] = {
             "serial": mid_device.serial_number,
