@@ -2477,34 +2477,32 @@ class TestQuickChargeDurationNumber:
         assert isinstance(entity.native_value, int)
         assert not isinstance(entity.native_value, bool)
 
-    def test_native_value_mirrors_register_when_idle(self):
-        """Faithful: even idle, native_value shows what reg 234 holds (e.g. the
-        last value the firmware retains), NOT the stored preference."""
+    def test_native_value_idle_shows_preference_not_register(self):
+        """Idle, the entity shows the start preference the switch will apply —
+        NOT the register (the firmware zeroes reg 234 at session end, so the
+        idle register mirror was a useless constant 0)."""
         coordinator = _mock_coordinator()
-        coordinator._quick_charge_minutes["1234567890"] = (
-            45  # preference (must NOT win)
-        )
-        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
-            "hasUnclosedQuickChargeTask": False,
-            "remainTimeBeforeQuickChargeStop": 0,
-            "quickChargeMinute": 2,
-        }
-        entity = QuickChargeDurationNumber(coordinator, "1234567890")
-        assert entity.native_value == 2
-
-    def test_native_value_register_zero_shows_zero(self):
-        """A register reading of 0 is shown faithfully (not the preference)."""
-        coordinator = _mock_coordinator()
-        coordinator._quick_charge_minutes["1234567890"] = (
-            60  # preference (must NOT win)
-        )
+        coordinator._quick_charge_minutes["1234567890"] = 45  # preference wins
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
             "hasUnclosedQuickChargeTask": False,
             "remainTimeBeforeQuickChargeStop": 0,
             "quickChargeMinute": 0,
         }
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
-        assert entity.native_value == 0
+        assert entity.native_value == 45
+
+    def test_native_value_idle_nonzero_register_still_shows_preference(self):
+        """Even a nonzero idle reg 234 reading (e.g. mid-transition) does not
+        override the preference — the register only wins while a charge runs."""
+        coordinator = _mock_coordinator()
+        coordinator._quick_charge_minutes["1234567890"] = 60
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "remainTimeBeforeQuickChargeStop": 0,
+            "quickChargeMinute": 2,
+        }
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        assert entity.native_value == 60
 
     def test_native_value_falls_back_to_preference_when_register_none(self):
         """Cloud status (quickChargeMinute=None) falls back to the preference."""
@@ -2586,28 +2584,28 @@ class TestQuickChargeDurationNumber:
         assert "1234567890" not in coordinator._quick_charge_minutes
 
     @pytest.mark.asyncio
-    async def test_set_local_idle_raises_and_does_not_commit(self):
-        """LOCAL/HYBRID while quick charge is OFF (live check False): the firmware
-        rejects reg 234 writes and the entity mirrors the register, so a silent
-        store would misreport success. Raise a clear ServiceValidationError and
-        write nothing."""
+    async def test_set_local_idle_stores_start_preference(self):
+        """LOCAL/HYBRID while quick charge is OFF (live check False): the value
+        is stored as the start preference the switch applies at the next start
+        (the reg 234 half of the paired-frame start) — no register write (a
+        lone idle reg 234 write is firmware-rejected, #251)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
         # is_quick_charge_active_live defaults to False (idle).
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(ServiceValidationError):
-            await entity.async_set_native_value(45)
+        await entity.async_set_native_value(45)
 
-        assert "1234567890" not in coordinator._quick_charge_minutes
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
         coordinator.write_named_parameter.assert_not_called()
-        entity.async_write_ha_state.assert_not_called()
+        entity.async_write_ha_state.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_local_uses_live_check_not_cached_status(self):
         """The reg 234 gate uses the LIVE active check, not the throttled cached
         quick_charge_status: a stale-active cache must not trigger a write the
-        firmware would reject right after auto-expiry — the live False raises."""
+        firmware would reject right after auto-expiry — the live False routes
+        the value to the start-preference store instead."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
         # Cache says active, but the live read says the charge has ended.
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
@@ -2617,10 +2615,10 @@ class TestQuickChargeDurationNumber:
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(ServiceValidationError):
-            await entity.async_set_native_value(45)
+        await entity.async_set_native_value(45)
 
         coordinator.write_named_parameter.assert_not_called()
+        assert coordinator._quick_charge_minutes["1234567890"] == 45
 
     @pytest.mark.asyncio
     async def test_set_local_unknown_state_raises_and_does_not_commit(self):
@@ -2663,16 +2661,18 @@ class TestQuickChargeDurationNumber:
 
         assert coordinator._quick_charge_minutes["1234567890"] == 120
 
-    def test_seed_restored_preference_skipped_with_local_transport(self):
-        """LOCAL/HYBRID: a restored value is the live register mirror, not a
-        preference — it must NOT be seeded, or a stale countdown reading (e.g. a
-        restart mid-charge) would leak into a cloud-fallback start duration."""
+    def test_seed_restored_preference_seeds_with_local_transport(self):
+        """LOCAL/HYBRID: the idle display IS the preference now, so the value
+        RestoreNumber saved is the preference in the common (idle-shutdown)
+        case and is seeded. (A restart mid-charge saves the live countdown —
+        a shorter-than-intended preference until re-set, which beats losing
+        the preference on every restart.)"""
         coordinator = _mock_coordinator(has_local=True, has_http=True)  # HYBRID
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
 
-        entity._seed_restored_preference(3)  # stale countdown reading
+        entity._seed_restored_preference(90)
 
-        assert "1234567890" not in coordinator._quick_charge_minutes
+        assert coordinator._quick_charge_minutes["1234567890"] == 90
 
     @pytest.mark.parametrize(
         "bad_value", [None, 30.5, float("nan"), float("inf"), 0, 99999]
