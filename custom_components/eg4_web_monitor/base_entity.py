@@ -1148,10 +1148,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         )
         action_verb = "Enabling" if turn_on else "Disabling"
 
+        # The routing (local transport vs cloud API) is decided by the called
+        # method itself, so the log names the method, not a transport.
         _LOGGER.debug(
-            "%s %s via CLOUD API for device %s",
+            "%s %s (%s) for device %s",
             action_verb,
             action_name,
+            method_name,
             self._serial,
         )
 
@@ -1182,7 +1185,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 )
 
             _LOGGER.info(
-                "Successfully %s %s via CLOUD API for device %s",
+                "Successfully %s %s for device %s",
                 action_verb.lower()[:-3] + "ed",  # Enabling -> enabled
                 action_name,
                 self._serial,

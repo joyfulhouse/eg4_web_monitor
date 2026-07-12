@@ -35,6 +35,7 @@ from .const import (
     AC_CHARGE_VOLTAGE_MAX,
     AC_CHARGE_VOLTAGE_MIN,
     AC_CHARGE_VOLTAGE_STEP,
+    ATTR_QC_START_PREFERENCE,
     BATTERY_CURRENT_MAX,
     BATTERY_CURRENT_MIN,
     BATTERY_CURRENT_STEP,
@@ -759,22 +760,22 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 
 
 class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
-    """Number entity for the Quick Charge Duration (holding register 234, min).
+    """Number entity for the Quick Charge duration (start preference + live reg 234).
 
-    On LOCAL/HYBRID this entity faithfully mirrors holding register 234 — the
-    writable duration setpoint, which the firmware also counts down as the live
-    remaining minutes while a charge runs. Its displayed value is the live
-    register (idle *and* active), not a retained preference; the firmware governs
-    the value (it starts a charge at its own default and counts down, and rejects
-    writes to reg 234 while quick charge is off). Writing the entity sets reg 234,
-    which only sticks while a charge is running (raising it extends the charge,
-    e.g. to keep cells balancing); an idle write is a no-op and the value reverts
-    to whatever the register holds.
+    While a charge is RUNNING on LOCAL/HYBRID the entity mirrors holding
+    register 234 — the live remaining-minutes countdown — and setting it
+    writes reg 234 to extend/reduce the running charge (e.g. to keep cells
+    balancing).
 
-    On CLOUD there is no equivalent register, so the entity falls back to a
-    per-serial preference (stored on the coordinator, restored across restarts
-    via RestoreNumber) that is sent as the ``minute`` parameter when the cloud
-    Quick Charge is started. Gated identically to the Quick Charge switch.
+    While IDLE (and always on CLOUD, which has no such register) the entity
+    shows the per-serial start preference (stored on the coordinator,
+    restored across restarts via RestoreNumber), and setting it stores that
+    preference. The Quick Charge switch applies it when starting: as the
+    cloud ``minute`` parameter, or on LOCAL/HYBRID as the reg 234 value
+    written together with the reg 233 activation in one contiguous frame
+    (pylxpweb 0.9.38b3 paired-frame start, live-validated on FlexBOSS21
+    2026-07-12 — reg 234 alone is firmware-rejected while idle, #251).
+    Gated identically to the Quick Charge switch.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -800,53 +801,76 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
             and QUICK_CHARGE_DURATION_MIN <= value <= QUICK_CHARGE_DURATION_MAX
         )
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the start preference independently of the displayed value.
+
+        The entity's state is multiplexed (live reg 234 countdown while a
+        charge runs, start preference otherwise), so restoring from the
+        state alone would turn a mid-charge restart's countdown reading
+        into the next start's duration. This attribute always carries the
+        real preference, and restore reads it in favour of the state.
+        """
+        return {
+            ATTR_QC_START_PREFERENCE: self.coordinator._quick_charge_minutes.get(
+                self.serial, QUICK_CHARGE_DURATION_DEFAULT
+            )
+        }
+
     def _seed_restored_preference(self, native_value: float | None) -> None:
         """Seed the coordinator from a restored value when it is valid.
 
-        The stored preference is only meaningful on the CLOUD path (the start
-        ``minute``). On LOCAL/HYBRID the entity mirrors the live holding register
-        234, so a restored value is a stale countdown reading, not a preference —
-        seeding it would leak that value into a cloud-fallback start duration
-        (e.g. restore "3" mid-charge, then a HYBRID cloud fallback starts a
-        3-minute charge). So only seed for cloud-only installs (no configured
-        local transport). The restored value must also pass the same
-        finite/integer/bounds checks as a live set; invalid restored data is
-        ignored rather than raising, so a corrupt restore can never break setup.
+        The restored value must pass the same finite/integer/bounds checks
+        as a live set; invalid restored data is ignored rather than raising,
+        so a corrupt restore can never break setup.
         """
-        if self.coordinator.has_configured_local_transport(self.serial):
-            return
         if native_value is None or not self._is_valid_duration(native_value):
             return
         self.coordinator._quick_charge_minutes[self.serial] = int(native_value)
 
     async def async_added_to_hass(self) -> None:
-        """Restore the saved duration preference, then wire up the listener."""
+        """Restore the saved duration preference, then wire up the listener.
+
+        The ``start_preference`` attribute is the preference's own
+        persistence channel, immune to the state's mid-charge countdown
+        multiplexing. The state value is only used as a legacy fallback for
+        restores saved by versions without the attribute (one restart
+        window on upgrade; a mid-charge legacy restore can seed the
+        countdown reading, which the user re-sets once).
+        """
         await super().async_added_to_hass()
         # Only restore when the coordinator doesn't already hold a value for
         # this serial (e.g. set during this session).
-        if self.serial not in self.coordinator._quick_charge_minutes:
+        if self.serial in self.coordinator._quick_charge_minutes:
+            return
+        restored: float | None = None
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            attr = last_state.attributes.get(ATTR_QC_START_PREFERENCE)
+            if isinstance(attr, (int, float)) and not isinstance(attr, bool):
+                restored = float(attr)
+        if restored is None:
             last_data = await self.async_get_last_number_data()
-            self._seed_restored_preference(getattr(last_data, "native_value", None))
+            restored = getattr(last_data, "native_value", None)
+        self._seed_restored_preference(restored)
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
         return (QuickChargeDurationNumber,)
 
     @property
     def native_value(self) -> float | None:
-        """Mirror the live holding reg 234 value, else the cloud preference.
+        """Live reg 234 countdown while charging, else the start preference.
 
-        On LOCAL/HYBRID the coordinator surfaces the raw holding register 234
-        value (minutes) as ``quickChargeMinute`` whenever it has read it — idle
-        or active — so the entity shows exactly what the register holds (the
-        firmware governs that value). When that reading is absent (CLOUD, which
-        has no such register, or before the first local read) it falls back to
-        the stored preference (default 60) used as the cloud start ``minute``.
-        The displayed value may be below native_min (1, e.g. an idle register of
-        0); min/max only constrain user input, not the read-back state.
+        While a charge is running on LOCAL/HYBRID the coordinator surfaces
+        the raw holding register 234 value (minutes) as ``quickChargeMinute``
+        and the entity mirrors it — the firmware counts it down live. Idle
+        (reg 234 reads 0 — the firmware zeroes it at session end) and on
+        CLOUD (no such register) it shows the stored start preference
+        (default 60) that the switch applies when starting a charge.
         """
         devices = (self.coordinator.data or {}).get("devices", {})
         status = devices.get(self.serial, {}).get("quick_charge_status")
-        if isinstance(status, dict):
+        if isinstance(status, dict) and status.get("hasUnclosedQuickChargeTask"):
             register = status.get("quickChargeMinute")
             if register is not None:
                 return int(register)
@@ -855,20 +879,23 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Write holding reg 234 live (LOCAL/HYBRID) or store the cloud preference.
+        """Adjust the running charge live, or store the start preference.
 
-        On LOCAL/HYBRID the firmware only accepts a write to holding register 234
-        while a quick charge is *running*, so we confirm the live state (a fresh
-        enable-bit read, not the throttled cache) first:
+        On LOCAL/HYBRID the live state decides (a fresh enable-bit read, not
+        the throttled cache — a stale-active cache must never trigger a reg
+        234 write the firmware would reject right after auto-expiry):
 
-        - active  -> write reg 234 (extends/reduces the running charge);
-        - idle    -> raise ServiceValidationError (the firmware would reject it
-          and the entity faithfully mirrors the register, so a silent store would
-          be a no-op that misreports success);
-        - unknown -> raise (the state could not be read).
+        - active  -> write reg 234 (extends/reduces the running charge; the
+          start preference is deliberately NOT touched — a live extension is
+          a one-off adjustment, not a new default);
+        - idle    -> store the start preference the switch applies at the
+          next start (the reg 234 half of the paired-frame start; a lone
+          idle reg 234 write is firmware-rejected, #251);
+        - unknown -> raise (a live adjust that silently became a stored
+          preference must never look like it changed the running charge).
 
-        On CLOUD there is no register, so the value is stored as the per-serial
-        preference applied as the ``minute`` parameter when the charge starts.
+        On CLOUD there is no register, so the value is stored as the
+        per-serial preference applied as the ``minute`` start parameter.
         """
         if not self._is_valid_duration(value):
             raise HomeAssistantError(
@@ -884,20 +911,33 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                     "Could not read the inverter's Quick Charge state; the "
                     "duration was not changed. Please try again."
                 )
-            if not active:
-                raise ServiceValidationError(
-                    "Quick Charge must be running to set its duration — the "
-                    "inverter only accepts a new duration while a charge is "
-                    "active. Turn on Quick Charge first, then adjust this."
+            if active:
+                await self.coordinator.write_named_parameter(
+                    PARAM_SNA_QUICK_CHARGE_MINUTE, minutes, serial=self.serial
                 )
-            await self.coordinator.write_named_parameter(
-                PARAM_SNA_QUICK_CHARGE_MINUTE, minutes, serial=self.serial
-            )
-            _LOGGER.debug(
-                "Quick Charge duration for %s set to %d min (live reg 234 write)",
-                self.serial,
-                minutes,
-            )
+                # Seed the throttled status cache so the state published
+                # below reflects the accepted write: the quick-charge poll
+                # can be up to 30s stale, and a stale-idle cache would make
+                # native_value fall back to the untouched start preference
+                # right after a successful live write.
+                devices = (self.coordinator.data or {}).get("devices", {})
+                status = devices.get(self.serial, {}).get("quick_charge_status")
+                if isinstance(status, dict):
+                    status["hasUnclosedQuickChargeTask"] = True
+                    status["quickChargeMinute"] = minutes
+                _LOGGER.debug(
+                    "Quick Charge duration for %s set to %d min (live reg 234 write)",
+                    self.serial,
+                    minutes,
+                )
+            else:
+                self.coordinator._quick_charge_minutes[self.serial] = minutes
+                _LOGGER.debug(
+                    "Quick Charge duration preference for %s stored as %d min "
+                    "(idle — applied at the next start)",
+                    self.serial,
+                    minutes,
+                )
         else:
             # Cloud: no live register — store the preference used at start.
             self.coordinator._quick_charge_minutes[self.serial] = minutes

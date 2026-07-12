@@ -505,9 +505,12 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
     ) -> None:
         """Run the enable/disable action and arm the post-write retention.
 
-        pylxpweb's enable/disable prefer the local transport (register 233);
-        on the EG4_OFFGRID family that register is firmware-rejected, so the
-        cloud-direct callables are used instead (#296). On success the
+        pylxpweb's enable/disable prefer the local transport — the start
+        writes the reg 233 activation together with the reg 234 duration
+        (the stored preference) in one contiguous frame, falling back to
+        cloud on failure (HYBRID). On the EG4_OFFGRID family register 233 is
+        firmware-rejected, so the cloud-direct callables are used instead
+        (#296). On success the
         commanded state is retained until a status read fresher than the
         write confirms either state (see ``is_on``); a failed action clears
         any prior hold and re-raises.

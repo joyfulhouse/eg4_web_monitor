@@ -160,11 +160,15 @@ AC_CHARGE_VOLTAGE_STEP = 1
 # =============================================================================
 # Quick Charge Duration (minutes)
 # =============================================================================
-# UI-only preference for the cloud Quick Charge "minute" parameter. Not an
-# inverter register — the value is stored per-serial on the coordinator and sent
-# when Quick Charge is turned on. 1440 = 24 hours.
+# Per-serial start preference, stored on the coordinator and applied when
+# Quick Charge is turned on: as the cloud "minute" parameter, or as the reg
+# 234 half of the LOCAL/HYBRID paired-frame start. 1440 = 24 hours.
 
 QUICK_CHARGE_DURATION_MIN = 1
 QUICK_CHARGE_DURATION_MAX = 1440
 QUICK_CHARGE_DURATION_STEP = 1
 QUICK_CHARGE_DURATION_DEFAULT = 60
+
+# State attribute persisting the start preference independently of the
+# entity's multiplexed displayed value (live countdown while charging).
+ATTR_QC_START_PREFERENCE = "start_preference"
