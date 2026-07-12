@@ -35,6 +35,7 @@ from .const import (
     AC_CHARGE_VOLTAGE_MAX,
     AC_CHARGE_VOLTAGE_MIN,
     AC_CHARGE_VOLTAGE_STEP,
+    ATTR_QC_START_PREFERENCE,
     BATTERY_CURRENT_MAX,
     BATTERY_CURRENT_MIN,
     BATTERY_CURRENT_STEP,
@@ -800,33 +801,58 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
             and QUICK_CHARGE_DURATION_MIN <= value <= QUICK_CHARGE_DURATION_MAX
         )
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the start preference independently of the displayed value.
+
+        The entity's state is multiplexed (live reg 234 countdown while a
+        charge runs, start preference otherwise), so restoring from the
+        state alone would turn a mid-charge restart's countdown reading
+        into the next start's duration. This attribute always carries the
+        real preference, and restore reads it in favour of the state.
+        """
+        return {
+            ATTR_QC_START_PREFERENCE: self.coordinator._quick_charge_minutes.get(
+                self.serial, QUICK_CHARGE_DURATION_DEFAULT
+            )
+        }
+
     def _seed_restored_preference(self, native_value: float | None) -> None:
         """Seed the coordinator from a restored value when it is valid.
 
-        The start preference is meaningful on every path (cloud ``minute``
-        parameter, or the reg 234 half of the LOCAL/HYBRID paired-frame
-        start), and the entity displays it whenever no charge is running —
-        so the value RestoreNumber saved is the preference in the common
-        (idle) case. The one stale case left is a restart mid-charge, where
-        the saved value is the live countdown; that seeds a shorter-than-
-        intended preference until the user re-sets it, which beats losing
-        the preference on every restart. The restored value must pass the
-        same finite/integer/bounds checks as a live set; invalid restored
-        data is ignored rather than raising, so a corrupt restore can never
-        break setup.
+        The restored value must pass the same finite/integer/bounds checks
+        as a live set; invalid restored data is ignored rather than raising,
+        so a corrupt restore can never break setup.
         """
         if native_value is None or not self._is_valid_duration(native_value):
             return
         self.coordinator._quick_charge_minutes[self.serial] = int(native_value)
 
     async def async_added_to_hass(self) -> None:
-        """Restore the saved duration preference, then wire up the listener."""
+        """Restore the saved duration preference, then wire up the listener.
+
+        The ``start_preference`` attribute is the preference's own
+        persistence channel, immune to the state's mid-charge countdown
+        multiplexing. The state value is only used as a legacy fallback for
+        restores saved by versions without the attribute (one restart
+        window on upgrade; a mid-charge legacy restore can seed the
+        countdown reading, which the user re-sets once).
+        """
         await super().async_added_to_hass()
         # Only restore when the coordinator doesn't already hold a value for
         # this serial (e.g. set during this session).
-        if self.serial not in self.coordinator._quick_charge_minutes:
+        if self.serial in self.coordinator._quick_charge_minutes:
+            return
+        restored: float | None = None
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            attr = last_state.attributes.get(ATTR_QC_START_PREFERENCE)
+            if isinstance(attr, (int, float)) and not isinstance(attr, bool):
+                restored = float(attr)
+        if restored is None:
             last_data = await self.async_get_last_number_data()
-            self._seed_restored_preference(getattr(last_data, "native_value", None))
+            restored = getattr(last_data, "native_value", None)
+        self._seed_restored_preference(restored)
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
         return (QuickChargeDurationNumber,)
@@ -889,6 +915,16 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                 await self.coordinator.write_named_parameter(
                     PARAM_SNA_QUICK_CHARGE_MINUTE, minutes, serial=self.serial
                 )
+                # Seed the throttled status cache so the state published
+                # below reflects the accepted write: the quick-charge poll
+                # can be up to 30s stale, and a stale-idle cache would make
+                # native_value fall back to the untouched start preference
+                # right after a successful live write.
+                devices = (self.coordinator.data or {}).get("devices", {})
+                status = devices.get(self.serial, {}).get("quick_charge_status")
+                if isinstance(status, dict):
+                    status["hasUnclosedQuickChargeTask"] = True
+                    status["quickChargeMinute"] = minutes
                 _LOGGER.debug(
                     "Quick Charge duration for %s set to %d min (live reg 234 write)",
                     self.serial,
