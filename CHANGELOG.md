@@ -5,6 +5,27 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0-beta.3] - 2026-07-12
+
+Quick Charge local control + a large-bank canary fix.
+
+> Requires [pylxpweb 0.9.38b4](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.38b4)
+> (installed automatically).
+
+### Added
+
+- **Quick Charge duration now works on all three connection paths** ([#366](https://github.com/joyfulhouse/eg4_web_monitor/pull/366)): a LOCAL/HYBRID start writes the register 233 activation together with the register 234 duration in one contiguous Modbus frame — the portal-equivalent sequence, live-validated on FlexBOSS21 hardware — so a locally-started charge runs for the requested minutes instead of the firmware default (a lone idle reg-234 write is firmware-rejected, [#251](https://github.com/joyfulhouse/eg4_web_monitor/issues/251)). If the paired frame is rejected, the start falls back to the proven activation-bit-only write with a best-effort live duration write (on that path the firmware-default length runs if the duration write is refused); the cloud start endpoint is used only when the local activation itself fails (HYBRID). Notes: a locally-started session is per-inverter, while portal starts remain parallel-group-wide; the EG4_OFFGRID (XP) family is unchanged — quick charge control there goes through the cloud endpoints (register 233 is firmware-rejected, [#296](https://github.com/joyfulhouse/eg4_web_monitor/issues/296)), so it requires cloud credentials and remains unavailable on pure-LOCAL XP installs.
+- **Quick Charge Duration number**: setting it while idle now stores the per-serial start preference (previously rejected with an error); while a charge runs it still adjusts the live countdown. The preference persists across restarts via a `start_preference` state attribute, immune to mid-charge restart countdown readings.
+
+### Changed
+
+- **Quick Charge Duration idle display** (LOCAL/HYBRID): while no charge is running the entity now shows the stored start preference (default 60) instead of mirroring holding register 234, which the firmware zeroes at session end — the idle mirror was a constant 0. If an automation used `Duration == 0` to detect "charge ended", key it on the Quick Charge switch state instead.
+
+### Fixed
+
+- **Bank sensors went stale at solar noon on large battery banks** ([#367](https://github.com/joyfulhouse/eg4_web_monitor/issues/367), reported by @Caymanwent): the bank-current corruption canary's flat 500 A cap rejected a 9-battery bank's genuine ~750 A charging current (508–514 A observed in the report; the math now passes both by construction). The bound scales with the effective battery count — the larger of the reported count (register 96) and the batteries actually present in the read — at 150 A per battery, with a 500 A floor and a 2000 A physical ceiling (pylxpweb 0.9.38b4). Reporter confirmation at the next solar peak is welcome on [#367](https://github.com/joyfulhouse/eg4_web_monitor/issues/367).
+- Write logs no longer claim "via CLOUD API" for transport-routed control methods.
+
 ## [3.5.0-beta.2] - 2026-07-11
 
 Fast-follow beta: fixes from a dual (Codex + Claude) bug scan of beta.1.
@@ -801,7 +822,11 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 
 - Requires `pylxpweb>=0.4.4`
 
-[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.3...HEAD
+[3.5.0-beta.3]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.2...v3.5.0-beta.3
+[3.5.0-beta.2]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.1...v3.5.0-beta.2
+[3.5.0-beta.1]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.4.0...v3.5.0-beta.1
+[3.4.0]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.2.0...v3.3.0
 [3.3.0-beta.6]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0-beta.5...v3.3.0-beta.6
 [3.3.0-beta.5]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.3.0-beta.1...v3.3.0-beta.5

@@ -14,7 +14,7 @@ aiohttp>=3.10.0
 # Note: aiodns managed by homeassistant, pycares>=4.9.0 for Python 3.13
 pycares>=4.9.0,<5
 voluptuous>=0.15.0
-pylxpweb>=0.9.38b3  # keep in sync with manifest.json; quick-charge paired-frame local start (>=0.9.38b3)
+pylxpweb>=0.9.38b4  # keep in sync with manifest.json; quick-charge paired start (b3) + scaled bank-current canary (b4)
 
 # Code quality
 ruff>=0.8.0
