@@ -5,6 +5,27 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Post-beta.3 fixes from a Codex re-review of the full 3.4.0 → 3.5.0 change set,
+targeted at the #342 DRY/simplifier consolidation.
+
+### Fixed
+
+- **History-import recovery snapshot could drop a run's new days on a
+  narrower-range retry** ([#357](https://github.com/joyfulhouse/eg4_web_monitor/pull/357) follow-up):
+  the timezone-migration recovery snapshot captured only pre-existing rows, so a
+  failed write after a successful clear followed by a retry over a narrower date
+  range could discard the days being imported that run (cleared from the DB and
+  absent from the snapshot). The snapshot now captures the complete intended
+  picture (existing + new), matching what is written and the recovery merge on
+  load.
+- **Quick Charge Duration briefly showed the stored preference after a live
+  write when a prior status read had failed**: the throttled quick-charge status
+  cache is now seeded unconditionally after an accepted register-234 write, so
+  the entity reflects the written value immediately instead of publishing the
+  untouched start preference until the next successful poll.
+
 ## [3.5.0-beta.3] - 2026-07-12
 
 Quick Charge local control + a large-bank canary fix.

@@ -919,10 +919,16 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                 # below reflects the accepted write: the quick-charge poll
                 # can be up to 30s stale, and a stale-idle cache would make
                 # native_value fall back to the untouched start preference
-                # right after a successful live write.
-                devices = (self.coordinator.data or {}).get("devices", {})
-                status = devices.get(self.serial, {}).get("quick_charge_status")
-                if isinstance(status, dict):
+                # right after a successful live write. Seed unconditionally,
+                # creating the status dict if a prior status read failed (left
+                # it absent/None) — otherwise the entity would keep publishing
+                # the untouched preference until the next successful poll.
+                data = self.coordinator.data
+                if data is not None:
+                    device = data.setdefault("devices", {}).setdefault(self.serial, {})
+                    status = device.get("quick_charge_status")
+                    if not isinstance(status, dict):
+                        status = device["quick_charge_status"] = {}
                     status["hasUnclosedQuickChargeTask"] = True
                     status["quickChargeMinute"] = minutes
                 _LOGGER.debug(

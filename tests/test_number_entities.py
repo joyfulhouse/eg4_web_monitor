@@ -2600,6 +2600,28 @@ class TestQuickChargeDurationNumber:
         assert coordinator._quick_charge_minutes["1234567890"] == 60
 
     @pytest.mark.asyncio
+    async def test_set_local_active_seeds_cache_when_status_absent(self):
+        """When a prior quick-charge status read failed (cache absent/None), a
+        confirmed live reg-234 write must still create and seed the status dict
+        — otherwise native_value keeps publishing the untouched preference until
+        the next successful poll (codex #8)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
+        coordinator._quick_charge_minutes["1234567890"] = 60  # untouched pref
+        # Prior status read failed — no quick_charge_status key at all.
+        coordinator.data["devices"]["1234567890"].pop("quick_charge_status", None)
+        entity = QuickChargeDurationNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        status = coordinator.data["devices"]["1234567890"]["quick_charge_status"]
+        assert status["hasUnclosedQuickChargeTask"] is True
+        assert status["quickChargeMinute"] == 45
+        assert entity.native_value == 45
+        assert coordinator._quick_charge_minutes["1234567890"] == 60
+
+    @pytest.mark.asyncio
     async def test_set_local_idle_stores_start_preference(self):
         """LOCAL/HYBRID while quick charge is OFF (live check False): the value
         is stored as the start preference the switch applies at the next start

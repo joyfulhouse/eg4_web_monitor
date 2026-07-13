@@ -1740,10 +1740,13 @@ class TestTimezoneChangeIdempotency:
             migration_data = fake_marker_store.data(
                 history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY
             )
+            # The snapshot captures the COMPLETE intended picture (existing +
+            # new), not just pre-existing rows, so a failed write + narrower
+            # retry can't drop this run's new day (#7).
             assert migration_data == {
                 statistic_id: {
                     "tz_key": "America/New_York",
-                    "rows": {old_day.isoformat(): 5.0},
+                    "rows": {old_day.isoformat(): 5.0, new_day.isoformat(): 6.0},
                 }
             }
             for key in list(statistics_store):
@@ -1790,7 +1793,10 @@ class TestTimezoneChangeIdempotency:
         snapshot_saves = fake_marker_store.saved_payloads(
             history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY
         )
-        assert snapshot_saves[0][statistic_id]["rows"] == {old_day.isoformat(): 5.0}
+        assert snapshot_saves[0][statistic_id]["rows"] == {
+            old_day.isoformat(): 5.0,
+            new_day.isoformat(): 6.0,
+        }
         assert snapshot_saves[-1] == {}
         assert (
             fake_marker_store.data(history_import.HISTORY_IMPORT_MIGRATION_STORAGE_KEY)
@@ -1899,7 +1905,10 @@ class TestTimezoneChangeIdempotency:
         ) == {
             statistic_id: {
                 "tz_key": "America/New_York",
-                "rows": {imported_day.isoformat(): 5.0},
+                # Snapshot is the COMPLETE intended picture (existing + new);
+                # here both land on imported_day so the new value (6.0) wins,
+                # exactly as _build_statistics writes it (#7).
+                "rows": {imported_day.isoformat(): 6.0},
             }
         }
 

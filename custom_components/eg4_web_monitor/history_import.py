@@ -876,7 +876,17 @@ async def _merge_and_write(
                     existing_rows = _rekey_rows_to_new_tz(existing_rows, old_tz, tz)
                     migrations[statistic_id] = {
                         "tz_key": tz_key,
-                        "rows": _rows_to_snapshot_payload(existing_rows, tz),
+                        # Snapshot the COMPLETE intended picture (existing +
+                        # new), matching what _build_statistics writes below and
+                        # the recovery merge at load time. Snapshotting only
+                        # existing_rows would drop this run's new days if the
+                        # write failed after a successful clear and a later
+                        # retry requested a narrower range — those days were
+                        # cleared from the DB and absent from the snapshot. new
+                        # overrides existing, exactly as in _build_statistics.
+                        "rows": _rows_to_snapshot_payload(
+                            {**existing_rows, **new_rows}, tz
+                        ),
                     }
                     await migration_store.async_save(migrations)
                     verify_before_marker = True
