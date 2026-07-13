@@ -353,6 +353,7 @@ and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design and structure.
 
 ## Support
 
+- Join the [JoyfulHouse Discord](https://discord.gg/gc4eTPwxjJ) for support and discussion across all JoyfulHouse Home Assistant integrations and libraries.
 - **Issues:** <https://github.com/joyfulhouse/eg4_web_monitor/issues>
 - **Discussions / questions:** open an issue with the `question` label.
 - **Community:** [Home Assistant Community](https://community.home-assistant.io)
