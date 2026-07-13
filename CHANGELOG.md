@@ -5,6 +5,49 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-07-13
+
+Stable release: Quick Charge local control on all three connection paths,
+multi-step firmware updates, and large battery-bank stability — consolidating the
+3.5.0 beta line (beta.1–beta.3). Requires
+[pylxpweb 0.9.38](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.38)
+(installed automatically).
+
+Highlights across the 3.5.0 line:
+
+- **Quick Charge works on all three connection paths** (beta.3, [#366](https://github.com/joyfulhouse/eg4_web_monitor/pull/366)):
+  LOCAL/HYBRID starts write the paired register-233/234 frame; the idle Duration
+  stores a restart-safe start preference.
+- **Firmware updates run multi-step chains to completion and surface failures**
+  (beta.1, [#353](https://github.com/joyfulhouse/eg4_web_monitor/issues/353)):
+  multi-component devices (6000XP) converge instead of stopping on a partial
+  version.
+- **Large battery banks stay live at peak** (beta.3, [#367](https://github.com/joyfulhouse/eg4_web_monitor/issues/367)):
+  the bank-current corruption canary scales with battery count.
+- Additional beta-line fixes: no-BMS secondary all-unknown ([#348](https://github.com/joyfulhouse/eg4_web_monitor/issues/348)),
+  daily-energy float-boundary tick rejection ([#346](https://github.com/joyfulhouse/eg4_web_monitor/issues/346)),
+  PV Start Voltage cloud read ([#359](https://github.com/joyfulhouse/eg4_web_monitor/pull/359)),
+  AC-charge cloud enable read, and a firmware-orchestrator stale-cache replay.
+
+Post-beta.3 fixes from a Codex re-review of the full 3.4.0 → 3.5.0 change set,
+targeted at the #342 DRY/simplifier consolidation:
+
+### Fixed
+
+- **History-import recovery snapshot could drop a run's new days on a
+  narrower-range retry** ([#357](https://github.com/joyfulhouse/eg4_web_monitor/pull/357) follow-up):
+  the timezone-migration recovery snapshot captured only pre-existing rows, so a
+  failed write after a successful clear followed by a retry over a narrower date
+  range could discard the days being imported that run (cleared from the DB and
+  absent from the snapshot). The snapshot now captures the complete intended
+  picture (existing + new), matching what is written and the recovery merge on
+  load.
+- **Quick Charge Duration briefly showed the stored preference after a live
+  write when a prior status read had failed**: the throttled quick-charge status
+  cache is now seeded unconditionally after an accepted register-234 write, so
+  the entity reflects the written value immediately instead of publishing the
+  untouched start preference until the next successful poll.
+
 ## [3.5.0-beta.3] - 2026-07-12
 
 Quick Charge local control + a large-bank canary fix.
