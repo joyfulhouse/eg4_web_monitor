@@ -243,8 +243,8 @@ paths:
       summary: Plant-level real-time overview
       description: |
         Plant-level aggregated real-time metrics (PV/charge/discharge/consumption +
-        energy totals, inverters nested). **PROVISIONAL:** no Pydantic model exists in
-        the source — the `rows[]` field set is not enumerated. Needs a live capture.
+        energy totals) with nested parallel groups and per-device static blocks.
+        Live-validated 2026-07-15.
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -257,11 +257,11 @@ paths:
                   description: Filter by plant name/address
       responses:
         "200":
-          description: Provisional untyped overview.
+          description: Plant-level real-time overview.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProvisionalListResponse"
+                $ref: "#/components/schemas/PlantOverviewResponse"
 
   /WManage/api/inverterOverview/list:
     post:
@@ -976,9 +976,9 @@ paths:
       tags: [analytics]
       summary: Hourly sensor time-series for one day
       description: |
-        Hourly time-series for one `InverterRuntime` attribute over one date.
-        **PROVISIONAL** response schema (untyped dict, from docstring). Values raw;
-        caller applies attribute-appropriate scaling.
+        Time-series for one `InverterRuntime` attribute over one date
+        (~359 points/day, ~4-min cadence — not hourly). Live-validated 2026-07-15.
+        Values raw; caller applies attribute-appropriate scaling.
       requestBody:
         required: true
         content:
@@ -991,23 +991,31 @@ paths:
                   type: string
                 attr:
                   type: string
-                  description: Attribute, e.g. `vpv1`, `soc`, `ppv`, `pToGrid`, `tBat`
+                  description: |
+                    Free-form `InverterRuntime` field name, e.g. `soc`, `vBat`, `ppv`,
+                    `pCharge`, `pDisCharge`, `pToGrid`, `tBat`. The server returns an
+                    empty `data` series for unknown/absent attributes rather than an error.
                 dateText:
                   type: string
                   description: "YYYY-MM-DD"
       responses:
         "200":
-          description: Provisional time-series.
+          description: Attribute time-series.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ChartDataResponse"
+                $ref: "#/components/schemas/DayLineResponse"
 
   /WManage/api/analyze/energy/dayColumn:
     post:
       tags: [analytics]
       summary: Hourly energy breakdown (24 buckets) for one day
-      description: "PROVISIONAL response schema. `dataPoints` values raw (÷10 for kWh)."
+      description: |
+        Hourly energy breakdown (24 buckets) for one day. Live-validated 2026-07-15.
+        `data[].energy` raw 0.1 kWh (÷10 → kWh). `energyType` is a free-form string
+        (default `eInvDay`; confirmed family
+        eInvDay/eChgDay/eDisChgDay/eToGridDay/eToUserDay/eGenDay/eRecDay/eLoadDay) —
+        unknown types return success with a zero-filled series, not an error.
       requestBody:
         required: true
         content:
@@ -1016,17 +1024,20 @@ paths:
               $ref: "#/components/schemas/EnergyColumnDayRequest"
       responses:
         "200":
-          description: Provisional energy breakdown.
+          description: Hourly energy breakdown.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EnergyColumnResponse"
+                $ref: "#/components/schemas/EnergyDayColumnResponse"
 
   /WManage/api/analyze/energy/monthColumn:
     post:
       tags: [analytics]
       summary: Daily energy breakdown for one month (one series)
-      description: PROVISIONAL response schema. One energyType per call, one dataPoint per day.
+      description: |
+        Daily energy breakdown for one month (one `energyType` per call, one bucket
+        per day). Live-validated 2026-07-15. `data[].energy` raw 0.1 kWh. `energyType`
+        free-form (default `eInvDay`).
       requestBody:
         required: true
         content:
@@ -1035,17 +1046,21 @@ paths:
               $ref: "#/components/schemas/EnergyColumnMonthRequest"
       responses:
         "200":
-          description: Provisional energy breakdown.
+          description: Daily energy breakdown.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EnergyColumnResponse"
+                $ref: "#/components/schemas/EnergyMonthColumnResponse"
 
   /WManage/api/analyze/energy/yearColumn:
     post:
       tags: [analytics]
       summary: Monthly energy breakdown across one year (12 buckets)
-      description: PROVISIONAL response schema. One dataPoint per month.
+      description: |
+        Monthly energy breakdown across one year (12 buckets). Live-validated
+        2026-07-15. `data[].energy` raw 0.1 kWh; `data[].month` is 1-indexed here
+        (unlike chart/dayLine's 0-indexed month). `energyType` free-form (default
+        `eInvDay`).
       requestBody:
         required: true
         content:
@@ -1065,17 +1080,20 @@ paths:
                   type: string
       responses:
         "200":
-          description: Provisional energy breakdown.
+          description: Monthly energy breakdown.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EnergyColumnResponse"
+                $ref: "#/components/schemas/EnergyYearColumnResponse"
 
   /WManage/api/analyze/energy/totalColumn:
     post:
       tags: [analytics]
       summary: Yearly (lifetime) energy breakdown
-      description: PROVISIONAL response schema. No date parameters; one dataPoint per year.
+      description: |
+        Yearly (lifetime) energy breakdown; no date params, one bucket per year.
+        Live-validated 2026-07-15. `data[].energy` raw 0.1 kWh. `energyType` free-form
+        (default `eInvDay`).
       requestBody:
         required: true
         content:
@@ -1093,11 +1111,11 @@ paths:
                   type: string
       responses:
         "200":
-          description: Provisional energy breakdown.
+          description: Yearly energy breakdown.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EnergyColumnResponse"
+                $ref: "#/components/schemas/EnergyTotalColumnResponse"
 
   /WManage/api/inverterChart/monthColumn:
     post:
@@ -1146,8 +1164,7 @@ paths:
       tags: [analytics]
       summary: Fault/warning/event log
       description: |
-        Paginated fault/warning/event log for a device. **PROVISIONAL** response
-        schema (untyped dict, from docstring).
+        Paginated fault/warning/event log for a device. Live-validated 2026-07-15.
       requestBody:
         required: true
         content:
@@ -1173,7 +1190,7 @@ paths:
                   description: "`_all`, or `FAULT`/`WARNING`/code"
       responses:
         "200":
-          description: Provisional event log.
+          description: Event log.
           content:
             application/json:
               schema:
@@ -1184,9 +1201,8 @@ paths:
       tags: [forecasting]
       summary: Solar-production forecast (parallel group)
       description: |
-        Solar-production forecast (today/tomorrow) for a parallel group.
-        **PROVISIONAL** — shape from SDK docstring, not a Pydantic model. Confirm
-        against a live payload.
+        Solar-production forecast (today vs tomorrow, hourly) for a parallel group.
+        Live-validated 2026-07-15. Energy values raw 0.1 kWh.
       requestBody:
         required: true
         content:
@@ -1195,7 +1211,7 @@ paths:
               $ref: "#/components/schemas/SerialNumRequest"
       responses:
         "200":
-          description: Provisional solar forecast.
+          description: Solar forecast.
           content:
             application/json:
               schema:
@@ -1205,7 +1221,10 @@ paths:
     post:
       tags: [forecasting]
       summary: Weather forecast for the plant location
-      description: "**PROVISIONAL** — shape from SDK docstring. Confirm against a live payload."
+      description: |
+        Flat Visual-Crossing-style weather payload for the plant location (embedded PV
+        prediction summary + NWS-style alerts). Live-validated 2026-07-15.
+        Latitude/longitude ARE exposed here (unlike plant/details).
       requestBody:
         required: true
         content:
@@ -1214,7 +1233,7 @@ paths:
               $ref: "#/components/schemas/SerialNumRequest"
       responses:
         "200":
-          description: Provisional weather forecast.
+          description: Weather forecast.
           content:
             application/json:
               schema:
@@ -1404,18 +1423,225 @@ components:
           type: [string, "null"]
       required: [success]
 
-    ProvisionalListResponse:
+    PlantOverviewResponse:
       type: object
-      description: "PROVISIONAL untyped list envelope (schema not modeled in source)."
+      description: Plant-level real-time overview envelope. Live-validated 2026-07-15.
+      additionalProperties: true
+      required: [success]
       properties:
+        success:
+          type: boolean
         total:
           type: integer
+          description: Number of plants matched
         rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlantOverviewRow"
+
+    PlantOverviewRow:
+      type: object
+      description: |
+        Plant-level real-time metrics plus nested parallel-group and per-device static
+        blocks. Live-validated 2026-07-15. Energy totals are raw 0.1 kWh integers
+        (÷10 → kWh); `pXxx` power fields are raw watts; each `*Text` twin carries the
+        pre-formatted display string.
+      additionalProperties: true
+      properties:
+        plantId:
+          type: integer
+          description: Plant/station id
+        name:
+          type: string
+          description: Station name
+        plantType:
+          type: string
+          description: Plant type enum, e.g. NORMAL
+        statusText:
+          type: string
+          description: Machine status (normal / fault / offline)
+        statusLocaleText:
+          type: string
+          description: Localized status
+        isFavorite:
+          type: boolean
+        address:
+          type: string
+          description: Physical address
+        country:
+          type: string
+          description: Country enum
+        continent:
+          type: string
+          description: Continent enum
+        region:
+          type: string
+          description: Region enum
+        createDateText:
+          type: string
+          description: Plant create date (YYYY-MM-DD)
+        timezoneHourOffset:
+          type: integer
+        timezoneMinuteOffset:
+          type: integer
+        endUser:
+          type: string
+          description: End-user account
+        endUserId:
+          type: integer
+        userId:
+          type: integer
+        ownerUser:
+          type: string
+          description: Owner account
+        ppv:
+          type: integer
+          description: Live PV power (W)
+        ppvText:
+          type: string
+        pCharge:
+          type: integer
+          description: Live battery charge power (W)
+        pChargeText:
+          type: string
+        pDisCharge:
+          type: integer
+          description: Live battery discharge power (W)
+        pDisChargeText:
+          type: string
+        pConsumption:
+          type: integer
+          description: Live load/consumption power (W)
+        pConsumptionText:
+          type: string
+        todayYielding:
+          type: integer
+          description: Today PV yield, raw 0.1 kWh
+        todayYieldingTextUnitLess:
+          type: string
+        totalYielding:
+          type: integer
+          description: Lifetime PV yield, raw 0.1 kWh
+        totalYieldingText:
+          type: string
+        totalYieldingTextUnitLess:
+          type: string
+        totalDischarging:
+          type: integer
+          description: Lifetime discharge, raw 0.1 kWh
+        totalDischargingText:
+          type: string
+        totalExport:
+          type: integer
+          description: Lifetime grid export, raw 0.1 kWh
+        totalExportText:
+          type: string
+        totalUsage:
+          type: integer
+          description: Lifetime consumption, raw 0.1 kWh
+        totalUsageText:
+          type: string
+        parallelGroups:
           type: array
           items:
             type: object
             additionalProperties: true
+            properties:
+              parallelGroup:
+                type: string
+                description: Group letter, e.g. "A"
+              parallelFirstDeviceSn:
+                type: string
+                description: Master/first device SN
+        inverters:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlantOverviewInverter"
+
+    PlantOverviewInverter:
+      type: object
+      description: |
+        Nested per-device static info block (~30 fields). Live-validated 2026-07-15.
+        `parallelMidbox*` fields are present on GridBOSS (MID) devices only.
       additionalProperties: true
+      properties:
+        serialNum:
+          type: string
+          description: Device serial
+        datalogSn:
+          type: string
+          description: WiFi dongle serial
+        lastUpdateTime:
+          type: string
+          description: Last data timestamp
+        phase:
+          type: integer
+          description: 1=single, 3=three phase
+        lost:
+          type: boolean
+          description: Device offline flag
+        dtc:
+          type: integer
+          description: Device type code (internal)
+        odm:
+          type: integer
+          description: ODM code
+        model:
+          type: integer
+          description: Numeric model id
+        modelText:
+          type: string
+          description: Model as hex string
+        deviceType:
+          type: integer
+          description: Device type (6=inverter, 9=GridBOSS)
+        subDeviceType:
+          type: integer
+        allowExport2Grid:
+          type: boolean
+        powerRating:
+          type: integer
+          description: Power rating code
+        deviceTypeText:
+          type: string
+          description: Model name, e.g. 18KPV / Grid Boss / FlexBOSS21
+        deviceTypeText4APP:
+          type: string
+          description: Model name (app)
+        batteryType:
+          type: string
+        batteryTypeText:
+          type: string
+        standard:
+          type: string
+          description: Grid-standard code
+        slaveVersion:
+          type: integer
+        fwVersion:
+          type: integer
+          description: Firmware version
+        allowGenExercise:
+          type: boolean
+        withbatteryData:
+          type: boolean
+          description: Has battery data (false for GridBOSS)
+        hardwareVersion:
+          type: integer
+        voltClass:
+          type: integer
+        machineType:
+          type: integer
+        protocolVersion:
+          type: integer
+        parallelMidboxSn:
+          type: [string, "null"]
+          description: GridBOSS only — MID box SN
+        parallelMidboxDeviceText:
+          type: [string, "null"]
+          description: GridBOSS only
+        parallelMidboxLost:
+          type: [boolean, "null"]
+          description: GridBOSS only
 
     # ---- Enums ----
     BatteryType:
@@ -2892,71 +3118,237 @@ components:
           type: string
           description: Progress string, e.g. "50% - 280 / 561"
 
-    # ---- Analytics (provisional) ----
-    ChartDataResponse:
+    # ---- Analytics ----
+    DayLineResponse:
       type: object
-      description: "PROVISIONAL (untyped dict, from SDK docstring). Values raw."
+      description: |
+        Time-series for one InverterRuntime attribute over one date. Live-validated
+        2026-07-15. ~359 points/day (~4-min cadence), not hourly; `data` is empty when
+        no samples exist for that attribute/day. Sample `value` is raw — apply
+        attribute-appropriate scaling.
       additionalProperties: true
+      required: [success]
       properties:
         success:
           type: boolean
-        dataPoints:
+        xAxis:
+          type: string
+          description: X-axis type, e.g. "time"
+        yAxis:
+          type: string
+          description: Echoes the requested `attr`
+        avgValue:
+          type: number
+          description: Average (numeric)
+        avgValueText:
+          type: string
+          description: Average, formatted
+        maxValueText:
+          type: string
+          description: Max, formatted
+        minValueText:
+          type: string
+          description: Min, formatted (often empty)
+        unit:
+          type: string
+          description: Unit for the attribute (%, V, W, or "")
+        data:
           type: array
           items:
-            type: object
-            properties:
-              time:
-                type: string
-              value:
-                type: number
+            $ref: "#/components/schemas/DayLinePoint"
 
-    EnergyColumnResponse:
+    DayLinePoint:
       type: object
-      description: "PROVISIONAL. `dataPoints` values raw (÷10 for kWh)."
+      description: One time-series sample. Live-validated 2026-07-15.
       additionalProperties: true
+      properties:
+        time:
+          type: string
+          description: Full timestamp string
+        year:
+          type: integer
+        month:
+          type: integer
+          description: 0-indexed month (Java Calendar; July=6)
+        day:
+          type: integer
+        hour:
+          type: integer
+        minute:
+          type: integer
+        second:
+          type: integer
+        value:
+          type: number
+          description: Sample value (apply attribute scaling)
+
+    EnergyDayColumnResponse:
+      type: object
+      description: |
+        Hourly energy breakdown (24 buckets) for one day. Live-validated 2026-07-15.
+        `energy` raw 0.1 kWh (÷10 → kWh); `energyType` request param is not echoed.
+      additionalProperties: true
+      required: [success]
       properties:
         success:
           type: boolean
-        dataPoints:
+        invDataMapSize:
+          type: integer
+          description: Number of energy series present in the day's data map
+        data:
           type: array
           items:
             type: object
+            additionalProperties: true
             properties:
-              period:
-                type: string
-              value:
-                type: number
+              hour:
+                type: integer
+                description: Hour of day (0-23)
+              energy:
+                type: integer
+                description: Energy in that hour, raw 0.1 kWh
+
+    EnergyMonthColumnResponse:
+      type: object
+      description: |
+        Daily energy breakdown for one month. Live-validated 2026-07-15.
+        `energy` raw 0.1 kWh.
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        dayMax:
+          type: integer
+          description: Days in month
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              day:
+                type: integer
+                description: Day of month (1-31)
+              energy:
+                type: integer
+                description: Daily energy, raw 0.1 kWh
+
+    EnergyYearColumnResponse:
+      type: object
+      description: |
+        Monthly energy breakdown across one year (12 buckets). Live-validated
+        2026-07-15. `energy` raw 0.1 kWh.
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        year:
+          type: integer
+          description: Echoed year
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              month:
+                type: integer
+                description: Month (1-indexed here, unlike chart/dayLine's 0-indexed month)
+              energy:
+                type: integer
+                description: Monthly energy, raw 0.1 kWh
+
+    EnergyTotalColumnResponse:
+      type: object
+      description: |
+        Yearly (lifetime) energy breakdown, one bucket per year. Live-validated
+        2026-07-15. `energy` raw 0.1 kWh.
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              year:
+                type: integer
+                description: Calendar year
+              energy:
+                type: integer
+                description: Yearly energy, raw 0.1 kWh
 
     EventListResponse:
       type: object
-      description: "PROVISIONAL (untyped dict, from SDK docstring)."
+      description: |
+        Paginated fault/warning/event log for a device. Live-validated 2026-07-15.
       additionalProperties: true
+      required: [success]
       properties:
         success:
           type: boolean
         total:
           type: integer
+          description: Total events matching
         rows:
           type: array
           items:
-            type: object
-            properties:
-              eventId:
-                type: [integer, string]
-              eventCode:
-                type: [integer, string]
-              eventType:
-                type: string
-                description: FAULT / WARNING / INFO
-              eventText:
-                type: string
-              startTime:
-                type: string
-              endTime:
-                type: string
-              statusText:
-                type: string
-                description: ACTIVE / RESOLVED
+            $ref: "#/components/schemas/EventRow"
+
+    EventRow:
+      type: object
+      description: One event-log record. Live-validated 2026-07-15.
+      additionalProperties: true
+      properties:
+        recordId:
+          type: integer
+          description: Event record id
+        serialNum:
+          type: string
+          description: Device serial
+        datalogSn:
+          type: string
+          description: Dongle serial
+        plantName:
+          type: string
+          description: Station name
+        event:
+          type: string
+          description: Event code (E###=fault, W###=warning)
+        eventText:
+          type: string
+          description: Human-readable description
+        eventType:
+          type: string
+          enum: [FAULT, WARNING, INFO]
+          description: Category enum
+        eventTypeText:
+          type: string
+          description: Localized category, e.g. Fault / Notice
+        status:
+          type: string
+          enum: [OPEN, CLOSE]
+          description: Event state (OPEN=active, CLOSE=resolved)
+        faultDuration:
+          type: string
+          description: Duration in hours (string)
+        startTime:
+          type: string
+          description: Start (dash format)
+        startSlashTime:
+          type: string
+          description: Start (slash format)
+        renormalTime:
+          type: [string, "null"]
+          description: Return-to-normal (dash)
+        renormalSlashTime:
+          type: [string, "null"]
+          description: Return-to-normal (slash)
 
     MonthlyEnergyHistoryResponse:
       type: object
@@ -3022,71 +3414,191 @@ components:
           type: [number, "null"]
           description: Generator-port energy (parallel)
 
-    # ---- Forecasting (provisional) ----
+    # ---- Forecasting ----
     SolarForecastResponse:
       type: object
-      description: "PROVISIONAL — from SDK docstring, not a Pydantic model. Confirm against live payload."
+      description: |
+        Solar-production forecast (today vs tomorrow) for a parallel group, in hourly
+        buckets. Live-validated 2026-07-15. Energy values raw 0.1 kWh (÷10 → kWh).
       additionalProperties: true
+      required: [success]
       properties:
         success:
           type: boolean
-        serialNum:
+        localDate:
           type: string
-        forecastDate:
-          type: string
-        predictions:
+          description: Plant-local date of the forecast (YYYY-MM-DD)
+        solarEnergys:
           type: array
           items:
             type: object
+            additionalProperties: true
             properties:
-              time:
-                type: string
-              predictedPower:
-                type: number
-                description: W
-              confidence:
-                type: number
-                description: 0-100%
+              hour:
+                type: integer
+                description: Hour of day (plant-local, 0-23)
+              todaySolarEnergy:
+                type: integer
+                description: Predicted PV energy this hour, today (raw 0.1 kWh)
+              tomorrowSolarEnergy:
+                type: integer
+                description: Predicted PV energy this hour, tomorrow (raw 0.1 kWh)
 
     WeatherForecastResponse:
       type: object
-      description: "PROVISIONAL — from SDK docstring, not a Pydantic model. Confirm against live payload."
+      description: |
+        Flat Visual-Crossing-style weather payload for the plant location, with an
+        embedded PV-prediction summary and NWS-style alerts. Live-validated 2026-07-15.
+        Latitude/longitude ARE exposed here (unlike plant/details).
       additionalProperties: true
+      required: [success]
       properties:
         success:
           type: boolean
-        location:
+        latitude:
+          type: number
+          description: Plant latitude
+        longitude:
+          type: number
+          description: Plant longitude
+        resolvedAddress:
+          type: string
+          description: Resolved address (coords)
+        address:
+          type: string
+          description: Query address (coords)
+        plantCity:
+          type: string
+          description: Human city label
+        timezone:
+          type: string
+          description: IANA timezone
+        tzoffset:
+          type: number
+          description: TZ offset hours
+        localDate:
+          type: string
+          description: Plant-local today (YYYY-MM-DD)
+        localTomorrowDate:
+          type: string
+          description: Plant-local tomorrow (YYYY-MM-DD)
+        ePvPredict:
           type: object
+          additionalProperties: true
+          description: PV prediction summary. Energy raw 0.1 kWh.
           properties:
-            latitude:
-              type: number
-            longitude:
-              type: number
-            city:
+            success:
               type: string
-        current:
-          type: object
-          properties:
-            temperature:
-              type: number
-              description: °C
-            conditions:
-              type: string
-            cloudCover:
-              type: number
-              description: "%"
-        forecast:
+              description: String, not bool (e.g. "True")
+            todayPvEnergy:
+              type: integer
+              description: Predicted total PV today, raw 0.1 kWh
+            tomorrowPvEnergy:
+              type: integer
+              description: Predicted total PV tomorrow, raw 0.1 kWh
+        days:
           type: array
           items:
-            type: object
-            properties:
-              date:
-                type: string
-              tempHigh:
-                type: number
-              tempLow:
-                type: number
-              conditions:
-                type: string
-              cloudCover:
-                type: number
+            $ref: "#/components/schemas/WeatherDay"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeatherAlert"
+
+    WeatherDay:
+      type: object
+      description: |
+        One daily forecast entry. Live-validated 2026-07-15. Temperature fields are
+        pre-formatted strings with unit (e.g. "98.1 ℉"); humidity/wind/radiation are
+        floats.
+      additionalProperties: true
+      properties:
+        datetime:
+          type: string
+          description: Date (YYYY-MM-DD)
+        datetimeEpoch:
+          type: integer
+          description: Unix epoch (s)
+        tempmax:
+          type: string
+          description: Max temp (formatted with unit)
+        tempmin:
+          type: string
+          description: Min temp (formatted with unit)
+        temp:
+          type: string
+          description: Mean temp (formatted with unit)
+        humidity:
+          type: number
+          description: Relative humidity %
+        precipprob:
+          type: number
+          description: Precipitation probability %
+        windspeed:
+          type: number
+        solarradiation:
+          type: number
+          description: Solar radiation (W/m²)
+        solarenergy:
+          type: number
+          description: Solar energy (MJ/m²)
+        sunrise:
+          type: string
+          description: Sunrise local time
+        sunset:
+          type: string
+          description: Sunset local time
+        conditions:
+          type: string
+          description: Condition text
+        icon:
+          type: string
+          description: Icon slug
+        iconNew:
+          type: string
+          description: Icon slug (alt)
+        isDaytime:
+          type: boolean
+        conditionsType:
+          type: string
+          description: Internal condition type code
+
+    WeatherAlert:
+      type: object
+      description: One weather alert (NWS-style). Live-validated 2026-07-15.
+      additionalProperties: true
+      properties:
+        event:
+          type: string
+          description: Alert name
+        headline:
+          type: string
+        description:
+          type: string
+          description: Full alert text
+        onset:
+          type: string
+          description: Start
+        onsetEpoch:
+          type: integer
+          description: Start epoch
+        ends:
+          type: string
+          description: End
+        endsEpoch:
+          type: integer
+          description: End epoch
+        id:
+          type: string
+          description: Alert id (NWS urn)
+        language:
+          type: string
+        link:
+          type: string
+          description: Source link
+        level:
+          type: string
+          description: Severity (e.g. RED)
+        hazardType:
+          type: string
+          description: Hazard category
