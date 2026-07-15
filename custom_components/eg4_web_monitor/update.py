@@ -166,7 +166,20 @@ class EG4FirmwareUpdateEntity(
 
     @property
     def in_progress(self) -> bool:
-        """Return if firmware update is in progress."""
+        """Return if firmware update is in progress.
+
+        While THIS entity is driving an install (its per-serial lock is held),
+        report in-progress for the entire multi-component chain. The
+        coordinator's cached firmware status can briefly read idle between
+        components — e.g. during an inter-component eligibility-busy gap, when
+        pylxpweb's not-in-progress progress cache is still warm and an unforced
+        coordinator poll replays it — which would otherwise flicker the entity
+        to idle mid-update (issue #353). The install lock is held for the whole
+        ``run_firmware_update_to_completion`` chain, so it is the authoritative
+        signal for an HA-initiated update.
+        """
+        if self._install_lock.locked():
+            return True
         device_data = self._device_data()
         if not device_data:
             return False
