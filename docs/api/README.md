@@ -43,8 +43,10 @@ mobile app. `pylxpweb` wraps it; this integration (`eg4_web_monitor`) consumes
 ## Request encoding & error convention
 
 - **All request bodies are `application/x-www-form-urlencoded`** — never JSON — even for
-  single-parameter calls. Booleans intended for the wire are the lower-case strings
-  `"true"` / `"false"` (e.g. `enable`, `tryFastMode`, `parallel`).
+  single-parameter calls. Most booleans are explicitly stringified to lower-case
+  `"true"` / `"false"` (e.g. `enable`, `tryFastMode`, `parallel`), but a few are passed as
+  raw Python bools that aiohttp encodes **capitalized** (`True` / `False`) — notably
+  `autoRetry` (`remoteRead/read`) and `daylightSavingTime` (`plant/edit`).
 - **All endpoints are HTTP POST returning JSON**, except the history **export which is a
   GET returning binary `.xls`**.
 - **`success: false` inside an HTTP 200 body is the error signal** (not the HTTP status).

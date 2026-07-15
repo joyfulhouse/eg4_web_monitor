@@ -14,8 +14,11 @@ info:
 
     ## Cross-cutting conventions
     - **All request bodies are `application/x-www-form-urlencoded`** (NOT JSON). Even
-      single-parameter calls are form-encoded. Booleans destined for the wire are the
-      lower-case strings `"true"` / `"false"`.
+      single-parameter calls are form-encoded. Most booleans are explicitly stringified
+      to lower-case `"true"` / `"false"` (e.g. `tryFastMode`, `enable`, `parallel`), but
+      a few are passed as raw Python bools and aiohttp encodes them **capitalized**
+      (`True` / `False`) — notably `autoRetry` (remoteRead/read) and `daylightSavingTime`
+      (plant/edit). Servers appear to accept both.
     - Every endpoint is **HTTP POST returning JSON**, with two exceptions:
       the history export is **GET** returning a binary `.xls`.
     - **Authentication is cookie/session based** (`JSESSIONID`), established by
@@ -2466,29 +2469,29 @@ components:
         energy ÷10 kWh. Optional smart-load / AC-couple / energy families
         (`smartLoad{1-4}L{1,2}*`, `acCouple{1-4}L{1,2}*`, `eUps*`, `eToGrid*`,
         `eToUser*`, `eLoad*`, `eACcouple{1-4}*`, `eSmartLoad{1-4}*`, each
-        Today/Total × L1/L2) are present only when the ports/features are active and
-        are not all enumerated here.
+        Today/Total × L1/L2) read 0/null when the ports/features are inactive.
+        All 108 `MidboxData` fields are enumerated below.
       additionalProperties: true
       properties:
         status:
           type: [integer, "null"]
         serverTime:
-          type: [string, "null"]
+          type: string
         deviceTime:
-          type: [string, "null"]
+          type: string
         gridRmsVolt:
+          type: [integer, "null"]
+        upsRmsVolt:
+          type: [integer, "null"]
+        genRmsVolt:
           type: [integer, "null"]
         gridL1RmsVolt:
           type: [integer, "null"]
         gridL2RmsVolt:
           type: [integer, "null"]
-        upsRmsVolt:
-          type: [integer, "null"]
         upsL1RmsVolt:
           type: [integer, "null"]
         upsL2RmsVolt:
-          type: [integer, "null"]
-        genRmsVolt:
           type: [integer, "null"]
         genL1RmsVolt:
           type: [integer, "null"]
@@ -2530,7 +2533,6 @@ components:
           type: [integer, "null"]
         smartPort1Status:
           type: [integer, "null"]
-          description: 0=off, 1=smart_load, 2=ac_couple
         smartPort2Status:
           type: [integer, "null"]
         smartPort3Status:
@@ -2543,8 +2545,150 @@ components:
           type: [integer, "null"]
         genFreq:
           type: [integer, "null"]
-
-    # ---- Control ----
+        smartLoad1L1ActivePower:
+          type: [integer, "null"]
+        smartLoad1L2ActivePower:
+          type: [integer, "null"]
+        smartLoad2L1ActivePower:
+          type: [integer, "null"]
+        smartLoad2L2ActivePower:
+          type: [integer, "null"]
+        smartLoad3L1ActivePower:
+          type: [integer, "null"]
+        smartLoad3L2ActivePower:
+          type: [integer, "null"]
+        smartLoad4L1ActivePower:
+          type: [integer, "null"]
+        smartLoad4L2ActivePower:
+          type: [integer, "null"]
+        smartLoad1L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad1L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad2L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad2L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad3L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad3L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad4L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad4L2RmsCurr:
+          type: [integer, "null"]
+        acCouple1L1ActivePower:
+          type: [integer, "null"]
+        acCouple1L2ActivePower:
+          type: [integer, "null"]
+        acCouple2L1ActivePower:
+          type: [integer, "null"]
+        acCouple2L2ActivePower:
+          type: [integer, "null"]
+        acCouple3L1ActivePower:
+          type: [integer, "null"]
+        acCouple3L2ActivePower:
+          type: [integer, "null"]
+        acCouple4L1ActivePower:
+          type: [integer, "null"]
+        acCouple4L2ActivePower:
+          type: [integer, "null"]
+        eUpsTodayL1:
+          type: [integer, "null"]
+        eUpsTodayL2:
+          type: [integer, "null"]
+        eUpsTotalL1:
+          type: [integer, "null"]
+        eUpsTotalL2:
+          type: [integer, "null"]
+        eToGridTodayL1:
+          type: [integer, "null"]
+        eToGridTodayL2:
+          type: [integer, "null"]
+        eToGridTotalL1:
+          type: [integer, "null"]
+        eToGridTotalL2:
+          type: [integer, "null"]
+        eToUserTodayL1:
+          type: [integer, "null"]
+        eToUserTodayL2:
+          type: [integer, "null"]
+        eToUserTotalL1:
+          type: [integer, "null"]
+        eToUserTotalL2:
+          type: [integer, "null"]
+        eLoadTodayL1:
+          type: [integer, "null"]
+        eLoadTodayL2:
+          type: [integer, "null"]
+        eLoadTotalL1:
+          type: [integer, "null"]
+        eLoadTotalL2:
+          type: [integer, "null"]
+        eACcouple1TodayL1:
+          type: [integer, "null"]
+        eACcouple1TodayL2:
+          type: [integer, "null"]
+        eACcouple1TotalL1:
+          type: [integer, "null"]
+        eACcouple1TotalL2:
+          type: [integer, "null"]
+        eACcouple2TodayL1:
+          type: [integer, "null"]
+        eACcouple2TodayL2:
+          type: [integer, "null"]
+        eACcouple2TotalL1:
+          type: [integer, "null"]
+        eACcouple2TotalL2:
+          type: [integer, "null"]
+        eACcouple3TodayL1:
+          type: [integer, "null"]
+        eACcouple3TodayL2:
+          type: [integer, "null"]
+        eACcouple3TotalL1:
+          type: [integer, "null"]
+        eACcouple3TotalL2:
+          type: [integer, "null"]
+        eACcouple4TodayL1:
+          type: [integer, "null"]
+        eACcouple4TodayL2:
+          type: [integer, "null"]
+        eACcouple4TotalL1:
+          type: [integer, "null"]
+        eACcouple4TotalL2:
+          type: [integer, "null"]
+        eSmartLoad1TodayL1:
+          type: [integer, "null"]
+        eSmartLoad1TodayL2:
+          type: [integer, "null"]
+        eSmartLoad1TotalL1:
+          type: [integer, "null"]
+        eSmartLoad1TotalL2:
+          type: [integer, "null"]
+        eSmartLoad2TodayL1:
+          type: [integer, "null"]
+        eSmartLoad2TodayL2:
+          type: [integer, "null"]
+        eSmartLoad2TotalL1:
+          type: [integer, "null"]
+        eSmartLoad2TotalL2:
+          type: [integer, "null"]
+        eSmartLoad3TodayL1:
+          type: [integer, "null"]
+        eSmartLoad3TodayL2:
+          type: [integer, "null"]
+        eSmartLoad3TotalL1:
+          type: [integer, "null"]
+        eSmartLoad3TotalL2:
+          type: [integer, "null"]
+        eSmartLoad4TodayL1:
+          type: [integer, "null"]
+        eSmartLoad4TodayL2:
+          type: [integer, "null"]
+        eSmartLoad4TotalL1:
+          type: [integer, "null"]
+        eSmartLoad4TotalL2:
+          type: [integer, "null"]
     ParameterReadResponse:
       type: object
       description: |
