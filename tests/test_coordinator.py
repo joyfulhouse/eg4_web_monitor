@@ -7406,7 +7406,9 @@ class TestFirmwarePollCarryForward:
         device = MagicMock()
         device.serial_number = "1234567890"
         device.check_firmware_updates = AsyncMock(side_effect=RuntimeError("blip"))
-        device.get_firmware_update_progress = AsyncMock(side_effect=RuntimeError("blip"))
+        device.get_firmware_update_progress = AsyncMock(
+            side_effect=RuntimeError("blip")
+        )
         device.firmware_update_available = True
         device.latest_firmware_version = "ccaa-1E1515"
         device.firmware_update_title = "Firmware"
