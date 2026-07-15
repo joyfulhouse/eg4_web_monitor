@@ -24,7 +24,7 @@ mobile app. `pylxpweb` wraps it; this integration (`eg4_web_monitor`) consumes
 | `control` | Parameter read/write, function bits, quick charge/discharge, schedules |
 | `firmware` | Multi-step firmware update flow |
 | `analytics` | Charts, energy breakdowns, daily-energy history, event log |
-| `forecasting` | Solar + weather forecasts (provisional) |
+| `forecasting` | Solar + weather forecasts |
 | `export` | Historical runtime `.xls` export |
 
 ## Auth & session model
@@ -78,7 +78,7 @@ Method / path / purpose / request → response model / client cache TTL.
 | `/WManage/web/config/plant/edit` | **Write** plant config (name/DST/power); drives DST sync | `PlantEditRequest` → `SuccessResponse` | — |
 | `/WManage/locale/region` | Locale lookup: regions for a continent (plant-edit slow path) | `continent` → provisional array | — |
 | `/WManage/locale/country` | Locale lookup: countries for a region (plant-edit slow path) | `region` → provisional array | — |
-| `/WManage/api/plantOverview/list/viewer` | Plant real-time overview | `searchText` → provisional dict | 30 s |
+| `/WManage/api/plantOverview/list/viewer` | Plant real-time overview | `searchText` → `PlantOverviewResponse` | 30 s |
 
 ### devices
 | Path | Purpose | Request → Response | TTL |
@@ -150,53 +150,206 @@ whole batch before any write). Schedule families compose `write`/`writeTime`/`re
 ### analytics
 | Path | Purpose | Request → Response | TTL |
 |---|---|---|---|
-| `/WManage/api/analyze/chart/dayLine` | Hourly sensor time-series | `SN,attr,dateText` → provisional | none |
-| `/WManage/api/analyze/energy/dayColumn` | Hourly energy breakdown | `SN,parallel,year,month,day,energyType` → provisional | none |
-| `/WManage/api/analyze/energy/monthColumn` | Daily breakdown (1 series) | `SN,parallel,year,month,energyType` → provisional | none |
-| `/WManage/api/analyze/energy/yearColumn` | Monthly breakdown | `SN,parallel,year,energyType` → provisional | none |
-| `/WManage/api/analyze/energy/totalColumn` | Yearly (lifetime) breakdown | `SN,parallel,energyType` → provisional | none |
+| `/WManage/api/analyze/chart/dayLine` | Sensor time-series (~359 pts/day) | `SN,attr,dateText` → `DayLineResponse` | none |
+| `/WManage/api/analyze/energy/dayColumn` | Hourly energy breakdown | `SN,parallel,year,month,day,energyType` → `EnergyDayColumnResponse` | none |
+| `/WManage/api/analyze/energy/monthColumn` | Daily breakdown (1 series) | `SN,parallel,year,month,energyType` → `EnergyMonthColumnResponse` | none |
+| `/WManage/api/analyze/energy/yearColumn` | Monthly breakdown | `SN,parallel,year,energyType` → `EnergyYearColumnResponse` | none |
+| `/WManage/api/analyze/energy/totalColumn` | Yearly (lifetime) breakdown | `SN,parallel,energyType` → `EnergyTotalColumnResponse` | none |
 | `/WManage/api/inverterChart/monthColumn` | Daily-energy history, all series (single) | `SN,year,month` → `MonthlyEnergyHistoryResponse` | none |
 | `/WManage/api/inverterChart/monthColumnParallel` | Daily-energy history (group) | `SN,year,month` → `MonthlyEnergyHistoryResponse` | none |
-| `/WManage/api/analyze/event/list` | Fault/warning/event log | `page,rows,plantId,SN,eventText` → provisional | none |
+| `/WManage/api/analyze/event/list` | Fault/warning/event log | `page,rows,plantId,SN,eventText` → `EventListResponse` | none |
 
 ### forecasting
 | Path | Purpose | Request → Response | TTL |
 |---|---|---|---|
-| `/WManage/api/predict/solar/dayPredictColumnParallel` | Solar-production forecast | `SN` → provisional | none |
-| `/WManage/api/weather/forecast` | Weather forecast | `SN` → provisional | none |
+| `/WManage/api/predict/solar/dayPredictColumnParallel` | Solar-production forecast | `SN` → `SolarForecastResponse` | none |
+| `/WManage/api/weather/forecast` | Weather forecast | `SN` → `WeatherForecastResponse` | none |
 
 ### export
 | Path | Purpose | Request → Response | TTL |
 |---|---|---|---|
 | `GET /WManage/web/analyze/data/export/{serialNum}/{startDate}?endDateText=` | Historical runtime `.xls` | path+query → binary `.xls` | none |
 
-## Firmware multi-step update flow
+## Firmware update lifecycle
 
-Some devices (e.g. 6000XP) update one firmware component at a time, so a full update is a
-**chain of `run` calls**. The `pylxpweb` orchestrator drives it as:
+A full firmware update is **not a single call**. On multi-component devices (the 6000XP is
+the reference case, eg4_web_monitor#353) the portal and mobile app issue `standardUpdate/run`
+**once per firmware component**, waiting for each component to flash and the device to settle
+before starting the next. A lone `run` call leaves such a device stranded on a *partial*
+version — a 6000XP asked to reach `ccaa-1E1515` lands on `ccaa-1E1415` (one trailing byte
+short). `pylxpweb` therefore drives an orchestrator, `run_firmware_update_to_completion()`,
+that chains **check → eligibility → start → poll → settle → re-check** until the device
+converges on the latest version or a guard stops it. This section documents that flow and
+the empirical device behaviour it was built against.
 
-1. **`checkUpdates`** (forced) → `FirmwareUpdateCheck`. If already up to date, the API
-   returns `success:false` with an "already the latest version" message which the client
-   converts into a synthetic up-to-date result. `needRunStep2..5` advertise a chain but
-   their exact semantics are **unverified and deliberately not used to gate re-runs**.
-2. **`check12KParallelStatus`** → eligibility. Proceed only when `msg == allowToUpdate`.
-3. **`run`** (`tryFastMode`) → starts one component/step. The response's `success` is the
-   only field consumed; the client optimistically marks `in_progress=True, percentage=0`.
-4. **Poll `remoteUpdate/info`** (always forced — an unforced poll would replay the 5-min
-   idle snapshot and abandon a genuinely running step). Two phases: a ~300s `start_grace`
-   window for the accepted run to become in-progress, then poll to terminal within
-   `step_timeout` (3600s). Progress % is regex-parsed from each row's `updateRate`
-   string (`"50% - 280 / 561"`).
-5. If a device row reports **`FAILED`**, STOP. Otherwise run a bounded settle window
-   (3 checks × 30s) looking for version movement, then **re-check** — if an update still
-   remains, run the next step. Bounded by `max_steps=5`.
+### The four firmware endpoints
 
-**`updateStatus` state machine** (per `FirmwareDeviceInfo`):
-- `is_in_progress` = `!isSendEndUpdate` ∧ ( (status ∈ {`UPLOADING`, `READY`} ∧ `isSendStartUpdate`)
-  ∨ status == `WAITING` ) — `WAITING` (queued/inter-component busy) counts as in-progress so the
-  HA entity stays "installing" across the whole multi-component update (issue #353)
-- `is_complete` = status ∈ {`SUCCESS`, `COMPLETE`} ∧ `isSendEndUpdate` ∧ non-empty `stopTime`
-- `is_failed` = status == `FAILED`
+All are HTTP `POST` with `application/x-www-form-urlencoded` bodies and `success` inside an
+HTTP-200 body as the error signal. `userId` (from the login response) is required by all but
+`checkUpdates`.
+
+| Endpoint | Role | Request → Response | R/W |
+|---|---|---|---|
+| `/WManage/web/maintain/standardUpdate/checkUpdates` | **Check** — is a newer firmware available, and what is the target version | `serialNum` → `FirmwareUpdateCheck` | read |
+| `/WManage/web/maintain/standardUpdate/check12KParallelStatus` | **Eligibility** — is the device allowed to start an update *right now* | `userId,serialNum` → `UpdateEligibilityStatus` | read |
+| `/WManage/web/maintain/standardUpdate/run` ⚠️ | **Start one component** — begins a single update step; chained by the orchestrator | `userId,serialNum,tryFastMode` → `{success}` | **write** |
+| `/WManage/web/maintain/remoteUpdate/info` | **Status / progress poll** — per-device update rows for the whole account | `userId` → `FirmwareUpdateStatus` | read |
+
+Notes grounded in the client:
+
+- **`checkUpdates` folds "already up to date" into success.** When no update remains, the API
+  answers `success:false` with an "already the latest version" message; the client catches
+  that specific message and returns a synthetic `FirmwareUpdateCheck` with empty version
+  fields (`create_up_to_date`) rather than raising. `update_available` is then simply
+  `installed_version != latest_version`.
+- **`check12KParallelStatus` applies to all devices**, despite the "12KParallel" name — it is
+  the generic per-device eligibility gate. `is_allowed` is true **only** when
+  `msg == allowToUpdate`.
+- **`run` returns only a boolean.** The client consumes `bool(response.get("success"))` and
+  nothing else; on success it optimistically marks the cached state `in_progress=True,
+  update_percentage=0` so progress polling engages immediately.
+- **`remoteUpdate/info` is account-wide.** It returns `deviceInfos: list[FirmwareDeviceInfo]`
+  for every device with an active or recent update; the caller filters to its own
+  `inverterSn`. Progress percentage is regex-parsed from each row's free-text `updateRate`
+  (e.g. `"50% - 280 / 561"` → `50`).
+
+### The `updateStatus` state machine
+
+Each `FirmwareDeviceInfo` row in `remoteUpdate/info` carries an `updateStatus` plus the
+boolean flags `isSendStartUpdate` / `isSendEndUpdate` and a `stopTime` string. The
+`UpdateStatus` enum and its derived predicates:
+
+| `updateStatus` | Meaning | Counts as in-progress? |
+|---|---|---|
+| `READY` | A component is staged and starting (paired with `isSendStartUpdate`) | yes, when `isSendStartUpdate` |
+| `UPLOADING` | A component is actively transferring / flashing | yes, when `isSendStartUpdate` |
+| `WAITING` | **Queued / between-component busy phase** — the multi-component gap, before the next component's start flag is set | **yes, unconditionally** |
+| `COMPLETE` | Terminal success | no |
+| `SUCCESS` | Terminal success | no |
+| `FAILED` | Terminal failure | no |
+| `UNKNOWN` | **Client-side sentinel** for any value the API emits that is not one of the above — never sent by the server | no |
+
+Derived predicates (`FirmwareDeviceInfo`):
+
+- **`is_in_progress`** = `not isSendEndUpdate` **and** ( ( `updateStatus ∈ {UPLOADING, READY}`
+  **and** `isSendStartUpdate` ) **or** `updateStatus == WAITING` ).
+  `WAITING` is treated as busy **even before** the start flag appears, so a Home Assistant
+  Update entity stays "installing" across the whole multi-component update instead of
+  flickering idle in the inter-component gap (#353).
+- **`is_complete`** = `updateStatus ∈ {SUCCESS, COMPLETE}` **and** `isSendEndUpdate` **and**
+  non-empty `stopTime`.
+- **`is_failed`** = `updateStatus == FAILED`.
+
+**Why `_missing_ → UNKNOWN` matters.** Both `UpdateStatus` and `UpdateEligibilityMessage` are
+`StrEnum`s with a `_missing_` classmethod that coerces any unrecognized value to `UNKNOWN`.
+A live 6000XP update surfaced states not in the original enum (`WAITING` was one; a literal
+`deviceBusy` on the eligibility path was another), and a strict enum would have raised a
+Pydantic `ValidationError` **mid-update**, crashing the flow over a cosmetic status string.
+The tolerance is deliberately *safe by default*: `UNKNOWN` is never equal to `allowToUpdate`,
+so `UpdateEligibilityStatus.is_allowed` stays `False` and an unknown state is treated as
+"not yet eligible / keep waiting", never as a green light to write. `WAITING` was
+subsequently promoted to a first-class in-progress value; `UNKNOWN` remains the catch-all.
+
+> The progress conversion in `get_firmware_update_progress()` collapses **every**
+> non-installing state to `in_progress=False` (it only reports a boolean + percentage). That
+> is why the orchestrator reads terminal **`FAILED`** from the raw status row via a dedicated
+> `_update_step_reported_failed()` check rather than inferring it from the flattened progress
+> object.
+
+### The multi-step / multi-component chain
+
+`checkUpdates` advertises a chain through the `needRunStep2..needRunStep5` booleans
+(surfaced as `needs_run_steps` on `FirmwareUpdateInfo`). **These are diagnostic only** — their
+exact firmware semantics are unverified, so the orchestrator deliberately does **not** use
+them to gate re-runs. The re-run decision is driven entirely by observed server state: after
+each step, does an update still remain, and did the firmware version actually move?
+
+The loop (`run_firmware_update_to_completion`), for up to `max_steps` iterations:
+
+1. **Check** (`checkUpdates`, forced). If no update is available, return converged/success.
+2. **Become eligible + start.** Poll `check12KParallelStatus`; when `allowToUpdate`, call
+   `run` to start the next component. A transient busy result on *either* the eligibility
+   probe or the start call is tolerated and retried within a bounded budget (see below).
+3. **Poll to completion** (`remoteUpdate/info`, forced every poll) in two phases: a
+   `start_grace` window for the accepted run to become visibly `in_progress`, then poll until
+   the row leaves in-progress or `step_timeout` elapses.
+4. **FAILED abort.** Read the raw status row; if it reports `FAILED`, re-check the version
+   (to capture any partial advance) and **stop** — issue no further `run`.
+5. **Settle + re-check.** Re-run `checkUpdates` across a bounded settle window. If no update
+   remains → converged. If the version key advanced → continue the chain. If nothing moved
+   across the whole window → stop (do not keep writing against an unresponsive chain).
+
+Guards (all overridable; defaults shown):
+
+| Guard | Default | Purpose |
+|---|---|---|
+| **Step budget** (`max_steps`) | `5` | Hard ceiling on `run` invocations. The API defines steps 2–5, so 5 covers every known chain; exhausting it returns "update still available … stopping at step budget". |
+| **Per-step timeout** (`step_timeout`) | `3600 s` | Max wait for a single component to finish installing before aborting that step. |
+| **Start-grace visibility window** (`start_grace`) | `300 s` | The server registers an accepted `run` in `remoteUpdate/info` **asynchronously**. Without a grace window, an early poll seeing idle status would be mistaken for instant completion. The loop keeps polling for `in_progress=True` until it appears (fast steps that genuinely complete between polls are caught by the post-step version re-check). |
+| **Forced polling** (`poll_interval`, `force=True`) | `30 s` | `get_firmware_update_progress()` caches a *not-in-progress* snapshot for **5 minutes**; an unforced poll would replay that pre-registration idle snapshot for the entire grace window and abandon a genuinely running step as "no progress". Every poll is therefore forced (~2 `remoteUpdate/info` calls/min while installing). |
+| **No-progress guard** (`settle_checks`, `settle_interval`) | `3 × 30 s` | After a step, re-check the firmware version across a settle window before declaring a dead chain — the check endpoint's version data can lag the status endpoint's terminal state (cloud eventual consistency). If the progress key never moves, stop instead of looping writes. |
+| **FAILED abort** | — | A step ending in `FAILED` stops the chain immediately; firing another `run` at a device whose last step failed is exactly the blind write this orchestrator exists to prevent. |
+| **Bounded busy-retry** | `min(start_grace, step_timeout)` | After a component flashes, the device can still be settling/rebooting, so both the eligibility gate and the start call may briefly report busy. Those are treated as "still working" and retried within budget. On the **first** step only, a genuine *not-eligible* (non-busy) result is a real pre-flight rejection → fail fast, **no write**. Any non-busy API error always propagates. |
+| **No-write-past-deadline** | — | Once the busy budget is spent, no *retry* start write is issued (the first genuine attempt is exempt, so a zero/expired grace still gets one shot). The eligibility call can straddle the deadline; the loop re-checks the clock and never fires a retry `run` past it. |
+
+The **progress key** used by the no-progress guard is
+`(installed_version, app_version_current, param_version_current)`. The full installed code is
+primary because it also captures prefix-byte movement (`ccaa-1D..` → `ccaa-1E..`) that the
+trailing app/param version pair alone cannot see; the pair rides along for layouts where the
+code string is empty. Because the "already latest" response carries an empty
+`fwCodeBeforeUpload`, the orchestrator remembers the last non-empty target
+(`last_target`) to report as the converged version.
+
+### Busy-code taxonomy
+
+Mid-chain, both the eligibility probe and the start call can lose a TOCTOU race and come back
+"busy" under several different codes. `_is_device_busy_error()` classifies them by matching
+two case-folded stems in the error message — `"busy"` or `"updating"`:
+
+| Surface | Code / message | Stem matched | Treatment |
+|---|---|---|---|
+| Transport / HTTP-200 error body | `deviceBusy`, `device_busy`, `DEVICE_BUSY`, bare `BUSY` | `busy` | transient → bounded retry |
+| Eligibility enum (`UpdateEligibilityMessage`) | `deviceUpdating`, `parallelGroupUpdating` | `updating` | transient → bounded retry |
+| `standardUpdate/run` prose | `"Device is already updating"`, `"Another device in the parallel group is updating"` | `updating` | transient → bounded retry |
+| Any other start error | `"no update available"`, bad serial, permission, etc. | *(neither)* | **propagates** (real error) |
+
+Key points:
+
+- The same busy family can appear on **both** the eligibility probe **and** the start call,
+  and both sites catch it — the multi-step chain must not abort in the settle/reboot window
+  between components.
+- A literal `deviceBusy` observed on the eligibility path (#353) is **not** a documented
+  `UpdateEligibilityMessage` member; it validates to the `UNKNOWN` sentinel (keeping
+  `is_allowed` False) and, if raised as an API error, is classified busy by the stem match.
+- Matching on stems rather than an exact allowlist means a novel busy-ish phrasing is
+  tolerated as transient, while a genuinely different error (no update, bad serial) contains
+  neither stem and still escapes to the caller.
+
+### Practical notes for consumers
+
+- **Poll cadence.** While a step is installing, the orchestrator issues ~**2 forced
+  `remoteUpdate/info` calls per minute** (`poll_interval=30 s`), comparable to the portal's
+  own polling — a deliberate ceiling, not real-time streaming.
+- **Duration.** Budget **20–40 minutes per component**; a multi-component device multiplies
+  that by the number of steps. `try_fast_mode` may cut ~20–30% off a step but is best-effort.
+- **This is a write with real hazards.** `run` starts an actual flash: the device goes
+  unavailable, must keep power and network, and can be bricked if interrupted. Always
+  `checkUpdates` → `check12KParallelStatus` → explicit user confirmation → `run` → poll.
+- **Resumption is server-state-derived.** The orchestrator persists no local progress — every
+  decision is re-derived from `checkUpdates` / `check12KParallelStatus` / `remoteUpdate/info`.
+  An interrupted run (e.g. a Home Assistant restart mid-update) can simply be re-invoked: it
+  will wait out an in-progress component (eligibility reports busy → bounded retry) or resume
+  the chain if an update still remains, then converge.
+- **Version rendering.** The displayed target is built by replacing the trailing app/param
+  bytes of `fwCodeBeforeUpload` in place, preserving any prefix bytes — 6000XP-class codes
+  carry a third leading byte (`ccaa-1E1415` → prefix `ccaa-1E`, app `0x14`, param `0x15`), so
+  a naive split on `-` produced the wrong target (`ccaa-1515`) before #353.
+- **Hardware-confirmation caveat.** The full orchestrated chain (guards, busy tolerance,
+  version rendering) is unit-covered and was designed against the reporter's live 6000XP
+  telemetry, but the end-to-end **`1E1415 → 1E1515` convergence on real hardware is the one
+  piece still awaiting a re-confirmation run** — treat the multi-component 6000XP path as
+  empirically-informed but not yet hardware-re-validated end to end.
+
 
 ## Scaling / units
 
@@ -226,14 +379,37 @@ Raw integer → engineering unit. Apply at the consumer.
 
 Carried forward from the three domain maps:
 
-**Untyped / provisional response bodies** (no Pydantic model — field names/shapes from
-SDK docstrings, unverified against live payloads; marked provisional in the spec):
-- `plantOverview/list/viewer` — `rows[]` fields not enumerated.
-- `analyze/chart/dayLine`, `analyze/energy/{day,month,year,total}Column`,
-  `analyze/event/list` — `dataPoints`/`rows` shapes are docstring-confidence; casing and
-  nesting may differ.
-- `predict/solar/dayPredictColumnParallel`, `weather/forecast` — entirely
-  docstring-derived; confirm against a live payload before relying on them.
+**Live-validated response bodies (2026-07-15 — no longer provisional):** the six
+analytics/forecast/overview endpoints below were captured live (read-only) and now carry
+real field-level typed schemas in the spec:
+- `plantOverview/list/viewer` → `PlantOverviewResponse` (`rows[]` = `PlantOverviewRow`,
+  with nested `parallelGroups[]` and per-device `PlantOverviewInverter`).
+- `analyze/chart/dayLine` → `DayLineResponse` (+ `DayLinePoint`).
+- `analyze/energy/{day,month,year,total}Column` → `Energy{Day,Month,Year,Total}ColumnResponse`
+  (each differs in period-meta + bucket key).
+- `analyze/event/list` → `EventListResponse` (+ `EventRow`).
+- `predict/solar/dayPredictColumnParallel` → `SolarForecastResponse`.
+- `weather/forecast` → `WeatherForecastResponse` (+ `WeatherDay`, `WeatherAlert`).
+
+**Remaining untyped / provisional response bodies** (no Pydantic model — field
+names/shapes from SDK docstrings, unverified against live payloads; still marked
+provisional in the spec):
+- `locale/region`, `locale/country` — provisional untyped arrays (plant-edit slow path);
+  not yet captured live.
+
+**Cross-endpoint quirks (documented facts, live-validated 2026-07-15):**
+- **Energy is raw 0.1 kWh everywhere** — plantOverview totals, all energy columns, solar
+  predictions, and `ePvPredict` (÷10 → kWh).
+- **Power is raw watts** (`ppv`, `pCharge`, `pDisCharge`, `pConsumption`).
+- **Month indexing differs by endpoint:** `chart/dayLine` `data[].month` is **0-indexed**
+  (Java Calendar; July=6), but `energy/yearColumn` `data[].month` is **1-indexed**.
+- **`energyType` and `attr` are permissive free-form strings** — the server returns
+  `success` with an empty/zero-filled series for unrecognized values rather than an error
+  (so an all-zero series is indistinguishable from an unknown key). `energyType` default
+  `eInvDay`; confirmed non-zero family:
+  `eInvDay/eChgDay/eDisChgDay/eToGridDay/eToUserDay/eGenDay/eRecDay/eLoadDay`.
+- **Latitude/longitude ARE available** via `weather/forecast` (top-level `latitude`/
+  `longitude`), correcting the earlier "not exposed by any JSON endpoint" note.
 
 **Firmware enum tolerance (post-#353 — resolved):**
 - **`WAITING`** is a real device-reported `updateStatus` (issue #353, queued/waiting phase
@@ -258,8 +434,9 @@ and `POST /WManage/locale/country` lookups when the static map misses. All three
 the spec (documented from source; not exercised live).
 
 **Other known gaps:**
-- **Latitude/longitude** are not exposed by any JSON endpoint, and are **not** settable via
-  the `POST /WManage/web/config/plant/edit` write above — only via hidden fields on the
+- **Latitude/longitude** ARE exposed (read-only) by `POST /WManage/api/weather/forecast`
+  as top-level `latitude`/`longitude` (live-validated 2026-07-15), but are **not** settable
+  via the `POST /WManage/web/config/plant/edit` write above — only via hidden fields on the
   separate HTML plant-edit form (`GET /WManage/web/config/plant/edit/{plantId}`).
 - **Login wire extras** dropped by Pydantic: top-level `clusterGroup`,
   `quickChargeDefaultDuration`; per-inverter `datalogSn`/`lastUpdateTime`/`model`/
@@ -271,10 +448,12 @@ the spec (documented from source; not exercised live).
   (`DATAFRAME_TIMEOUT`, `TIMEOUT`, `BUSY`, `COMMUNICATION_ERROR`, `DEVICE_BUSY`); other
   non-transient permission/parameter codes are surfaced verbatim in `message`/`msg` but
   not enumerated.
-- **`analyze/energy/*` `energyType` enum** is only partially documented
-  (`eInvDay`,`eToUserDay`,`eToGridDay`,`eAcChargeDay`,`eBatChargeDay`,`eBatDischargeDay`);
-  the full server-accepted set is unknown. Likewise `chart/dayLine` `attr` tracks
-  `InverterRuntime` field names but is not exhaustively enumerated.
+- **`analyze/energy/*` `energyType` and `chart/dayLine` `attr`** are permissive free-form
+  strings (see cross-endpoint quirks above): the server never rejects an unknown value — it
+  returns `success` with an empty/zero-filled series — so the "accepted" set is effectively
+  unbounded. The confirmed non-zero `energyType` family (live-validated 2026-07-15) is
+  `eInvDay/eChgDay/eDisChgDay/eToGridDay/eToUserDay/eGenDay/eRecDay/eLoadDay`; `attr` tracks
+  `InverterRuntime` field names.
 - **Energy-scale discrepancy** (resolved): some `devices.py` docstrings say "÷1000 (Wh)"
   while the models and `docs/DATA_MAPPING.md` say **÷10 (0.1 kWh)** — **÷10 is
   authoritative**.
@@ -283,9 +462,12 @@ the spec (documented from source; not exercised live).
   `startDate` going forward.
 - **`autoParallel`** request/response documented from source only (write endpoint, not
   exercised).
-- **Live validation scope:** auth/plants/devices were live-validated 2026-07-14; typed
+- **Live validation scope:** auth/plants/devices were live-validated 2026-07-14; the
+  analytics/forecast/overview schemas (plantOverview, chart/dayLine, energy columns,
+  event/list, solar + weather forecasts) were live-validated 2026-07-15; typed
   runtime/energy/battery/midbox schemas are Pydantic-backed (high confidence);
-  control/firmware and all analytics/forecast dict schemas were mapped from source only.
+  control/firmware and the `locale/region`/`locale/country` arrays were mapped from source
+  only.
 
 ## Validation
 
@@ -294,4 +476,4 @@ uv run --with pyyaml --with openapi-spec-validator python3 -c \
   "import yaml; from openapi_spec_validator import validate; validate(yaml.safe_load(open('docs/api/openapi.yaml')))"
 ```
 
-The spec passes OpenAPI 3.1.0 validation (44 operations, 55 component schemas).
+The spec passes OpenAPI 3.1.0 validation (44 operations, 64 component schemas).

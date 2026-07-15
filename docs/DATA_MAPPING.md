@@ -6,6 +6,13 @@
 >
 > **Consult this document** whenever working with register-to-sensor or
 > API-to-sensor mappings.
+>
+> **Cloud API surface:** for the full endpoint/request/response contract of the EG4
+> monitor cloud API, see the reverse-engineered OpenAPI 3.1 spec and reference at
+> [`docs/api/openapi.yaml`](api/openapi.yaml) and [`docs/api/README.md`](api/README.md)
+> (44 endpoints / 55 schemas; includes the firmware update lifecycle and the `WAITING`
+> status handling from #353). This document remains canonical for the *scaling and
+> register-to-sensor* mappings the OpenAPI spec does not cover.
 
 ---
 
