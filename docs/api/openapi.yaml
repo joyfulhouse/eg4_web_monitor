@@ -1,0 +1,3092 @@
+openapi: 3.1.0
+info:
+  title: EG4 Monitor Cloud API
+  version: "1.0.0-unofficial"
+  description: |
+    **Reverse-engineered / UNOFFICIAL** OpenAPI specification for the EG4 Electronics
+    monitor cloud API (`https://monitor.eg4electronics.com`).
+
+    This spec is derived entirely from the `pylxpweb` Python client
+    (`joyfulhouse/pylxpweb`) — its endpoint modules, Pydantic response models, and
+    live read-only validation (auth/plants/devices validated 2026-07-14; control,
+    firmware, and analytics mapped from source). It is **not** published or endorsed
+    by EG4 Electronics and may drift from the real service.
+
+    ## Cross-cutting conventions
+    - **All request bodies are `application/x-www-form-urlencoded`** (NOT JSON). Even
+      single-parameter calls are form-encoded. Most booleans are explicitly stringified
+      to lower-case `"true"` / `"false"` (e.g. `tryFastMode`, `enable`, `parallel`), but
+      a few are passed as raw Python bools and aiohttp encodes them **capitalized**
+      (`True` / `False`) — notably `autoRetry` (remoteRead/read) and `daylightSavingTime`
+      (plant/edit). Servers appear to accept both.
+    - Every endpoint is **HTTP POST returning JSON**, with two exceptions:
+      the history export is **GET** returning a binary `.xls`.
+    - **Authentication is cookie/session based** (`JSESSIONID`), established by
+      `POST /WManage/api/login`. No bearer token or API key. Sessions last ~2 hours
+      client-side with transparent re-authentication.
+    - **Application-level errors are signalled by `success: false` inside an HTTP 200
+      body** (not by HTTP status). The human-readable reason is under `message` or
+      `msg`. Transient messages (`DATAFRAME_TIMEOUT`, `TIMEOUT`, `BUSY`,
+      `COMMUNICATION_ERROR`, `DEVICE_BUSY`) are retried with exponential backoff.
+      `deviceBusy` / `DEVICE_BUSY` is the canonical "try again later" signal and can
+      also appear on the HTTP-200 firmware/eligibility path.
+    - **Scaling:** raw integers require engineering-unit conversion. See the
+      `x-scaling` notes on individual fields and the README scaling table
+      (voltages ÷10, bus voltage ÷100, frequency ÷100, energy ÷10 = 0.1 kWh units,
+      battery module current ÷10, cell voltage ÷1000, etc.).
+  contact:
+    name: pylxpweb (source of truth)
+    url: https://github.com/joyfulhouse/pylxpweb
+
+servers:
+  - url: https://monitor.eg4electronics.com
+    description: EG4 Electronics production monitor portal
+
+tags:
+  - name: auth
+    description: Login / session establishment
+  - name: plants
+    description: Plant/station discovery and configuration metadata
+  - name: devices
+    description: Inverter/device discovery, parallel groups, static info, dongles
+  - name: runtime
+    description: Real-time inverter runtime metrics
+  - name: battery
+    description: Battery bank aggregate + per-module data
+  - name: gridboss
+    description: GridBOSS / MID device runtime
+  - name: control
+    description: Parameter read/write, function bits, quick charge/discharge, schedules
+  - name: firmware
+    description: Firmware update check / eligibility / start / status (multi-step flow)
+  - name: analytics
+    description: Charts, energy breakdowns, daily-energy history, event log
+  - name: forecasting
+    description: Solar-production and weather forecasts (provisional schemas)
+  - name: export
+    description: Historical runtime data export (.xls)
+
+security:
+  - sessionCookie: []
+
+paths:
+  /WManage/api/login:
+    post:
+      tags: [auth]
+      summary: Authenticate and establish a session
+      description: |
+        Authenticates the user and sets the `JSESSIONID` session cookie used by all
+        other endpoints. Returns the full user profile plus an eagerly-loaded
+        plant/inverter tree. The `role` field selects which plant-list endpoint to use.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [account, password, language]
+              properties:
+                account:
+                  type: string
+                  description: Portal username
+                password:
+                  type: string
+                  description: Plaintext password (over HTTPS)
+                language:
+                  type: string
+                  default: ENGLISH
+                  description: Client sends `ENGLISH`
+      responses:
+        "200":
+          description: Login result (success flag inside body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+
+  /WManage/web/config/plant/list/viewer:
+    post:
+      tags: [plants]
+      summary: List plants (VIEWER / ADMIN roles)
+      description: |
+        Lists plants/stations with configuration metadata. Used for both list and
+        single-plant detail (pass `targetPlantId`). Role-selected endpoint: use this
+        path for VIEWER/ADMIN; use `/WManage/web/config/plant/list` for
+        INSTALLER/I_ASSISTANT. Latitude/longitude are NOT returned here (HTML edit
+        form only).
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PlantListRequest"
+      responses:
+        "200":
+          description: Plant list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlantListResponse"
+
+  /WManage/web/config/plant/list:
+    post:
+      tags: [plants]
+      summary: List plants (INSTALLER / I_ASSISTANT roles)
+      description: Same as `/plant/list/viewer` but for installer-class roles.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PlantListRequest"
+      responses:
+        "200":
+          description: Plant list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlantListResponse"
+
+  /WManage/web/config/plant/edit:
+    post:
+      tags: [plants]
+      summary: Update plant/station configuration (WRITE)
+      description: |
+        State-changing write. Persists plant configuration — used by
+        `plants.update_plant_config()` and the DST-toggle convenience
+        `plants.set_daylight_saving_time()` (which drives the integration's DST
+        sync). The client first reads current config via the plant-list detail,
+        then re-POSTs the full record with the changed field(s). `timezone`,
+        `country`, `continent`, and `region` are sent as EG4 enum tokens
+        (e.g. timezone `"GMT -8"` → `"WEST8"`), not human-readable strings.
+        Latitude/longitude are NOT settable via this JSON path (only the HTML
+        plant-edit form carries them). Documented from source; not exercised live.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PlantEditRequest"
+      responses:
+        "200":
+          description: Update result (`success` / `msg`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/locale/region:
+    post:
+      tags: [plants]
+      summary: List regions for a continent (locale lookup)
+      description: |
+        Locale helper used by `plants._fetch_country_location_from_api()` on the
+        slow path of a plant-config write, to resolve a country's `continent`/
+        `region` enum tokens when the static map misses. **PROVISIONAL:** returns
+        a raw JSON array of region objects (each has at least `value`); the full
+        object shape is not modelled in source.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [continent]
+              properties:
+                continent:
+                  type: string
+                  description: Continent enum token (e.g. `"NORTH_AMERICA"`).
+      responses:
+        "200":
+          description: Provisional untyped array of region objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /WManage/locale/country:
+    post:
+      tags: [plants]
+      summary: List countries for a region (locale lookup)
+      description: |
+        Locale helper paired with `/WManage/locale/region`, used by
+        `plants._fetch_country_location_from_api()`. **PROVISIONAL:** returns a
+        raw JSON array of country objects; the full object shape is not modelled
+        in source.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [region]
+              properties:
+                region:
+                  type: string
+                  description: Region enum token returned by `/WManage/locale/region`.
+      responses:
+        "200":
+          description: Provisional untyped array of country objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /WManage/api/plantOverview/list/viewer:
+    post:
+      tags: [plants]
+      summary: Plant-level real-time overview
+      description: |
+        Plant-level aggregated real-time metrics (PV/charge/discharge/consumption +
+        energy totals, inverters nested). **PROVISIONAL:** no Pydantic model exists in
+        the source — the `rows[]` field set is not enumerated. Needs a live capture.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                searchText:
+                  type: string
+                  default: ""
+                  description: Filter by plant name/address
+      responses:
+        "200":
+          description: Provisional untyped overview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvisionalListResponse"
+
+  /WManage/api/inverterOverview/list:
+    post:
+      tags: [devices]
+      summary: Device discovery / inverter overview
+      description: |
+        Primary device-discovery call. Paginated per-inverter overview with real-time
+        metrics and status. A GridBOSS appears as a row with `deviceType=9` /
+        `deviceTypeText="Grid Boss"`.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                page:
+                  type: integer
+                  default: 1
+                rows:
+                  type: integer
+                  default: 30
+                plantId:
+                  type: integer
+                  description: Owning plant id (`-1` = all plants)
+                searchText:
+                  type: string
+                  default: ""
+                statusText:
+                  type: string
+                  default: all
+                  enum: [all, normal, fault, offline]
+      responses:
+        "200":
+          description: Inverter overview list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InverterOverviewResponse"
+
+  /WManage/api/inverterOverview/getParallelGroupDetails:
+    post:
+      tags: [devices]
+      summary: Parallel-group device hierarchy
+      description: |
+        Returns the parallel-group hierarchy (GridBOSS + inverters and roles) for the
+        group the given device belongs to. Takes a **device serial**, not a plantId.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Parallel group details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParallelGroupDetailsResponse"
+
+  /WManage/api/inverter/autoParallel:
+    post:
+      tags: [devices]
+      summary: "Trigger parallel-group auto-detection (WRITE)"
+      description: |
+        **WRITE / state-changing.** Triggers automatic parallel-group detection/sync
+        for a plant. Used when `getParallelGroupDetails` returns empty. Mapped from
+        source only; not exercised.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [plantId]
+              properties:
+                plantId:
+                  type: integer
+      responses:
+        "200":
+          description: Success flag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/api/inverter/getInverterInfo:
+    post:
+      tags: [devices]
+      summary: Static inverter config + datalog serial
+      description: |
+        Static per-inverter configuration + firmware/hardware detail. Yields the
+        `datalogSn` (dongle serial) needed for dongle-status checks.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Static inverter info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InverterInfo"
+
+  /WManage/api/inverter/getInverterRuntime:
+    post:
+      tags: [runtime]
+      summary: Inverter real-time runtime metrics
+      description: |
+        Real-time operational metrics for one inverter. An offline inverter
+        (`lost=true`) returns a partial payload omitting aggregate/live fields (all
+        Optional).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Inverter runtime.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InverterRuntime"
+
+  /WManage/api/inverter/getInverterEnergyInfo:
+    post:
+      tags: [runtime]
+      summary: Single-inverter energy statistics
+      description: Cumulative energy (today + lifetime) for one inverter. All energy raw 0.1 kWh (÷10).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Energy info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyInfo"
+
+  /WManage/api/inverter/getInverterEnergyInfoParallel:
+    post:
+      tags: [runtime]
+      summary: Parallel-group aggregate energy statistics
+      description: |
+        Aggregate energy for the whole parallel group (pass any group member's
+        serial). Same `EnergyInfo` model; `serialNum` and `soc` are omitted.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Aggregate energy info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyInfo"
+
+  /WManage/api/battery/getBatteryInfo:
+    post:
+      tags: [battery]
+      summary: Battery aggregate + per-module array
+      description: |
+        Aggregate battery-system status plus per-module `batteryArray`. Offline bank
+        omits aggregate live fields (Optional). Battery-temp `0x7F` (127) is a no-BMS
+        sentinel normalized to null upstream.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Battery info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatteryInfo"
+
+  /WManage/api/battery/getBatteryInfoForSet:
+    post:
+      tags: [battery]
+      summary: Lightweight battery enumeration (identity only)
+      description: Battery identity + online status only (no metrics). Cheaper than getBatteryInfo.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Battery list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatteryListResponse"
+
+  /WManage/api/midbox/getMidboxRuntime:
+    post:
+      tags: [gridboss]
+      summary: GridBOSS / MID device runtime
+      description: |
+        GridBOSS/MID runtime (grid/UPS/gen/load metrics, smart-load & AC-couple power
+        and per-leg energy). No battery data. All `MidboxData` numeric fields may be
+        null (null = register read failed).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: GridBOSS runtime.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MidboxRuntime"
+
+  /WManage/api/system/cluster/search/findOnlineDatalog:
+    post:
+      tags: [devices]
+      summary: Single dongle online status
+      description: |
+        Checks whether a single dongle (datalog) is online. **`serialNum` here is the
+        datalog serial** (from `InverterInfo.datalogSn`), not the inverter serial.
+        `msg == "current"` = online; `msg == ""` = offline.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [serialNum]
+              properties:
+                serialNum:
+                  type: string
+                  description: Datalog/dongle serial (NOT inverter serial)
+      responses:
+        "200":
+          description: Dongle status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DongleStatus"
+
+  /WManage/web/config/datalog/list:
+    post:
+      tags: [devices]
+      summary: List all dongles with connection status
+      description: Batch alternative to findOnlineDatalog. `lost=true` = disconnected.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                page:
+                  type: integer
+                  default: 1
+                rows:
+                  type: integer
+                  default: 30
+                plantId:
+                  type: integer
+                  default: -1
+                searchType:
+                  type: string
+                  default: serialNum
+                searchText:
+                  type: string
+                  default: ""
+      responses:
+        "200":
+          description: Datalog list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatalogListResponse"
+
+  /WManage/web/maintain/remoteRead/read:
+    post:
+      tags: [control]
+      summary: Read parameters (register range)
+      description: |
+        READ-ONLY. Reads holding-register parameters. The API returns descriptive
+        **named** keys (e.g. `HOLD_AC_CHARGE_POWER_CMD`, `FUNC_EPS_EN`), flat — NOT
+        keyed by register number — plus a base64 LE `valueFrame`. Common ranges read
+        concurrently: `0-126`, `127-253`, `240-366`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn, startRegister, pointNumber]
+              properties:
+                inverterSn:
+                  type: string
+                  description: 10-digit device serial
+                startRegister:
+                  type: integer
+                  default: 0
+                pointNumber:
+                  type: integer
+                  default: 127
+                  description: Register count (≤127 in practice)
+                autoRetry:
+                  type: boolean
+                  default: true
+      responses:
+        "200":
+          description: Parameter read (named params in extra keys).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParameterReadResponse"
+
+  /WManage/web/maintain/remoteSet/write:
+    post:
+      tags: [control]
+      summary: Write one named parameter (WRITE)
+      description: |
+        **WRITE.** Writes a single holding parameter by cloud param name. `valueText`
+        is a string already scaled to engineering units (volts, percent, whole amps).
+        This is the only singular write format the portal accepts; the raw
+        multi-register wrapper (`write_parameters`) resolves each pair to a call here.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn, holdParam, valueText]
+              properties:
+                inverterSn:
+                  type: string
+                holdParam:
+                  type: string
+                  description: Param name, e.g. `HOLD_SYSTEM_CHARGE_SOC_LIMIT`
+                valueText:
+                  type: string
+                  description: Value as string, already in engineering units
+                clientType:
+                  type: string
+                  default: WEB
+                  enum: [WEB, APP]
+                remoteSetType:
+                  type: string
+                  default: NORMAL
+                  enum: [NORMAL, QUICK]
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/maintain/remoteSet/writeTime:
+    post:
+      tags: [control]
+      summary: Write a schedule time boundary atomically (WRITE)
+      description: |
+        **WRITE.** Sets hour+minute of one schedule boundary atomically. Used by the
+        writeTime schedule families (Generator, Off-Grid, Peak Shaving). Client
+        validates hour∈[0,23], minute∈[0,59] before sending.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn, timeParam, hour, minute]
+              properties:
+                inverterSn:
+                  type: string
+                timeParam:
+                  type: string
+                  description: Composite name, e.g. `HOLD_GEN_START_TIME_1`
+                hour:
+                  type: string
+                  description: '"0".."23"'
+                minute:
+                  type: string
+                  description: '"0".."59"'
+                clientType:
+                  type: string
+                  default: WEB
+                remoteSetType:
+                  type: string
+                  default: NORMAL
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/maintain/remoteSet/functionControl:
+    post:
+      tags: [control]
+      summary: Enable/disable a function bit (WRITE)
+      description: |
+        **WRITE.** Toggles a named boolean function (register bit-field). `enable` is
+        the lower-case string `"true"`/`"false"`. Examples: `FUNC_EPS_EN`,
+        `FUNC_AC_CHARGE`, `FUNC_GRID_PEAK_SHAVING`, `FUNC_FEED_IN_GRID_EN`,
+        `FUNC_SMART_LOAD_EN_1`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn, functionParam, enable]
+              properties:
+                inverterSn:
+                  type: string
+                functionParam:
+                  type: string
+                  description: Function name, e.g. `FUNC_EPS_EN`
+                enable:
+                  type: string
+                  enum: ["true", "false"]
+                clientType:
+                  type: string
+                  default: WEB
+                remoteSetType:
+                  type: string
+                  default: NORMAL
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/maintain/remoteSet/bitParamControl:
+    post:
+      tags: [control]
+      summary: Set a multi-value bit param (WRITE)
+      description: |
+        **WRITE.** Sets a bit-level enum parameter (distinct from single-bit
+        functionControl). Used for GridBOSS smart-port modes
+        (`BIT_MIDBOX_SP_MODE_1`, 0=Off/1=Smart Load/2=AC Couple) and AC charge type
+        (`BIT_AC_CHARGE_TYPE`, 0=Time/1=SOC-Volt/2=Time+SOC-Volt).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn, bitParam, value]
+              properties:
+                inverterSn:
+                  type: string
+                bitParam:
+                  type: string
+                  description: e.g. `BIT_MIDBOX_SP_MODE_1`, `BIT_AC_CHARGE_TYPE`
+                value:
+                  type: integer
+                  description: Enum value (0/1/2)
+                clientType:
+                  type: string
+                  default: WEB
+                remoteSetType:
+                  type: string
+                  default: NORMAL
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/config/quickCharge/start:
+    post:
+      tags: [control]
+      summary: Start quick charge (WRITE)
+      description: |
+        **WRITE.** Begins a quick-charge cycle. Optional `minute` sets a fixed
+        duration (newer firmware); omit = charge until stopped. If given, must be a
+        positive int.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn]
+              properties:
+                inverterSn:
+                  type: string
+                clientType:
+                  type: string
+                  default: WEB
+                minute:
+                  type: integer
+                  description: Fixed duration in minutes (omit = charge until stopped)
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/config/quickCharge/stop:
+    post:
+      tags: [control]
+      summary: Stop quick charge (WRITE)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/QuickActionRequest"
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/config/quickCharge/getStatusInfo:
+    post:
+      tags: [control]
+      summary: Quick charge/discharge status
+      description: READ-ONLY status for BOTH quick charge and quick discharge (~1 min cache).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [inverterSn]
+              properties:
+                inverterSn:
+                  type: string
+      responses:
+        "200":
+          description: Quick charge status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickChargeStatus"
+
+  /WManage/web/config/quickDischarge/start:
+    post:
+      tags: [control]
+      summary: Start quick discharge (WRITE)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/QuickActionRequest"
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/config/quickDischarge/stop:
+    post:
+      tags: [control]
+      summary: Stop quick discharge (WRITE)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/QuickActionRequest"
+      responses:
+        "200":
+          description: Write result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/maintain/standardUpdate/checkUpdates:
+    post:
+      tags: [firmware]
+      summary: Check for firmware updates
+      description: |
+        READ-ONLY. Reports current + latest firmware and multi-step flags
+        (`needRunStep2..5`). When already up to date the API returns `success:false`
+        with an "already the latest version" message; the client synthesizes an
+        up-to-date result.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Firmware update check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareUpdateCheck"
+
+  /WManage/web/maintain/standardUpdate/check12KParallelStatus:
+    post:
+      tags: [firmware]
+      summary: Check update eligibility
+      description: |
+        READ-ONLY. Verifies the device may start an update (works for ALL devices, not
+        just 12K parallel). Requires `userId` from login.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [userId, serialNum]
+              properties:
+                userId:
+                  type: integer
+                serialNum:
+                  type: string
+      responses:
+        "200":
+          description: Eligibility status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateEligibilityStatus"
+
+  /WManage/web/maintain/standardUpdate/run:
+    post:
+      tags: [firmware]
+      summary: Start a firmware update step (WRITE)
+      description: |
+        **WRITE.** Initiates one component/step of a firmware update (20-40 min,
+        device offline during update, may brick if interrupted). Devices like the
+        6000XP need one `run` per component; the orchestrator re-runs based on a
+        post-step re-check (update-still-available), NOT on `needRunStep*`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [userId, serialNum, tryFastMode]
+              properties:
+                userId:
+                  type: integer
+                serialNum:
+                  type: string
+                tryFastMode:
+                  type: string
+                  enum: ["true", "false"]
+                  description: Fast mode may cut ~20-30% of the time
+      responses:
+        "200":
+          description: Raw JSON; only `success` is consumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /WManage/web/maintain/remoteUpdate/info:
+    post:
+      tags: [firmware]
+      summary: Firmware update status / progress
+      description: |
+        READ-ONLY. Monitors active/recent updates for the whole account. Requires
+        `userId`. Progress % is parsed from each row's `updateRate` string
+        (e.g. `"50% - 280 / 561"`).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: integer
+      responses:
+        "200":
+          description: Firmware update status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareUpdateStatus"
+
+  /WManage/api/analyze/chart/dayLine:
+    post:
+      tags: [analytics]
+      summary: Hourly sensor time-series for one day
+      description: |
+        Hourly time-series for one `InverterRuntime` attribute over one date.
+        **PROVISIONAL** response schema (untyped dict, from docstring). Values raw;
+        caller applies attribute-appropriate scaling.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [serialNum, attr, dateText]
+              properties:
+                serialNum:
+                  type: string
+                attr:
+                  type: string
+                  description: Attribute, e.g. `vpv1`, `soc`, `ppv`, `pToGrid`, `tBat`
+                dateText:
+                  type: string
+                  description: "YYYY-MM-DD"
+      responses:
+        "200":
+          description: Provisional time-series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChartDataResponse"
+
+  /WManage/api/analyze/energy/dayColumn:
+    post:
+      tags: [analytics]
+      summary: Hourly energy breakdown (24 buckets) for one day
+      description: "PROVISIONAL response schema. `dataPoints` values raw (÷10 for kWh)."
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/EnergyColumnDayRequest"
+      responses:
+        "200":
+          description: Provisional energy breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyColumnResponse"
+
+  /WManage/api/analyze/energy/monthColumn:
+    post:
+      tags: [analytics]
+      summary: Daily energy breakdown for one month (one series)
+      description: PROVISIONAL response schema. One energyType per call, one dataPoint per day.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/EnergyColumnMonthRequest"
+      responses:
+        "200":
+          description: Provisional energy breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyColumnResponse"
+
+  /WManage/api/analyze/energy/yearColumn:
+    post:
+      tags: [analytics]
+      summary: Monthly energy breakdown across one year (12 buckets)
+      description: PROVISIONAL response schema. One dataPoint per month.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [serialNum, parallel, year, energyType]
+              properties:
+                serialNum:
+                  type: string
+                parallel:
+                  type: string
+                  enum: ["true", "false"]
+                year:
+                  type: integer
+                energyType:
+                  type: string
+      responses:
+        "200":
+          description: Provisional energy breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyColumnResponse"
+
+  /WManage/api/analyze/energy/totalColumn:
+    post:
+      tags: [analytics]
+      summary: Yearly (lifetime) energy breakdown
+      description: PROVISIONAL response schema. No date parameters; one dataPoint per year.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [serialNum, parallel, energyType]
+              properties:
+                serialNum:
+                  type: string
+                parallel:
+                  type: string
+                  enum: ["true", "false"]
+                energyType:
+                  type: string
+      responses:
+        "200":
+          description: Provisional energy breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnergyColumnResponse"
+
+  /WManage/api/inverterChart/monthColumn:
+    post:
+      tags: [analytics]
+      summary: Typed daily-energy history for one month (single inverter)
+      description: |
+        All energy series in one call (per-string PV + `eToGridDay`), for a single
+        inverter. SDK builds `MonthlyEnergyHistory` from `response.data`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/MonthColumnRequest"
+      responses:
+        "200":
+          description: Monthly daily-energy history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyEnergyHistoryResponse"
+
+  /WManage/api/inverterChart/monthColumnParallel:
+    post:
+      tags: [analytics]
+      summary: Typed daily-energy history for one month (parallel group)
+      description: |
+        Parallel-group aggregate variant (`ePvDay`, `eExportDay`, `eImportDay`,
+        `eGenDay`). Pass any group member's serial.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/MonthColumnRequest"
+      responses:
+        "200":
+          description: Monthly daily-energy history (aggregate).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyEnergyHistoryResponse"
+
+  /WManage/api/analyze/event/list:
+    post:
+      tags: [analytics]
+      summary: Fault/warning/event log
+      description: |
+        Paginated fault/warning/event log for a device. **PROVISIONAL** response
+        schema (untyped dict, from docstring).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [serialNum]
+              properties:
+                page:
+                  type: integer
+                  default: 1
+                rows:
+                  type: integer
+                  default: 30
+                plantId:
+                  type: integer
+                  default: -1
+                serialNum:
+                  type: string
+                eventText:
+                  type: string
+                  default: _all
+                  description: "`_all`, or `FAULT`/`WARNING`/code"
+      responses:
+        "200":
+          description: Provisional event log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventListResponse"
+
+  /WManage/api/predict/solar/dayPredictColumnParallel:
+    post:
+      tags: [forecasting]
+      summary: Solar-production forecast (parallel group)
+      description: |
+        Solar-production forecast (today/tomorrow) for a parallel group.
+        **PROVISIONAL** — shape from SDK docstring, not a Pydantic model. Confirm
+        against a live payload.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Provisional solar forecast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolarForecastResponse"
+
+  /WManage/api/weather/forecast:
+    post:
+      tags: [forecasting]
+      summary: Weather forecast for the plant location
+      description: "**PROVISIONAL** — shape from SDK docstring. Confirm against a live payload."
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SerialNumRequest"
+      responses:
+        "200":
+          description: Provisional weather forecast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherForecastResponse"
+
+  /WManage/web/analyze/data/export/{serialNum}/{startDate}:
+    get:
+      tags: [export]
+      summary: Download historical runtime data as .xls
+      description: |
+        Downloads historical runtime data as a legacy BIFF `.xls` workbook (one
+        worksheet per day, one row per logging interval, values in display units).
+        **This is the only GET endpoint** and returns binary. Server caps the workbook
+        at 10 day-sheets anchored at `startDate` going forward — request windows ≤ 10
+        days.
+      parameters:
+        - name: serialNum
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device serial
+        - name: startDate
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Window start (YYYY-MM-DD)"
+        - name: endDateText
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Window end (YYYY-MM-DD); omit = single day"
+      responses:
+        "200":
+          description: Raw .xls (BIFF) bytes.
+          content:
+            application/vnd.ms-excel:
+              schema:
+                type: string
+                format: binary
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
+      description: |
+        Session cookie set by `POST /WManage/api/login`. Carried automatically by the
+        HTTP client on all subsequent requests. Sessions last ~2 hours.
+
+  schemas:
+    # ---- Shared request bodies ----
+    SerialNumRequest:
+      type: object
+      required: [serialNum]
+      properties:
+        serialNum:
+          type: string
+          description: 10-digit device serial
+
+    QuickActionRequest:
+      type: object
+      required: [inverterSn]
+      properties:
+        inverterSn:
+          type: string
+        clientType:
+          type: string
+          default: WEB
+
+    PlantEditRequest:
+      type: object
+      required: [plantId, name, createDate, daylightSavingTime, timezone, country, continent, region]
+      description: >
+        Full plant-config record re-POSTed on update. Enum-token fields
+        (timezone/country/continent/region) use EG4 internal tokens, not
+        human-readable labels.
+      properties:
+        plantId:
+          type: string
+          description: Plant/station id (stringified).
+        name:
+          type: string
+          description: Station name.
+        createDate:
+          type: string
+          description: Plant creation date, echoed back unchanged from the read.
+        daylightSavingTime:
+          type: boolean
+          description: >
+            DST enabled. Passed as a raw Python bool, so aiohttp form-encodes it
+            CAPITALIZED (`True`/`False`), unlike the explicitly-lowercased booleans.
+        timezone:
+          type: string
+          description: Timezone enum token (e.g. `"WEST8"` for `"GMT -8"`).
+        country:
+          type: string
+          description: Country enum token (e.g. `"UNITED_STATES_OF_AMERICA"`).
+        continent:
+          type: string
+          description: Continent enum token, resolved statically or via `/WManage/locale/region`.
+        region:
+          type: string
+          description: Region enum token, resolved statically or via `/WManage/locale/country`.
+        nominalPower:
+          type: integer
+          description: Optional. Solar PV power rating in Watts; included only when non-blank.
+    PlantListRequest:
+      type: object
+      properties:
+        sort:
+          type: string
+          default: createDate
+        order:
+          type: string
+          default: desc
+          enum: [asc, desc]
+        searchText:
+          type: string
+          default: ""
+        page:
+          type: integer
+          default: 1
+        rows:
+          type: integer
+          default: 20
+        targetPlantId:
+          type: string
+          description: Detail mode — when set, `rows[0]` is that plant
+
+    EnergyColumnDayRequest:
+      type: object
+      required: [serialNum, parallel, year, month, day, energyType]
+      properties:
+        serialNum:
+          type: string
+        parallel:
+          type: string
+          enum: ["true", "false"]
+        year:
+          type: integer
+        month:
+          type: integer
+        day:
+          type: integer
+        energyType:
+          type: string
+          description: e.g. `eInvDay`, `eToUserDay`, `eToGridDay`, `eAcChargeDay`
+
+    EnergyColumnMonthRequest:
+      type: object
+      required: [serialNum, parallel, year, month, energyType]
+      properties:
+        serialNum:
+          type: string
+        parallel:
+          type: string
+          enum: ["true", "false"]
+        year:
+          type: integer
+        month:
+          type: integer
+        energyType:
+          type: string
+
+    MonthColumnRequest:
+      type: object
+      required: [serialNum, year, month]
+      properties:
+        serialNum:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+
+    # ---- Shared / envelope responses ----
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: [string, "null"]
+      required: [success]
+
+    ProvisionalListResponse:
+      type: object
+      description: "PROVISIONAL untyped list envelope (schema not modeled in source)."
+      properties:
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+
+    # ---- Enums ----
+    BatteryType:
+      type: string
+      enum: [LITHIUM, LEAD_ACID, NO_BATTERY]
+
+    UserRole:
+      type: string
+      enum: [VIEWER, INSTALLER, I_ASSISTANT, ADMIN]
+      description: Selects the plant-list endpoint (installer roles use `/plant/list`).
+
+    UpdateStatus:
+      type: string
+      description: |
+        Firmware update status emitted by the device. `WAITING` is a real
+        device-reported value (issue #353, queued/waiting phase of a multi-step
+        update on e.g. the 6000XP) and is treated as in-progress/not-yet-installing.
+        Post-#353, the `pylxpweb` `UpdateStatus` StrEnum contains all six values below
+        plus a client-side `UNKNOWN` sentinel: a `_missing_` hook coerces ANY
+        unrecognized status string to `UNKNOWN` (neutral: not in-progress/complete/
+        failed) so a novel value never crashes the update flow via Pydantic
+        validation. `UNKNOWN` is a client sentinel, not an API-emitted value.
+      enum: [READY, UPLOADING, WAITING, COMPLETE, SUCCESS, FAILED]
+
+    UpdateEligibilityMessage:
+      type: string
+      enum: [allowToUpdate, deviceUpdating, parallelGroupUpdating, notAllowedInParallel, warnParallel]
+      description: |
+        Eligibility state. A `deviceBusy` value can be observed on this path; it is
+        NOT one of the enum members above. Post-#353, `pylxpweb`'s
+        `UpdateEligibilityMessage` StrEnum has a `_missing_` hook that coerces any
+        unrecognized value (incl. `deviceBusy`) to a client-side `UNKNOWN` sentinel
+        (`is_allowed` stays False), so it validates gracefully instead of raising.
+        `UNKNOWN` is a client sentinel, not an API-emitted value.
+
+    # ---- Auth ----
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        userId:
+          type: integer
+        parentUserId:
+          type: [integer, "null"]
+        username:
+          type: string
+        readonly:
+          type: boolean
+        role:
+          $ref: "#/components/schemas/UserRole"
+        realName:
+          type: string
+        email:
+          type: string
+        countryText:
+          type: string
+        currentContinentIndex:
+          type: integer
+        currentRegionIndex:
+          type: integer
+        regions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RegionInfo"
+        currentCountryIndex:
+          type: integer
+        countrys:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountryInfo"
+        timezone:
+          type: string
+        timezoneText:
+          type: string
+        language:
+          type: string
+        telNumber:
+          type: string
+        address:
+          type: string
+        platform:
+          type: string
+        userVisitRecord:
+          oneOf:
+            - $ref: "#/components/schemas/UserVisitRecord"
+            - type: "null"
+        plants:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlantBasic"
+        clusterId:
+          type: integer
+        needHideDisChgEnergy:
+          type: boolean
+        allowRemoteSupport:
+          type: boolean
+        allowViewerVisitOptimalSet:
+          type: boolean
+        allowViewerVisitWeatherSet:
+          type: boolean
+        chartColorValues:
+          type: string
+        tempUnit:
+          type: string
+        tempUnitText:
+          type: string
+        dateFormat:
+          type: string
+        userChartRecord:
+          type: [string, "null"]
+        firewallNotificationEnable:
+          type: string
+        userCreateDate:
+          type: string
+        userCreatedDays:
+          type: integer
+        techInfo:
+          oneOf:
+            - $ref: "#/components/schemas/TechInfo"
+            - type: "null"
+      required: [success]
+      description: |
+        Wire also carries undocumented extras Pydantic drops: `clusterGroup`,
+        `quickChargeDefaultDuration`, and per-inverter `datalogSn`/`lastUpdateTime`/
+        `model`/`modelText`/`odmValue`.
+
+    RegionInfo:
+      type: object
+      properties:
+        value:
+          type: string
+        text:
+          type: string
+
+    CountryInfo:
+      type: object
+      properties:
+        value:
+          type: string
+        text:
+          type: string
+
+    TechInfo:
+      type: object
+      description: Support contacts; all subfields optional (regional variance).
+      properties:
+        techInfoType1:
+          type: [string, "null"]
+        techInfo1:
+          type: [string, "null"]
+        techInfoType2:
+          type: [string, "null"]
+        techInfo2:
+          type: [string, "null"]
+        techInfoCount:
+          type: integer
+
+    UserVisitRecord:
+      type: object
+      description: |
+        Last device opened in the portal. Only `plantId` and `serialNum` are
+        guaranteed; all device fields are omitted for parallel-GROUP visits (#258).
+      required: [plantId, serialNum]
+      properties:
+        plantId:
+          type: integer
+        serialNum:
+          type: string
+        phase:
+          type: [integer, "null"]
+        phaseValue:
+          type: [integer, "null"]
+        deviceType:
+          type: [integer, "null"]
+        deviceTypeValue:
+          type: [integer, "null"]
+        subDeviceTypeValue:
+          type: [integer, "null"]
+        dtc:
+          type: [integer, "null"]
+        dtcValue:
+          type: [integer, "null"]
+        powerRating:
+          type: [integer, "null"]
+        batteryType:
+          oneOf:
+            - $ref: "#/components/schemas/BatteryType"
+            - type: "null"
+        protocolVersion:
+          type: [integer, "null"]
+
+    PlantBasic:
+      type: object
+      properties:
+        plantId:
+          type: integer
+        name:
+          type: string
+        timezoneHourOffset:
+          type: integer
+        timezoneMinuteOffset:
+          type: integer
+        inverters:
+          type: array
+          items:
+            $ref: "#/components/schemas/InverterBasic"
+        parallelGroups:
+          type: array
+          description: May be empty (e.g. 12000XP).
+          items:
+            $ref: "#/components/schemas/ParallelGroupBasic"
+
+    ParallelGroupBasic:
+      type: object
+      properties:
+        parallelGroup:
+          type: string
+        parallelFirstDeviceSn:
+          type: string
+
+    InverterBasic:
+      type: object
+      properties:
+        serialNum:
+          type: string
+        phase:
+          type: integer
+        lost:
+          type: boolean
+        dtc:
+          type: integer
+        deviceType:
+          type: integer
+          description: 6=inverter, 9=GridBOSS
+        subDeviceType:
+          type: [integer, "null"]
+        allowExport2Grid:
+          type: [boolean, "null"]
+        powerRating:
+          type: integer
+        deviceTypeText4APP:
+          type: string
+        deviceTypeText:
+          type: string
+        batteryType:
+          $ref: "#/components/schemas/BatteryType"
+        batteryTypeText:
+          type: string
+        standard:
+          type: string
+        slaveVersion:
+          type: integer
+        fwVersion:
+          type: integer
+        allowGenExercise:
+          type: boolean
+        withbatteryData:
+          type: boolean
+        hardwareVersion:
+          type: integer
+        voltClass:
+          type: integer
+        machineType:
+          type: integer
+        odm:
+          type: integer
+        protocolVersion:
+          type: integer
+        parallelMidboxSn:
+          type: [string, "null"]
+        parallelMidboxDeviceText:
+          type: [string, "null"]
+        parallelMidboxLost:
+          type: [boolean, "null"]
+
+    # ---- Plants ----
+    PlantListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlantInfo"
+
+    PlantInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+        plantId:
+          type: integer
+        name:
+          type: string
+        nominalPower:
+          type: integer
+          description: Solar PV rating in Watts
+        country:
+          type: string
+        currentTimezoneWithMinute:
+          type: integer
+          description: TZ offset in minutes, HHMM-ish (e.g. -800 = GMT-8)
+        timezone:
+          type: string
+        daylightSavingTime:
+          type: boolean
+        createDate:
+          type: string
+        noticeFault:
+          type: boolean
+        noticeWarn:
+          type: boolean
+        noticeEmail:
+          type: string
+        noticeEmail2:
+          type: string
+        contactPerson:
+          type: string
+        contactPhone:
+          type: string
+        address:
+          type: string
+
+    # ---- Devices ----
+    InverterOverviewResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/InverterOverviewItem"
+
+    InverterOverviewItem:
+      type: object
+      properties:
+        serialNum:
+          type: string
+        statusText:
+          type: string
+        deviceType:
+          type: integer
+          description: 6=inverter, 9=GridBOSS
+        deviceTypeText:
+          type: string
+        phase:
+          type: integer
+        plantId:
+          type: integer
+        plantName:
+          type: string
+        ppv:
+          type: integer
+          description: PV power (W)
+        ppvText:
+          type: string
+        pCharge:
+          type: integer
+        pChargeText:
+          type: string
+        pDisCharge:
+          type: integer
+        pDisChargeText:
+          type: string
+        pConsumption:
+          type: integer
+        pConsumptionText:
+          type: string
+        soc:
+          type: string
+          description: e.g. "58 %" (string, not int)
+        vBat:
+          type: integer
+          description: ÷10 for volts
+        vBatText:
+          type: string
+        totalYielding:
+          type: integer
+          description: ÷10 kWh
+        totalYieldingText:
+          type: string
+        totalDischarging:
+          type: integer
+          description: ÷10 kWh
+        totalDischargingText:
+          type: string
+        totalExport:
+          type: integer
+          description: ÷10 kWh
+        totalExportText:
+          type: string
+        totalUsage:
+          type: integer
+          description: ÷10 kWh
+        totalUsageText:
+          type: string
+        parallelGroup:
+          type: string
+        parallelIndex:
+          type: string
+        parallelInfo:
+          type: string
+        parallelModel:
+          type: string
+        endUser:
+          type: [string, "null"]
+          description: Account type (guest/owner/installer); may be absent on some accounts
+
+    ParallelGroupDetailsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        deviceType:
+          type: integer
+        parallelMidboxSn:
+          type: [string, "null"]
+          description: GridBOSS serial for the group
+        total:
+          type: integer
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParallelGroupDeviceItem"
+
+    ParallelGroupDeviceItem:
+      type: object
+      properties:
+        serialNum:
+          type: string
+        deviceType:
+          type: integer
+        subDeviceType:
+          type: integer
+        phase:
+          type: integer
+        dtc:
+          type: integer
+        machineType:
+          type: integer
+        parallelIndex:
+          type: string
+        parallelNumText:
+          type: string
+        lost:
+          type: boolean
+        roleText:
+          type: string
+          description: Primary / Subordinates / Midbox Slave
+        vpv1:
+          type: [integer, "null"]
+        ppv1:
+          type: [integer, "null"]
+        vpv2:
+          type: [integer, "null"]
+        ppv2:
+          type: [integer, "null"]
+        vpv3:
+          type: [integer, "null"]
+        ppv3:
+          type: [integer, "null"]
+        soc:
+          type: [integer, "null"]
+        vBat:
+          type: [integer, "null"]
+        pCharge:
+          type: [integer, "null"]
+        pDisCharge:
+          type: [integer, "null"]
+        peps:
+          type: [integer, "null"]
+
+    InverterInfo:
+      type: object
+      properties:
+        success:
+          type: boolean
+        lost:
+          type: boolean
+        datalogSn:
+          type: string
+          description: Dongle/datalog serial (differs from inverter serial)
+        serialNum:
+          type: string
+        deviceType:
+          type: integer
+        phase:
+          type: integer
+        dtc:
+          type: integer
+        voltClass:
+          type: integer
+        fwVersion:
+          type: integer
+        hardwareVersion:
+          type: integer
+        subDeviceType:
+          type: integer
+        allowExport2Grid:
+          type: boolean
+        powerRating:
+          type: integer
+        machineType:
+          type: integer
+        deviceTypeText:
+          type: string
+        inverterDetail:
+          $ref: "#/components/schemas/InverterDetail"
+        deviceInfo:
+          type: string
+        address:
+          type: integer
+        powerRatingText:
+          type: string
+        batteryType:
+          $ref: "#/components/schemas/BatteryType"
+        status:
+          type: integer
+        statusText:
+          type: string
+
+    InverterDetail:
+      type: object
+      properties:
+        deviceText:
+          type: string
+        fwCode:
+          type: string
+        fwCodeText:
+          type: string
+
+    DongleStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+        msg:
+          type: string
+          default: ""
+          description: '"current" = online; "" = offline'
+
+    DatalogListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatalogListItem"
+
+    DatalogListItem:
+      type: object
+      properties:
+        datalogSn:
+          type: string
+        plantId:
+          type: integer
+        plantName:
+          type: string
+        endUserAccount:
+          type: string
+        datalogType:
+          type: string
+        datalogTypeText:
+          type: string
+        createDate:
+          type: string
+        lost:
+          type: boolean
+          description: true = disconnected/offline (is_online = not lost)
+        serverId:
+          type: integer
+        lastUpdateTime:
+          type: string
+
+    # ---- Runtime ----
+    InverterRuntime:
+      type: object
+      description: |
+        ~90-field runtime payload. Fields marked nullable are omitted by the cloud for
+        an offline inverter (`lost=true`). Scaling: vpv/vac/veps/vBat/genVolt ÷10,
+        vBus ÷100, fac/feps/genFreq ÷100, maxChgCurr/maxDischgCurr ÷100; power ×1 W;
+        temps ×1 °C.
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: string
+        fwCode:
+          type: string
+        powerRatingText:
+          type: string
+        lost:
+          type: boolean
+        hasRuntimeData:
+          type: boolean
+          default: true
+        statusText:
+          type: string
+        batShared:
+          type: boolean
+        isParallelEnabled:
+          type: boolean
+        allowGenExercise:
+          type: boolean
+        batteryType:
+          $ref: "#/components/schemas/BatteryType"
+        batParallelNum:
+          type: [string, "null"]
+        batCapacity:
+          type: [string, "null"]
+        model:
+          type: [integer, "null"]
+        modelText:
+          type: [string, "null"]
+        serverTime:
+          type: string
+        deviceTime:
+          type: string
+        deviceTimeText:
+          type: [string, "null"]
+        vpv1:
+          type: integer
+          description: ÷10 V
+        vpv2:
+          type: integer
+          description: ÷10 V
+        vpv3:
+          type: [integer, "null"]
+        vpv4:
+          type: [integer, "null"]
+        vpv5:
+          type: [integer, "null"]
+        vpv6:
+          type: [integer, "null"]
+        remainTime:
+          type: integer
+          default: 0
+        ppv1:
+          type: integer
+          description: W
+        ppv2:
+          type: integer
+        ppv3:
+          type: [integer, "null"]
+        ppv4:
+          type: [integer, "null"]
+        ppv5:
+          type: [integer, "null"]
+        ppv6:
+          type: [integer, "null"]
+        ppv:
+          type: [integer, "null"]
+          description: Total PV power (W); omitted when offline
+        ppvpCharge:
+          type: [integer, "null"]
+        vacr:
+          type: integer
+          description: ÷10 V
+        vacs:
+          type: integer
+        vact:
+          type: integer
+        fac:
+          type: integer
+          description: ÷100 Hz
+        pf:
+          type: string
+        vepsr:
+          type: integer
+        vepss:
+          type: integer
+        vepst:
+          type: integer
+        feps:
+          type: integer
+          description: ÷100 Hz
+        seps:
+          type: integer
+        pToGrid:
+          type: integer
+        pToUser:
+          type: integer
+          description: Alias `pac`
+        tinner:
+          type: integer
+        tradiator1:
+          type: integer
+        tradiator2:
+          type: integer
+        tBat:
+          type: integer
+          description: °C (0x7F/127 = no-BMS sentinel)
+        vBus1:
+          type: integer
+          description: ÷100 V
+        vBus2:
+          type: integer
+        status:
+          type: [integer, "null"]
+        pCharge:
+          type: [integer, "null"]
+        pDisCharge:
+          type: [integer, "null"]
+        batPower:
+          type: [integer, "null"]
+        batteryColor:
+          type: [string, "null"]
+        soc:
+          type: [integer, "null"]
+        vBat:
+          type: [integer, "null"]
+          description: ÷10 V
+        pinv:
+          type: [integer, "null"]
+        prec:
+          type: [integer, "null"]
+        peps:
+          type: [integer, "null"]
+        _12KAcCoupleInverterFlow:
+          type: boolean
+        _12KAcCoupleInverterData:
+          type: boolean
+        acCouplePower:
+          type: integer
+          default: 0
+        batteryCapacity:
+          type: [integer, "null"]
+        hasEpsOverloadRecoveryTime:
+          type: boolean
+        maxChgCurr:
+          type: integer
+          default: 0
+          description: ÷100 A
+        maxDischgCurr:
+          type: integer
+          default: 0
+        maxChgCurrValue:
+          type: [integer, "null"]
+        maxDischgCurrValue:
+          type: [integer, "null"]
+        bmsCharge:
+          type: boolean
+        bmsDischarge:
+          type: boolean
+        bmsForceCharge:
+          type: boolean
+        _12KUsingGenerator:
+          type: boolean
+        genVolt:
+          type: integer
+          default: 0
+          description: ÷10 V
+        genFreq:
+          type: integer
+          default: 0
+          description: ÷100 Hz
+        genPower:
+          type: integer
+          default: 0
+        genDryContact:
+          type: string
+          default: "OFF"
+        consumptionPower114:
+          type: integer
+          default: 0
+          description: reg114 (reads 0 on FlexBOSS21)
+        consumptionPower:
+          type: integer
+          default: 0
+        pLoad170:
+          type: [integer, "null"]
+          description: Load output power (input reg 170)
+        pEpsL1N:
+          type: integer
+          default: 0
+        pEpsL2N:
+          type: integer
+          default: 0
+        haspEpsLNValue:
+          type: boolean
+        smartLoadInverterFlow:
+          type: boolean
+        smartLoadInverterEnable:
+          type: boolean
+        epsLoadPowerShow:
+          type: boolean
+        gridLoadPowerShow:
+          type: boolean
+        pLoadPowerShow:
+          type: boolean
+        epsLoadPower:
+          type: integer
+          default: 0
+        gridLoadPower:
+          type: integer
+          default: 0
+        smartLoadPower:
+          type: integer
+          default: 0
+        directions:
+          type: object
+          additionalProperties:
+            type: string
+        hasUnclosedQuickChargeTask:
+          type: boolean
+        hasUnclosedQuickDischargeTask:
+          type: boolean
+
+    EnergyInfo:
+      type: object
+      description: |
+        Cumulative energy. All energy fields are raw 0.1 kWh (÷10 → kWh). `serialNum`
+        and `soc` are present for single-inverter, omitted in the parallel aggregate.
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: [string, "null"]
+        soc:
+          type: [integer, "null"]
+        todayYielding:
+          type: integer
+          description: Today PV yield (÷10 kWh; note PV yield, not eInvDay)
+        todayCharging:
+          type: integer
+        todayDischarging:
+          type: integer
+        todayImport:
+          type: integer
+        todayExport:
+          type: integer
+        todayUsage:
+          type: integer
+        totalYielding:
+          type: integer
+        totalCharging:
+          type: integer
+        totalDischarging:
+          type: integer
+        totalImport:
+          type: integer
+        totalExport:
+          type: integer
+        totalUsage:
+          type: integer
+
+    # ---- Battery ----
+    BatteryInfo:
+      type: object
+      description: Aggregate battery status + per-module array. Offline bank omits live aggregate fields.
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: string
+        lost:
+          type: [boolean, "null"]
+        hasRuntimeData:
+          type: [boolean, "null"]
+        statusText:
+          type: [string, "null"]
+        batStatus:
+          type: [string, "null"]
+        soc:
+          type: [integer, "null"]
+        vBat:
+          type: [integer, "null"]
+          description: ÷10 V (aggregate)
+        totalVoltageText:
+          type: [string, "null"]
+        ppv:
+          type: [integer, "null"]
+        pCharge:
+          type: [integer, "null"]
+        pDisCharge:
+          type: [integer, "null"]
+        batPower:
+          type: [integer, "null"]
+        pinv:
+          type: [integer, "null"]
+        prec:
+          type: [integer, "null"]
+        peps:
+          type: [integer, "null"]
+        maxBatteryCharge:
+          type: [integer, "null"]
+          description: Ah
+        currentBatteryCharge:
+          type: [number, "null"]
+          description: Ah
+        remainCapacity:
+          type: [integer, "null"]
+        fullCapacity:
+          type: [integer, "null"]
+        capacityPercent:
+          type: [integer, "null"]
+        currentText:
+          type: [string, "null"]
+        currentType:
+          type: [string, "null"]
+          description: charge / discharge
+        totalNumber:
+          type: [integer, "null"]
+        batteryArray:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/BatteryModule"
+
+    BatteryModule:
+      type: object
+      description: |
+        Per-physical-battery metrics. Scaling: totalVoltage ÷100, current ÷10 (NOT
+        ÷100), cell temp ÷10, cell voltage ÷1000.
+      properties:
+        batteryKey:
+          type: string
+          description: Unique module key (used for HA entity IDs)
+        batterySn:
+          type: string
+        batIndex:
+          type: integer
+        batteryType:
+          type: [string, "null"]
+        batteryTypeText:
+          type: [string, "null"]
+        batBmsModelText:
+          type: [string, "null"]
+        lost:
+          type: boolean
+        lastUpdateTime:
+          type: [string, "null"]
+        totalVoltage:
+          type: integer
+          description: ÷100 V
+        current:
+          type: integer
+          description: ÷10 A
+        soc:
+          type: integer
+        soh:
+          type: integer
+        currentRemainCapacity:
+          type: integer
+        currentFullCapacity:
+          type: integer
+        currentCapacityPercent:
+          type: [integer, "null"]
+        maxBatteryCharge:
+          type: [integer, "null"]
+        batMaxCellTemp:
+          type: integer
+          description: ÷10 °C
+        batMinCellTemp:
+          type: integer
+          description: ÷10 °C
+        batMaxCellNumTemp:
+          type: [integer, "null"]
+        batMinCellNumTemp:
+          type: [integer, "null"]
+        batMaxCellVoltage:
+          type: integer
+          description: ÷1000 V
+        batMinCellVoltage:
+          type: integer
+          description: ÷1000 V
+        batMaxCellNumVolt:
+          type: [integer, "null"]
+        batMinCellNumVolt:
+          type: [integer, "null"]
+        batChargeMaxCur:
+          type: [integer, "null"]
+        batChargeVoltRef:
+          type: [integer, "null"]
+        cycleCnt:
+          type: integer
+        fwVersionText:
+          type: string
+        chgCapacity:
+          type: [string, "null"]
+        disChgCapacity:
+          type: [string, "null"]
+        ambientTemp:
+          type: [string, "null"]
+        mosTemp:
+          type: [string, "null"]
+        noticeInfo:
+          type: [string, "null"]
+
+    BatteryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: string
+        totalNumber:
+          type: integer
+        batteryArray:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatteryListItem"
+
+    BatteryListItem:
+      type: object
+      properties:
+        batteryKey:
+          type: string
+        batterySn:
+          type: string
+        batIndex:
+          type: integer
+        lost:
+          type: boolean
+
+    # ---- GridBOSS ----
+    MidboxRuntime:
+      type: object
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: string
+        fwCode:
+          type: string
+        midboxData:
+          $ref: "#/components/schemas/MidboxData"
+        deviceData:
+          oneOf:
+            - $ref: "#/components/schemas/MidboxDeviceData"
+            - type: "null"
+
+    MidboxDeviceData:
+      type: object
+      description: Subset of a ~45-key deviceData dict; only isOffGrid is modeled.
+      properties:
+        isOffGrid:
+          type: [boolean, "null"]
+      additionalProperties: true
+
+    MidboxData:
+      type: object
+      description: |
+        All numeric fields int|null (null = register read failed). Scaling: voltage
+        ÷10, current ÷100 (smart-load RMS current ÷10), frequency ÷100, power ×1 W,
+        energy ÷10 kWh. Optional smart-load / AC-couple / energy families
+        (`smartLoad{1-4}L{1,2}*`, `acCouple{1-4}L{1,2}*`, `eUps*`, `eToGrid*`,
+        `eToUser*`, `eLoad*`, `eACcouple{1-4}*`, `eSmartLoad{1-4}*`, each
+        Today/Total × L1/L2) read 0/null when the ports/features are inactive.
+        All 108 `MidboxData` fields are enumerated below.
+      additionalProperties: true
+      required:
+        - status
+        - serverTime
+        - deviceTime
+        - gridRmsVolt
+        - upsRmsVolt
+        - genRmsVolt
+        - gridL1RmsVolt
+        - gridL2RmsVolt
+        - upsL1RmsVolt
+        - upsL2RmsVolt
+        - genL1RmsVolt
+        - genL2RmsVolt
+        - gridL1RmsCurr
+        - gridL2RmsCurr
+        - loadL1RmsCurr
+        - loadL2RmsCurr
+        - genL1RmsCurr
+        - genL2RmsCurr
+        - upsL1RmsCurr
+        - upsL2RmsCurr
+        - gridL1ActivePower
+        - gridL2ActivePower
+        - loadL1ActivePower
+        - loadL2ActivePower
+        - genL1ActivePower
+        - genL2ActivePower
+        - upsL1ActivePower
+        - upsL2ActivePower
+        - hybridPower
+        - smartPort1Status
+        - smartPort2Status
+        - smartPort3Status
+        - smartPort4Status
+        - phaseLockFreq
+        - gridFreq
+        - genFreq
+      properties:
+        status:
+          type: [integer, "null"]
+        serverTime:
+          type: string
+        deviceTime:
+          type: string
+        gridRmsVolt:
+          type: [integer, "null"]
+        upsRmsVolt:
+          type: [integer, "null"]
+        genRmsVolt:
+          type: [integer, "null"]
+        gridL1RmsVolt:
+          type: [integer, "null"]
+        gridL2RmsVolt:
+          type: [integer, "null"]
+        upsL1RmsVolt:
+          type: [integer, "null"]
+        upsL2RmsVolt:
+          type: [integer, "null"]
+        genL1RmsVolt:
+          type: [integer, "null"]
+        genL2RmsVolt:
+          type: [integer, "null"]
+        gridL1RmsCurr:
+          type: [integer, "null"]
+        gridL2RmsCurr:
+          type: [integer, "null"]
+        loadL1RmsCurr:
+          type: [integer, "null"]
+        loadL2RmsCurr:
+          type: [integer, "null"]
+        genL1RmsCurr:
+          type: [integer, "null"]
+        genL2RmsCurr:
+          type: [integer, "null"]
+        upsL1RmsCurr:
+          type: [integer, "null"]
+        upsL2RmsCurr:
+          type: [integer, "null"]
+        gridL1ActivePower:
+          type: [integer, "null"]
+        gridL2ActivePower:
+          type: [integer, "null"]
+        loadL1ActivePower:
+          type: [integer, "null"]
+        loadL2ActivePower:
+          type: [integer, "null"]
+        genL1ActivePower:
+          type: [integer, "null"]
+        genL2ActivePower:
+          type: [integer, "null"]
+        upsL1ActivePower:
+          type: [integer, "null"]
+        upsL2ActivePower:
+          type: [integer, "null"]
+        hybridPower:
+          type: [integer, "null"]
+        smartPort1Status:
+          type: [integer, "null"]
+        smartPort2Status:
+          type: [integer, "null"]
+        smartPort3Status:
+          type: [integer, "null"]
+        smartPort4Status:
+          type: [integer, "null"]
+        phaseLockFreq:
+          type: [integer, "null"]
+        gridFreq:
+          type: [integer, "null"]
+        genFreq:
+          type: [integer, "null"]
+        smartLoad1L1ActivePower:
+          type: [integer, "null"]
+        smartLoad1L2ActivePower:
+          type: [integer, "null"]
+        smartLoad2L1ActivePower:
+          type: [integer, "null"]
+        smartLoad2L2ActivePower:
+          type: [integer, "null"]
+        smartLoad3L1ActivePower:
+          type: [integer, "null"]
+        smartLoad3L2ActivePower:
+          type: [integer, "null"]
+        smartLoad4L1ActivePower:
+          type: [integer, "null"]
+        smartLoad4L2ActivePower:
+          type: [integer, "null"]
+        smartLoad1L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad1L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad2L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad2L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad3L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad3L2RmsCurr:
+          type: [integer, "null"]
+        smartLoad4L1RmsCurr:
+          type: [integer, "null"]
+        smartLoad4L2RmsCurr:
+          type: [integer, "null"]
+        acCouple1L1ActivePower:
+          type: [integer, "null"]
+        acCouple1L2ActivePower:
+          type: [integer, "null"]
+        acCouple2L1ActivePower:
+          type: [integer, "null"]
+        acCouple2L2ActivePower:
+          type: [integer, "null"]
+        acCouple3L1ActivePower:
+          type: [integer, "null"]
+        acCouple3L2ActivePower:
+          type: [integer, "null"]
+        acCouple4L1ActivePower:
+          type: [integer, "null"]
+        acCouple4L2ActivePower:
+          type: [integer, "null"]
+        eUpsTodayL1:
+          type: [integer, "null"]
+        eUpsTodayL2:
+          type: [integer, "null"]
+        eUpsTotalL1:
+          type: [integer, "null"]
+        eUpsTotalL2:
+          type: [integer, "null"]
+        eToGridTodayL1:
+          type: [integer, "null"]
+        eToGridTodayL2:
+          type: [integer, "null"]
+        eToGridTotalL1:
+          type: [integer, "null"]
+        eToGridTotalL2:
+          type: [integer, "null"]
+        eToUserTodayL1:
+          type: [integer, "null"]
+        eToUserTodayL2:
+          type: [integer, "null"]
+        eToUserTotalL1:
+          type: [integer, "null"]
+        eToUserTotalL2:
+          type: [integer, "null"]
+        eLoadTodayL1:
+          type: [integer, "null"]
+        eLoadTodayL2:
+          type: [integer, "null"]
+        eLoadTotalL1:
+          type: [integer, "null"]
+        eLoadTotalL2:
+          type: [integer, "null"]
+        eACcouple1TodayL1:
+          type: [integer, "null"]
+        eACcouple1TodayL2:
+          type: [integer, "null"]
+        eACcouple1TotalL1:
+          type: [integer, "null"]
+        eACcouple1TotalL2:
+          type: [integer, "null"]
+        eACcouple2TodayL1:
+          type: [integer, "null"]
+        eACcouple2TodayL2:
+          type: [integer, "null"]
+        eACcouple2TotalL1:
+          type: [integer, "null"]
+        eACcouple2TotalL2:
+          type: [integer, "null"]
+        eACcouple3TodayL1:
+          type: [integer, "null"]
+        eACcouple3TodayL2:
+          type: [integer, "null"]
+        eACcouple3TotalL1:
+          type: [integer, "null"]
+        eACcouple3TotalL2:
+          type: [integer, "null"]
+        eACcouple4TodayL1:
+          type: [integer, "null"]
+        eACcouple4TodayL2:
+          type: [integer, "null"]
+        eACcouple4TotalL1:
+          type: [integer, "null"]
+        eACcouple4TotalL2:
+          type: [integer, "null"]
+        eSmartLoad1TodayL1:
+          type: [integer, "null"]
+        eSmartLoad1TodayL2:
+          type: [integer, "null"]
+        eSmartLoad1TotalL1:
+          type: [integer, "null"]
+        eSmartLoad1TotalL2:
+          type: [integer, "null"]
+        eSmartLoad2TodayL1:
+          type: [integer, "null"]
+        eSmartLoad2TodayL2:
+          type: [integer, "null"]
+        eSmartLoad2TotalL1:
+          type: [integer, "null"]
+        eSmartLoad2TotalL2:
+          type: [integer, "null"]
+        eSmartLoad3TodayL1:
+          type: [integer, "null"]
+        eSmartLoad3TodayL2:
+          type: [integer, "null"]
+        eSmartLoad3TotalL1:
+          type: [integer, "null"]
+        eSmartLoad3TotalL2:
+          type: [integer, "null"]
+        eSmartLoad4TodayL1:
+          type: [integer, "null"]
+        eSmartLoad4TodayL2:
+          type: [integer, "null"]
+        eSmartLoad4TotalL1:
+          type: [integer, "null"]
+        eSmartLoad4TotalL2:
+          type: [integer, "null"]
+    ParameterReadResponse:
+      type: object
+      description: |
+        Returns flat descriptive named parameter keys (e.g. HOLD_AC_CHARGE_POWER_CMD,
+        FUNC_EPS_EN) as extra properties, NOT keyed by register number, plus metadata.
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        inverterSn:
+          type: string
+        deviceType:
+          type: integer
+        startRegister:
+          type: integer
+        pointNumber:
+          type: integer
+        valueFrame:
+          type: string
+          description: base64 LE raw register frame
+        inverterRuntimeDeviceTime:
+          type: [string, "null"]
+
+    QuickChargeStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+        hasUnclosedQuickChargeTask:
+          type: boolean
+        hasUnclosedQuickDischargeTask:
+          type: boolean
+          default: false
+        remainTimeBeforeQuickChargeStop:
+          type: integer
+          default: 0
+          description: Seconds remaining (0 idle)
+        unclosedQuickChargeTaskId:
+          type: [integer, "null"]
+        unclosedQuickChargeTaskStatus:
+          type: [string, "null"]
+        lowVoltProtect:
+          type: boolean
+          default: false
+        quickChargeMinute:
+          type: [integer, "null"]
+          description: HOLD reg234 minutes; only LOCAL/HYBRID transport, null on cloud
+
+    # ---- Firmware ----
+    FirmwareUpdateCheck:
+      type: object
+      properties:
+        success:
+          type: boolean
+        details:
+          $ref: "#/components/schemas/FirmwareUpdateDetails"
+        infoForwardUrl:
+          type: [string, "null"]
+          description: Changelog / release-notes URL
+
+    FirmwareUpdateDetails:
+      type: object
+      properties:
+        serialNum:
+          type: string
+        deviceType:
+          type: integer
+        standard:
+          type: string
+        firmwareType:
+          type: string
+        fwCodeBeforeUpload:
+          type: string
+          description: Current firmware code (e.g. fAAB-2122) = HA installed_version
+        v1:
+          type: integer
+          description: Current application fw version
+        v2:
+          type: integer
+          description: Current parameter fw version
+        v3Value:
+          type: integer
+        lastV1:
+          type: [integer, "null"]
+          description: Latest app version (null = up to date)
+        lastV1FileName:
+          type: [string, "null"]
+        lastV2:
+          type: [integer, "null"]
+        lastV2FileName:
+          type: [string, "null"]
+        m3Version:
+          type: integer
+        pcs1UpdateMatch:
+          type: boolean
+        pcs2UpdateMatch:
+          type: boolean
+        pcs3UpdateMatch:
+          type: boolean
+        needRunStep2:
+          type: boolean
+        needRunStep3:
+          type: boolean
+        needRunStep4:
+          type: boolean
+        needRunStep5:
+          type: boolean
+        midbox:
+          type: boolean
+        lowVoltBattery:
+          type: boolean
+        type6:
+          type: boolean
+
+    UpdateEligibilityStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+        msg:
+          $ref: "#/components/schemas/UpdateEligibilityMessage"
+
+    FirmwareUpdateStatus:
+      type: object
+      properties:
+        receiving:
+          type: boolean
+        progressing:
+          type: boolean
+        fileReady:
+          type: boolean
+        deviceInfos:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmwareDeviceInfo"
+
+    FirmwareDeviceInfo:
+      type: object
+      properties:
+        inverterSn:
+          type: string
+        startTime:
+          type: string
+        stopTime:
+          type: string
+          description: '"" while running'
+        standardUpdate:
+          type: boolean
+        firmware:
+          type: string
+        firmwareType:
+          type: string
+        updateStatus:
+          $ref: "#/components/schemas/UpdateStatus"
+        isSendStartUpdate:
+          type: boolean
+        isSendEndUpdate:
+          type: boolean
+        packageIndex:
+          type: integer
+        updateRate:
+          type: string
+          description: Progress string, e.g. "50% - 280 / 561"
+
+    # ---- Analytics (provisional) ----
+    ChartDataResponse:
+      type: object
+      description: "PROVISIONAL (untyped dict, from SDK docstring). Values raw."
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        dataPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              time:
+                type: string
+              value:
+                type: number
+
+    EnergyColumnResponse:
+      type: object
+      description: "PROVISIONAL. `dataPoints` values raw (÷10 for kWh)."
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        dataPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              period:
+                type: string
+              value:
+                type: number
+
+    EventListResponse:
+      type: object
+      description: "PROVISIONAL (untyped dict, from SDK docstring)."
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              eventId:
+                type: [integer, string]
+              eventCode:
+                type: [integer, string]
+              eventType:
+                type: string
+                description: FAULT / WARNING / INFO
+              eventText:
+                type: string
+              startTime:
+                type: string
+              endTime:
+                type: string
+              statusText:
+                type: string
+                description: ACTIVE / RESOLVED
+
+    MonthlyEnergyHistoryResponse:
+      type: object
+      description: |
+        SDK reads `success` + `data` (list of daily row dicts) and builds
+        MonthlyEnergyHistory. Day number = row `day` field if int 1-31 else 1-based row
+        position. Raw daily fields are 0.1 kWh (÷10 → kWh).
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyEnergyHistoryEntry"
+
+    DailyEnergyHistoryEntry:
+      type: object
+      description: |
+        Only these known fields are extracted (extras ignored). Availability varies by
+        endpoint (single-inverter monthColumn vs monthColumnParallel). All energy raw
+        0.1 kWh.
+      additionalProperties: true
+      properties:
+        day:
+          type: integer
+          description: 1-based day of month
+        ePvDay:
+          type: [number, "null"]
+          description: Total PV (parallel)
+        ePv1Day:
+          type: [number, "null"]
+        ePv2Day:
+          type: [number, "null"]
+        ePv3Day:
+          type: [number, "null"]
+        eInvDay:
+          type: [number, "null"]
+          description: Inverter output (yield)
+        eRecDay:
+          type: [number, "null"]
+          description: AC charge (rectifier)
+        eChgDay:
+          type: [number, "null"]
+        eDisChgDay:
+          type: [number, "null"]
+        eEpsDay:
+          type: [number, "null"]
+        eToGridDay:
+          type: [number, "null"]
+          description: Grid export (single, preferred)
+        eExportDay:
+          type: [number, "null"]
+          description: Grid export (parallel, fallback)
+        eToUserDay:
+          type: [number, "null"]
+          description: Grid import (single, fallback)
+        eImportDay:
+          type: [number, "null"]
+          description: Grid import (parallel, preferred)
+        eConsumptionDay:
+          type: [number, "null"]
+        eGenDay:
+          type: [number, "null"]
+          description: Generator-port energy (parallel)
+
+    # ---- Forecasting (provisional) ----
+    SolarForecastResponse:
+      type: object
+      description: "PROVISIONAL — from SDK docstring, not a Pydantic model. Confirm against live payload."
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        serialNum:
+          type: string
+        forecastDate:
+          type: string
+        predictions:
+          type: array
+          items:
+            type: object
+            properties:
+              time:
+                type: string
+              predictedPower:
+                type: number
+                description: W
+              confidence:
+                type: number
+                description: 0-100%
+
+    WeatherForecastResponse:
+      type: object
+      description: "PROVISIONAL — from SDK docstring, not a Pydantic model. Confirm against live payload."
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+            city:
+              type: string
+        current:
+          type: object
+          properties:
+            temperature:
+              type: number
+              description: °C
+            conditions:
+              type: string
+            cloudCover:
+              type: number
+              description: "%"
+        forecast:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              tempHigh:
+                type: number
+              tempLow:
+                type: number
+              conditions:
+                type: string
+              cloudCover:
+                type: number

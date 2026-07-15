@@ -7391,3 +7391,43 @@ class TestQuickChargeOffgridCloudStatus:
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
             "61062J0147"
         )
+
+
+class TestFirmwarePollCarryForward:
+    """_poll_firmware_update_info must not blank in-progress state on a
+    transient poll error (issue #353): an active firmware update would
+    otherwise flicker to idle whenever a refresh call raised.
+    """
+
+    @staticmethod
+    def _cached_updating_device() -> MagicMock:
+        """A device whose refresh calls fail but whose cached firmware state
+        (from a prior successful poll) shows an update in progress."""
+        device = MagicMock()
+        device.serial_number = "1234567890"
+        device.check_firmware_updates = AsyncMock(side_effect=RuntimeError("blip"))
+        device.get_firmware_update_progress = AsyncMock(
+            side_effect=RuntimeError("blip")
+        )
+        device.firmware_update_available = True
+        device.latest_firmware_version = "ccaa-1E1515"
+        device.firmware_update_title = "Firmware"
+        device.firmware_update_summary = None
+        device.firmware_update_url = None
+        device.firmware_update_in_progress = True
+        device.firmware_update_percentage = 42
+        return device
+
+    async def test_transient_error_carries_forward_cached_progress(
+        self, hass, mock_config_entry
+    ):
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+
+        result = await coordinator._poll_firmware_update_info(device)
+
+        # Must return the cached state, NOT None (which would blank the entity).
+        assert result is not None
+        assert result["in_progress"] is True
+        assert result["update_percentage"] == 42
+        assert result["latest_version"] == "ccaa-1E1515"

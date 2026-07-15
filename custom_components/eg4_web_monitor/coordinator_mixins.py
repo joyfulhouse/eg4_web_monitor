@@ -975,21 +975,28 @@ class DeviceProcessingMixin(_MixinBase):
         return None  # neither read method available -> unknown
 
     async def _poll_firmware_update_info(self, device: Any) -> dict[str, Any] | None:
-        """Poll and extract firmware update information for a device."""
-        firmware_update_info = None
+        """Poll and extract firmware update information for a device.
+
+        A transient refresh failure (network blip, or an unexpected API
+        payload) must NOT blank the entity's in_progress/percentage mid-update:
+        the device object caches its last firmware state, so we extract from it
+        even when the refresh calls above raise. Otherwise an active firmware
+        update would flicker to idle on any poll error (issue #353).
+        """
+        if not hasattr(device, "check_firmware_updates"):
+            return None
         try:
-            if hasattr(device, "check_firmware_updates"):
-                await device.check_firmware_updates()
-                if hasattr(device, "get_firmware_update_progress"):
-                    await device.get_firmware_update_progress()
-                firmware_update_info = self._extract_firmware_update_info(device)
+            await device.check_firmware_updates()
+            if hasattr(device, "get_firmware_update_progress"):
+                await device.get_firmware_update_progress()
         except Exception as e:
             _LOGGER.debug(
-                "Could not check firmware updates for %s: %s",
+                "Could not refresh firmware updates for %s (using last cached state): %s",
                 device.serial_number,
                 e,
             )
-        return firmware_update_info
+        # Extract from the device's cached state regardless of refresh outcome.
+        return self._extract_firmware_update_info(device)
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"

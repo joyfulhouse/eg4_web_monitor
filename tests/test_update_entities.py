@@ -373,6 +373,25 @@ class TestProperties:
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
         assert entity.in_progress is False
 
+    def test_in_progress_true_while_install_lock_held(self):
+        """While this entity drives an install (lock held), in_progress stays
+        True across the whole multi-component chain even if the coordinator
+        cache momentarily reads idle between components (#353)."""
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    # coordinator's cached firmware status reads idle mid-chain
+                    "firmware_update_info": {"in_progress": False},
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        entity._install_lock = MagicMock()
+        entity._install_lock.locked.return_value = True
+        assert entity.in_progress is True
+
     def test_in_progress_false_no_device_data(self):
         """in_progress returns False when device is absent."""
         coordinator = _mock_coordinator(devices={})
