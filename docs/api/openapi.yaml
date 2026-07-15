@@ -1307,7 +1307,9 @@ components:
           description: Plant creation date, echoed back unchanged from the read.
         daylightSavingTime:
           type: boolean
-          description: DST enabled. Sent form-encoded (`true`/`false`).
+          description: >
+            DST enabled. Passed as a raw Python bool, so aiohttp form-encodes it
+            CAPITALIZED (`True`/`False`), unlike the explicitly-lowercased booleans.
         timezone:
           type: string
           description: Timezone enum token (e.g. `"WEST8"` for `"GMT -8"`).
@@ -2472,6 +2474,43 @@ components:
         Today/Total × L1/L2) read 0/null when the ports/features are inactive.
         All 108 `MidboxData` fields are enumerated below.
       additionalProperties: true
+      required:
+        - status
+        - serverTime
+        - deviceTime
+        - gridRmsVolt
+        - upsRmsVolt
+        - genRmsVolt
+        - gridL1RmsVolt
+        - gridL2RmsVolt
+        - upsL1RmsVolt
+        - upsL2RmsVolt
+        - genL1RmsVolt
+        - genL2RmsVolt
+        - gridL1RmsCurr
+        - gridL2RmsCurr
+        - loadL1RmsCurr
+        - loadL2RmsCurr
+        - genL1RmsCurr
+        - genL2RmsCurr
+        - upsL1RmsCurr
+        - upsL2RmsCurr
+        - gridL1ActivePower
+        - gridL2ActivePower
+        - loadL1ActivePower
+        - loadL2ActivePower
+        - genL1ActivePower
+        - genL2ActivePower
+        - upsL1ActivePower
+        - upsL2ActivePower
+        - hybridPower
+        - smartPort1Status
+        - smartPort2Status
+        - smartPort3Status
+        - smartPort4Status
+        - phaseLockFreq
+        - gridFreq
+        - genFreq
       properties:
         status:
           type: [integer, "null"]

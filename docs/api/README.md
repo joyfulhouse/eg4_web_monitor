@@ -63,7 +63,7 @@ mobile app. `pylxpweb` wraps it; this integration (`eg4_web_monitor`) consumes
 ## Endpoint reference
 
 Method / path / purpose / request → response model / client cache TTL.
-(`SN` = `serialNum`; `iSN` = `inverterSn`. All POST unless noted.)
+(`SN` = `serialNum`. All POST unless noted.)
 
 ### auth
 | Path | Purpose | Request → Response | TTL |
@@ -114,16 +114,16 @@ general inverter-overview call is uncached.
 ### control
 | Path | Purpose | Request → Response | TTL |
 |---|---|---|---|
-| `/WManage/web/maintain/remoteRead/read` | Read register range (named params) | `iSN,startRegister,pointNumber,autoRetry` → `ParameterReadResponse` | 2 min |
-| `/WManage/web/maintain/remoteSet/write` ⚠️WRITE | Write one named param | `iSN,holdParam,valueText,clientType,remoteSetType` → `SuccessResponse` | — |
-| `/WManage/web/maintain/remoteSet/writeTime` ⚠️WRITE | Atomic time boundary | `iSN,timeParam,hour,minute,...` → `SuccessResponse` | — |
-| `/WManage/web/maintain/remoteSet/functionControl` ⚠️WRITE | Toggle function bit | `iSN,functionParam,enable,...` → `SuccessResponse` | — |
-| `/WManage/web/maintain/remoteSet/bitParamControl` ⚠️WRITE | Set bit enum param | `iSN,bitParam,value,...` → `SuccessResponse` | — |
-| `/WManage/web/config/quickCharge/start` ⚠️WRITE | Start quick charge | `iSN,clientType,minute?` → `SuccessResponse` | — |
-| `/WManage/web/config/quickCharge/stop` ⚠️WRITE | Stop quick charge | `iSN,clientType` → `SuccessResponse` | — |
-| `/WManage/web/config/quickCharge/getStatusInfo` | Quick charge/discharge status | `iSN` → `QuickChargeStatus` | 1 min |
-| `/WManage/web/config/quickDischarge/start` ⚠️WRITE | Start quick discharge | `iSN,clientType` → `SuccessResponse` | — |
-| `/WManage/web/config/quickDischarge/stop` ⚠️WRITE | Stop quick discharge | `iSN,clientType` → `SuccessResponse` | — |
+| `/WManage/web/maintain/remoteRead/read` | Read register range (named params) | `inverterSn,startRegister,pointNumber,autoRetry` → `ParameterReadResponse` | 2 min |
+| `/WManage/web/maintain/remoteSet/write` ⚠️WRITE | Write one named param | `inverterSn,holdParam,valueText,clientType,remoteSetType` → `SuccessResponse` | — |
+| `/WManage/web/maintain/remoteSet/writeTime` ⚠️WRITE | Atomic time boundary | `inverterSn,timeParam,hour,minute,...` → `SuccessResponse` | — |
+| `/WManage/web/maintain/remoteSet/functionControl` ⚠️WRITE | Toggle function bit | `inverterSn,functionParam,enable,...` → `SuccessResponse` | — |
+| `/WManage/web/maintain/remoteSet/bitParamControl` ⚠️WRITE | Set bit enum param | `inverterSn,bitParam,value,...` → `SuccessResponse` | — |
+| `/WManage/web/config/quickCharge/start` ⚠️WRITE | Start quick charge | `inverterSn,clientType,minute?` → `SuccessResponse` | — |
+| `/WManage/web/config/quickCharge/stop` ⚠️WRITE | Stop quick charge | `inverterSn,clientType` → `SuccessResponse` | — |
+| `/WManage/web/config/quickCharge/getStatusInfo` | Quick charge/discharge status | `inverterSn` → `QuickChargeStatus` | 1 min |
+| `/WManage/web/config/quickDischarge/start` ⚠️WRITE | Start quick discharge | `inverterSn,clientType` → `SuccessResponse` | — |
+| `/WManage/web/config/quickDischarge/stop` ⚠️WRITE | Stop quick discharge | `inverterSn,clientType` → `SuccessResponse` | — |
 
 **Composed helpers (no new endpoints):** raw multi-register `write_parameters` resolves
 each `{register: value}` pair to a **named** `remoteSet/write` (a bad register aborts the
