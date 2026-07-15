@@ -5,6 +5,22 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1-beta.1] - 2026-07-15
+
+Firmware-update robustness follow-up to the 3.5.0 line, from a live 6000XP report.
+
+> Requires [pylxpweb 0.9.39b1](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b1)
+> (installed automatically).
+
+### Fixed
+
+- **Firmware update no longer crashes on the 6000XP's `WAITING` status** ([#353](https://github.com/joyfulhouse/eg4_web_monitor/issues/353), reported by @eode): during a multi-component update the 6000XP reports an `updateStatus` of `WAITING` that the client did not recognize, which raised a validation error and — because the coordinator swallowed it — made the update entity fall back to idle mid-update. The client now recognizes `WAITING` (and coerces any future unrecognized status to a neutral value instead of crashing), and treats it as "still updating".
+- **The update entity stays in-progress across the whole multi-component update**: while an HA-initiated firmware install is running the entity now reports in-progress for the entire chain, even when the cloud briefly reports the device idle between components, and a transient poll error no longer blanks the status. The multi-step orchestrator also tolerates a transient "device busy" response on either the eligibility check or the start call (bounded retry) rather than aborting, so a device that is momentarily busy settling one component does not stop the chain.
+
+### Added
+
+- **Reverse-engineered OpenAPI 3.1 reference for the EG4 monitor cloud API** under `docs/api/` (44 endpoints, 55 schemas), for contributors.
+
 ## [3.5.0] - 2026-07-13
 
 Stable release: Quick Charge local control on all three connection paths,
