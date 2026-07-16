@@ -1127,7 +1127,7 @@ class TestParameterRefreshScope:
             },
         )
 
-        async def _refresh_device(refresh_serial: str) -> None:
+        async def _refresh_device(refresh_serial: str) -> bool:
             assert refresh_serial == serial
             coordinator.data["parameters"][serial] = {
                 "HOLD_AC_CHARGE_START_HOUR": "20",
@@ -1136,6 +1136,7 @@ class TestParameterRefreshScope:
                 "HOLD_AC_CHARGE_END_MINUTE": "45",
             }
             await coordinator.async_request_refresh()
+            return True
 
         coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=_refresh_device
@@ -1178,12 +1179,13 @@ class TestParameterRefreshScope:
             "HOLD_AC_CHARGE_START_MINUTE": "0",
         }
 
-        async def _refresh_device(refresh_serial: str) -> None:
+        async def _refresh_device(refresh_serial: str) -> bool:
             coordinator.data["parameters"][refresh_serial] = {
                 "HOLD_AC_CHARGE_START_HOUR": "20",
                 "HOLD_AC_CHARGE_START_MINUTE": "30",
             }
             await coordinator.async_request_refresh()
+            return True
 
         coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=_refresh_device
@@ -1340,10 +1342,11 @@ class TestWriteFailureConvergence:
             has_local=True,
             parameters={str(spec.base_register): _pack(8, 0)},
         )
-        # The real coordinator method swallows its own exceptions (coordinator_mixins.py),
-        # so this raise cannot occur in production — this test pins time.py's DEFENSIVE
-        # except-branch only; the production-reachable retain-optimistic path is the
-        # explicit link-down branch (covered by the link-down tests).
+        # The real coordinator method catches its own exceptions and reports
+        # failure by returning False (#362, coordinator_mixins.py), so this
+        # raise cannot occur in production — this test pins time.py's
+        # DEFENSIVE except-branch only; the production-reachable paths are the
+        # False return (test below) and the explicit link-down branch.
         coordinator.async_refresh_device_parameters = AsyncMock(
             side_effect=Exception("refresh died")
         )
@@ -1356,6 +1359,32 @@ class TestWriteFailureConvergence:
 
         coordinator.write_register.assert_awaited_once()
         assert entity._optimistic_value == time(7, 15)
+        assert entity.native_value == time(7, 15)
+        assert entity.available is True
+
+    @pytest.mark.asyncio
+    async def test_write_success_refresh_reports_failure_retains_optimistic(self):
+        """#362 golden path: the coordinator refresh helper reports failure
+        by RETURNING False (it logs and swallows its own exceptions), so the
+        schedule entity's retain-optimistic branch must fire on that signal —
+        before #362 the helper swallowed the error and returned None-as-
+        success, silently reverting the entity to the stale pre-write time.
+        """
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+
+        entity = _entity(coordinator, window=1, is_end=False)
+        _prep(entity)
+
+        # Write succeeds; the reported refresh failure is not raised.
+        await entity.async_set_value(time(7, 15))
+
+        coordinator.write_register.assert_awaited_once()
+        assert entity._optimistic_value == time(7, 15)
+        assert entity._optimistic_retained is True
         assert entity.native_value == time(7, 15)
         assert entity.available is True
 

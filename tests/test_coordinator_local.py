@@ -3537,7 +3537,8 @@ class TestLinkDownParameterRefreshGate:
     async def test_async_refresh_device_parameters_refreshes_down_link(
         self, hass, local_config_entry
     ):
-        """The single-serial public refresh path delegates the same way."""
+        """The single-serial public refresh path delegates the same way and
+        reports success (#362)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
         down = self._fake_inverter(link_down=True)
@@ -3545,9 +3546,29 @@ class TestLinkDownParameterRefreshGate:
         coordinator.data = {"devices": {"DOWN1": {"type": "inverter"}}}
         coordinator.async_request_refresh = AsyncMock()
 
-        await coordinator.async_refresh_device_parameters("DOWN1")
+        result = await coordinator.async_refresh_device_parameters("DOWN1")
 
+        assert result is True
         down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+
+    async def test_async_refresh_device_parameters_reports_failure(
+        self, hass, local_config_entry
+    ):
+        """#362 golden: a failed refresh returns False (logged, not raised)
+        so write paths can distinguish write-ok+refresh-fail from full
+        success instead of silently reverting optimistic state."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        broken = self._fake_inverter(link_down=False)
+        broken.refresh = AsyncMock(side_effect=ConnectionError("refresh died"))
+        coordinator._inverter_cache = {"INV1": broken}
+        coordinator.data = {"devices": {"INV1": {"type": "inverter"}}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        result = await coordinator.async_refresh_device_parameters("INV1")
+
+        assert result is False
+        coordinator.async_request_refresh.assert_not_awaited()
 
     async def test_note_parameters_written_merges_and_notifies(
         self, hass, local_config_entry

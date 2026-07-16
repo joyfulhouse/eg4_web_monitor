@@ -360,6 +360,9 @@ async def async_setup_entry(
 # indefinitely (the last thing we know the inverter accepted) — this reverses
 # the earlier "a dead status source can never pin state forever" guarantee.
 # Showing the accepted command beats flapping to provably pre-write data.
+# Kept NUMERICALLY EQUAL to base_entity.RETAINED_OPTIMISTIC_TTL on purpose:
+# after a quick-charge write-ok + refresh-fail both holds arm together and
+# only equal TTLs keep them expiring together. Change both or neither.
 QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
 
 
@@ -419,6 +422,24 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             return False
         result = await client.api.control.stop_quick_charge(self._serial)
         return bool(result.success)
+
+    def _cache_state(self) -> bool | None:
+        """Peek genuine status data: mask the #296 pending-state hold too.
+
+        The base peek masks only ``_optimistic_state``; quick charge's
+        ``is_on`` would then fall through to the ``_pending_state`` hold,
+        which (a) echoes the commanded value back — false convergence for
+        the #362 retention — and (b) can MUTATE ``_pending_state`` as a side
+        effect of the read (the hold is consumed on a fresh confirming or
+        expired read). Masking it keeps the peek side-effect-free and
+        reading actual device/status truth, per the base contract.
+        """
+        saved = self._pending_state
+        self._pending_state = None
+        try:
+            return super()._cache_state()
+        finally:
+            self._pending_state = saved
 
     @property
     def is_on(self) -> bool | None:

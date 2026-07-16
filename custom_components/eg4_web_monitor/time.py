@@ -512,13 +512,15 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         """Re-read parameters so all schedule entities converge on the write.
 
         Returns:
-            True when the refresh completed; False when it failed (errors
-            are logged, not raised — the write itself already succeeded, or
-            an error is already propagating).
+            True when the refresh completed; False when it failed. The
+            coordinator helper reports failure by returning False (#362 —
+            it logs and swallows its own errors, so before #362 a failed
+            refresh was indistinguishable from success here and the
+            retain-optimistic branch never fired); the try/except is a
+            defensive belt against a raise that cannot occur in production.
         """
         try:
-            await self.coordinator.async_refresh_device_parameters(self.serial)
+            return await self.coordinator.async_refresh_device_parameters(self.serial)
         except Exception as err:
             _LOGGER.error("Failed to refresh parameters after schedule write: %s", err)
             return False
-        return True
