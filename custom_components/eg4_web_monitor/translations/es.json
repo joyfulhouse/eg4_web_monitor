@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Codigo de Advertencia"
       },
+      "last_event": {
+        "name": "Último evento"
+      },
       "grid_power": {
         "name": "Potencia de Red"
       },
@@ -948,6 +951,24 @@
           "description": "Último día a importar (YYYY-MM-DD). Por defecto, hoy. Rango máximo: 2 años."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Obtener eventos",
+      "description": "Obtiene el registro de eventos reciente del portal (fallos, advertencias, avisos) para un dispositivo o para todos los inversores/GridBOSS de una entrada de configuración y lo devuelve como datos de respuesta. Algunos eventos solo existen en el registro de eventos del portal, por lo que complementa a los sensores de fallo/advertencia basados en registros. Requiere credenciales de la nube (modo de conexión HTTP o híbrido).",
+      "fields": {
+        "config_entry": {
+          "name": "Entrada de configuración",
+          "description": "La entrada de configuración (planta) de {brand_name} Web Monitor para la que se obtienen los eventos."
+        },
+        "serial": {
+          "name": "Número de serie del dispositivo",
+          "description": "Número de serie de un único dispositivo. Si no se especifica, se obtienen los eventos de todos los inversores y dispositivos GridBOSS."
+        },
+        "count": {
+          "name": "Número de eventos",
+          "description": "Número máximo de eventos a devolver por dispositivo (por defecto: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "Los datos de la estación en la nube aún no se han cargado. Espere a que la integración termine su primera actualización e inténtelo de nuevo."
+    },
+    "cloud_required_events": {
+      "message": "Obtener eventos del portal requiere credenciales de la nube (modo de conexión HTTP o híbrido)."
+    },
+    "events_api_unavailable": {
+      "message": "La biblioteca pylxpweb instalada no proporciona la API del registro de eventos requerida por este servicio. Actualice la integración para que se instale la versión requerida de pylxpweb."
+    },
+    "device_not_found": {
+      "message": "El dispositivo {serial} no se encontró en esta planta."
     }
   },
   "issues": {

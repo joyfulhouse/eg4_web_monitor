@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Warning Code"
       },
+      "last_event": {
+        "name": "Last Event"
+      },
       "grid_power": {
         "name": "Grid Power"
       },
@@ -948,6 +951,24 @@
           "description": "Preview what would be imported without writing any statistics."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Fetch Events",
+      "description": "Fetch the recent portal event log (faults, warnings, notices) for one device or every inverter/GridBOSS in a configuration entry, and return it as response data. Some events exist only in the portal's event log, so this complements the register-backed fault/warning sensors. Requires cloud credentials (HTTP or Hybrid connection mode).",
+      "fields": {
+        "config_entry": {
+          "name": "Config Entry",
+          "description": "The {brand_name} Web Monitor configuration entry (plant) to fetch events for."
+        },
+        "serial": {
+          "name": "Device Serial",
+          "description": "Serial number of a single device to fetch events for. If not provided, events are fetched for all inverters and GridBOSS devices."
+        },
+        "count": {
+          "name": "Event Count",
+          "description": "Maximum number of events to return per device (default: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "history_api_unavailable": {
       "message": "The installed pylxpweb library does not provide the energy history API required by this service. Update the integration so its required pylxpweb version is installed."
+    },
+    "cloud_required_events": {
+      "message": "Fetching portal events requires cloud credentials (HTTP or Hybrid connection mode)."
+    },
+    "events_api_unavailable": {
+      "message": "The installed pylxpweb library does not provide the event log API required by this service. Update the integration so its required pylxpweb version is installed."
+    },
+    "device_not_found": {
+      "message": "Device {serial} was not found in this plant."
     }
   },
   "issues": {

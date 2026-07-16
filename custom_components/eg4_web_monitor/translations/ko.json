@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "경고 코드"
       },
+      "last_event": {
+        "name": "마지막 이벤트"
+      },
       "grid_power": {
         "name": "계통 전력"
       },
@@ -948,6 +951,24 @@
           "description": "가져올 마지막 날짜(YYYY-MM-DD). 기본값은 오늘입니다. 최대 범위: 2년."
         }
       }
+    },
+    "fetch_events": {
+      "name": "이벤트 가져오기",
+      "description": "단일 장치 또는 구성 항목의 모든 인버터/GridBOSS에 대해 포털의 최근 이벤트 로그(고장, 경고, 알림)를 가져와 응답 데이터로 반환합니다. 일부 이벤트는 포털의 이벤트 로그에만 존재하므로 레지스터 기반 고장/경고 센서를 보완합니다. 클라우드 자격 증명(HTTP 또는 하이브리드 연결 모드)이 필요합니다.",
+      "fields": {
+        "config_entry": {
+          "name": "구성 항목",
+          "description": "이벤트를 가져올 {brand_name} Web Monitor 구성 항목(플랜트)입니다."
+        },
+        "serial": {
+          "name": "장치 일련번호",
+          "description": "단일 장치의 일련번호입니다. 지정하지 않으면 모든 인버터와 GridBOSS 장치의 이벤트를 가져옵니다."
+        },
+        "count": {
+          "name": "이벤트 수",
+          "description": "장치당 반환할 최대 이벤트 수(기본값: 30)입니다."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "클라우드 스테이션 데이터가 아직 로드되지 않았습니다. 통합구성요소의 첫 새로 고침이 완료될 때까지 기다린 후 다시 시도하세요."
+    },
+    "cloud_required_events": {
+      "message": "포털 이벤트를 가져오려면 클라우드 자격 증명(HTTP 또는 하이브리드 연결 모드)이 필요합니다."
+    },
+    "events_api_unavailable": {
+      "message": "설치된 pylxpweb 라이브러리가 이 서비스에 필요한 이벤트 로그 API를 제공하지 않습니다. 필요한 pylxpweb 버전이 설치되도록 통합을 업데이트하세요."
+    },
+    "device_not_found": {
+      "message": "장치 {serial}을(를) 이 플랜트에서 찾을 수 없습니다."
     }
   },
   "issues": {

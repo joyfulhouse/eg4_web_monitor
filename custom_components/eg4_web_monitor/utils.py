@@ -590,3 +590,39 @@ def generate_unique_id(serial: str, entity_type: str, suffix: str | None = None)
         base_id = f"{base_id}_{suffix}"
 
     return base_id
+
+
+# Portal event-log ``status`` values mapped to the friendly form exposed on
+# the Last Event sensor / fetch_events service (#327). OPEN = still active,
+# CLOSE = returned to normal. Unknown values pass through verbatim.
+_EVENT_STATUS_MAP = {"OPEN": "ACTIVE", "CLOSE": "RESOLVED"}
+
+
+def normalize_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one portal event-log row to the integration's schema.
+
+    Field names follow the live-validated /WManage/api/analyze/event/list
+    response (docs/api/openapi.yaml, 2026-07-15): ``event`` is the code
+    (E###=fault, W###=warning), ``eventText`` the human-readable message,
+    ``eventType`` the category (FAULT/WARNING/INFO — GridBOSS devices report
+    MIDBOX_WARNING, so the value passes through verbatim), ``startTime`` the
+    onset and ``renormalTime`` the return-to-normal (None while ongoing).
+
+    Args:
+        row: Raw event row dict from the cloud response.
+
+    Returns:
+        Dict with event_code, event_text, event_type, start_time, end_time
+        and status (ACTIVE/RESOLVED) keys.
+    """
+    status = row.get("status")
+    if isinstance(status, str):
+        status = _EVENT_STATUS_MAP.get(status, status)
+    return {
+        "event_code": row.get("event"),
+        "event_text": row.get("eventText"),
+        "event_type": row.get("eventType"),
+        "start_time": row.get("startTime"),
+        "end_time": row.get("renormalTime"),
+        "status": status,
+    }

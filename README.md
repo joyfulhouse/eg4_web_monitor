@@ -300,6 +300,36 @@ automation:
 > or three-phase EU/BR units), and a faithful version needs the per-grid-standard
 > reconnect timing above. A template keeps those choices in your hands.
 
+## Portal Event Log (Last Event sensor + fetch_events)
+
+Some events exist **only** in the EG4 portal's event log — transients that fall
+between register polls and are pushed to the cloud out-of-band by the device —
+so they never appear in the register-backed Fault/Warning Code sensors. In
+**Cloud** and **Hybrid** modes the integration surfaces them two ways:
+
+- **Last Event** sensor (diagnostic, per inverter *and* GridBOSS): state is the
+  newest event's text (e.g. `Bus voltage high`), with `event_code` (E###/W###),
+  `event_type` (FAULT/WARNING/…), `start_time`, `end_time` and `status`
+  (ACTIVE/RESOLVED) as attributes. Polled every 5 minutes; state is *unknown*
+  when the device has no events. Automations can trigger on the state change:
+
+  ```yaml
+  trigger:
+    - platform: state
+      entity_id: sensor.eg4_flexboss21_1234567890_last_event
+  condition:
+    - "{{ trigger.to_state.state not in ('unknown', 'unavailable') }}"
+  ```
+
+- **`eg4_web_monitor.fetch_events`** service: returns the recent event list on
+  demand as response data (per device: normalized events + total count).
+  Requires cloud credentials — calling it on a local-only entry raises an
+  error. Fields: `config_entry` (required), `serial` (optional, default all
+  inverters + GridBOSS), `count` (optional, default 30).
+
+In pure **Local** mode the Last Event sensor is not created (the event log
+lives only in the cloud).
+
 ## Service Actions
 
 The integration registers these service actions (callable from **Developer Tools → Actions** or automations):
@@ -309,6 +339,7 @@ The integration registers these service actions (callable from **Developer Tools
 | `eg4_web_monitor.refresh_data` | Force an immediate refresh of all EG4 device data from the API. Optional `entry_id` targets a single config entry (default: all). |
 | `eg4_web_monitor.reconcile_history` | Backfill missing energy statistics from the EG4 cloud for gaps in your energy-sensor history (requires cloud/hybrid mode). Accepts `lookback_hours` or an explicit `start_date`/`end_date`, and an optional `entry_id`. |
 | `eg4_web_monitor.import_historical_data` | Import plant-level daily energy history (PV yield, consumption, grid import/export, battery charge/discharge) from the EG4 cloud into Home Assistant long-term statistics as external statistics, selectable in the Energy dashboard. |
+| `eg4_web_monitor.fetch_events` | Fetch the recent portal event log (faults, warnings, notices) for one device or every inverter/GridBOSS in a config entry and return it as response data (requires cloud/hybrid mode). |
 
 Example — force a data refresh:
 

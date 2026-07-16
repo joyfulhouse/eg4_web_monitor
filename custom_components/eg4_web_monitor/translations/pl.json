@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Kod ostrzezenia"
       },
+      "last_event": {
+        "name": "Ostatnie zdarzenie"
+      },
       "grid_power": {
         "name": "Moc sieci"
       },
@@ -948,6 +951,24 @@
           "description": "Ostatni dzień do zaimportowania (YYYY-MM-DD). Domyślnie dzisiaj. Maksymalny zakres: 2 lata."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Pobierz zdarzenia",
+      "description": "Pobiera ostatni dziennik zdarzeń portalu (usterki, ostrzeżenia, powiadomienia) dla jednego urządzenia lub wszystkich falowników/urządzeń GridBOSS wpisu konfiguracji i zwraca go jako dane odpowiedzi. Niektóre zdarzenia istnieją wyłącznie w dzienniku zdarzeń portalu, więc usługa ta uzupełnia czujniki usterek/ostrzeżeń oparte na rejestrach. Wymaga danych logowania do chmury (tryb połączenia HTTP lub hybrydowy).",
+      "fields": {
+        "config_entry": {
+          "name": "Wpis konfiguracji",
+          "description": "Wpis konfiguracji (instalacja) {brand_name} Web Monitor, dla którego pobierane są zdarzenia."
+        },
+        "serial": {
+          "name": "Numer seryjny urządzenia",
+          "description": "Numer seryjny pojedynczego urządzenia. Jeśli nie zostanie podany, zdarzenia będą pobierane dla wszystkich falowników i urządzeń GridBOSS."
+        },
+        "count": {
+          "name": "Liczba zdarzeń",
+          "description": "Maksymalna liczba zdarzeń zwracanych dla każdego urządzenia (domyślnie: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "Dane stacji z chmury nie zostały jeszcze załadowane. Poczekaj, aż integracja zakończy pierwsze odświeżanie, i spróbuj ponownie."
+    },
+    "cloud_required_events": {
+      "message": "Pobieranie zdarzeń portalu wymaga danych logowania do chmury (tryb połączenia HTTP lub hybrydowy)."
+    },
+    "events_api_unavailable": {
+      "message": "Zainstalowana biblioteka pylxpweb nie udostępnia interfejsu API dziennika zdarzeń wymaganego przez tę usługę. Zaktualizuj integrację, aby zainstalowana została wymagana wersja pylxpweb."
+    },
+    "device_not_found": {
+      "message": "Urządzenie {serial} nie zostało znalezione w tej instalacji."
     }
   },
   "issues": {

@@ -89,3 +89,39 @@ import_historical_data:
       default: false
       selector:
         boolean:
+
+fetch_events:
+  name: Fetch Events
+  description: >-
+    Fetch the recent portal event log (faults, warnings, notices) for one
+    device or every inverter/GridBOSS in a config entry. Some events exist
+    only in the portal's event log (transients between polls that the device
+    pushes to the cloud out-of-band), so this complements the register-backed
+    fault/warning sensors. Returns the events as response data.
+    Requires cloud credentials (HTTP or Hybrid connection mode).
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The EG4 Web Monitor configuration entry (plant) to fetch events for.
+      required: true
+      selector:
+        config_entry:
+          integration: eg4_web_monitor
+    serial:
+      name: Device Serial
+      description: Serial number of a single device to fetch events for (optional, fetches all inverters and GridBOSS devices if not specified).
+      required: false
+      example: "1234567890"
+      selector:
+        text:
+    count:
+      name: Event Count
+      description: "Maximum number of events to return per device (default: 30)."
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          mode: box

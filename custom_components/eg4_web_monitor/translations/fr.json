@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Code d'avertissement"
       },
+      "last_event": {
+        "name": "Dernier événement"
+      },
       "grid_power": {
         "name": "Puissance reseau"
       },
@@ -948,6 +951,24 @@
           "description": "Dernier jour à importer (YYYY-MM-DD). Par défaut : aujourd'hui. Plage maximale : 2 ans."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Récupérer les événements",
+      "description": "Récupère le journal d'événements récent du portail (défauts, avertissements, notifications) pour un appareil ou pour tous les onduleurs/GridBOSS d'une entrée de configuration, et le renvoie comme données de réponse. Certains événements n'existent que dans le journal d'événements du portail ; ce service complète donc les capteurs de défaut/avertissement basés sur les registres. Nécessite des identifiants cloud (mode de connexion HTTP ou hybride).",
+      "fields": {
+        "config_entry": {
+          "name": "Entrée de configuration",
+          "description": "L'entrée de configuration (centrale) {brand_name} Web Monitor pour laquelle récupérer les événements."
+        },
+        "serial": {
+          "name": "Numéro de série de l'appareil",
+          "description": "Numéro de série d'un seul appareil. S'il n'est pas renseigné, les événements sont récupérés pour tous les onduleurs et appareils GridBOSS."
+        },
+        "count": {
+          "name": "Nombre d'événements",
+          "description": "Nombre maximal d'événements renvoyés par appareil (par défaut : 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "Les données cloud de la station ne sont pas encore chargées. Attendez que l'intégration termine sa première actualisation, puis réessayez."
+    },
+    "cloud_required_events": {
+      "message": "La récupération des événements du portail nécessite des identifiants cloud (mode de connexion HTTP ou hybride)."
+    },
+    "events_api_unavailable": {
+      "message": "La bibliothèque pylxpweb installée ne fournit pas l'API du journal d'événements requise par ce service. Mettez à jour l'intégration afin d'installer la version requise de pylxpweb."
+    },
+    "device_not_found": {
+      "message": "L'appareil {serial} est introuvable dans cette centrale."
     }
   },
   "issues": {

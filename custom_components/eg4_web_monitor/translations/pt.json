@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Código de Aviso"
       },
+      "last_event": {
+        "name": "Último evento"
+      },
       "grid_power": {
         "name": "Potência da Rede"
       },
@@ -948,6 +951,24 @@
           "description": "Último dia a importar (YYYY-MM-DD). Predefinição: hoje. Intervalo máximo: 2 anos."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Obter eventos",
+      "description": "Obtém o registro de eventos recente do portal (falhas, avisos, notificações) para um dispositivo ou para todos os inversores/GridBOSS de uma entrada de configuração e o retorna como dados de resposta. Alguns eventos existem apenas no registro de eventos do portal, portanto este serviço complementa os sensores de falha/aviso baseados em registradores. Requer credenciais de nuvem (modo de conexão HTTP ou híbrido).",
+      "fields": {
+        "config_entry": {
+          "name": "Entrada de configuração",
+          "description": "A entrada de configuração (planta) do {brand_name} Web Monitor para a qual obter os eventos."
+        },
+        "serial": {
+          "name": "Número de série do dispositivo",
+          "description": "Número de série de um único dispositivo. Se não for informado, os eventos serão obtidos para todos os inversores e dispositivos GridBOSS."
+        },
+        "count": {
+          "name": "Número de eventos",
+          "description": "Número máximo de eventos retornados por dispositivo (padrão: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "Os dados da estação na nuvem ainda não foram carregados. Aguarde a integração concluir a primeira atualização e tente novamente."
+    },
+    "cloud_required_events": {
+      "message": "Obter eventos do portal requer credenciais de nuvem (modo de conexão HTTP ou híbrido)."
+    },
+    "events_api_unavailable": {
+      "message": "A biblioteca pylxpweb instalada não fornece a API do registro de eventos exigida por este serviço. Atualize a integração para que a versão exigida do pylxpweb seja instalada."
+    },
+    "device_not_found": {
+      "message": "O dispositivo {serial} não foi encontrado nesta planta."
     }
   },
   "issues": {

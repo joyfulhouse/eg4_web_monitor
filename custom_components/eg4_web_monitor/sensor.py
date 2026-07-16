@@ -121,6 +121,15 @@ def _should_create_sensor(
     return True
 
 
+def _device_sensor_class(sensor_key: str) -> "type[EG4InverterSensor]":
+    """Pick the entity class for a device sensor key.
+
+    ``last_event`` needs its own class to expose the normalized event detail
+    as attributes (#327); every other key uses the generic sensor.
+    """
+    return EG4LastEventSensor if sensor_key == "last_event" else EG4InverterSensor
+
+
 # Silver tier requirement: Specify parallel update count
 # Limit concurrent sensor updates to prevent overwhelming the coordinator
 MAX_PARALLEL_UPDATES = 5
@@ -400,7 +409,7 @@ async def async_setup_entry(
                     continue
                 known.add(sensor_key)
                 new_entities.append(
-                    EG4InverterSensor(
+                    _device_sensor_class(sensor_key)(
                         coordinator=coordinator,
                         serial=serial,
                         sensor_key=sensor_key,
@@ -502,7 +511,7 @@ def _create_inverter_sensors(
                 # Check if sensor should be created based on device features
                 if _should_create_sensor(sensor_key, features):
                     inverter_entities.append(
-                        EG4InverterSensor(
+                        _device_sensor_class(sensor_key)(
                             coordinator=coordinator,
                             serial=serial,
                             sensor_key=sensor_key,
@@ -592,7 +601,7 @@ def _create_simple_device_sensors(
 ) -> list[SensorEntity]:
     """Create sensor entities for a GridBOSS or Parallel Group device."""
     return [
-        EG4InverterSensor(
+        _device_sensor_class(sensor_key)(
             coordinator=coordinator,
             serial=serial,
             sensor_key=sensor_key,
@@ -614,6 +623,37 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
     """
 
     pass  # All functionality provided by EG4BaseSensor
+
+
+class EG4LastEventSensor(EG4InverterSensor):
+    """Latest portal event-log entry for a device (issue #327).
+
+    CLOUD/HYBRID only: the coordinator publishes the ``last_event`` sensor key
+    only when a cloud client exists, so pure LOCAL entries never create this
+    entity. State = newest event text (or unknown when the device has no
+    events); the normalized event detail (code, type, start/end time,
+    ACTIVE/RESOLVED status) rides as attributes so automations can trigger on
+    the state change and inspect the specifics.
+    """
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the normalized event detail as attributes."""
+        if not self.coordinator.data or "devices" not in self.coordinator.data:
+            return None
+        device_data = self.coordinator.data["devices"].get(self._serial)
+        if not device_data:
+            return None
+        detail = device_data.get("last_event_detail")
+        if not isinstance(detail, dict):
+            return None
+        return {
+            "event_code": detail.get("event_code"),
+            "event_type": detail.get("event_type"),
+            "start_time": detail.get("start_time"),
+            "end_time": detail.get("end_time"),
+            "status": detail.get("status"),
+        }
 
 
 class EG4QuickChargeRemainingSensor(EG4InverterSensor):

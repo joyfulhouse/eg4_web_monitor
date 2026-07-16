@@ -42,7 +42,11 @@ from .history_import import (
     SERVICE_IMPORT_HISTORICAL_DATA,
     async_import_historical_data,
 )
-from .services import async_reconcile_history
+from .services import (
+    FETCH_EVENTS_SCHEMA,
+    async_fetch_events,
+    async_reconcile_history,
+)
 from ._config_flow.helpers import migrate_legacy_entry
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,6 +121,7 @@ _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES: frozenset[str] = frozenset(
 
 SERVICE_REFRESH_DATA = "refresh_data"
 SERVICE_RECONCILE_HISTORY = "reconcile_history"
+SERVICE_FETCH_EVENTS = "fetch_events"
 
 REFRESH_DATA_SCHEMA = vol.Schema(
     {
@@ -223,6 +228,20 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         handle_import_historical_data,
         schema=IMPORT_HISTORICAL_DATA_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    # Register fetch_events service (issue #327) — returns the recent portal
+    # event log on demand (response-only; requires cloud/hybrid mode).
+    async def handle_fetch_events(call: ServiceCall) -> ServiceResponse:
+        """Handle fetch_events service call."""
+        return await async_fetch_events(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_FETCH_EVENTS,
+        handle_fetch_events,
+        schema=FETCH_EVENTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
 
     return True
