@@ -1151,7 +1151,14 @@ class DeviceProcessingMixin(_MixinBase):
         serial = inverter.serial_number
         key = f"ac_couple_{serial}"
         now = time.monotonic()
-        if now - self._last_status_fetch.get(key, 0.0) < AC_COUPLE_SOC_FETCH_INTERVAL:
+        # "Never fetched" is a None sentinel, NOT a 0.0 default (the d66cc92
+        # / #327-CI bug class): time.monotonic() is host uptime on Linux, so
+        # on a freshly booted host (HAOS reboot, container host, CI runner)
+        # `now` is smaller than the interval and a 0.0 default would classify
+        # the FIRST-EVER fetch as inside the throttle window — silently
+        # skipping the AC couple SOC read for the first 5 minutes of uptime.
+        last_fetch = self._last_status_fetch.get(key)
+        if last_fetch is not None and now - last_fetch < AC_COUPLE_SOC_FETCH_INTERVAL:
             self._carry_forward_ac_couple_soc(serial, target)
             return
         self._last_status_fetch[key] = now

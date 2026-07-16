@@ -7441,6 +7441,28 @@ class TestACCoupleSOCStore:
         assert store["end_soc"] == 95
         assert store["fetched_at"] <= time.monotonic()
 
+    async def test_first_fetch_on_freshly_booted_host(self, hass, mock_config_entry):
+        """time.monotonic() is host uptime on Linux — on a freshly booted
+        host (HAOS reboot, container host, CI runner) it is smaller than the
+        5-minute throttle interval, and a 0.0 "never fetched" default would
+        classify the FIRST-EVER fetch as inside the window and silently skip
+        it (the d66cc92 / #327-CI bug class, reproduced verbatim by this
+        feature's Gold coverage CI failure)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        target: dict[str, Any] = {}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 10.0  # 10s of uptime
+            await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        getter = coordinator.client.api.control.get_inverter_ac_couple_soc_limits
+        getter.assert_awaited_once_with(self.SERIAL)
+        assert target["ac_couple_soc"]["start_soc"] == 85
+        assert target["ac_couple_soc"]["fetched_at"] == 10.0
+        assert coordinator._last_status_fetch[f"ac_couple_{self.SERIAL}"] == 10.0
+
     async def test_fetch_throttled_carries_forward(self, hass, mock_config_entry):
         """Within the 5-minute window the previous store is carried forward
         and the getter (3 cloud parameter-range reads) is NOT called."""
