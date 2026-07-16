@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from datetime import time as dt_time
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Generator, cast
 
 from homeassistant.const import EntityCategory
@@ -41,6 +42,14 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Bound on retained optimistic switch state after a write-ok + refresh-fail
+# (#362). Retention normally ends when fresh device data arrives, but a
+# firmware-silently-NAKed write (#251 reg-233, #331 reg-67 precedent) plus
+# one failed refresh would otherwise wedge it forever: every healthy poll
+# keeps returning the pre-write value, indistinguishable from a stale tick.
+# Follows the QUICK_CHARGE_OPTIMISTIC_TTL precedent (switch.py).
+RETAINED_OPTIMISTIC_TTL: float = 300.0
 
 
 class EG4DeviceEntity(CoordinatorEntity):
@@ -936,11 +945,14 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         # Set when a successful write's post-write refresh failed (#362):
         # the optimistic state is then RETAINED — the acknowledged write IS
         # device truth — until fresh device data arrives
-        # (:meth:`_handle_coordinator_update`). ``_pre_write_state`` remembers
-        # what the cache decoded to before the write so freshness is
-        # detectable (mirrors the schedule time entities' retention).
+        # (:meth:`_handle_coordinator_update`) or the TTL deadline passes
+        # (firmware-NAK escape). ``_pre_write_state`` remembers what the
+        # cache decoded to before the write so freshness is detectable
+        # (mirrors the schedule time entities' retention).
         self._optimistic_retained = False
         self._pre_write_state: bool | None = None
+        self._retention_expires: float = 0.0
+        self._retained_action: str = ""
 
         # Get device model from coordinator data
         self._model = _get_model_from_coordinator(coordinator, serial)
@@ -1031,6 +1043,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         decodes the underlying cache/device data (every subclass prefers
         ``_optimistic_state`` when set). Synchronous — the mask never spans
         an await point.
+
+        Contract: this peek must be SIDE-EFFECT-FREE and must read genuine
+        device data. Subclasses whose ``is_on`` consults additional hold
+        state after the optimistic check (e.g. quick charge's #296
+        ``_pending_state``) must override this to mask that state too —
+        otherwise the peek echoes the held command back (false retention
+        convergence) or mutates the hold as a side effect of the read.
         """
         saved = self._optimistic_state
         self._optimistic_state = None
@@ -1039,25 +1058,123 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         finally:
             self._optimistic_state = saved
 
+    def _arm_retention(self, action_name: str, pre_write_state: bool | None) -> None:
+        """Arm bounded optimistic-state retention after write-ok + refresh-fail.
+
+        The retained state ends when fresh device data arrives
+        (:meth:`_handle_coordinator_update`) or, as the firmware-NAK escape
+        (#251/#331 precedent: a silently rejected write means fresh data
+        never stops decoding to the pre-write value), when
+        ``RETAINED_OPTIMISTIC_TTL`` expires.
+        """
+        self._optimistic_retained = True
+        self._pre_write_state = pre_write_state
+        self._retention_expires = time.monotonic() + RETAINED_OPTIMISTIC_TTL
+        self._retained_action = action_name
+        _LOGGER.debug(
+            "Retaining optimistic state for %s on device %s until fresh "
+            "device data arrives (bounded to %.0f s)",
+            action_name,
+            self._serial,
+            RETAINED_OPTIMISTIC_TTL,
+        )
+
+    def _end_retention(self) -> None:
+        """Drop the retained optimistic state and its bookkeeping."""
+        self._optimistic_state = None
+        self._optimistic_retained = False
+        self._pre_write_state = None
+        self._retained_action = ""
+
+    async def _refresh_coordinator_data(self) -> bool:
+        """Run a full coordinator refresh; True only when it produced fresh data.
+
+        ``last_update_success`` alone LIES during the coordinator's 3-strike
+        tolerance window: the first two consecutive ``UpdateFailed`` cycles
+        return the OLD ``self.data`` object unchanged without flipping the
+        flag, so a post-write refresh could serve stale pre-write data as if
+        it were fresh (#362 review). A same-identity data object after the
+        refresh is therefore treated as failure — every genuinely successful
+        cycle builds a new data dict.
+        """
+        data_before = self.coordinator.data
+        await self.coordinator.async_refresh()
+        return bool(self.coordinator.last_update_success) and (
+            self.coordinator.data is not data_before
+        )
+
+    async def _settle_acknowledged_write(
+        self,
+        action_name: str,
+        pre_write_state: bool | None,
+        refresh: Callable[[], Awaitable[bool]],
+    ) -> None:
+        """Run the post-write refresh phase for an ACKNOWLEDGED write (#362).
+
+        Never raises: a successful write must not be converted into a
+        user-facing write failure. On a completed refresh the optimistic
+        state clears (coordinator data is fresh); on a failed refresh
+        (reported False or raised) it is retained via :meth:`_arm_retention`
+        instead of publishing the stale pre-write value.
+        """
+        refresh_ok = False
+        try:
+            refresh_ok = await refresh()
+            if not refresh_ok:
+                _LOGGER.warning(
+                    "Post-write refresh did not complete after %s for device "
+                    "%s (the write itself succeeded)",
+                    action_name,
+                    self._serial,
+                )
+        except Exception as e:
+            _LOGGER.warning(
+                "Post-write refresh failed after %s for device %s "
+                "(the write itself succeeded): %s",
+                action_name,
+                self._serial,
+                e,
+            )
+
+        if refresh_ok:
+            # Coordinator data reflects the new state — publish it.
+            self._optimistic_state = None
+        else:
+            self._arm_retention(action_name, pre_write_state)
+        self.async_write_ha_state()
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Clear a retained optimistic state once fresh device data arrives.
 
         A retained state exists only when a successful write's post-write
-        refresh failed (#362, :meth:`_optimistic_write_envelope`). Fresh data
+        refresh failed (#362, :meth:`_settle_acknowledged_write`). Fresh data
         is anything that no longer decodes to the pre-write state — the
         written value coming back, or a newer external change; a coordinator
         tick that still carries the stale pre-write value keeps the
         optimistic state (clearing there would be the silent revert this
         guards against, just delayed one poll). Mirrors the schedule time
         entities' retention semantics.
+
+        TTL escape: a firmware-silently-NAKed write never produces fresh
+        data that differs from the pre-write value, so an unconverged
+        retention expires after ``RETAINED_OPTIMISTIC_TTL`` with a WARNING
+        (observability for the NAK case) and the entity reverts to the
+        reported state.
         """
         if self._optimistic_retained and self._optimistic_state is not None:
             current = self._cache_state()
             if current == self._optimistic_state or current != self._pre_write_state:
-                self._optimistic_state = None
-                self._optimistic_retained = False
-                self._pre_write_state = None
+                self._end_retention()
+            elif time.monotonic() >= self._retention_expires:
+                _LOGGER.warning(
+                    "Optimistic state for %s on device %s expired without "
+                    "device confirmation; reverting to the reported state "
+                    "(the device may have rejected the write)",
+                    self._retained_action or "switch write",
+                    self._serial,
+                )
+                self._end_retention()
         super()._handle_coordinator_update()
 
     async def _optimistic_write_envelope(
@@ -1073,11 +1190,15 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
     ) -> None:
         """Execute a write with optimistic state and post-write refreshes.
 
-        Shared by ``_execute_switch_action`` and ``_execute_cloud_function_action``.
-        ``do_write`` performs its own precondition/success checks and raises
-        ``HomeAssistantError`` on failure — there is no false-return branch
-        here; failure flows through the write exception handlers below.
-        ``do_refresh`` returns whether the refresh completed.
+        Shared by ``_execute_switch_action`` and ``_execute_cloud_function_action``;
+        the LOCAL named-parameter path (``_execute_named_parameter_action``)
+        shares the identical write/refresh semantics through the same
+        :meth:`_settle_acknowledged_write` helper. ``do_write`` performs its
+        own precondition/success checks and raises ``HomeAssistantError`` on
+        failure — there is no false-return branch here; failure flows through
+        the write exception handlers below. ``do_refresh`` returns whether
+        the refresh completed AND produced fresh data (see
+        :meth:`_refresh_coordinator_data` for the tolerated-stale caveat).
 
         Write and refresh sit in SEPARATE exception boundaries (#362):
 
@@ -1086,11 +1207,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
           completes, preventing the "bounce" effect where the entity briefly
           shows the wrong state while waiting for API data to propagate.
         - write ok + refresh fails (reported or raised) → RETAIN the
-          optimistic state until fresh device data arrives
-          (:meth:`_handle_coordinator_update`) and log; a successful write
-          is NEVER converted into a user-facing write failure, and the
-          entity never publishes the stale pre-write cache value the device
-          already superseded.
+          optimistic state until fresh device data arrives or the retention
+          TTL expires (:meth:`_handle_coordinator_update`) and log; a
+          successful write is NEVER converted into a user-facing write
+          failure, and the entity never publishes the stale pre-write cache
+          value the device already superseded.
 
         Callers emit their path-specific debug log BEFORE invoking this
         envelope — the pinned log ordering is debug → optimistic publish →
@@ -1142,41 +1263,17 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         if seed_param_key is not None:
             self._seed_cloud_written_parameter(seed_param_key, value)
 
-        refresh_ok = False
-        try:
+        async def refresh_phase() -> bool:
             if pre_delay_refresh is not None:
                 await pre_delay_refresh()
 
             # Wait for API to propagate changes before refreshing.
             await asyncio.sleep(api_delay)
-            refresh_ok = await do_refresh()
-        except Exception as e:
-            _LOGGER.warning(
-                "Post-write refresh failed after %s %s for device %s "
-                "(the write itself succeeded): %s",
-                action_verb.lower(),
-                action_name,
-                self._serial,
-                e,
-            )
+            return await do_refresh()
 
-        if refresh_ok:
-            # Coordinator data reflects the new state — publish it.
-            self._optimistic_state = None
-        else:
-            # Write landed but the refresh did not complete: retain the
-            # optimistic state (the acknowledged write IS device truth)
-            # until fresh data arrives, instead of reverting to the stale
-            # pre-write cache value (#362).
-            self._optimistic_retained = True
-            self._pre_write_state = pre_write_state
-            _LOGGER.debug(
-                "Retaining optimistic state for %s on device %s until fresh "
-                "device data arrives",
-                action_name,
-                self._serial,
-            )
-        self.async_write_ha_state()
+        await self._settle_acknowledged_write(
+            action_name, pre_write_state, refresh_phase
+        )
 
     async def _execute_switch_action(
         self,
@@ -1284,9 +1381,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 return await self.coordinator.async_refresh_device_parameters(
                     self._serial
                 )
-            await self.coordinator.async_refresh()
-            # async_refresh never raises; its outcome is the success flag.
-            return bool(self.coordinator.last_update_success)
+            return await self._refresh_coordinator_data()
 
         await self._optimistic_write_envelope(
             action_name,
@@ -1507,6 +1602,15 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         Uses pylxpweb's write_named_parameters() which handles register mapping
         and bit field combination automatically.
 
+        Shares the #362 write/refresh semantics with the optimistic write
+        envelope (via :meth:`_settle_acknowledged_write`): a failed
+        post-write refresh — including a tolerated-stale one — retains the
+        optimistic state instead of unconditionally clearing it. The
+        in-place parameter update below converges concurrent cycles
+        immediately, but lives on the LIVE dict a full data rebuild replaces
+        wholesale; the retention is what guards the revert when that
+        happens.
+
         Args:
             action_name: Human-readable name of the action for logging.
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
@@ -1522,53 +1626,29 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         """
         action_verb = "Enabling" if value else "Disabling"
 
+        _LOGGER.debug(
+            "%s %s via LOCAL transport for device %s (parameter %s)",
+            action_verb,
+            action_name,
+            self._serial,
+            parameter,
+        )
+
+        # Set optimistic state immediately for UI feedback. Any retained
+        # state from an earlier write (#362) is superseded by this one —
+        # on the HYBRID fallback path the envelope re-arms retention if
+        # the cloud retry's own refresh fails.
+        pre_write_state = self._cache_state()
+        self._optimistic_retained = False
+        self._pre_write_state = None
+        self._optimistic_state = value
+        self.async_write_ha_state()
+
         try:
-            _LOGGER.debug(
-                "%s %s via LOCAL transport for device %s (parameter %s)",
-                action_verb,
-                action_name,
-                self._serial,
-                parameter,
-            )
-
-            # Set optimistic state immediately for UI feedback. Any retained
-            # state from an earlier write (#362) is superseded by this one —
-            # on the HYBRID fallback path the envelope re-arms retention if
-            # the cloud retry's own refresh fails.
-            self._optimistic_retained = False
-            self._pre_write_state = None
-            self._optimistic_state = value
-            self.async_write_ha_state()
-
             # Write the named parameter via coordinator
             await self.coordinator.write_named_parameter(
                 parameter, value, serial=self._serial
             )
-
-            # Optimistically update coordinator parameter data so any
-            # concurrent coordinator cycle sees the new value immediately
-            if self.coordinator.data and "parameters" in self.coordinator.data:
-                params = self.coordinator.data["parameters"].get(self._serial)
-                if params is not None:
-                    params[parameter] = value
-
-            _LOGGER.info(
-                "Successfully %s %s via LOCAL transport for device %s",
-                action_verb.lower()[:-3] + "ed",
-                action_name,
-                self._serial,
-            )
-
-            # Wait briefly for register write to take effect
-            await asyncio.sleep(0.5)
-
-            # Request coordinator refresh
-            await self.coordinator.async_refresh()
-
-            # Clear optimistic state after refresh
-            self._optimistic_state = None
-            self.async_write_ha_state()
-
         except HomeAssistantError:
             if clear_optimistic_on_error:
                 self._optimistic_state = None
@@ -1588,3 +1668,29 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Failed to {action_verb.lower()} {action_name}: {e}"
             ) from e
+
+        # Write acknowledged. Optimistically update coordinator parameter
+        # data so any concurrent coordinator cycle sees the new value
+        # immediately (deliberately NOT note_parameters_written: that is the
+        # cloud-fallback seeding channel and notifies all listeners; this
+        # in-place hint needs neither).
+        if self.coordinator.data and "parameters" in self.coordinator.data:
+            params = self.coordinator.data["parameters"].get(self._serial)
+            if params is not None:
+                params[parameter] = value
+
+        _LOGGER.info(
+            "Successfully %s %s via LOCAL transport for device %s",
+            action_verb.lower()[:-3] + "ed",
+            action_name,
+            self._serial,
+        )
+
+        async def refresh_phase() -> bool:
+            # Wait briefly for register write to take effect.
+            await asyncio.sleep(0.5)
+            return await self._refresh_coordinator_data()
+
+        await self._settle_acknowledged_write(
+            action_name, pre_write_state, refresh_phase
+        )

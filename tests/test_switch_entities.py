@@ -54,8 +54,16 @@ def _mock_coordinator(
     coordinator.plant_id = "plant_123"
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_request_refresh = AsyncMock()
-    coordinator.async_refresh = AsyncMock()
-    coordinator.async_refresh_device_parameters = AsyncMock()
+
+    # A genuinely-successful full refresh produces a NEW data object each
+    # cycle (only the coordinator's 3-strike tolerance window returns the
+    # old object unchanged, #362) — mirror that so post-write refreshes
+    # count as fresh. Tests exercising stale/tolerated refreshes override.
+    def _fresh_refresh() -> None:
+        coordinator.data = dict(coordinator.data)
+
+    coordinator.async_refresh = AsyncMock(side_effect=_fresh_refresh)
+    coordinator.async_refresh_device_parameters = AsyncMock(return_value=True)
     coordinator.write_named_parameter = AsyncMock()
     # Real dict (not an auto-Mock) so QuickChargeDurationNumber / the Quick
     # Charge switch read a true per-serial duration preference.
@@ -892,6 +900,78 @@ class TestQuickChargeSwitchOptimisticRetention:
             await switch.async_turn_on()
         assert switch._pending_state is None
         assert switch.is_on is False
+
+
+class TestQuickChargeCacheStatePeek:
+    """#362 review round: the retention peek must read genuine device data.
+
+    Quick charge's ``is_on`` consults the #296 ``_pending_state`` hold after
+    the optimistic state — without masking it, the peek (a) echoes the held
+    command back (false convergence: the #362 retention would clear on the
+    next tick regardless of device truth) and (b) can MUTATE
+    ``_pending_state`` as a side effect of the read.
+    """
+
+    def test_cache_state_masks_pending_hold_without_side_effects(self):
+        """The peek masks _pending_state and never consumes the hold — even
+        in the exact shape (expired TTL + fresh unconfirming read) where a
+        normal is_on read WOULD consume it."""
+        coordinator = _mock_coordinator()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        switch._pending_state = True
+        switch._pending_since = (
+            time.monotonic() - switch_module.QUICK_CHARGE_OPTIMISTIC_TTL - 1.0
+        )
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "fetched_at": time.monotonic(),  # fresh, unconfirming, expired
+        }
+
+        # Genuine device truth, not the pending echo...
+        assert switch._cache_state() is False
+        # ...and the hold was NOT consumed by the peek.
+        assert switch._pending_state is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_with_pending_hold_converges_on_truth(self):
+        """Write ok + stale refresh arms #362 retention WITH the #296 pending
+        hold armed: stale ticks keep both; retention ends only on genuine
+        fresh device data (not the pending echo), and the tick never mutates
+        the pending hold through the peek."""
+        coordinator = _mock_coordinator()
+        # Tolerated-stale refresh: identity unchanged, flag still True.
+        coordinator.async_refresh = AsyncMock()
+        switch = EG4QuickChargeSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert switch._optimistic_retained is True
+        assert switch._optimistic_state is True
+        assert switch._pending_state is True
+
+        # Stale pre-write status tick: the peek reads the genuine (stale)
+        # value, so retention survives and the pending hold is untouched.
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": False,
+            "fetched_at": switch._pending_since - 10.0,
+        }
+        switch._handle_coordinator_update()
+
+        assert switch._optimistic_retained is True
+        assert switch._pending_state is True
+        assert switch.is_on is True
+
+        # Fresh confirming status: genuine device truth ends the retention.
+        coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
+            "hasUnclosedQuickChargeTask": True,
+            "fetched_at": switch._pending_since + 10.0,
+        }
+        switch._handle_coordinator_update()
+
+        assert switch._optimistic_retained is False
+        assert switch._optimistic_state is None
+        assert switch.is_on is True
 
 
 # ── BatteryBackupSwitch ──────────────────────────────────────────────

@@ -1,29 +1,52 @@
 """Golden ordering/error tests for optimistic write envelope semantics (#362).
 
-Pinned contract for every write flowing through
-``EG4BaseSwitch._optimistic_write_envelope`` (switch actions and pure-CLOUD
-function switches):
+Pinned contract for every ``EG4BaseSwitch`` write surface — switch actions,
+pure-CLOUD function switches (both via ``_optimistic_write_envelope``), and
+the LOCAL named-parameter path (``_execute_named_parameter_action``, the
+dispatcher behind ``_execute_local_with_fallback``):
 
 - write FAILS -> raise HomeAssistantError, clear optimistic state once,
-  never seed the parameter cache.
+  never seed the parameter cache. Exception (#301): the HYBRID fallback
+  passes ``clear_optimistic_on_error=False`` so the optimistic state
+  survives between the local failure and the cloud retry.
 - write OK + refresh OK -> publish the fresh coordinator data (optimistic
-  state cleared after the refresh completes).
-- write OK + refresh FAILS (reported failure or raised exception) -> the
-  service call SUCCEEDS (never converted into a user-facing write failure),
-  the optimistic state is RETAINED until fresh device data arrives
-  (:meth:`EG4BaseSwitch._handle_coordinator_update`), matching the schedule
-  time entities' retained-optimistic semantics.
+  state cleared after the refresh completes). "Refresh OK" for a full
+  coordinator refresh requires BOTH ``last_update_success`` AND a new data
+  object identity — during the coordinator's 3-strike tolerance window the
+  flag stays True while the refresh served the OLD data object unchanged.
+- write OK + refresh FAILS (reported failure, raised exception, or a
+  tolerated-stale refresh) -> the service call SUCCEEDS (never converted
+  into a user-facing write failure), the optimistic state is RETAINED until
+  fresh device data arrives (:meth:`EG4BaseSwitch._handle_coordinator_update`)
+  or the retention TTL expires (firmware-NAK escape: #251/#331 precedent),
+  matching the schedule time entities' retained-optimistic semantics.
 """
 
+import logging
+import time as time_module
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import UpdateFailed
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.eg4_web_monitor.base_entity as base_entity_module
-from custom_components.eg4_web_monitor.base_entity import EG4BaseSwitch
+from custom_components.eg4_web_monitor.base_entity import (
+    RETAINED_OPTIMISTIC_TTL,
+    EG4BaseSwitch,
+)
+from custom_components.eg4_web_monitor.const import (
+    CONF_CONNECTION_TYPE,
+    CONF_DST_SYNC,
+    CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
+    CONNECTION_TYPE_LOCAL,
+    DOMAIN,
+)
+from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 
 
 SERIAL = "1234567890"
@@ -77,13 +100,22 @@ def _make_entity(
     }
     coordinator.last_update_success = True
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
-    coordinator.async_refresh = AsyncMock(
-        side_effect=lambda: events.append("coordinator-refresh")
-    )
+
+    # A genuinely-successful coordinator refresh produces a NEW data object
+    # (the real _async_update_data builds a fresh dict each cycle; only the
+    # 3-strike tolerance window returns the old object unchanged).
+    def _fresh_refresh() -> None:
+        events.append("coordinator-refresh")
+        coordinator.data = dict(coordinator.data)
+
+    coordinator.async_refresh = AsyncMock(side_effect=_fresh_refresh)
     # The coordinator refresh helper reports success/failure (#362); the
     # default harness refresh succeeds.
     coordinator.async_refresh_device_parameters = AsyncMock(
         side_effect=lambda _serial: events.append("parameter-refresh") or True
+    )
+    coordinator.write_named_parameter = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: events.append("write") or None
     )
 
     inverter = SimpleNamespace(
@@ -685,3 +717,261 @@ def test_cache_state_peeks_past_optimistic_state() -> None:
     assert entity.is_on is True
     assert entity._cache_state() is False
     assert entity._optimistic_state is True  # restored after the peek
+
+
+# ── Retention TTL bound (#362 review round) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_arming_retention_sets_bounded_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retention is bounded: arming sets a monotonic TTL deadline."""
+    before = time_module.monotonic()
+    entity = await _make_retained_entity(monkeypatch)
+
+    assert entity._retention_expires > before
+    assert entity._retention_expires <= time_module.monotonic() + (
+        RETAINED_OPTIMISTIC_TTL + 1.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_retained_state_expires_after_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A firmware-silently-NAKed write (#251/#331 precedent) + one failed
+    refresh must not wedge the entity forever: when every poll keeps
+    returning the pre-write value (indistinguishable from a stale tick),
+    the retention expires after the TTL, logs at WARNING, and the entity
+    reverts to the reported state."""
+    entity = await _make_retained_entity(monkeypatch, pre_write=False)
+    entity._cache_value = False  # device still reports the pre-write value
+
+    # Within the TTL: stale ticks keep the retained state.
+    with caplog.at_level(logging.WARNING):
+        entity._handle_coordinator_update()
+        assert entity._optimistic_retained is True
+
+        # Past the deadline: the retention expires with observability.
+        entity._retention_expires = time_module.monotonic() - 1.0
+        entity._handle_coordinator_update()
+
+    assert entity._optimistic_retained is False
+    assert entity._optimistic_state is None
+    assert entity.is_on is False  # reverted to the reported state
+    assert "expired without device confirmation" in caplog.text
+
+
+# ── Tolerated-stale coordinator refresh (#362 review round) ──────────
+
+
+@pytest.mark.asyncio
+async def test_switch_write_ok_tolerated_stale_refresh_retains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """last_update_success LIES during the coordinator's 3-strike tolerance
+    window (old data object served unchanged, flag still True): the envelope
+    must detect the unchanged data identity and retain the optimistic state
+    instead of publishing the stale data as if it were fresh."""
+    events: list[str] = []
+    entity, coordinator, inverter = _make_entity(events)
+    entity._cache_value = False
+    inverter.enable_test = AsyncMock(side_effect=lambda: events.append("write") or True)
+    # Tolerance-window shape: refresh completes, flag stays True, data
+    # object identity unchanged.
+    coordinator.async_refresh = AsyncMock(
+        side_effect=lambda: events.append("coordinator-refresh")
+    )
+    _patch_sleep(monkeypatch, events)
+
+    await entity._execute_switch_action(
+        "test action", "enable_test", "disable_test", True
+    )
+
+    assert coordinator.last_update_success is True
+    assert events == [
+        "optimistic-set",
+        "write",
+        "inverter-refresh",
+        "sleep",
+        "coordinator-refresh",
+    ]
+    _assert_retained(entity, value=True)
+
+
+@pytest.mark.asyncio
+async def test_real_tolerance_window_refresh_retains(
+    hass,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression against the REAL coordinator tolerance window (not a
+    mocked last_update_success): the first UpdateFailed within the 3-strike
+    tolerance returns the OLD self.data unchanged and keeps
+    last_update_success True — the post-write refresh must still report
+    failure so the optimistic state is retained."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="EG4 - Envelope Tolerance Test",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "serial": SERIAL,
+                    "host": "192.168.1.100",
+                    "port": 502,
+                    "transport_type": "modbus_tcp",
+                    "inverter_family": "EG4_HYBRID",
+                    "model": "FlexBOSS21",
+                },
+            ],
+        },
+        options={},
+        entry_id="envelope_tolerance_test",
+    )
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator.data = {
+        "devices": {SERIAL: {"type": "inverter", "model": "FlexBOSS21"}},
+        "parameters": {SERIAL: {}},
+    }
+    inverter = SimpleNamespace(
+        refresh=AsyncMock(),
+        enable_test=AsyncMock(return_value=True),
+        transport=None,  # inspected by coordinator shutdown at teardown
+    )
+    coordinator._inverter_cache = {SERIAL: inverter}
+    monkeypatch.setattr(
+        coordinator,
+        "_route_update_by_connection_type",
+        AsyncMock(side_effect=UpdateFailed("transient transport error")),
+    )
+
+    events: list[str] = []
+    entity = EnvelopeTestSwitch(coordinator, events)
+    entity.async_write_ha_state = MagicMock()
+    monkeypatch.setattr(base_entity_module.asyncio, "sleep", AsyncMock())
+
+    await entity._execute_switch_action(
+        "test action", "enable_test", "disable_test", True
+    )
+
+    # The tolerance window served the OLD data and kept the flag True...
+    assert coordinator.last_update_success is True
+    assert coordinator._consecutive_update_failures == 1
+    # ...and the envelope still detected the stale refresh and retained.
+    assert entity._optimistic_state is True
+    assert entity._optimistic_retained is True
+
+
+# ── LOCAL named-parameter path (#362 review round) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_named_parameter_success_clears_after_fresh_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LOCAL write ok + fresh coordinator refresh: publish fresh data (the
+    optimistic state clears after the refresh), and the acknowledged value
+    is seeded in place so concurrent cycles converge immediately."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    _patch_sleep(monkeypatch, events)
+
+    await entity._execute_named_parameter_action("test action", "FUNC_TEST", True)
+
+    assert events == [
+        "optimistic-set",
+        "write",
+        "sleep",
+        "coordinator-refresh",
+        "clear",
+    ]
+    assert entity._optimistic_state is None
+    assert entity._optimistic_retained is False
+    assert coordinator.data["parameters"][SERIAL]["FUNC_TEST"] is True
+
+
+@pytest.mark.asyncio
+async def test_named_parameter_write_ok_stale_refresh_retains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The #362 revert on the highest-traffic path: LOCAL write ok + failed
+    or tolerated-stale refresh must retain the optimistic state (a full
+    rebuild replaces the parameters dict wholesale, wiping the in-place
+    seed) instead of unconditionally clearing onto stale data."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    entity._cache_value = False
+    # Tolerated-stale refresh: identity unchanged, flag still True.
+    coordinator.async_refresh = AsyncMock(
+        side_effect=lambda: events.append("coordinator-refresh")
+    )
+    _patch_sleep(monkeypatch, events)
+
+    await entity._execute_named_parameter_action("test action", "FUNC_TEST", True)
+
+    assert events == ["optimistic-set", "write", "sleep", "coordinator-refresh"]
+    _assert_retained(entity, value=True)
+    assert entity._pre_write_state is False
+    # The in-place seed still happened (write acknowledged).
+    assert coordinator.data["parameters"][SERIAL]["FUNC_TEST"] is True
+
+
+@pytest.mark.asyncio
+async def test_named_parameter_write_ok_refresh_raises_retains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising post-write refresh after an acknowledged LOCAL write is not
+    a write failure: no raise, optimistic state retained."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    coordinator.async_refresh = AsyncMock(side_effect=RuntimeError("refresh died"))
+    _patch_sleep(monkeypatch, events)
+
+    await entity._execute_named_parameter_action("test action", "FUNC_TEST", False)
+
+    assert events == ["optimistic-set", "write", "sleep"]
+    _assert_retained(entity, value=False)
+
+
+@pytest.mark.asyncio
+async def test_named_parameter_write_failure_clears_and_raises() -> None:
+    """A failed LOCAL write raises, clears optimistic state once, and never
+    arms retention (default clear_optimistic_on_error=True)."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    coordinator.write_named_parameter = AsyncMock(
+        side_effect=HomeAssistantError("Modbus timeout")
+    )
+
+    with pytest.raises(HomeAssistantError, match="Modbus timeout"):
+        await entity._execute_named_parameter_action("test action", "FUNC_TEST", True)
+
+    assert events == ["optimistic-set", "clear"]
+    assert entity._optimistic_state is None
+    assert entity._optimistic_retained is False
+
+
+@pytest.mark.asyncio
+async def test_named_parameter_write_failure_keeps_optimistic_for_cloud_retry() -> None:
+    """#301 byte-for-byte: with clear_optimistic_on_error=False (a cloud
+    retry follows), the local write failure re-raises WITHOUT clearing the
+    optimistic state — no stale pre-write publish between the local failure
+    and the cloud attempt."""
+    events: list[str] = []
+    entity, coordinator, _inverter = _make_entity(events)
+    coordinator.write_named_parameter = AsyncMock(
+        side_effect=HomeAssistantError("Modbus timeout")
+    )
+
+    with pytest.raises(HomeAssistantError, match="Modbus timeout"):
+        await entity._execute_named_parameter_action(
+            "test action", "FUNC_TEST", True, clear_optimistic_on_error=False
+        )
+
+    assert events == ["optimistic-set"]  # no clear published
+    assert entity._optimistic_state is True
