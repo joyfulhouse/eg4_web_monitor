@@ -6,11 +6,18 @@ info:
     **Reverse-engineered / UNOFFICIAL** OpenAPI specification for the EG4 Electronics
     monitor cloud API (`https://monitor.eg4electronics.com`).
 
+    SCOPE: this is the **`pylxpweb`-client-used subset** of the portal API — 100% of the
+    44 endpoints the client calls (statically verified), NOT the complete EG4 portal
+    surface. Endpoints the client never calls (account/user administration, registration,
+    plant create/delete/share, device binding, notifications, reports, etc.) are out of
+    scope. See the "Coverage & scope" section of the README.
+
     This spec is derived entirely from the `pylxpweb` Python client
     (`joyfulhouse/pylxpweb`) — its endpoint modules, Pydantic response models, and
-    live read-only validation (auth/plants/devices validated 2026-07-14; control,
-    firmware, and analytics mapped from source). It is **not** published or endorsed
-    by EG4 Electronics and may drift from the real service.
+    live read-only validation (auth/plants/devices validated 2026-07-14; the analytics/
+    forecast/plantOverview response bodies live-validated 2026-07-15; control and firmware
+    mapped from source). It is **not** published or endorsed by EG4 Electronics and may
+    drift from the real service.
 
     ## Cross-cutting conventions
     - **All request bodies are `application/x-www-form-urlencoded`** (NOT JSON). Even
