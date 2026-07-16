@@ -328,6 +328,7 @@ uv run python tests/validate_platinum_tier.py
 4. Smart caching to minimize API calls
 5. Test coverage for all features in CI pipeline
 6. Use `time.monotonic()` instead of deprecated `asyncio.get_event_loop().time()`
+   - **Throttle gotcha**: `time.monotonic()` is host uptime on Linux. Never use `0.0` as the "never ran" default in a throttle check (`now - last.get(key, 0.0) < INTERVAL`) — on a freshly booted host (every CI runner) `now < INTERVAL` makes the first-ever run look throttled and it silently never fires. Use a `None` sentinel: throttle only when a previous stamp exists. Bit PRs #378 and #380 on the same day (fix pattern: `d66cc92`); regression-test with a patched `monotonic` pinned to a small value.
 7. TypedDict for configuration dictionaries (e.g., `SensorConfig` in `const.py`)
 8. Proper `DeviceInfo | None` return types for device info methods
 
