@@ -1000,7 +1000,16 @@ class DeviceProcessingMixin(_MixinBase):
             self._last_status_fetch = {}
         now = time.monotonic()
         event_key = f"events_{serial}"
-        if now - self._last_status_fetch.get(event_key, 0.0) < EVENT_LOG_FETCH_INTERVAL:
+        # "Never fetched" is a None sentinel, NOT a 0.0 default:
+        # time.monotonic() is host uptime on Linux, so on a freshly booted
+        # host (HAOS reboot, container host, CI runner) `now` is smaller than
+        # the interval and a 0.0 default would classify the FIRST-EVER fetch
+        # as inside the throttle window — silently skipping the event log for
+        # the first 5 minutes of uptime. Caught by CI (runner uptime < 5 min);
+        # the sibling 30s quick-charge throttle masks the same pattern only
+        # because no host reaches the fetch in under 30s of uptime.
+        last_fetch = self._last_status_fetch.get(event_key)
+        if last_fetch is not None and now - last_fetch < EVENT_LOG_FETCH_INTERVAL:
             self._carry_forward_last_event(serial, target)
             return
 

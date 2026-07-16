@@ -14,7 +14,7 @@ pushed to the cloud out-of-band). These tests cover:
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -329,6 +329,29 @@ class TestFetchLastEvent:
 
         assert target["sensors"]["last_event"] == "x" * 255
         assert target["last_event_detail"]["event_text"] == long_text
+
+    async def test_first_fetch_on_freshly_booted_host(self, hass, mock_config_entry):
+        """time.monotonic() is host uptime on Linux — on a freshly booted
+        host (HAOS reboot, CI runner) it is smaller than the 5-minute
+        throttle interval, and a 0.0 "never fetched" default would classify
+        the FIRST-EVER fetch as inside the window and silently skip it
+        (regression: exactly how the Gold coverage CI job failed while the
+        same tests passed on a long-uptime dev machine)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _coordinator_with_events(hass, mock_config_entry, [FAULT_ROW])
+        target: dict[str, Any] = {"sensors": {}}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 10.0  # 10s of uptime
+            await coordinator._fetch_last_event(INVERTER_SERIAL, target)
+
+        coordinator.client.analytics.get_event_list.assert_awaited_once_with(
+            INVERTER_SERIAL, rows=1
+        )
+        assert target["sensors"]["last_event"] == "Bus voltage high"
+        assert coordinator._last_status_fetch[f"events_{INVERTER_SERIAL}"] == 10.0
 
 
 # ── Sensor entity ────────────────────────────────────────────────────
