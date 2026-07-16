@@ -3332,8 +3332,11 @@ components:
           description: Human-readable description
         eventType:
           type: string
-          enum: [FAULT, WARNING, INFO]
-          description: Category enum
+          enum: [FAULT, WARNING, INFO, MIDBOX_WARNING]
+          description: |
+            Category enum. GridBOSS/MID devices report MIDBOX_WARNING
+            (live-validated 2026-07-15 on a GridBOSS serial) — treat unknown
+            values as passthrough.
         eventTypeText:
           type: string
           description: Localized category, e.g. Fault / Notice

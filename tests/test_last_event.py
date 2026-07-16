@@ -99,6 +99,7 @@ class TestNormalizeEventRow:
         """CLOSE status maps to RESOLVED; fields map to the normalized keys."""
         event = normalize_event_row(FAULT_ROW)
         assert event == {
+            "record_id": 7583193,
             "event_code": "E019",
             "event_text": "Bus voltage high",
             "event_type": "FAULT",
@@ -349,8 +350,11 @@ class TestLastEventSensorEntity:
         assert len(last_event) == 1
 
     def test_state_and_attributes(self):
-        """State mirrors the sensors value; attributes mirror the detail."""
+        """State mirrors the sensors value; attributes mirror the detail —
+        including record_id, the automation dedupe key (two distinct events
+        with identical text produce no state change)."""
         detail = {
+            "record_id": 7583193,
             "event_code": "E019",
             "event_text": "Bus voltage high",
             "event_type": "FAULT",
@@ -374,6 +378,7 @@ class TestLastEventSensorEntity:
         )
         assert sensor.native_value == "Bus voltage high"
         assert sensor.extra_state_attributes == {
+            "record_id": 7583193,
             "event_code": "E019",
             "event_type": "FAULT",
             "start_time": "2026-07-01 16:50:28",
@@ -476,6 +481,7 @@ class TestFetchEventsService:
         devices = response["devices"]
         assert set(devices) == {INVERTER_SERIAL, GRIDBOSS_SERIAL}
         inverter_events = devices[INVERTER_SERIAL]["events"]
+        assert inverter_events[0]["record_id"] == 7583193
         assert inverter_events[0]["event_code"] == "E019"
         assert inverter_events[0]["status"] == "RESOLVED"
         gridboss_events = devices[GRIDBOSS_SERIAL]["events"]

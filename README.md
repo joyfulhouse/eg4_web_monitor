@@ -308,18 +308,29 @@ so they never appear in the register-backed Fault/Warning Code sensors. In
 **Cloud** and **Hybrid** modes the integration surfaces them two ways:
 
 - **Last Event** sensor (diagnostic, per inverter *and* GridBOSS): state is the
-  newest event's text (e.g. `Bus voltage high`), with `event_code` (E###/W###),
-  `event_type` (FAULT/WARNING/…), `start_time`, `end_time` and `status`
-  (ACTIVE/RESOLVED) as attributes. Polled every 5 minutes; state is *unknown*
-  when the device has no events. Automations can trigger on the state change:
+  newest event's text (e.g. `Bus voltage high`), with `record_id` (monotonic
+  portal record id), `event_code` (E###/W###), `event_type` (FAULT/WARNING/…),
+  `start_time`, `end_time` and `status` (ACTIVE/RESOLVED) as attributes.
+  Polled every 5 minutes; state is *unknown* when the device has no events.
+
+  For exact new-event detection, trigger on the `record_id` (or `start_time`)
+  **attribute** change rather than the state alone — two different events with
+  identical text (e.g. a repeating fault) produce no state change:
 
   ```yaml
   trigger:
     - platform: state
       entity_id: sensor.eg4_flexboss21_1234567890_last_event
+      attribute: record_id
   condition:
     - "{{ trigger.to_state.state not in ('unknown', 'unavailable') }}"
   ```
+
+  > **Timezone note**: `start_time`/`end_time` are naive timestamp strings in
+  > the portal's local timezone (no UTC offset, e.g. `2026-07-01 16:50:28`).
+  > Don't compare them to `now()` in templates without accounting for that —
+  > convert with your plant's timezone first (e.g.
+  > `strptime(...)` + `as_local`/`as_timestamp` with an explicit zone).
 
 - **`eg4_web_monitor.fetch_events`** service: returns the recent event list on
   demand as response data (per device: normalized events + total count).

@@ -648,6 +648,10 @@ class EG4LastEventSensor(EG4InverterSensor):
         if not isinstance(detail, dict):
             return None
         return {
+            # Monotonic portal record id — the exact new-event dedupe key:
+            # two distinct events with identical text produce no state
+            # change, so automations trigger on this attribute instead.
+            "record_id": detail.get("record_id"),
             "event_code": detail.get("event_code"),
             "event_type": detail.get("event_type"),
             "start_time": detail.get("start_time"),
