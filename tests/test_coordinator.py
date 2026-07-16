@@ -63,6 +63,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     compute_bank_charge_rate,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
+    AC_COUPLE_SOC_FETCH_INTERVAL,
     apply_gridboss_overlay,
 )
 from pylxpweb.exceptions import (
@@ -7391,6 +7392,347 @@ class TestQuickChargeOffgridCloudStatus:
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
             "61062J0147"
         )
+
+
+class TestACCoupleSOCStore:
+    """Dedicated ac_couple_soc device-data store (GH #352, PR #380 review).
+
+    The AC Couple SOC window is CLOUD-ONLY with no pinned local register —
+    the parameter cache CANNOT carry it (a HYBRID local parameter refresh
+    hard-replaces the cache from local register reads, wiping anything
+    seeded there). The coordinator maintains a dedicated store instead:
+    throttled 5-minute get_inverter_ac_couple_soc_limits reads (which also
+    pick up portal-side edits), carry-forward on throttle/failure, and
+    sibling-preserving post-write seeding.
+    """
+
+    SERIAL = "1234567890"
+
+    def _coordinator(
+        self, hass, mock_config_entry, *, limits=None
+    ) -> EG4DataUpdateCoordinator:
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        client = MagicMock()
+        client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            return_value=limits
+            if limits is not None
+            else {"start_soc": 85, "end_soc": 95}
+        )
+        coordinator.client = client
+        return coordinator
+
+    @staticmethod
+    def _inverter(serial: str = "1234567890") -> MagicMock:
+        inverter = MagicMock()
+        inverter.serial_number = serial
+        return inverter
+
+    async def test_fetch_stores_getter_values(self, hass, mock_config_entry):
+        coordinator = self._coordinator(hass, mock_config_entry)
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        getter = coordinator.client.api.control.get_inverter_ac_couple_soc_limits
+        getter.assert_awaited_once_with(self.SERIAL)
+        store = target["ac_couple_soc"]
+        assert store["start_soc"] == 85
+        assert store["end_soc"] == 95
+        assert store["fetched_at"] <= time.monotonic()
+
+    async def test_first_fetch_on_freshly_booted_host(self, hass, mock_config_entry):
+        """time.monotonic() is host uptime on Linux — on a freshly booted
+        host (HAOS reboot, container host, CI runner) it is smaller than the
+        5-minute throttle interval, and a 0.0 "never fetched" default would
+        classify the FIRST-EVER fetch as inside the window and silently skip
+        it (the d66cc92 / #327-CI bug class, reproduced verbatim by this
+        feature's Gold coverage CI failure)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        target: dict[str, Any] = {}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 10.0  # 10s of uptime
+            await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        getter = coordinator.client.api.control.get_inverter_ac_couple_soc_limits
+        getter.assert_awaited_once_with(self.SERIAL)
+        assert target["ac_couple_soc"]["start_soc"] == 85
+        assert target["ac_couple_soc"]["fetched_at"] == 10.0
+        assert coordinator._last_status_fetch[f"ac_couple_{self.SERIAL}"] == 10.0
+
+    async def test_fetch_throttled_carries_forward(self, hass, mock_config_entry):
+        """Within the 5-minute window the previous store is carried forward
+        and the getter (3 cloud parameter-range reads) is NOT called."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        inverter = self._inverter()
+        first: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, first)
+        # Simulate the coordinator publishing the processed cycle.
+        coordinator.data = {"devices": {self.SERIAL: first}}
+
+        second: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, second)
+
+        getter = coordinator.client.api.control.get_inverter_ac_couple_soc_limits
+        getter.assert_awaited_once()  # still only the first call
+        assert second["ac_couple_soc"] is first["ac_couple_soc"]
+
+    async def test_fetch_picks_up_portal_edit_after_interval(
+        self, hass, mock_config_entry
+    ):
+        """Portal-side edits converge: an elapsed interval re-reads the
+        getter and the fresh value REPLACES the stale store."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        inverter = self._inverter()
+        first: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, first)
+        coordinator.data = {"devices": {self.SERIAL: first}}
+        # Portal edit lands; the throttle window elapses.
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            return_value={"start_soc": 90, "end_soc": 95}
+        )
+        coordinator._last_status_fetch[f"ac_couple_{self.SERIAL}"] = (
+            time.monotonic() - AC_COUPLE_SOC_FETCH_INTERVAL - 1
+        )
+
+        second: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, second)
+
+        assert second["ac_couple_soc"]["start_soc"] == 90
+        assert second["ac_couple_soc"]["end_soc"] == 95
+
+    async def test_fetch_failure_carries_forward(self, hass, mock_config_entry):
+        """A transient getter failure must not blank known values."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            side_effect=OSError("cloud down")
+        )
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"] is prev
+
+    async def test_all_none_read_does_not_wipe_known_values(
+        self, hass, mock_config_entry
+    ):
+        """An all-None getter result is indistinguishable from a total cloud
+        range-read failure (pylxpweb swallows per-range errors into an empty
+        dict) — known values are carried forward, not wiped."""
+        coordinator = self._coordinator(
+            hass, mock_config_entry, limits={"start_soc": None, "end_soc": None}
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"] is prev
+
+    async def test_all_none_read_stored_when_no_prior_values(
+        self, hass, mock_config_entry
+    ):
+        """A device whose family genuinely lacks the params never had values
+        to keep: None/None is stored and the entities stay unavailable."""
+        coordinator = self._coordinator(
+            hass, mock_config_entry, limits={"start_soc": None, "end_soc": None}
+        )
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert target["ac_couple_soc"]["start_soc"] is None
+        assert target["ac_couple_soc"]["end_soc"] is None
+
+    async def test_partial_none_read_replaces_store(self, hass, mock_config_entry):
+        """A read with at least one value is fresh device truth and replaces
+        the store wholesale (including a param going absent)."""
+        coordinator = self._coordinator(
+            hass, mock_config_entry, limits={"start_soc": 100, "end_soc": None}
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"]["start_soc"] == 100
+        assert target["ac_couple_soc"]["end_soc"] is None
+
+    async def test_fetch_skipped_without_client(self, hass, mock_config_entry):
+        """Pure LOCAL (no cloud client): no fetch, no store, no crash."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert "ac_couple_soc" not in target
+
+    async def test_fetch_skipped_on_stale_pylxpweb(self, hass, mock_config_entry):
+        """A pylxpweb without get_inverter_ac_couple_soc_limits: skip clean."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        client = MagicMock()
+        client.api.control = MagicMock(spec=[])
+        coordinator.client = client
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert "ac_couple_soc" not in target
+
+    async def test_note_written_preserves_sibling(self, hass, mock_config_entry):
+        """Seeding one threshold must not blank the other (PR #380 P1)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "type": "inverter",
+                    "ac_couple_soc": {
+                        "start_soc": 85,
+                        "end_soc": 95,
+                        "fetched_at": 1.0,
+                    },
+                }
+            }
+        }
+
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "start_soc", 20)
+
+        store = coordinator.data["devices"][self.SERIAL]["ac_couple_soc"]
+        assert store["start_soc"] == 20
+        assert store["end_soc"] == 95
+        assert store["fetched_at"] > 1.0
+
+    async def test_note_written_creates_store(self, hass, mock_config_entry):
+        """A write before the first fetch creates the store; the sibling
+        stays absent (unknown), never a fabricated value."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {self.SERIAL: {"type": "inverter"}}}
+
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "end_soc", 95)
+
+        store = coordinator.data["devices"][self.SERIAL]["ac_couple_soc"]
+        assert store["end_soc"] == 95
+        assert "start_soc" not in store
+
+    async def test_malformed_getter_result_contained(self, hass, mock_config_entry):
+        """Round-3 P2-1: result parsing lives INSIDE the try — an unexpected
+        result shape (here: None, so .get raises) degrades to carry-forward
+        instead of escaping to the per-device handler and blanking the whole
+        inverter for the cycle (the #378 round-2 bug class)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            return_value=None
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)  # must not raise
+
+        assert target["ac_couple_soc"] is prev
+
+    async def test_no_data_cycle_carries_store_forward(self, hass, mock_config_entry):
+        """Round-3 P2-2: the has_data=False early return in the REAL
+        _process_inverter_object carries the store forward (no network) — an
+        offline/no-data cycle must not blank the entities (#256/#258
+        philosophy); they recover with the device."""
+        from custom_components.eg4_web_monitor.number import ACCoupleStartSOCNumber
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None  # carry-forward is client-independent
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "type": "inverter",
+                    "model": "12000XP",
+                    "ac_couple_soc": prev,
+                }
+            }
+        }
+
+        # No runtime/energy -> inverter.has_data False -> early-return path.
+        inverter = make_real_inverter(self.SERIAL, "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+        assert inverter.has_data is False  # precondition: early-return path
+
+        processed = await coordinator._process_inverter_object(inverter)
+
+        assert processed["sensors"]["has_data"] is False  # the no-data cycle
+        assert processed["ac_couple_soc"] is prev
+        # Publish the cycle and prove the entities survive it.
+        coordinator.data["devices"][self.SERIAL] = processed
+        with patch.object(coordinator, "get_device_info", return_value=None):
+            entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value == 85
+        assert entity.available is True
+
+    async def test_store_survives_hybrid_parameter_refresh(
+        self, hass, mock_config_entry
+    ):
+        """P1-A regression, realistic HYBRID cycle: the REAL parameter
+        refresh hard-replaces data["parameters"][serial] from
+        inverter.parameters (local register reads only — no _12K_ AC couple
+        keys), exactly the wipe that killed the parameter-cache design. The
+        dedicated store and the entities riding it must survive it."""
+        from custom_components.eg4_web_monitor.number import ACCoupleStartSOCNumber
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {self.SERIAL: {"type": "inverter", "model": "12000XP"}},
+            "parameters": {
+                self.SERIAL: {
+                    # A cloud-populated cache CAN carry the raw params...
+                    "_12K_HOLD_AC_COUPLE_START_SOC": 85,
+                    "HOLD_AC_CHARGE_POWER_CMD": 50,
+                }
+            },
+        }
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "start_soc", 85)
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "end_soc", 95)
+
+        # HYBRID: pylxpweb rebuilt inverter.parameters from LOCAL register
+        # reads — the AC couple keys are gone.
+        inverter = MagicMock()
+        inverter.serial_number = self.SERIAL
+        inverter.refresh = AsyncMock()
+        inverter.parameters = {"HOLD_AC_CHARGE_POWER_CMD": 60}
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            # The REAL refresh — the exact production wipe path.
+            await coordinator._refresh_device_parameters(self.SERIAL)
+
+        # The wipe DID happen (the parameter-cache design would be dead)...
+        assert coordinator.data["parameters"][self.SERIAL] == {
+            "HOLD_AC_CHARGE_POWER_CMD": 60
+        }
+        # ...and the dedicated store + entity are untouched by it.
+        store = coordinator.data["devices"][self.SERIAL]["ac_couple_soc"]
+        assert store["start_soc"] == 85
+        assert store["end_soc"] == 95
+        with patch.object(coordinator, "get_device_info", return_value=None):
+            entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value == 85
+        assert entity.available is True
 
 
 class TestFirmwarePollCarryForward:

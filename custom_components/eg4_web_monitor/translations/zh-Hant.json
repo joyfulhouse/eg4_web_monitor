@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "交流充電 SOC 限制"
       },
+      "ac_couple_start_soc": {
+        "name": "交流耦合啟動 SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "交流耦合結束 SOC"
+      },
       "quick_charge_duration": {
         "name": "快速充電時長"
       },

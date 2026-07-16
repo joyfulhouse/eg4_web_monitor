@@ -96,6 +96,10 @@ from .const import (
     AC_CHARGE_BATTERY_SOC_MAX,
     AC_CHARGE_BATTERY_SOC_MIN,
     AC_CHARGE_BATTERY_SOC_STEP,
+    AC_COUPLE_END_SOC_DISABLED_SENTINEL,
+    AC_COUPLE_SOC_MAX,
+    AC_COUPLE_SOC_MIN,
+    AC_COUPLE_SOC_STEP,
     AC_CHARGE_SOC_LIMIT_MAX,
     AC_CHARGE_SOC_LIMIT_MIN,
     AC_CHARGE_SOC_LIMIT_STEP,
@@ -574,6 +578,25 @@ async def async_setup_entry(
                     or coordinator.has_configured_local_transport(serial)
                 ):
                     entities.append(QuickChargeDurationNumber(coordinator, serial))
+
+                # AC Couple Start/End SOC (GH #352): CLOUD-ONLY holdParams
+                # (_12K_HOLD_AC_COUPLE_{START,END}_SOC) with no pinned local
+                # register, so the entities only exist where a cloud client
+                # can read and write them (CLOUD/HYBRID); pure-LOCAL can
+                # never see the params. NOT family-gated: the evidence spans
+                # families — the off-grid reporter's 12000XP v2 AND
+                # grid-tied hardware (factory END=255/START=100 pairs on
+                # 12KPV/FlexBOSS18/21 dumps; ivanfmartinez runs live 90/95
+                # AC-couple thresholds on an on-grid hybrid LXP, issue #352).
+                # Devices that truly lack the params read None from the
+                # cloud getter and the entities go unavailable instead.
+                if coordinator.has_http_api():
+                    entities.extend(
+                        [
+                            ACCoupleStartSOCNumber(coordinator, serial),
+                            ACCoupleEndSOCNumber(coordinator, serial),
+                        ]
+                    )
 
                 # Grid-tied-only controls (Peak Shaving / Forced Discharge)
                 # act on grid-parallel export/import blending; the
@@ -1433,6 +1456,174 @@ async def _write_cloud_named_parameter(
     if not result.success:
         raise HomeAssistantError(error_message)
     await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
+
+
+class ACCoupleSOCNumberBase(EG4BaseNumberEntity):
+    """Shared behavior for the AC Couple Start/End SOC pair (GH #352).
+
+    SOC window governing the AC-coupled source on the inverter's smart port:
+    the source is enabled when battery SOC drops below START and disabled
+    above END. The reporter (mjstrand, 12000XP v2) scripts these to
+    de-energize the smart port before transferring a grid-tied SolarEdge
+    between grid and smart port; ivanfmartinez runs live 90/95 thresholds on
+    an on-grid hybrid LXP (issue #352) — the params are NOT family-specific,
+    so creation is gated only on a cloud client being present.
+
+    CLOUD-ONLY, dedicated store: the portal writes the
+    ``_12K_HOLD_AC_COUPLE_{START,END}_SOC`` holdParams and no local Modbus
+    register is pinned (pylxpweb PR #235 — probe evidence ambiguous). The
+    values deliberately do NOT live in the parameter cache — with an
+    attached local transport pylxpweb rebuilds ``inverter.parameters`` from
+    local register reads alone, so any cache-seeded value would be wiped by
+    the next parameter refresh (PR #380 review P1). Instead the coordinator
+    maintains the ``ac_couple_soc`` device-data store (throttled 5-minute
+    cloud getter reads + carry-forward + post-write seeding), and this
+    entity reads that store in every mode — one code path for CLOUD and
+    HYBRID. Writes always route through the cloud client (the XP Quick
+    Charge cloud-routing precedent, #296/#308). The entity is unavailable
+    while its value is absent from the store — a device that truly lacks
+    the params must never render a fake 0.
+    """
+
+    # Store key within the coordinator's ac_couple_soc device-data store,
+    # and the pylxpweb control-endpoint writer method.
+    _store_key: str
+    _cloud_method: str
+    _label: str
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber)
+
+    @property
+    def _stored_value(self) -> int | None:
+        """This threshold's value from the coordinator's dedicated store."""
+        devices = (self.coordinator.data or {}).get("devices", {})
+        store = devices.get(self.serial, {}).get("ac_couple_soc") or {}
+        value = store.get(self._store_key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return int(value)
+
+    @property
+    def available(self) -> bool:
+        """Available only while the store holds a value (or mid-write).
+
+        Absent value — first cloud fetch pending, or a device whose family
+        genuinely lacks the AC couple params (the cloud getter reports
+        ``None``) — must show unavailable, never a fake value.
+        """
+        if not super().available:
+            return False
+        if self._optimistic_value is not None:
+            return True
+        return self._stored_value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Whole-percent threshold from the dedicated store.
+
+        The END entity's 255 disabled/"never stop" sentinel fails the 0-100
+        range check and reads None (HA cannot render 255 on a 0-100 slider);
+        the sentinel is surfaced via ``disabled_sentinel`` instead.
+        """
+        if self._optimistic_value is not None:
+            return int(self._optimistic_value)
+        value = self._stored_value
+        if value is None or not AC_COUPLE_SOC_MIN <= value <= AC_COUPLE_SOC_MAX:
+            return None
+        return value
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write the threshold through the cloud client (every mode)."""
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_COUPLE_SOC_MIN,
+            max_v=AC_COUPLE_SOC_MAX,
+            label=self._label,
+            require_integer=True,
+        )
+        client = self.coordinator.require_client()
+        _LOGGER.info("Setting %s to %d%% for %s", self._label, int_value, self.serial)
+        with optimistic_value_context(self, value):
+            method = getattr(client.api.control, self._cloud_method, None)
+            if method is None:
+                raise HomeAssistantError(
+                    f"Failed to set {self._label}: pylxpweb is missing "
+                    f"{self._cloud_method} (requires >= 0.9.39b2)"
+                )
+            result = await method(self.serial, int_value)
+            if not result.success:
+                raise HomeAssistantError(f"Failed to set {self._label} to {int_value}%")
+            # Seed the dedicated store (sibling-preserving) with the
+            # acknowledged value; the next throttled getter read confirms.
+            # No parameter refresh: the parameter cache does not carry these.
+            self.coordinator.note_ac_couple_soc_written(
+                self.serial, self._store_key, int_value
+            )
+
+
+class ACCoupleStartSOCNumber(ACCoupleSOCNumberBase):
+    """AC Couple Start SOC (GH #352, cloud client required).
+
+    Battery SOC below which the AC-coupled source on the smart port is
+    enabled. Cloud holdParam ``_12K_HOLD_AC_COUPLE_START_SOC``; the factory
+    disabled pair reads START=100 (a legal slider value, no sentinel).
+    """
+
+    _store_key = "start_soc"
+    _cloud_method = "set_inverter_ac_couple_start_soc"
+    _label = "AC couple start SOC"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "ac_couple_start_soc"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_couple_start_soc"
+        )
+        self._attr_native_min_value = AC_COUPLE_SOC_MIN
+        self._attr_native_max_value = AC_COUPLE_SOC_MAX
+        self._attr_native_step = AC_COUPLE_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-low"
+        self._attr_native_precision = 0
+
+
+class ACCoupleEndSOCNumber(ACCoupleSOCNumberBase):
+    """AC Couple End SOC (GH #352, cloud client required).
+
+    Battery SOC above which the AC-coupled source on the smart port is
+    disabled. Cloud holdParam ``_12K_HOLD_AC_COUPLE_END_SOC``. Reads of the
+    255 factory disabled/"never stop" sentinel render as unknown with the
+    ``disabled_sentinel`` attribute set — 255 is deliberately NOT writable
+    from the 0-100 slider (restore it from the portal if needed).
+    """
+
+    _store_key = "end_soc"
+    _cloud_method = "set_inverter_ac_couple_end_soc"
+    _label = "AC couple end SOC"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "ac_couple_end_soc"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_couple_end_soc"
+        self._attr_native_min_value = AC_COUPLE_SOC_MIN
+        self._attr_native_max_value = AC_COUPLE_SOC_MAX
+        self._attr_native_step = AC_COUPLE_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 0
+
+    @property
+    def _disabled_sentinel_active(self) -> bool:
+        """Whether the device reports the 255 disabled/"never stop" sentinel."""
+        return self._stored_value == AC_COUPLE_END_SOC_DISABLED_SENTINEL
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the 255 sentinel a 0-100 slider cannot render as a value."""
+        return {"disabled_sentinel": self._disabled_sentinel_active}
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):

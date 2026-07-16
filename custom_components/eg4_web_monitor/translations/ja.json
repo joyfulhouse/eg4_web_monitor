@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "AC充電SOC制限"
       },
+      "ac_couple_start_soc": {
+        "name": "ACカップリング開始SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "ACカップリング終了SOC"
+      },
       "quick_charge_duration": {
         "name": "クイックチャージ時間"
       },

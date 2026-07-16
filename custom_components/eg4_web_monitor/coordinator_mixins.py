@@ -86,6 +86,17 @@ EVENT_LOG_CLOUD_TIMEOUT = 10.0
 # outright. The Last Event sensor state (event text) is truncated defensively.
 _MAX_STATE_LENGTH = 255
 
+# AC Couple SOC window (GH #352): cloud-only holdParams with no pinned local
+# register, refreshed through pylxpweb's get_inverter_ac_couple_soc_limits —
+# which costs THREE cloud parameter-range reads per inverter per fetch, so it
+# sits on the 5-minute tier (matching the battery-info class volatility of a
+# working-mode setpoint) with carry-forward between fetches.
+AC_COUPLE_SOC_FETCH_INTERVAL = 300.0
+# The getter's three range reads run concurrently, but each is a remoteRead
+# relayed through the dongle — bound the whole call so a backoff-stalled cloud
+# session cannot hold a coordinator slot (the quick-charge timeout precedent).
+AC_COUPLE_SOC_FETCH_TIMEOUT = 30.0
+
 # Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
 # parameter read no longer stamps _last_parameter_refresh, so the refresh
 # re-arms early instead of serving a degraded snapshot for the whole
@@ -1099,6 +1110,105 @@ class DeviceProcessingMixin(_MixinBase):
             return None
         return None  # neither read method available -> unknown
 
+    def _carry_forward_ac_couple_soc(self, serial: str, target: dict[str, Any]) -> None:
+        """Copy the previous cycle's AC couple SOC store into ``target``.
+
+        The carried dict keeps its original ``fetched_at`` stamp so staleness
+        stays visible; the throttle window and transient fetch failures must
+        not blank the entities (quick-charge carry-forward precedent).
+        """
+        if self.data and serial in self.data.get("devices", {}):
+            prev = self.data["devices"][serial].get("ac_couple_soc")
+            if prev is not None:
+                target["ac_couple_soc"] = prev
+
+    async def _fetch_ac_couple_soc(
+        self, inverter: "BaseInverter", target: dict[str, Any]
+    ) -> None:
+        """Fetch + store ``ac_couple_soc`` into ``target`` (throttled, cloud).
+
+        The AC Couple Start/End SOC window (GH #352) is CLOUD-ONLY — the
+        ``_12K_HOLD_AC_COUPLE_{START,END}_SOC`` holdParams have no pinned
+        local register, so the parameter cache CANNOT serve them: with an
+        attached local transport pylxpweb rebuilds ``inverter.parameters``
+        from local register reads alone, wiping anything cloud-seeded there
+        (PR #380 review P1). This dedicated device-data store is refreshed
+        through pylxpweb's ``get_inverter_ac_couple_soc_limits`` on the
+        5-minute tier — the periodic read is also what picks up portal-side
+        edits in HYBRID — and carried forward between fetches and on
+        failures. Values are whole percent ints, ``None`` when the device
+        does not carry the param (models without AC couple support), and
+        the END value 255 is the factory disabled/"never stop" sentinel.
+        """
+        client = self.client
+        if client is None:
+            return  # pure-LOCAL: the params are unreachable by design
+        getter = getattr(client.api.control, "get_inverter_ac_couple_soc_limits", None)
+        if getter is None:
+            return  # pylxpweb < 0.9.39b2
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+        serial = inverter.serial_number
+        key = f"ac_couple_{serial}"
+        now = time.monotonic()
+        # "Never fetched" is a None sentinel, NOT a 0.0 default (the d66cc92
+        # / #327-CI bug class): time.monotonic() is host uptime on Linux, so
+        # on a freshly booted host (HAOS reboot, container host, CI runner)
+        # `now` is smaller than the interval and a 0.0 default would classify
+        # the FIRST-EVER fetch as inside the throttle window — silently
+        # skipping the AC couple SOC read for the first 5 minutes of uptime.
+        last_fetch = self._last_status_fetch.get(key)
+        if last_fetch is not None and now - last_fetch < AC_COUPLE_SOC_FETCH_INTERVAL:
+            self._carry_forward_ac_couple_soc(serial, target)
+            return
+        self._last_status_fetch[key] = now
+        try:
+            # Whole-operation boundary (PR #380 round-3 P2-1, matching
+            # _fetch_quick_charge_status): result PARSING sits inside the
+            # try too — an unexpected result shape must degrade to
+            # carry-forward here, not escape to the per-device handler and
+            # blank the whole inverter for the cycle (the #378 round-2 bug
+            # class).
+            limits: dict[str, int | None] = await asyncio.wait_for(
+                getter(serial), timeout=AC_COUPLE_SOC_FETCH_TIMEOUT
+            )
+            start_soc = limits.get("start_soc")
+            end_soc = limits.get("end_soc")
+            if start_soc is None and end_soc is None:
+                prev = (
+                    self.data["devices"][serial].get("ac_couple_soc")
+                    if self.data and serial in self.data.get("devices", {})
+                    else None
+                )
+                if prev is not None and (
+                    prev.get("start_soc") is not None or prev.get("end_soc") is not None
+                ):
+                    # An all-None read is indistinguishable from a total cloud
+                    # range-read failure (pylxpweb's range gather swallows
+                    # per-range errors and returns an empty dict) — never wipe
+                    # known values on what may be a transient blip. Devices
+                    # that genuinely lack the params never had values to keep.
+                    # Deliberately NO staleness ceiling: a device whose params
+                    # permanently vanished would pin the last-known values
+                    # forever — accepted (the capability is static in
+                    # practice); revisit if a real report shows otherwise.
+                    target["ac_couple_soc"] = prev
+                    return
+            target["ac_couple_soc"] = {
+                "start_soc": start_soc,
+                "end_soc": end_soc,
+                "fetched_at": now,
+            }
+            _LOGGER.debug(
+                "AC couple SOC limits for %s: start=%s end=%s",
+                serial,
+                start_soc,
+                end_soc,
+            )
+        except Exception as e:
+            _LOGGER.debug("Could not fetch AC couple SOC limits for %s: %s", serial, e)
+            self._carry_forward_ac_couple_soc(serial, target)
+
     async def _poll_firmware_update_info(self, device: Any) -> dict[str, Any] | None:
         """Poll and extract firmware update information for a device.
 
@@ -1226,6 +1336,13 @@ class DeviceProcessingMixin(_MixinBase):
             # Portal event log (#327) — fetched even without runtime data: an
             # offline/faulted inverter is exactly when the event log matters.
             await self._fetch_last_event(inverter.serial_number, processed)
+            # AC couple SOC store (#352, PR #380 round-3 P2-2): cheap
+            # no-network carry-forward so a no-data cycle does not blank the
+            # entities (#256/#258 philosophy — transient blips must not wipe
+            # last-known state). Unlike the event log there is nothing new to
+            # learn from the cloud while the device is down that the next
+            # healthy cycle's throttled fetch won't pick up.
+            self._carry_forward_ac_couple_soc(inverter.serial_number, processed)
             return processed
 
         # Map inverter properties to sensor keys
@@ -1492,6 +1609,12 @@ class DeviceProcessingMixin(_MixinBase):
 
         # Latest portal event-log entry (#327, cloud endpoint, 5-min throttle).
         await self._fetch_last_event(serial, processed)
+
+        # AC Couple SOC window (GH #352): cloud-only dedicated store, 5-min
+        # throttle — the parameter cache cannot carry these (no local
+        # register), so this is the entities' single read source in both
+        # CLOUD and HYBRID.
+        await self._fetch_ac_couple_soc(inverter, processed)
 
         # Battery backup (EPS) status
         # Skip cloud API call when local transport is attached — the parameter

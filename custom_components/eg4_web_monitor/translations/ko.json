@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "AC 충전 SOC 제한"
       },
+      "ac_couple_start_soc": {
+        "name": "AC 커플링 시작 SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "AC 커플링 종료 SOC"
+      },
       "quick_charge_duration": {
         "name": "빠른 충전 시간"
       },

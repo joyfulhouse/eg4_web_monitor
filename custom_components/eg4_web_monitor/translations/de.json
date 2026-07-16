@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "AC-Lade-SOC-Grenzwert"
       },
+      "ac_couple_start_soc": {
+        "name": "AC-Kopplung Start-SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "AC-Kopplung End-SOC"
+      },
       "quick_charge_duration": {
         "name": "Schnellladedauer"
       },

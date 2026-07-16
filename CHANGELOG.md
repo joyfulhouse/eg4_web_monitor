@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **AC Couple Start/End SOC number entities** ([#352](https://github.com/joyfulhouse/eg4_web_monitor/issues/352), requested by @mjstrand): the SOC window governing the AC-coupled source on the inverter's smart port — enabled when battery SOC drops below *Start*, disabled above *End* — scriptable for safe grid/smart-port source transfers. Cloud-only (no local Modbus register): created on Cloud and Hybrid connections for all supported inverters, refreshed from the cloud on a 5-minute cadence (which also picks up portal-side edits), unavailable on devices that do not carry the parameters. A factory-disabled End threshold (`255`, "never stop") shows as unknown with a `disabled_sentinel: true` attribute. Requires pylxpweb ≥ 0.9.39b2.
+
 ## [3.5.1-beta.1] - 2026-07-15
 
 Firmware-update robustness follow-up to the 3.5.0 line, from a live 6000XP report.
