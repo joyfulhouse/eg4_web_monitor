@@ -2,6 +2,7 @@
 
 This module provides service handlers for:
 - reconcile_history: Backfill energy statistics from cloud API
+- fetch_events: Return the recent portal event log for a device (#327)
 """
 
 from __future__ import annotations
@@ -11,13 +12,15 @@ import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     statistics_during_period,
 )
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import UnitOfEnergy
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.recorder import get_instance
@@ -29,6 +32,7 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     DOMAIN,
 )
+from .utils import normalize_event_row
 
 if TYPE_CHECKING:
     from homeassistant.components.recorder.models import (
@@ -713,3 +717,135 @@ def _transform_to_statistics(
             )
 
     return statistics
+
+
+# ── fetch_events service (#327) ──────────────────────────────────────────────
+#
+# Some events exist ONLY in the portal's event log (transients between polls,
+# pushed to the cloud out-of-band by the device). The Last Event sensor
+# surfaces the newest entry; this service returns the recent list on demand.
+
+# Device types the portal event log covers (live-validated 2026-07-15:
+# inverters AND GridBOSS/MID devices both return events).
+_EVENT_DEVICE_TYPES = ("inverter", "gridboss")
+
+FETCH_EVENTS_SCHEMA = vol.Schema(
+    {
+        vol.Required("config_entry"): cv.string,
+        vol.Optional("serial"): cv.string,
+        vol.Optional("count", default=30): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=100)
+        ),
+    }
+)
+
+
+def _resolve_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry:
+    """Resolve and validate the targeted config entry.
+
+    Mirrors history_import._resolve_entry — duplicated here because
+    history_import imports from this module (importing back would be a
+    circular import).
+    """
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != DOMAIN:
+        raise ServiceValidationError(
+            f"Config entry {entry_id} not found",
+            translation_domain=DOMAIN,
+            translation_key="entry_not_found",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    if entry.state != ConfigEntryState.LOADED:
+        raise ServiceValidationError(
+            f"Config entry {entry_id} is not loaded",
+            translation_domain=DOMAIN,
+            translation_key="entry_not_loaded",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    return entry
+
+
+async def async_fetch_events(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Handle the fetch_events service call.
+
+    Returns the recent portal event log (faults, warnings, notices) for one
+    device or every inverter/GridBOSS in the config entry. Response-only
+    (SupportsResponse.ONLY); requires cloud credentials (HTTP or Hybrid mode).
+    """
+    entry = _resolve_entry(hass, call.data["config_entry"])
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
+
+    connection_type = coordinator.entry.data.get(CONF_CONNECTION_TYPE)
+    if (
+        connection_type not in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID)
+        or coordinator.client is None
+    ):
+        raise ServiceValidationError(
+            "Fetching portal events requires cloud credentials "
+            "(HTTP or Hybrid connection mode)",
+            translation_domain=DOMAIN,
+            translation_key="cloud_required_events",
+        )
+
+    fetch = getattr(
+        getattr(coordinator.client, "analytics", None), "get_event_list", None
+    )
+    if not callable(fetch):
+        raise ServiceValidationError(
+            "The installed pylxpweb library does not provide the event log "
+            "API required by this service",
+            translation_domain=DOMAIN,
+            translation_key="events_api_unavailable",
+        )
+
+    devices = (coordinator.data or {}).get("devices", {})
+    eligible = [
+        serial
+        for serial, device_data in devices.items()
+        if device_data.get("type") in _EVENT_DEVICE_TYPES
+    ]
+    requested_serial = call.data.get("serial")
+    if requested_serial:
+        if requested_serial not in eligible:
+            raise ServiceValidationError(
+                f"Device {requested_serial} was not found in this plant",
+                translation_domain=DOMAIN,
+                translation_key="device_not_found",
+                translation_placeholders={"serial": requested_serial},
+            )
+        serials = [requested_serial]
+    else:
+        serials = eligible
+    if not serials:
+        raise ServiceValidationError(
+            "No inverters were found for this plant",
+            translation_domain=DOMAIN,
+            translation_key="no_devices",
+        )
+
+    count = call.data["count"]
+    results: dict[str, Any] = {}
+    for serial in serials:
+        try:
+            response = await fetch(serial, rows=count)
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Failed to fetch events for {serial}: {err}"
+            ) from err
+        rows = response.get("rows") or []
+        # Degrade gracefully on malformed rows (normalize_event_row returns
+        # None for a non-dict row): skip them instead of aborting the whole
+        # response — one bad row among many must not lose the good ones.
+        events = []
+        for row in rows:
+            event = normalize_event_row(row)
+            if event is None:
+                _LOGGER.debug("Skipping malformed event row for %s: %r", serial, row)
+                continue
+            events.append(event)
+        results[serial] = {
+            "total": response.get("total", len(rows)),
+            "events": events,
+        }
+
+    return {"devices": results}

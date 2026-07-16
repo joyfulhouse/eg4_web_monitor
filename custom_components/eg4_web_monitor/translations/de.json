@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Warncode"
       },
+      "last_event": {
+        "name": "Letztes Ereignis"
+      },
       "grid_power": {
         "name": "Netzleistung"
       },
@@ -948,6 +951,24 @@
           "description": "Letzter zu importierender Tag (YYYY-MM-DD). Standard ist heute. Maximaler Bereich: 2 Jahre."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Ereignisse abrufen",
+      "description": "Ruft das aktuelle Portal-Ereignisprotokoll (Fehler, Warnungen, Hinweise) für ein Gerät oder alle Wechselrichter/GridBOSS-Geräte eines Konfigurationseintrags ab und gibt es als Antwortdaten zurück. Einige Ereignisse existieren nur im Ereignisprotokoll des Portals und ergänzen so die registerbasierten Fehler-/Warnungssensoren. Erfordert Cloud-Zugangsdaten (HTTP- oder Hybrid-Verbindungsmodus).",
+      "fields": {
+        "config_entry": {
+          "name": "Konfigurationseintrag",
+          "description": "Der {brand_name} Web Monitor-Konfigurationseintrag (Anlage), für den Ereignisse abgerufen werden."
+        },
+        "serial": {
+          "name": "Geräteseriennummer",
+          "description": "Seriennummer eines einzelnen Geräts. Ohne Angabe werden Ereignisse für alle Wechselrichter und GridBOSS-Geräte abgerufen."
+        },
+        "count": {
+          "name": "Anzahl der Ereignisse",
+          "description": "Maximale Anzahl der pro Gerät zurückgegebenen Ereignisse (Standard: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "Die Cloud-Stationsdaten sind noch nicht geladen. Warten Sie, bis die Integration ihre erste Aktualisierung abgeschlossen hat, und versuchen Sie es erneut."
+    },
+    "cloud_required_events": {
+      "message": "Das Abrufen von Portal-Ereignissen erfordert Cloud-Zugangsdaten (HTTP- oder Hybrid-Verbindungsmodus)."
+    },
+    "events_api_unavailable": {
+      "message": "Die installierte pylxpweb-Bibliothek stellt die für diesen Dienst erforderliche Ereignisprotokoll-API nicht bereit. Aktualisieren Sie die Integration, damit die erforderliche pylxpweb-Version installiert wird."
+    },
+    "device_not_found": {
+      "message": "Gerät {serial} wurde in dieser Anlage nicht gefunden."
     }
   },
   "issues": {

@@ -57,7 +57,7 @@ from .coordinator_mappings import (
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
-from .utils import clean_battery_display_name, is_offgrid_family
+from .utils import clean_battery_display_name, is_offgrid_family, normalize_event_row
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +68,23 @@ _LOGGER = logging.getLogger(__name__)
 # timeout is treated as a failed read (carry-forward). Full backoff-domain
 # isolation is a pylxpweb architectural item deliberately not attempted here.
 QUICK_CHARGE_CLOUD_STATUS_TIMEOUT = 10.0
+
+# Portal event-log poll throttle (#327).  Events are pushed to the cloud
+# out-of-band by the device (some never surface in registers), so the Last
+# Event sensor polls /WManage/api/analyze/event/list — but events are rare,
+# so the fetch follows the 5-minute smart-cache tier (same as battery info)
+# to keep the added API pressure minimal.
+EVENT_LOG_FETCH_INTERVAL = 300.0
+
+# Bound (seconds) on the event-log cloud read — same rationale as
+# QUICK_CHARGE_CLOUD_STATUS_TIMEOUT: the call shares the client's station-wide
+# retry/backoff state and must not hold a coordinator slot through a 502-storm
+# backoff sleep. A timeout is a failed read (carry-forward).
+EVENT_LOG_CLOUD_TIMEOUT = 10.0
+
+# HA caps entity state strings at 255 chars; longer states are rejected
+# outright. The Last Event sensor state (event text) is truncated defensively.
+_MAX_STATE_LENGTH = 255
 
 # Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
 # parameter read no longer stamps _last_parameter_refresh, so the refresh
@@ -923,6 +940,114 @@ class DeviceProcessingMixin(_MixinBase):
         else:
             self._carry_forward_quick_charge_status(serial, target)
 
+    def _carry_forward_last_event(self, serial: str, target: dict[str, Any]) -> None:
+        """Copy the previous cycle's last-event data into ``target``.
+
+        Keeps the Last Event sensor stable between throttled fetches and
+        across transient cloud read failures (an event must not flicker to
+        unknown because one poll failed). When no previous value exists the
+        ``last_event`` sensor key is still published as None so the entity is
+        created (state "unknown") on the first cycle.
+        """
+        prev_devices = (self.data or {}).get("devices", {})
+        prev = prev_devices.get(serial, {})
+        prev_sensors = prev.get("sensors", {})
+        target["sensors"]["last_event"] = prev_sensors.get("last_event")
+        target["last_event_detail"] = prev.get("last_event_detail")
+
+    async def _fetch_last_event(self, serial: str, target: dict[str, Any]) -> None:
+        """Fetch the newest portal event-log entry into ``target`` (throttled).
+
+        CLOUD/HYBRID only (#327): some events exist ONLY in the portal's event
+        log — transients between polls that the device pushes to the cloud
+        out-of-band — so they never surface in the register-backed
+        fault/warning sensors. Publishes:
+
+        - ``target["sensors"]["last_event"]``: newest event text (state,
+          truncated to HA's 255-char limit), or None when the device has no
+          events yet.
+        - ``target["last_event_detail"]``: normalized event dict (code, type,
+          start/end time, status) consumed as sensor attributes.
+
+        Throttled to EVENT_LOG_FETCH_INTERVAL (5-minute smart-cache tier).
+        Inside the throttle window, or on a failed read OR parse, the previous
+        cycle's value is carried forward. No-op (key not published, so no
+        entity is created) without a cloud client or on a pylxpweb without
+        the endpoint.
+
+        The fetch AND the row parsing sit inside one exception boundary
+        (whole-operation wrap, like _fetch_quick_charge_status): the row
+        schema is effectively unvalidated upstream, and both call sites run
+        under the outer per-device try/except in coordinator_http.py — an
+        escaping parse error there replaces the whole device dict with an
+        error stub, blanking EVERY sensor on the device for the cycle (and on
+        the no-runtime-data path re-introducing the #256 offline-diagnostics
+        regression class).
+        """
+        client = self.client
+        if client is None:
+            return
+        fetch = getattr(getattr(client, "analytics", None), "get_event_list", None)
+        if not callable(fetch):
+            _LOGGER.debug(
+                "pylxpweb analytics.get_event_list unavailable; "
+                "skipping event log for %s",
+                serial,
+            )
+            return
+
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+        now = time.monotonic()
+        event_key = f"events_{serial}"
+        # "Never fetched" is a None sentinel, NOT a 0.0 default:
+        # time.monotonic() is host uptime on Linux, so on a freshly booted
+        # host (HAOS reboot, container host, CI runner) `now` is smaller than
+        # the interval and a 0.0 default would classify the FIRST-EVER fetch
+        # as inside the throttle window — silently skipping the event log for
+        # the first 5 minutes of uptime. Caught by CI (runner uptime < 5 min);
+        # the sibling 30s quick-charge throttle masks the same pattern only
+        # because no host reaches the fetch in under 30s of uptime.
+        last_fetch = self._last_status_fetch.get(event_key)
+        if last_fetch is not None and now - last_fetch < EVENT_LOG_FETCH_INTERVAL:
+            self._carry_forward_last_event(serial, target)
+            return
+
+        try:
+            response = await asyncio.wait_for(
+                fetch(serial, rows=1), timeout=EVENT_LOG_CLOUD_TIMEOUT
+            )
+            rows = response.get("rows") or []
+            had_rows = bool(rows)
+            event = normalize_event_row(rows[0]) if had_rows else None
+        except Exception as e:
+            self._last_status_fetch[event_key] = now
+            _LOGGER.debug("Could not fetch event log for %s: %s", serial, e)
+            self._carry_forward_last_event(serial, target)
+            return
+
+        self._last_status_fetch[event_key] = now
+        if had_rows and event is None:
+            # Malformed (non-dict) row — a parse failure, not "no events":
+            # keep the last good value rather than lying with unknown.
+            _LOGGER.debug(
+                "Malformed event row for %s; carrying previous event forward",
+                serial,
+            )
+            self._carry_forward_last_event(serial, target)
+            return
+        if event is None:
+            # No events for this device: state is unknown (None), never "".
+            target["sensors"]["last_event"] = None
+            target["last_event_detail"] = None
+            return
+        event_text = event.get("event_text")
+        target["sensors"]["last_event"] = (
+            event_text[:_MAX_STATE_LENGTH] if isinstance(event_text, str) else None
+        )
+        target["last_event_detail"] = event
+        _LOGGER.debug("Last event for %s: %s", serial, event)
+
     async def is_quick_charge_active_live(self, serial: str) -> bool | None:
         """Return whether a quick charge is running *right now* for ``serial``.
 
@@ -1098,6 +1223,9 @@ class DeviceProcessingMixin(_MixinBase):
             # too (LOCAL always does via the static key set), rather than letting
             # it vanish for a no-data inverter (issue #262; #256 philosophy).
             processed["sensors"]["operating_state"] = None
+            # Portal event log (#327) — fetched even without runtime data: an
+            # offline/faulted inverter is exactly when the event log matters.
+            await self._fetch_last_event(inverter.serial_number, processed)
             return processed
 
         # Map inverter properties to sensor keys
@@ -1361,6 +1489,9 @@ class DeviceProcessingMixin(_MixinBase):
 
         # Quick charge status (shared cloud/local fetch; transport-aware).
         await self._fetch_quick_charge_status(inverter, processed)
+
+        # Latest portal event-log entry (#327, cloud endpoint, 5-min throttle).
+        await self._fetch_last_event(serial, processed)
 
         # Battery backup (EPS) status
         # Skip cloud API call when local transport is attached — the parameter
@@ -1884,6 +2015,10 @@ class DeviceProcessingMixin(_MixinBase):
             processed["sensors"]["midbox_last_polled"] = dt_util.utcnow()
         else:
             _LOGGER.warning("MID device %s has no data", mid_device.serial_number)
+
+        # Latest portal event-log entry (#327). GridBOSS/MID devices report
+        # events too (live-validated 2026-07-15: eventType=MIDBOX_WARNING).
+        await self._fetch_last_event(mid_device.serial_number, processed)
 
         return processed
 

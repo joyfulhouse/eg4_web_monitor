@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Waarschuwingscode"
       },
+      "last_event": {
+        "name": "Laatste gebeurtenis"
+      },
       "grid_power": {
         "name": "Netvermogen"
       },
@@ -948,6 +951,24 @@
           "description": "Laatste dag om te importeren (YYYY-MM-DD). Standaard vandaag. Maximaal bereik: 2 jaar."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Gebeurtenissen ophalen",
+      "description": "Haalt het recente gebeurtenissenlogboek van het portaal op (storingen, waarschuwingen, meldingen) voor één apparaat of alle omvormers/GridBOSS-apparaten van een configuratie-item en geeft dit terug als responsgegevens. Sommige gebeurtenissen bestaan alleen in het gebeurtenissenlogboek van het portaal en vullen zo de op registers gebaseerde storings-/waarschuwingssensoren aan. Vereist cloudreferenties (HTTP- of hybride verbindingsmodus).",
+      "fields": {
+        "config_entry": {
+          "name": "Configuratie-item",
+          "description": "Het {brand_name} Web Monitor-configuratie-item (installatie) waarvoor gebeurtenissen worden opgehaald."
+        },
+        "serial": {
+          "name": "Serienummer van apparaat",
+          "description": "Serienummer van één apparaat. Indien niet opgegeven, worden gebeurtenissen opgehaald voor alle omvormers en GridBOSS-apparaten."
+        },
+        "count": {
+          "name": "Aantal gebeurtenissen",
+          "description": "Maximumaantal gebeurtenissen dat per apparaat wordt teruggegeven (standaard: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "De cloudstationgegevens zijn nog niet geladen. Wacht tot de integratie de eerste vernieuwing heeft voltooid en probeer het opnieuw."
+    },
+    "cloud_required_events": {
+      "message": "Voor het ophalen van portaalgebeurtenissen zijn cloudreferenties vereist (HTTP- of hybride verbindingsmodus)."
+    },
+    "events_api_unavailable": {
+      "message": "De geïnstalleerde pylxpweb-bibliotheek biedt niet de gebeurtenissenlogboek-API die deze service vereist. Werk de integratie bij zodat de vereiste pylxpweb-versie wordt geïnstalleerd."
+    },
+    "device_not_found": {
+      "message": "Apparaat {serial} is niet gevonden in deze installatie."
     }
   },
   "issues": {

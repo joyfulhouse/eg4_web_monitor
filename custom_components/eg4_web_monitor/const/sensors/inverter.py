@@ -1758,6 +1758,21 @@ SENSOR_TYPES = {
         "icon": "mdi:alert",
         "entity_category": "diagnostic",
     },
+    # Latest portal event-log entry (#327). CLOUD/HYBRID only: sourced from
+    # /WManage/api/analyze/event/list on a 5-minute throttle — some events
+    # exist ONLY in the portal log (pushed to the cloud out-of-band between
+    # register polls), so this complements the register-backed fault/warning
+    # code sensors. State = event text (truncated to HA's 255-char limit);
+    # code/type/start/end/status ride as attributes. Created for inverters
+    # AND GridBOSS (both live-validated to return events); never created in
+    # pure LOCAL mode (the coordinator only publishes the key with a cloud
+    # client). Unknown (None) when the device has no events.
+    "last_event": {
+        "name": "Last Event",
+        "icon": "mdi:message-alert-outline",
+        "entity_category": "diagnostic",
+        "translation_key": "last_event",
+    },
     "has_data": {
         "name": "Has Runtime Data",
         "icon": "mdi:database-check",

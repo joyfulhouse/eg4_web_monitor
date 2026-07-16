@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "Codice Avviso"
       },
+      "last_event": {
+        "name": "Ultimo evento"
+      },
       "grid_power": {
         "name": "Potenza Rete"
       },
@@ -948,6 +951,24 @@
           "description": "Ultimo giorno da importare (YYYY-MM-DD). Predefinito: oggi. Intervallo massimo: 2 anni."
         }
       }
+    },
+    "fetch_events": {
+      "name": "Recupera eventi",
+      "description": "Recupera il registro eventi recente del portale (guasti, avvisi, notifiche) per un dispositivo o per tutti gli inverter/GridBOSS di una voce di configurazione e lo restituisce come dati di risposta. Alcuni eventi esistono solo nel registro eventi del portale, quindi questo servizio integra i sensori di guasto/avviso basati sui registri. Richiede credenziali cloud (modalità di connessione HTTP o ibrida).",
+      "fields": {
+        "config_entry": {
+          "name": "Voce di configurazione",
+          "description": "La voce di configurazione (impianto) di {brand_name} Web Monitor per cui recuperare gli eventi."
+        },
+        "serial": {
+          "name": "Numero di serie del dispositivo",
+          "description": "Numero di serie di un singolo dispositivo. Se non specificato, gli eventi vengono recuperati per tutti gli inverter e i dispositivi GridBOSS."
+        },
+        "count": {
+          "name": "Numero di eventi",
+          "description": "Numero massimo di eventi restituiti per dispositivo (predefinito: 30)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "I dati cloud della stazione non sono ancora caricati. Attendi che l'integrazione completi il primo aggiornamento e riprova."
+    },
+    "cloud_required_events": {
+      "message": "Il recupero degli eventi del portale richiede credenziali cloud (modalità di connessione HTTP o ibrida)."
+    },
+    "events_api_unavailable": {
+      "message": "La libreria pylxpweb installata non fornisce l'API del registro eventi richiesta da questo servizio. Aggiorna l'integrazione affinché venga installata la versione richiesta di pylxpweb."
+    },
+    "device_not_found": {
+      "message": "Il dispositivo {serial} non è stato trovato in questo impianto."
     }
   },
   "issues": {

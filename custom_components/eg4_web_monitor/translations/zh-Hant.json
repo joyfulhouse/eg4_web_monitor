@@ -518,6 +518,9 @@
       "warning_code": {
         "name": "警告代碼"
       },
+      "last_event": {
+        "name": "最近事件"
+      },
       "grid_power": {
         "name": "電網功率"
       },
@@ -948,6 +951,24 @@
           "description": "要匯入的最後一天（YYYY-MM-DD）。預設為今天。最大範圍：2 年。"
         }
       }
+    },
+    "fetch_events": {
+      "name": "取得事件",
+      "description": "取得入口網站的最近事件日誌（故障、警告、通知），可針對單一裝置或設定項目中的所有逆變器/GridBOSS 裝置，並作為回應資料傳回。部分事件僅存在於入口網站的事件日誌中，因此此服務可補充基於暫存器的故障/警告感測器。需要雲端憑證（HTTP 或混合連線模式）。",
+      "fields": {
+        "config_entry": {
+          "name": "設定項目",
+          "description": "要取得事件的 {brand_name} Web Monitor 設定項目（電站）。"
+        },
+        "serial": {
+          "name": "裝置序號",
+          "description": "單一裝置的序號。若未指定，將取得所有逆變器和 GridBOSS 裝置的事件。"
+        },
+        "count": {
+          "name": "事件數量",
+          "description": "每個裝置傳回的最大事件數（預設：30）。"
+        }
+      }
     }
   },
   "exceptions": {
@@ -986,6 +1007,15 @@
     },
     "station_not_ready": {
       "message": "雲端電站資料尚未載入。請等待整合完成首次更新後再試一次。"
+    },
+    "cloud_required_events": {
+      "message": "取得入口網站事件需要雲端憑證（HTTP 或混合連線模式）。"
+    },
+    "events_api_unavailable": {
+      "message": "已安裝的 pylxpweb 程式庫未提供此服務所需的事件日誌 API。請更新整合以安裝所需的 pylxpweb 版本。"
+    },
+    "device_not_found": {
+      "message": "在此電站中找不到裝置 {serial}。"
     }
   },
   "issues": {
