@@ -72,8 +72,10 @@ AC_CHARGE_BATTERY_SOC_MAX = 100
 AC_CHARGE_BATTERY_SOC_STEP = 1
 
 # AC Couple Start/End SOC window (GH #352): whole-percent thresholds for the
-# EG4_OFFGRID family's AC-coupled source on the smart port — the source is
-# enabled when SOC drops below START and disabled above END. Writable range is
+# AC-coupled source on the inverter's smart port (any family with a cloud
+# client; devices lacking the params read None and the entities go
+# unavailable) — the source is enabled when SOC drops below START and
+# disabled above END. Writable range is
 # 0-100 %; END additionally READS 255 as the factory disabled / "never stop"
 # sentinel (paired with START=100 on factory-state dumps), which the entity
 # renders as unknown + a ``disabled_sentinel`` attribute rather than a fake

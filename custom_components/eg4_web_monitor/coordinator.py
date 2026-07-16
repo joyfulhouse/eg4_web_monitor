@@ -690,6 +690,35 @@ class EG4DataUpdateCoordinator(
         params.update(values)
         self.async_update_listeners()
 
+    def note_ac_couple_soc_written(self, serial: str, key: str, value: int) -> None:
+        """Merge an acknowledged AC couple SOC write into the dedicated store.
+
+        The AC Couple SOC window lives in the ``ac_couple_soc`` device-data
+        store, NOT the parameter cache (GH #352 — no local register, so a
+        HYBRID parameter refresh would wipe cache-seeded values). The written
+        value IS device truth (the cloud write was acknowledged); merging it
+        keeps the UI converged until the next throttled getter read confirms.
+
+        Sibling-preserving by design: the store dict is copied and only
+        ``key`` is replaced, so writing Start never blanks a known End value
+        (and vice versa) — PR #380 review P1.
+
+        Args:
+            serial: Inverter serial number.
+            key: Store key — ``"start_soc"`` or ``"end_soc"``.
+            value: Acknowledged whole-percent value.
+        """
+        if not self.data:
+            return
+        device = self.data.get("devices", {}).get(serial)
+        if device is None:
+            return
+        store = dict(device.get("ac_couple_soc") or {})
+        store[key] = value
+        store["fetched_at"] = time.monotonic()
+        device["ac_couple_soc"] = store
+        self.async_update_listeners()
+
     def _has_modbus_transport(self) -> bool:
         """Check if any Modbus TCP/Serial transport is configured."""
         if self._modbus_transport is not None:

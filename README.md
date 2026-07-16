@@ -233,19 +233,24 @@ automation:
           entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
-### AC Couple Start/End SOC (off-grid family, cloud connection required)
+### AC Couple Start/End SOC (cloud connection required)
 
-Off-grid family inverters (12000XP, 6000XP, SNA) expose **AC Couple Start SOC**
-and **AC Couple End SOC** number entities: the AC-coupled source on the smart
-port is enabled when battery SOC drops below *Start* and disabled above *End*.
-Scripting these lets you de-energize the smart port on demand — e.g. to safely
-transfer a grid-tied inverter between the grid and the smart port (#352).
+Inverters expose **AC Couple Start SOC** and **AC Couple End SOC** number
+entities: the AC-coupled source on the smart port is enabled when battery SOC
+drops below *Start* and disabled above *End*. Scripting these lets you
+de-energize the smart port on demand — e.g. to safely transfer a grid-tied
+inverter between the grid and the smart port (#352). The parameters are not
+family-specific: they are used live on off-grid 12000XP systems and on-grid
+hybrid LXP systems alike.
 
 Notes:
 
 - **Cloud-only:** the portal parameters have no local Modbus register, so the
   entities only exist on Cloud and Hybrid connections (reads and writes go
-  through the cloud API in both). They are absent in pure-local mode.
+  through the cloud API in both — values refresh from the cloud roughly every
+  5 minutes, which also picks up portal-side edits). They are absent in
+  pure-local mode, and they show *unavailable* on devices that do not carry
+  the parameters.
 - **255 sentinel:** a factory-disabled End threshold reads `255` ("never
   stop"). The entity shows *unknown* with a `disabled_sentinel: true`
   attribute in that state; 255 cannot be written from the 0-100 slider —

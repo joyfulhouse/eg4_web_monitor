@@ -105,15 +105,19 @@ PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 # on every path.
 PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC = "HOLD_AC_CHARGE_START_BATTERY_SOC"  # reg 160
 PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC = "HOLD_AC_CHARGE_END_BATTERY_SOC"  # reg 161
-# AC Couple Start/End SOC window (GH #352): the EG4_OFFGRID family's SOC
-# thresholds for the AC-coupled source on the smart port — enabled when SOC
-# drops below START, disabled above END. Portal-verified writable holdParams
-# (reporter mjstrand's 12000XP v2 capture, confirmed by ivanfmartinez and the
-# SNA12K-US probe). CLOUD-ONLY: the local Modbus register is deliberately
-# unpinned (probe evidence ambiguous — see pylxpweb PR #235), so these params
-# only ever surface through cloud parameter-range reads and writes route
-# through the cloud client in every mode that has one; never write them
-# through the local transport name map.
+# AC Couple Start/End SOC window (GH #352): SOC thresholds for the AC-coupled
+# source on the smart port — enabled when SOC drops below START, disabled
+# above END. Portal-verified writable holdParams, NOT family-specific: the
+# off-grid reporter's 12000XP v2 capture, the SNA12K-US probe, factory
+# END=255/START=100 pairs on grid-tied 12KPV/FlexBOSS18/21 dumps, and
+# ivanfmartinez's live 90/95 thresholds on an on-grid hybrid LXP. CLOUD-ONLY:
+# the local Modbus register is deliberately unpinned (probe evidence ambiguous
+# — see pylxpweb PR #235). The integration serves them from the dedicated
+# coordinator ``ac_couple_soc`` store (NOT the parameter cache, which a HYBRID
+# local refresh rebuilds without them); never write them through the local
+# transport name map. These constants document the wire names for the
+# register-contract harness — entity reads/writes go through pylxpweb's
+# get/set_inverter_ac_couple_*_soc methods.
 PARAM_AC_COUPLE_START_SOC = "_12K_HOLD_AC_COUPLE_START_SOC"
 PARAM_AC_COUPLE_END_SOC = "_12K_HOLD_AC_COUPLE_END_SOC"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
