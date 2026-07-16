@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "AC Charge SOC Limit"
       },
+      "ac_couple_start_soc": {
+        "name": "AC Couple Start SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "AC Couple End SOC"
+      },
       "quick_charge_duration": {
         "name": "Quick Charge Duration"
       },

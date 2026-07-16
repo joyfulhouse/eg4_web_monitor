@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "Limite SOC de charge AC"
       },
+      "ac_couple_start_soc": {
+        "name": "SOC de début de couplage AC"
+      },
+      "ac_couple_end_soc": {
+        "name": "SOC de fin de couplage AC"
+      },
       "quick_charge_duration": {
         "name": "Durée de charge rapide"
       },

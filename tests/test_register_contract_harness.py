@@ -84,6 +84,8 @@ from pylxpweb.transports.data import (
 
 from custom_components.eg4_web_monitor.const import FUNCTION_PARAM_MAPPING
 from custom_components.eg4_web_monitor.const.modbus import (
+    PARAM_AC_COUPLE_END_SOC,
+    PARAM_AC_COUPLE_START_SOC,
     PARAM_FUNC_AC_CHARGE,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
@@ -1441,6 +1443,25 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
         "for local register writes. If pylxpweb ever adopts the live cloud "
         "key in its tables, this entry goes STALE and the spellings should "
         "be unified."
+    ),
+    # AC Couple Start/End SOC window (GH #352): portal-verified writable
+    # holdParams (mjstrand's 12000XP v2 capture + ivanfmartinez + the
+    # SNA12K-US probe), but the local Modbus register is DELIBERATELY
+    # unpinned — the probe co-locates both SOC params onto the
+    # FUNC_LSP_BYPASS bitfield block (regs 219-221), a known block-detection
+    # artifact, and a register claim needs a live LOCAL probe (pylxpweb
+    # PR #235). Reads come from cloud parameter-range caches; writes route
+    # exclusively through client.api.control.set_inverter_ac_couple_*_soc.
+    PARAM_AC_COUPLE_START_SOC: (
+        "Cloud-only holdParam for the EG4_OFFGRID AC-couple START SOC "
+        "threshold — no pinned local register; never write it through the "
+        "local transport name map."
+    ),
+    PARAM_AC_COUPLE_END_SOC: (
+        "Cloud-only holdParam for the EG4_OFFGRID AC-couple END SOC "
+        "threshold (reads 255 as the factory disabled/'never stop' "
+        "sentinel) — no pinned local register; never write it through the "
+        "local transport name map."
     ),
 }
 

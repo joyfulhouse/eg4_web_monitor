@@ -17,6 +17,8 @@ from custom_components.eg4_web_monitor.number import (
     ACChargePowerNumber,
     ACChargeSOCLimitNumber,
     ACChargeStartBatterySOCNumber,
+    ACCoupleEndSOCNumber,
+    ACCoupleStartSOCNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
     EG4VoltageNumber,
@@ -182,6 +184,9 @@ class TestNumberPlatformSetup:
         # The off-grid AC-charge SOC window (regs 160/161) is offgrid-only
         assert "ACChargeStartBatterySOCNumber" not in type_names
         assert "ACChargeEndBatterySOCNumber" not in type_names
+        # ... and so is the cloud-only AC Couple SOC window (GH #352)
+        assert "ACCoupleStartSOCNumber" not in type_names
+        assert "ACCoupleEndSOCNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):
@@ -305,6 +310,10 @@ class TestNumberPlatformSetup:
         assert "ACChargeSOCLimitNumber" not in type_names
         assert "ACChargeStartBatterySOCNumber" in type_names
         assert "ACChargeEndBatterySOCNumber" in type_names
+        # ... and gains the cloud-only AC Couple SOC window (GH #352, cloud
+        # client present in this fixture)
+        assert "ACCoupleStartSOCNumber" in type_names
+        assert "ACCoupleEndSOCNumber" in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_lxp_creates_start_thresholds(self, hass):
@@ -1999,9 +2008,12 @@ class TestOffgridGridTiedNumberSuppression:
         # Discharge Voltage, eg4-aa3t) minus the 3 suppressed grid-tied controls
         # minus Grid Sell Back (no sell-back on offgrid, GH #135) minus the
         # reg-67 AC Charge SOC Limit (GH #331) = 14, plus the HTTP-only Quick
-        # Charge Duration preference (#251) and the two reg-160/161 AC-charge
-        # SOC window numbers (GH #331) = 17.
-        assert len(entities) == 17
+        # Charge Duration preference (#251), the two reg-160/161 AC-charge
+        # SOC window numbers (GH #331) and the two cloud-only AC Couple SOC
+        # window numbers (GH #352, cloud client present) = 19.
+        assert len(entities) == 19
+        assert "ACCoupleStartSOCNumber" in type_names
+        assert "ACCoupleEndSOCNumber" in type_names
         assert "ACChargePowerNumber" in type_names
         assert "OffGridSOCCutoffNumber" in type_names
         assert "SystemChargeVoltLimitNumber" in type_names
@@ -2027,6 +2039,8 @@ class TestOffgridGridTiedNumberSuppression:
         assert "ACChargeSOCLimitNumber" in type_names
         assert "ACChargeStartBatterySOCNumber" not in type_names
         assert "ACChargeEndBatterySOCNumber" not in type_names
+        assert "ACCoupleStartSOCNumber" not in type_names
+        assert "ACCoupleEndSOCNumber" not in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
         # XP-model gate (GH #135) fires on the model name alone = 18, plus the
         # HTTP-only Quick Charge Duration preference (#251) = 19
@@ -2440,6 +2454,308 @@ class TestOffgridACChargeSOCWindow:
             # (the #331 reporter's automation target).
             assert entity.registry_entry is None
             assert entity.entity_registry_enabled_default is True
+
+
+# ── AC Couple SOC window (cloud-only holdParams, GH #352) ─────────────
+
+
+class TestACCoupleSOCWindow:
+    """AC Couple Start/End SOC — EG4_OFFGRID + cloud client only (GH #352).
+
+    The portal writes _12K_HOLD_AC_COUPLE_{START,END}_SOC holdParams; no
+    local Modbus register is pinned (pylxpweb PR #235), so reads come from
+    the cloud parameter cache and writes always route through the cloud
+    client (CLOUD and HYBRID alike). END reads 255 as the factory
+    disabled/"never stop" sentinel.
+    """
+
+    SERIAL = "1234567890"
+    START_PARAM = "_12K_HOLD_AC_COUPLE_START_SOC"
+    END_PARAM = "_12K_HOLD_AC_COUPLE_END_SOC"
+
+    @staticmethod
+    def _offgrid_coordinator(**kwargs):
+        coordinator = _mock_coordinator(model="12000XP", **kwargs)
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_OFFGRID"
+        }
+        return coordinator
+
+    def _cloud_write_mock(self, coordinator, method, *, success=True):
+        mock = AsyncMock(return_value=MagicMock(success=success))
+        setattr(coordinator.client.api.control, method, mock)
+        return mock
+
+    # ── Entity creation gating ────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_created_for_offgrid_cloud(self, hass):
+        coordinator = self._offgrid_coordinator()
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "ACCoupleStartSOCNumber" in type_names
+        assert "ACCoupleEndSOCNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_created_for_offgrid_hybrid(self, hass):
+        """HYBRID has a cloud client — the pair is created (cloud-routed)."""
+        coordinator = self._offgrid_coordinator(has_local=True, has_http=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "ACCoupleStartSOCNumber" in type_names
+        assert "ACCoupleEndSOCNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_not_created_in_pure_local(self, hass):
+        """Pure LOCAL has no cloud client — the params can never be read or
+        written, so the entities are not created."""
+        coordinator = self._offgrid_coordinator(
+            has_local=True, has_http=False, local_only=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "ACCoupleStartSOCNumber" not in type_names
+        assert "ACCoupleEndSOCNumber" not in type_names
+
+    @pytest.mark.asyncio
+    async def test_not_created_for_grid_tied_family(self, hass):
+        """Grid-tied families do not carry the params (the getter reports
+        neither) — offgrid family gate keeps the pair off FlexBOSS/18kPV."""
+        coordinator = _mock_coordinator(model="FlexBOSS21")
+        coordinator.data["devices"][self.SERIAL]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "ACCoupleStartSOCNumber" not in type_names
+        assert "ACCoupleEndSOCNumber" not in type_names
+
+    # ── Reads (cloud parameter cache) ─────────────────────────────────
+
+    def test_start_soc_reads_param(self):
+        coordinator = self._offgrid_coordinator(parameters={self.START_PARAM: 85})
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value == 85
+        assert entity.available is True
+
+    def test_end_soc_reads_param(self):
+        coordinator = self._offgrid_coordinator(parameters={self.END_PARAM: 95})
+        entity = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value == 95
+        assert entity.available is True
+        assert entity.extra_state_attributes == {"disabled_sentinel": False}
+
+    def test_reads_cloud_string_values(self):
+        """Cloud parameter reads surface whole-percent strings."""
+        coordinator = self._offgrid_coordinator(
+            parameters={self.START_PARAM: "50", self.END_PARAM: "90"}
+        )
+        assert ACCoupleStartSOCNumber(coordinator, self.SERIAL).native_value == 50
+        assert ACCoupleEndSOCNumber(coordinator, self.SERIAL).native_value == 90
+
+    def test_missing_params_read_none_and_unavailable(self):
+        """Absent params (pure-cloud fetch pending, or a HYBRID cache built
+        from local register reads) -> unavailable, never a fake 0."""
+        coordinator = self._offgrid_coordinator(parameters={})
+        for cls in (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber):
+            entity = cls(coordinator, self.SERIAL)
+            assert entity.native_value is None
+            assert entity.available is False
+
+    @pytest.mark.parametrize("raw", [255, "255"])
+    def test_end_soc_sentinel_reads_none_with_attribute(self, raw):
+        """The factory 255 disabled/"never stop" sentinel cannot render on a
+        0-100 slider: unknown value + disabled_sentinel attribute, still
+        available (the param IS present)."""
+        coordinator = self._offgrid_coordinator(parameters={self.END_PARAM: raw})
+        entity = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value is None
+        assert entity.available is True
+        assert entity.extra_state_attributes == {"disabled_sentinel": True}
+
+    def test_start_soc_out_of_range_reads_none(self):
+        """START has no sentinel — any >100 read is treated as invalid."""
+        coordinator = self._offgrid_coordinator(parameters={self.START_PARAM: 255})
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value is None
+
+    # ── Writes (cloud-routed in every mode) ───────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_start_soc_cloud_write(self):
+        coordinator = self._offgrid_coordinator(has_local=False)
+        write = self._cloud_write_mock(coordinator, "set_inverter_ac_couple_start_soc")
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(85)
+
+        write.assert_awaited_once_with(self.SERIAL, 85)
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.note_parameters_written.assert_called_once_with(
+            self.SERIAL, {self.START_PARAM: 85}
+        )
+
+    @pytest.mark.asyncio
+    async def test_end_soc_cloud_write(self):
+        coordinator = self._offgrid_coordinator(has_local=False)
+        write = self._cloud_write_mock(coordinator, "set_inverter_ac_couple_end_soc")
+        entity = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(95)
+
+        write.assert_awaited_once_with(self.SERIAL, 95)
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.note_parameters_written.assert_called_once_with(
+            self.SERIAL, {self.END_PARAM: 95}
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_write_routes_via_cloud(self):
+        """HYBRID (attached local transport): the write STILL goes through
+        the cloud client — no pinned local register exists (the XP Quick
+        Charge cloud-routing precedent, #296/#308)."""
+        coordinator = self._offgrid_coordinator(has_local=True, has_http=True)
+        write = self._cloud_write_mock(coordinator, "set_inverter_ac_couple_start_soc")
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(20)
+
+        write.assert_awaited_once_with(self.SERIAL, 20)
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_write_refreshes_before_seeding(self):
+        """The cache seed lands AFTER the parameter refresh: a HYBRID refresh
+        rebuilds the cache from local register reads (which cannot carry
+        these cloud-only params) and would wipe a pre-refresh seed."""
+        coordinator = self._offgrid_coordinator()
+        self._cloud_write_mock(coordinator, "set_inverter_ac_couple_start_soc")
+        order: list[str] = []
+        coordinator.refresh_all_device_parameters = AsyncMock(
+            side_effect=lambda: order.append("refresh")
+        )
+        coordinator.note_parameters_written = MagicMock(
+            side_effect=lambda *a: order.append("seed")
+        )
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(85)
+
+        assert order == ["refresh", "seed"]
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_failure_raises(self):
+        coordinator = self._offgrid_coordinator()
+        self._cloud_write_mock(
+            coordinator, "set_inverter_ac_couple_end_soc", success=False
+        )
+        entity = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(95)
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_without_client_raises(self):
+        """No cloud client (defensive: setup gates creation on one) -> the
+        write raises instead of silently doing nothing."""
+        coordinator = self._offgrid_coordinator()
+        coordinator.client = None
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="No local transport or cloud"):
+            await entity.async_set_native_value(85)
+
+    @pytest.mark.asyncio
+    async def test_write_with_stale_pylxpweb_raises(self):
+        """A pylxpweb without the #352 control methods fails loudly."""
+        coordinator = self._offgrid_coordinator()
+        # spec-constrained control endpoint: getattr returns None for the
+        # missing method instead of an auto-generated child mock.
+        coordinator.client.api.control = MagicMock(spec=[])
+        entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="missing"):
+            await entity.async_set_native_value(85)
+
+    # ── Range / integer validation ─────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_value", [-1, 101, 150, 255])
+    async def test_rejects_out_of_range(self, bad_value):
+        """255 is a READ sentinel, not a writable slider value."""
+        coordinator = self._offgrid_coordinator()
+        start_write = self._cloud_write_mock(
+            coordinator, "set_inverter_ac_couple_start_soc"
+        )
+        end_write = self._cloud_write_mock(
+            coordinator, "set_inverter_ac_couple_end_soc"
+        )
+        for cls in (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber):
+            entity = cls(coordinator, self.SERIAL)
+            _prep(entity)
+            with pytest.raises(HomeAssistantError, match="between 0-100"):
+                await entity.async_set_native_value(bad_value)
+        start_write.assert_not_awaited()
+        end_write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_integer_values(self):
+        coordinator = self._offgrid_coordinator()
+        for cls in (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber):
+            entity = cls(coordinator, self.SERIAL)
+            _prep(entity)
+            with pytest.raises(HomeAssistantError, match="integer value"):
+                await entity.async_set_native_value(85.5)
+
+    # ── Entity attributes ─────────────────────────────────────────────
+
+    def test_entity_attributes(self):
+        coordinator = self._offgrid_coordinator()
+        start = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        end = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
+        assert start.unique_id == "12000xp_1234567890_ac_couple_start_soc"
+        assert end.unique_id == "12000xp_1234567890_ac_couple_end_soc"
+        assert start.translation_key == "ac_couple_start_soc"
+        assert end.translation_key == "ac_couple_end_soc"
+        for entity in (start, end):
+            assert entity.native_min_value == 0
+            assert entity.native_max_value == 100
+            assert entity.native_step == 1
+            # ENABLED by default, matching the #331/#332 window (the #352
+            # reporter's scripting target).
+            assert entity.registry_entry is None
+            assert entity.entity_registry_enabled_default is True
+            # No _attr_name when translation_key is set (issue #262 gotcha).
+            assert getattr(entity, "_attr_name", None) is None
 
 
 # ── QuickChargeDurationNumber (preference, no register) ───────────────

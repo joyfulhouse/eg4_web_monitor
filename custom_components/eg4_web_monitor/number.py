@@ -54,6 +54,8 @@ from .const import (
     GRID_SELL_BACK_POWER_MAX,
     GRID_SELL_BACK_POWER_MIN,
     GRID_SELL_BACK_POWER_STEP,
+    PARAM_AC_COUPLE_END_SOC,
+    PARAM_AC_COUPLE_START_SOC,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE,
@@ -96,6 +98,10 @@ from .const import (
     AC_CHARGE_BATTERY_SOC_MAX,
     AC_CHARGE_BATTERY_SOC_MIN,
     AC_CHARGE_BATTERY_SOC_STEP,
+    AC_COUPLE_END_SOC_DISABLED_SENTINEL,
+    AC_COUPLE_SOC_MAX,
+    AC_COUPLE_SOC_MIN,
+    AC_COUPLE_SOC_STEP,
     AC_CHARGE_SOC_LIMIT_MAX,
     AC_CHARGE_SOC_LIMIT_MIN,
     AC_CHARGE_SOC_LIMIT_STEP,
@@ -619,6 +625,18 @@ async def async_setup_entry(
                             ACChargeEndBatterySOCNumber(coordinator, serial),
                         ]
                     )
+                    # AC Couple Start/End SOC (GH #352): CLOUD-ONLY
+                    # holdParams (_12K_HOLD_AC_COUPLE_{START,END}_SOC) with
+                    # no pinned local register, so the entities only exist
+                    # where a cloud client can read and write them (CLOUD /
+                    # HYBRID). Pure-LOCAL mode never sees the params.
+                    if coordinator.has_http_api():
+                        entities.extend(
+                            [
+                                ACCoupleStartSOCNumber(coordinator, serial),
+                                ACCoupleEndSOCNumber(coordinator, serial),
+                            ]
+                        )
                 else:
                     entities.extend(
                         [
@@ -1433,6 +1451,166 @@ async def _write_cloud_named_parameter(
     if not result.success:
         raise HomeAssistantError(error_message)
     await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
+
+
+class ACCoupleSOCNumberBase(EG4BaseNumberEntity):
+    """Shared behavior for the AC Couple Start/End SOC pair (GH #352).
+
+    SOC window governing the AC-coupled source on the EG4_OFFGRID family's
+    smart port: the source is enabled when battery SOC drops below START and
+    disabled above END. The reporter (mjstrand, 12000XP v2) scripts these to
+    de-energize the smart port before transferring a grid-tied SolarEdge
+    between grid and smart port.
+
+    CLOUD-ONLY (unlike the reg-160/161 AC-charge window): the portal writes
+    ``_12K_HOLD_AC_COUPLE_{START,END}_SOC`` holdParams and no local Modbus
+    register is pinned (pylxpweb PR #235 — probe evidence ambiguous), so
+    reads come from the cloud parameter-range cache and writes always route
+    through the cloud client, in CLOUD and HYBRID alike (the XP Quick Charge
+    cloud-routing precedent, #296/#308). The entity is unavailable while the
+    param is absent from the cache — a HYBRID cache rebuilt from local
+    register reads cannot carry these params, and absence must never render
+    as a fake 0.
+    """
+
+    # Cloud holdParam name and the pylxpweb control-endpoint writer method.
+    _param_key: str
+    _cloud_method: str
+    _label: str
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber)
+
+    @property
+    def available(self) -> bool:
+        """Available only while the cloud param is present (or mid-write).
+
+        Absent param — pure-cloud fetch not yet run, or a HYBRID parameter
+        cache rebuilt from local register reads (which cannot surface these
+        cloud-only params) — must show unavailable, never a fake value.
+        """
+        if not super().available:
+            return False
+        if self._optimistic_value is not None:
+            return True
+        return self._parameter_data.get(self._param_key) is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Whole-percent threshold from the cloud parameter cache.
+
+        The END entity's 255 disabled/"never stop" sentinel fails the 0-100
+        range check and reads None (HA cannot render 255 on a 0-100 slider);
+        the sentinel is surfaced via ``disabled_sentinel`` instead.
+        """
+        return self._read_param_value(
+            param_key=self._param_key,
+            value_min=AC_COUPLE_SOC_MIN,
+            value_max=AC_COUPLE_SOC_MAX,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write the threshold through the cloud client (every mode)."""
+        int_value = _coerce_int_in_range(
+            value,
+            min_v=AC_COUPLE_SOC_MIN,
+            max_v=AC_COUPLE_SOC_MAX,
+            label=self._label,
+            require_integer=True,
+        )
+        client = self.coordinator.require_client()
+        _LOGGER.info("Setting %s to %d%% for %s", self._label, int_value, self.serial)
+        with optimistic_value_context(self, value):
+            method = getattr(client.api.control, self._cloud_method, None)
+            if method is None:
+                raise HomeAssistantError(
+                    f"Failed to set {self._label}: pylxpweb is missing "
+                    f"{self._cloud_method} (requires >= 0.9.39b2)"
+                )
+            result = await method(self.serial, int_value)
+            if not result.success:
+                raise HomeAssistantError(f"Failed to set {self._label} to {int_value}%")
+            await self._refresh_related_entities()
+            # Seed the acknowledged value AFTER the refresh: a HYBRID
+            # parameter refresh rebuilds the cache from local register reads
+            # that cannot carry these cloud-only params, and would wipe a
+            # pre-refresh seed — leaving the entity unavailable right after
+            # a successful write. In CLOUD mode the refresh already fetched
+            # the fresh value and the seed is a no-op merge.
+            self.coordinator.note_parameters_written(
+                self.serial, {self._param_key: int_value}
+            )
+
+
+class ACCoupleStartSOCNumber(ACCoupleSOCNumberBase):
+    """AC Couple Start SOC (GH #352, EG4_OFFGRID + cloud client only).
+
+    Battery SOC below which the AC-coupled source on the smart port is
+    enabled. Cloud holdParam ``_12K_HOLD_AC_COUPLE_START_SOC``; the factory
+    disabled pair reads START=100 (a legal slider value, no sentinel).
+    """
+
+    _param_key = PARAM_AC_COUPLE_START_SOC
+    _cloud_method = "set_inverter_ac_couple_start_soc"
+    _label = "AC couple start SOC"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "ac_couple_start_soc"
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_ac_couple_start_soc"
+        )
+        self._attr_native_min_value = AC_COUPLE_SOC_MIN
+        self._attr_native_max_value = AC_COUPLE_SOC_MAX
+        self._attr_native_step = AC_COUPLE_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-low"
+        self._attr_native_precision = 0
+
+
+class ACCoupleEndSOCNumber(ACCoupleSOCNumberBase):
+    """AC Couple End SOC (GH #352, EG4_OFFGRID + cloud client only).
+
+    Battery SOC above which the AC-coupled source on the smart port is
+    disabled. Cloud holdParam ``_12K_HOLD_AC_COUPLE_END_SOC``. Reads of the
+    255 factory disabled/"never stop" sentinel render as unknown with the
+    ``disabled_sentinel`` attribute set — 255 is deliberately NOT writable
+    from the 0-100 slider (restore it from the portal if needed).
+    """
+
+    _param_key = PARAM_AC_COUPLE_END_SOC
+    _cloud_method = "set_inverter_ac_couple_end_soc"
+    _label = "AC couple end SOC"
+
+    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = "ac_couple_end_soc"
+        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_couple_end_soc"
+        self._attr_native_min_value = AC_COUPLE_SOC_MIN
+        self._attr_native_max_value = AC_COUPLE_SOC_MAX
+        self._attr_native_step = AC_COUPLE_SOC_STEP
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-charging-high"
+        self._attr_native_precision = 0
+
+    @property
+    def _disabled_sentinel_active(self) -> bool:
+        """Whether the device reports the 255 disabled/"never stop" sentinel."""
+        raw = self._parameter_data.get(self._param_key)
+        if raw is None:
+            return False
+        try:
+            return int(float(raw)) == AC_COUPLE_END_SOC_DISABLED_SENTINEL
+        except (TypeError, ValueError):
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the 255 sentinel a 0-100 slider cannot render as a value."""
+        return {"disabled_sentinel": self._disabled_sentinel_active}
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):

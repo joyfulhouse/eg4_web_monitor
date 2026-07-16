@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "AC-laad-SOC-limiet"
       },
+      "ac_couple_start_soc": {
+        "name": "AC-koppeling start-SOC"
+      },
+      "ac_couple_end_soc": {
+        "name": "AC-koppeling eind-SOC"
+      },
       "quick_charge_duration": {
         "name": "Snel laden duur"
       },

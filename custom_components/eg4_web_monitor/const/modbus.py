@@ -105,6 +105,17 @@ PARAM_HOLD_AC_CHARGE_SOC_LIMIT = "HOLD_AC_CHARGE_SOC_LIMIT"
 # on every path.
 PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC = "HOLD_AC_CHARGE_START_BATTERY_SOC"  # reg 160
 PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC = "HOLD_AC_CHARGE_END_BATTERY_SOC"  # reg 161
+# AC Couple Start/End SOC window (GH #352): the EG4_OFFGRID family's SOC
+# thresholds for the AC-coupled source on the smart port — enabled when SOC
+# drops below START, disabled above END. Portal-verified writable holdParams
+# (reporter mjstrand's 12000XP v2 capture, confirmed by ivanfmartinez and the
+# SNA12K-US probe). CLOUD-ONLY: the local Modbus register is deliberately
+# unpinned (probe evidence ambiguous — see pylxpweb PR #235), so these params
+# only ever surface through cloud parameter-range reads and writes route
+# through the cloud client in every mode that has one; never write them
+# through the local transport name map.
+PARAM_AC_COUPLE_START_SOC = "_12K_HOLD_AC_COUPLE_START_SOC"
+PARAM_AC_COUPLE_END_SOC = "_12K_HOLD_AC_COUPLE_END_SOC"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
 PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"

@@ -71,6 +71,18 @@ AC_CHARGE_BATTERY_SOC_MIN = 0
 AC_CHARGE_BATTERY_SOC_MAX = 100
 AC_CHARGE_BATTERY_SOC_STEP = 1
 
+# AC Couple Start/End SOC window (GH #352): whole-percent thresholds for the
+# EG4_OFFGRID family's AC-coupled source on the smart port — the source is
+# enabled when SOC drops below START and disabled above END. Writable range is
+# 0-100 %; END additionally READS 255 as the factory disabled / "never stop"
+# sentinel (paired with START=100 on factory-state dumps), which the entity
+# renders as unknown + a ``disabled_sentinel`` attribute rather than a fake
+# slider value. Cloud-only holdParams — no pinned local register.
+AC_COUPLE_SOC_MIN = 0
+AC_COUPLE_SOC_MAX = 100
+AC_COUPLE_SOC_STEP = 1
+AC_COUPLE_END_SOC_DISABLED_SENTINEL = 255
+
 # =============================================================================
 # Forced Discharge (regs 82/83, GH #207 / PR #249)
 # Reg 82 is kW (raw 100W units, 0-255 = 0-25.5 kW — hardware-verified in

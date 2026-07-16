@@ -233,6 +233,41 @@ automation:
           entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
+### AC Couple Start/End SOC (off-grid family, cloud connection required)
+
+Off-grid family inverters (12000XP, 6000XP, SNA) expose **AC Couple Start SOC**
+and **AC Couple End SOC** number entities: the AC-coupled source on the smart
+port is enabled when battery SOC drops below *Start* and disabled above *End*.
+Scripting these lets you de-energize the smart port on demand — e.g. to safely
+transfer a grid-tied inverter between the grid and the smart port (#352).
+
+Notes:
+
+- **Cloud-only:** the portal parameters have no local Modbus register, so the
+  entities only exist on Cloud and Hybrid connections (reads and writes go
+  through the cloud API in both). They are absent in pure-local mode.
+- **255 sentinel:** a factory-disabled End threshold reads `255` ("never
+  stop"). The entity shows *unknown* with a `disabled_sentinel: true`
+  attribute in that state; 255 cannot be written from the 0-100 slider —
+  set any 0-100 value to take control, or restore 255 from the EG4 portal.
+
+```yaml
+script:
+  drop_smart_port_power:
+    alias: "De-energize smart port before transfer"
+    sequence:
+      - service: number.set_value
+        target:
+          entity_id: number.12000xp_1234567890_ac_couple_start_soc
+        data:
+          value: 1
+      - service: number.set_value
+        target:
+          entity_id: number.12000xp_1234567890_ac_couple_end_soc
+        data:
+          value: 11
+```
+
 ### Detecting a grid outage (template binary sensor)
 
 On an **off-grid-configured** inverter (e.g. 12000XP/6000XP running from battery/PV

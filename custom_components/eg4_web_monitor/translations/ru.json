@@ -737,6 +737,12 @@
       "ac_charge_soc_limit": {
         "name": "Лимит SOC зарядки от сети"
       },
+      "ac_couple_start_soc": {
+        "name": "SOC запуска AC-сопряжения"
+      },
+      "ac_couple_end_soc": {
+        "name": "SOC остановки AC-сопряжения"
+      },
       "quick_charge_duration": {
         "name": "Длительность быстрой зарядки"
       },
