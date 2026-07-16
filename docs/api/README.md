@@ -31,18 +31,23 @@ mobile app. `pylxpweb` wraps it; this integration (`eg4_web_monitor`) consumes
 
 **This spec documents 100% of the endpoints the `pylxpweb` client calls — 44 endpoints, statically verified — but that is *not* the complete EG4 portal API.** It is the client-used subset: the endpoints a Home Assistant integration needs (discovery, runtime/energy, battery, GridBOSS, control/write, firmware, analytics, forecast, export). The coverage was confirmed by a full static sweep of every HTTP call site in `pylxpweb` (including the calls that bypass the generic request wrapper — the `locale/region`/`locale/country` POSTs and the `.xls` export GET — and all CLI collectors): the 44 paths here are exactly the set the client can reach, with none missing and none unused.
 
-The live EG4 portal exposes **far more** endpoints that `pylxpweb` never touches. A read-only
-static crawl of the portal's authenticated web frontend (VIEWER role, 2026-07-15) found
-**186 distinct `/WManage/...` endpoints** — so this OpenAPI spec's 44 is roughly **a quarter**
-of the frontend-referenced surface, and the true portal (incl. owner/installer/admin sections)
-is larger still. The **151 endpoints beyond the client subset** — EV charge-point control,
-Tigo optimizers, Google Home / Phnix heat-pump integrations, generator-exercise scheduling,
-battery-backup & working-mode control, datalog firmware/config, device cluster transfer,
-account/registration, and a large export family — are catalogued (path + method + param names,
-schemas **not** validated, writes **not** exercised) in **[`PORTAL_ENDPOINTS.md`](PORTAL_ENDPOINTS.md)**.
+The live EG4 portal exposes **far more** endpoints that `pylxpweb` never touches. An exhaustive
+read-only static crawl of the portal's authenticated web frontend (VIEWER role, 2026-07-15 —
+page HTML + 104 jQuery JS files, extracting `baseUrl +` concatenations, ternary/variable path
+segments, backtick templates, `fetch()` exports, and form `action=` targets) found
+**251 distinct `/WManage/...` endpoints** — so this OpenAPI spec's 44 is roughly **a sixth**
+of the frontend-referenced surface, and the true portal (incl. owner/installer/admin sections a
+VIEWER can't fully reach) is larger still. The endpoints beyond the client subset — EV
+charge-point control, Tigo optimizers, Google Home / Phnix heat-pump, generator-exercise
+scheduling, battery-backup & working-mode control, RenON battery & micro-inverter monitoring,
+datalog firmware/config, device-cluster transfer, user/installer administration, and a large
+export family — are catalogued (path + method + param names) in
+**[`PORTAL_ENDPOINTS.md`](PORTAL_ENDPOINTS.md)**, where **23 of the new READ endpoints were
+live-validated** (real response fields captured); the ~89 WRITE endpoints are inventoried from
+source only and were **never invoked**.
 
 **In short: this `openapi.yaml` is a *validated contract* for the 44 endpoints the integration
-uses; `PORTAL_ENDPOINTS.md` is a *discovery map* of the full 186-endpoint frontend surface.**
+uses; `PORTAL_ENDPOINTS.md` is a *discovery map* of the full 251-endpoint frontend surface.**
 Turning the latter into validated schemas would require authenticated capture across roles and
 is only worthwhile for broader portal automation, not integration support.
 
