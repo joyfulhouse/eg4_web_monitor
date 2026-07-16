@@ -360,6 +360,9 @@ async def async_setup_entry(
 # indefinitely (the last thing we know the inverter accepted) — this reverses
 # the earlier "a dead status source can never pin state forever" guarantee.
 # Showing the accepted command beats flapping to provably pre-write data.
+# Kept NUMERICALLY EQUAL to base_entity.RETAINED_OPTIMISTIC_TTL on purpose:
+# after a quick-charge write-ok + refresh-fail both holds arm together and
+# only equal TTLs keep them expiring together. Change both or neither.
 QUICK_CHARGE_OPTIMISTIC_TTL = 300.0
 
 

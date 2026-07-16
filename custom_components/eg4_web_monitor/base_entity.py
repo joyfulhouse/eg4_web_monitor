@@ -48,7 +48,11 @@ _LOGGER = logging.getLogger(__name__)
 # firmware-silently-NAKed write (#251 reg-233, #331 reg-67 precedent) plus
 # one failed refresh would otherwise wedge it forever: every healthy poll
 # keeps returning the pre-write value, indistinguishable from a stale tick.
-# Follows the QUICK_CHARGE_OPTIMISTIC_TTL precedent (switch.py).
+# Follows the QUICK_CHARGE_OPTIMISTIC_TTL precedent (switch.py) and is kept
+# NUMERICALLY EQUAL to it on purpose: after a quick-charge write-ok +
+# refresh-fail BOTH holds arm within the same call, and nothing couples them
+# afterwards — equal TTLs are what keep them expiring together. Change both
+# or neither.
 RETAINED_OPTIMISTIC_TTL: float = 300.0
 
 
@@ -1184,8 +1188,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             elif time.monotonic() >= self._retention_expires:
                 _LOGGER.warning(
                     "Optimistic state for %s on device %s expired without "
-                    "device confirmation; reverting to the reported state "
-                    "(the device may have rejected the write)",
+                    "device confirmation; reverting to the reported state, "
+                    "which may decode as unknown (the device may have "
+                    "rejected the write)",
                     self._retained_action or "switch write",
                     self._serial,
                 )
