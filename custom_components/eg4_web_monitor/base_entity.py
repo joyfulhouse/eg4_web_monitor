@@ -1086,6 +1086,21 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         self._pre_write_state = None
         self._retained_action = ""
 
+    def _begin_optimistic_write(self, value: bool) -> bool | None:
+        """Publish the optimistic state and capture the pre-write cache state.
+
+        Returns what the cache decodes to BEFORE the write so a later
+        retained optimistic state can detect fresh device data (#362); any
+        retained state from an earlier write is superseded by this one. The
+        "begin" counterpart of :meth:`_settle_acknowledged_write`.
+        """
+        pre_write_state = self._cache_state()
+        self._optimistic_retained = False
+        self._pre_write_state = None
+        self._optimistic_state = value
+        self.async_write_ha_state()
+        return pre_write_state
+
     async def _refresh_coordinator_data(self) -> bool:
         """Run a full coordinator refresh; True only when it produced fresh data.
 
@@ -1219,15 +1234,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         """
         action_verb = "Enabling" if value else "Disabling"
 
-        # Capture what the cache decodes to before the write so a retained
-        # optimistic state can later detect fresh data (#362).
-        pre_write_state = self._cache_state()
-        self._optimistic_retained = False
-        self._pre_write_state = None
-
-        # Set optimistic state immediately for UI feedback.
-        self._optimistic_state = value
-        self.async_write_ha_state()
+        pre_write_state = self._begin_optimistic_write(value)
 
         try:
             await do_write()
@@ -1634,15 +1641,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             parameter,
         )
 
-        # Set optimistic state immediately for UI feedback. Any retained
-        # state from an earlier write (#362) is superseded by this one —
-        # on the HYBRID fallback path the envelope re-arms retention if
-        # the cloud retry's own refresh fails.
-        pre_write_state = self._cache_state()
-        self._optimistic_retained = False
-        self._pre_write_state = None
-        self._optimistic_state = value
-        self.async_write_ha_state()
+        # On the HYBRID fallback path the envelope re-arms retention if the
+        # cloud retry's own refresh fails.
+        pre_write_state = self._begin_optimistic_write(value)
 
         try:
             # Write the named parameter via coordinator
