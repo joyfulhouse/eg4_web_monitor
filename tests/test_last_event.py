@@ -123,7 +123,15 @@ class TestNormalizeEventRow:
     def test_missing_fields_are_none(self):
         """A defensive normalize of an empty row yields all-None values."""
         event = normalize_event_row({})
+        assert event is not None
         assert all(value is None for value in event.values())
+
+    def test_non_dict_row_returns_none(self):
+        """The row schema is effectively unvalidated upstream — a non-dict
+        row is reported as None (parse failure), never an AttributeError."""
+        assert normalize_event_row("garbage") is None
+        assert normalize_event_row(None) is None
+        assert normalize_event_row(["list"]) is None
 
 
 # ── Coordinator fetch ────────────────────────────────────────────────
@@ -151,7 +159,7 @@ def mock_config_entry():
 
 
 def _coordinator_with_events(
-    hass, mock_config_entry, rows: list[dict[str, Any]]
+    hass, mock_config_entry, rows: list[Any]
 ) -> EG4DataUpdateCoordinator:
     """Real coordinator with a mocked cloud event-list endpoint."""
     coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
@@ -274,6 +282,39 @@ class TestFetchLastEvent:
 
         assert "last_event" in target["sensors"]
         assert target["sensors"]["last_event"] is None
+
+    async def test_malformed_row_carries_forward_and_spares_other_sensors(
+        self, hass, mock_config_entry
+    ):
+        """Codex P2: a malformed (non-dict) event row must stay inside the
+        fetch's exception boundary — it degrades to carry-forward and leaves
+        the device's other sensors untouched, instead of escaping to the
+        outer per-device handler (which would blank EVERY sensor for the
+        cycle)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _coordinator_with_events(
+            hass, mock_config_entry, ["not-a-dict-row"]
+        )
+        coordinator.data = {
+            "devices": {
+                INVERTER_SERIAL: {
+                    "sensors": {"last_event": "Bus voltage high"},
+                    "last_event_detail": {"event_code": "E019"},
+                }
+            }
+        }
+        target: dict[str, Any] = {"sensors": {"status_code": 0, "yield": 12.5}}
+
+        await coordinator._fetch_last_event(INVERTER_SERIAL, target)
+
+        # Previous event carried forward, not blanked and not raising.
+        assert target["sensors"]["last_event"] == "Bus voltage high"
+        assert target["last_event_detail"] == {"event_code": "E019"}
+        # Other sensors on the device dict are untouched.
+        assert target["sensors"]["status_code"] == 0
+        assert target["sensors"]["yield"] == 12.5
+        # The failed parse consumed the throttle slot (no retry storm).
+        assert f"events_{INVERTER_SERIAL}" in coordinator._last_status_fetch
 
     async def test_state_truncated_to_255_chars(self, hass, mock_config_entry):
         """HA rejects states >255 chars — the state is truncated defensively;
@@ -552,6 +593,24 @@ class TestFetchEventsService:
         )
 
         assert response["devices"][INVERTER_SERIAL] == {"total": 0, "events": []}
+
+    async def test_malformed_row_among_good_rows_is_skipped(self, hass: HomeAssistant):
+        """Codex P2: one bad row among good ones must not abort the whole
+        service response — malformed rows are skipped, good rows returned."""
+        _cloud_entry_with_devices(
+            hass,
+            devices={INVERTER_SERIAL: {"type": "inverter"}},
+            rows_by_serial={INVERTER_SERIAL: [FAULT_ROW, "not-a-dict-row", MIDBOX_ROW]},
+        )
+
+        response = await async_fetch_events(
+            hass, _service_call({"config_entry": "cloud_entry"})
+        )
+
+        events = response["devices"][INVERTER_SERIAL]["events"]
+        assert [e["event_code"] for e in events] == ["E019", "W018"]
+        # total reflects what the portal reported, not the skipped count.
+        assert response["devices"][INVERTER_SERIAL]["total"] == 3
 
     async def test_missing_endpoint_raises(self, hass: HomeAssistant):
         """A pylxpweb without the event-list API raises ServiceValidationError."""

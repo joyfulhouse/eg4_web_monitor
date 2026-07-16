@@ -833,9 +833,19 @@ async def async_fetch_events(hass: HomeAssistant, call: ServiceCall) -> ServiceR
                 f"Failed to fetch events for {serial}: {err}"
             ) from err
         rows = response.get("rows") or []
+        # Degrade gracefully on malformed rows (normalize_event_row returns
+        # None for a non-dict row): skip them instead of aborting the whole
+        # response — one bad row among many must not lose the good ones.
+        events = []
+        for row in rows:
+            event = normalize_event_row(row)
+            if event is None:
+                _LOGGER.debug("Skipping malformed event row for %s: %r", serial, row)
+                continue
+            events.append(event)
         results[serial] = {
             "total": response.get("total", len(rows)),
-            "events": [normalize_event_row(row) for row in rows],
+            "events": events,
         }
 
     return {"devices": results}

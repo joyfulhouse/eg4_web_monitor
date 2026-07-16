@@ -970,9 +970,19 @@ class DeviceProcessingMixin(_MixinBase):
           start/end time, status) consumed as sensor attributes.
 
         Throttled to EVENT_LOG_FETCH_INTERVAL (5-minute smart-cache tier).
-        Inside the throttle window, or on a failed read, the previous cycle's
-        value is carried forward. No-op (key not published, so no entity is
-        created) without a cloud client or on a pylxpweb without the endpoint.
+        Inside the throttle window, or on a failed read OR parse, the previous
+        cycle's value is carried forward. No-op (key not published, so no
+        entity is created) without a cloud client or on a pylxpweb without
+        the endpoint.
+
+        The fetch AND the row parsing sit inside one exception boundary
+        (whole-operation wrap, like _fetch_quick_charge_status): the row
+        schema is effectively unvalidated upstream, and both call sites run
+        under the outer per-device try/except in coordinator_http.py — an
+        escaping parse error there replaces the whole device dict with an
+        error stub, blanking EVERY sensor on the device for the cycle (and on
+        the no-runtime-data path re-introducing the #256 offline-diagnostics
+        regression class).
         """
         client = self.client
         if client is None:
@@ -998,6 +1008,9 @@ class DeviceProcessingMixin(_MixinBase):
             response = await asyncio.wait_for(
                 fetch(serial, rows=1), timeout=EVENT_LOG_CLOUD_TIMEOUT
             )
+            rows = response.get("rows") or []
+            had_rows = bool(rows)
+            event = normalize_event_row(rows[0]) if had_rows else None
         except Exception as e:
             self._last_status_fetch[event_key] = now
             _LOGGER.debug("Could not fetch event log for %s: %s", serial, e)
@@ -1005,13 +1018,20 @@ class DeviceProcessingMixin(_MixinBase):
             return
 
         self._last_status_fetch[event_key] = now
-        rows = response.get("rows") or []
-        if not rows:
+        if had_rows and event is None:
+            # Malformed (non-dict) row — a parse failure, not "no events":
+            # keep the last good value rather than lying with unknown.
+            _LOGGER.debug(
+                "Malformed event row for %s; carrying previous event forward",
+                serial,
+            )
+            self._carry_forward_last_event(serial, target)
+            return
+        if event is None:
             # No events for this device: state is unknown (None), never "".
             target["sensors"]["last_event"] = None
             target["last_event_detail"] = None
             return
-        event = normalize_event_row(rows[0])
         event_text = event.get("event_text")
         target["sensors"]["last_event"] = (
             event_text[:_MAX_STATE_LENGTH] if isinstance(event_text, str) else None
