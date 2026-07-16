@@ -7607,6 +7607,63 @@ class TestACCoupleSOCStore:
         assert store["end_soc"] == 95
         assert "start_soc" not in store
 
+    async def test_malformed_getter_result_contained(self, hass, mock_config_entry):
+        """Round-3 P2-1: result parsing lives INSIDE the try — an unexpected
+        result shape (here: None, so .get raises) degrades to carry-forward
+        instead of escaping to the per-device handler and blanking the whole
+        inverter for the cycle (the #378 round-2 bug class)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            return_value=None
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)  # must not raise
+
+        assert target["ac_couple_soc"] is prev
+
+    async def test_no_data_cycle_carries_store_forward(self, hass, mock_config_entry):
+        """Round-3 P2-2: the has_data=False early return in the REAL
+        _process_inverter_object carries the store forward (no network) — an
+        offline/no-data cycle must not blank the entities (#256/#258
+        philosophy); they recover with the device."""
+        from custom_components.eg4_web_monitor.number import ACCoupleStartSOCNumber
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None  # carry-forward is client-independent
+        prev = {"start_soc": 85, "end_soc": 95, "fetched_at": 1.0}
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "type": "inverter",
+                    "model": "12000XP",
+                    "ac_couple_soc": prev,
+                }
+            }
+        }
+
+        # No runtime/energy -> inverter.has_data False -> early-return path.
+        inverter = make_real_inverter(self.SERIAL, "12000XP")
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+        assert inverter.has_data is False  # precondition: early-return path
+
+        processed = await coordinator._process_inverter_object(inverter)
+
+        assert processed["sensors"]["has_data"] is False  # the no-data cycle
+        assert processed["ac_couple_soc"] is prev
+        # Publish the cycle and prove the entities survive it.
+        coordinator.data["devices"][self.SERIAL] = processed
+        with patch.object(coordinator, "get_device_info", return_value=None):
+            entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
+        assert entity.native_value == 85
+        assert entity.available is True
+
     async def test_store_survives_hybrid_parameter_refresh(
         self, hass, mock_config_entry
     ):

@@ -1154,42 +1154,53 @@ class DeviceProcessingMixin(_MixinBase):
         if now - self._last_status_fetch.get(key, 0.0) < AC_COUPLE_SOC_FETCH_INTERVAL:
             self._carry_forward_ac_couple_soc(serial, target)
             return
+        self._last_status_fetch[key] = now
         try:
+            # Whole-operation boundary (PR #380 round-3 P2-1, matching
+            # _fetch_quick_charge_status): result PARSING sits inside the
+            # try too — an unexpected result shape must degrade to
+            # carry-forward here, not escape to the per-device handler and
+            # blank the whole inverter for the cycle (the #378 round-2 bug
+            # class).
             limits: dict[str, int | None] = await asyncio.wait_for(
                 getter(serial), timeout=AC_COUPLE_SOC_FETCH_TIMEOUT
             )
+            start_soc = limits.get("start_soc")
+            end_soc = limits.get("end_soc")
+            if start_soc is None and end_soc is None:
+                prev = (
+                    self.data["devices"][serial].get("ac_couple_soc")
+                    if self.data and serial in self.data.get("devices", {})
+                    else None
+                )
+                if prev is not None and (
+                    prev.get("start_soc") is not None or prev.get("end_soc") is not None
+                ):
+                    # An all-None read is indistinguishable from a total cloud
+                    # range-read failure (pylxpweb's range gather swallows
+                    # per-range errors and returns an empty dict) — never wipe
+                    # known values on what may be a transient blip. Devices
+                    # that genuinely lack the params never had values to keep.
+                    # Deliberately NO staleness ceiling: a device whose params
+                    # permanently vanished would pin the last-known values
+                    # forever — accepted (the capability is static in
+                    # practice); revisit if a real report shows otherwise.
+                    target["ac_couple_soc"] = prev
+                    return
+            target["ac_couple_soc"] = {
+                "start_soc": start_soc,
+                "end_soc": end_soc,
+                "fetched_at": now,
+            }
+            _LOGGER.debug(
+                "AC couple SOC limits for %s: start=%s end=%s",
+                serial,
+                start_soc,
+                end_soc,
+            )
         except Exception as e:
-            self._last_status_fetch[key] = now
             _LOGGER.debug("Could not fetch AC couple SOC limits for %s: %s", serial, e)
             self._carry_forward_ac_couple_soc(serial, target)
-            return
-        self._last_status_fetch[key] = now
-        start_soc = limits.get("start_soc")
-        end_soc = limits.get("end_soc")
-        if start_soc is None and end_soc is None:
-            prev = (
-                self.data["devices"][serial].get("ac_couple_soc")
-                if self.data and serial in self.data.get("devices", {})
-                else None
-            )
-            if prev is not None and (
-                prev.get("start_soc") is not None or prev.get("end_soc") is not None
-            ):
-                # An all-None read is indistinguishable from a total cloud
-                # range-read failure (pylxpweb's range gather swallows
-                # per-range errors and returns an empty dict) — never wipe
-                # known values on what may be a transient blip. Devices that
-                # genuinely lack the params never had values to keep.
-                target["ac_couple_soc"] = prev
-                return
-        target["ac_couple_soc"] = {
-            "start_soc": start_soc,
-            "end_soc": end_soc,
-            "fetched_at": now,
-        }
-        _LOGGER.debug(
-            "AC couple SOC limits for %s: start=%s end=%s", serial, start_soc, end_soc
-        )
 
     async def _poll_firmware_update_info(self, device: Any) -> dict[str, Any] | None:
         """Poll and extract firmware update information for a device.
@@ -1318,6 +1329,13 @@ class DeviceProcessingMixin(_MixinBase):
             # Portal event log (#327) — fetched even without runtime data: an
             # offline/faulted inverter is exactly when the event log matters.
             await self._fetch_last_event(inverter.serial_number, processed)
+            # AC couple SOC store (#352, PR #380 round-3 P2-2): cheap
+            # no-network carry-forward so a no-data cycle does not blank the
+            # entities (#256/#258 philosophy — transient blips must not wipe
+            # last-known state). Unlike the event log there is nothing new to
+            # learn from the cloud while the device is down that the next
+            # healthy cycle's throttled fetch won't pick up.
+            self._carry_forward_ac_couple_soc(inverter.serial_number, processed)
             return processed
 
         # Map inverter properties to sensor keys
