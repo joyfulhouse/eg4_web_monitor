@@ -719,6 +719,9 @@
       },
       "share_battery": {
         "name": "Share Battery"
+      },
+      "ac_couple": {
+        "name": "AC Couple"
       }
     },
     "number": {

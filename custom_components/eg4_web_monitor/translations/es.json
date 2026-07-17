@@ -719,6 +719,9 @@
       },
       "share_battery": {
         "name": "Compartir batería"
+      },
+      "ac_couple": {
+        "name": "Acoplamiento AC"
       }
     },
     "number": {

@@ -719,6 +719,9 @@
       },
       "share_battery": {
         "name": "电池共享"
+      },
+      "ac_couple": {
+        "name": "交流耦合"
       }
     },
     "number": {

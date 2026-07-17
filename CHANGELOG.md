@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **AC Couple Start/End SOC number entities** ([#352](https://github.com/joyfulhouse/eg4_web_monitor/issues/352), requested by @mjstrand): the SOC window governing the AC-coupled source on the inverter's smart port — enabled when battery SOC drops below *Start*, disabled above *End* — scriptable for safe grid/smart-port source transfers. Cloud-only (no local Modbus register): created on Cloud and Hybrid connections for all supported inverters, refreshed from the cloud on a 5-minute cadence (which also picks up portal-side edits), unavailable on devices that do not carry the parameters. A factory-disabled End threshold (`255`, "never stop") shows as unknown with a `disabled_sentinel: true` attribute. Requires pylxpweb ≥ 0.9.39b2.
+- **AC Couple switch** ([#471](https://github.com/joyfulhouse/eg4_web_monitor/issues/471), follow-up to #352 suggested by @mjstrand and @ivanfmartinez): enables/disables the inverter's AC couple function (`FUNC_AC_COUPLING_FUNCTION`) outright — de-energizing the AC-coupled source on the smart port at any battery level, without driving the Start/End SOC window. Same cloud-only architecture as the SOC pair (state from the 5-minute cloud read, writes cloud-routed in every mode, unavailable on devices that lack the function param). Requires pylxpweb ≥ 0.9.39b3.
 
 ## [3.5.1-beta.1] - 2026-07-15
 

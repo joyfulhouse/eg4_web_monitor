@@ -690,24 +690,54 @@ class EG4DataUpdateCoordinator(
         params.update(values)
         self.async_update_listeners()
 
-    def note_ac_couple_soc_written(self, serial: str, key: str, value: int) -> None:
-        """Merge an acknowledged AC couple SOC write into the dedicated store.
+    def note_ac_couple_soc_written(
+        self, serial: str, key: str, value: int | bool
+    ) -> None:
+        """Merge an acknowledged AC couple write into the dedicated store.
 
-        The AC Couple SOC window lives in the ``ac_couple_soc`` device-data
-        store, NOT the parameter cache (GH #352 — no local register, so a
-        HYBRID parameter refresh would wipe cache-seeded values). The written
-        value IS device truth (the cloud write was acknowledged); merging it
-        keeps the UI converged until the next throttled getter read confirms.
+        The AC Couple SOC window and enable state live in the
+        ``ac_couple_soc`` device-data store, NOT the parameter cache (GH #352
+        — no local register, so a HYBRID parameter refresh would wipe
+        cache-seeded values). The written value IS device truth (the cloud
+        write was acknowledged); merging it keeps the UI converged until the
+        next throttled getter read confirms.
 
         Sibling-preserving by design: the store dict is copied and only
         ``key`` is replaced, so writing Start never blanks a known End value
         (and vice versa) — PR #380 review P1.
 
+        Persistent write-seed registry (PR #471 review): the acknowledged
+        write is ALSO recorded in ``_ac_couple_soc_seeds`` — a per-serial dict
+        that lives OUTSIDE ``self.data`` and therefore survives the wholesale
+        ``self.data`` replacement at the end of a refresh cycle. Seeding only
+        ``self.data`` is not enough: a refresh cycle already in flight
+        snapshots the store (throttled carry-forward) BEFORE this write lands,
+        then publishes that stale snapshot on completion — reverting the UI
+        until the next 5-minute cloud read. Every carry-forward path re-applies
+        the registry (:meth:`_overlay_ac_couple_seeds`), and a cloud read
+        initiated AFTER the write clears it (:meth:`_fetch_ac_couple_soc`).
+
+        Each field carries its OWN timestamp (PR #471 round-2 review): a later
+        write to one key must NOT renew an older key's seed, or an in-flight
+        read fetching a legitimate external portal change to that older key
+        would be clobbered by the stale seed. Seeds are keyed
+        ``{serial: {store_key: {"value": ..., "at": monotonic}}}`` and each
+        field's seed is applied/cleared independently.
+
         Args:
             serial: Inverter serial number.
-            key: Store key — ``"start_soc"`` or ``"end_soc"``.
-            value: Acknowledged whole-percent value.
+            key: Store key — ``"start_soc"``, ``"end_soc"`` or ``"enabled"``.
+            value: Acknowledged whole-percent value, or the acknowledged
+                FUNC_AC_COUPLING_FUNCTION state for ``"enabled"`` (GH #471).
         """
+        now = time.monotonic()
+        if not hasattr(self, "_ac_couple_soc_seeds"):
+            self._ac_couple_soc_seeds = {}
+        self._ac_couple_soc_seeds.setdefault(serial, {})[key] = {
+            "value": value,
+            "at": now,
+        }
+
         if not self.data:
             return
         device = self.data.get("devices", {}).get(serial)
@@ -715,7 +745,7 @@ class EG4DataUpdateCoordinator(
             return
         store = dict(device.get("ac_couple_soc") or {})
         store[key] = value
-        store["fetched_at"] = time.monotonic()
+        store["fetched_at"] = now
         device["ac_couple_soc"] = store
         self.async_update_listeners()
 
