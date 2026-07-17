@@ -719,6 +719,9 @@
       },
       "share_battery": {
         "name": "Совместная батарея"
+      },
+      "ac_couple": {
+        "name": "AC-сопряжение"
       }
     },
     "number": {

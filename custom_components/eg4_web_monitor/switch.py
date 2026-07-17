@@ -224,6 +224,16 @@ async def async_setup_entry(
                         serial,
                     )
 
+                # AC Couple switch (GH #471): CLOUD-ONLY function param
+                # (FUNC_AC_COUPLING_FUNCTION) with no pinned local register —
+                # same gate as the AC Couple Start/End SOC numbers (GH #352,
+                # number.py): only where a cloud client can read and write
+                # it, NOT family-gated. Devices that truly lack the param
+                # read None from the cloud getter and the switch goes
+                # unavailable instead.
+                if coordinator.has_http_api():
+                    entities.append(EG4ACCoupleSwitch(coordinator, serial))
+
                 # Add battery backup switch (EPS) based on feature detection
                 eps_supported = _supports_eps_battery_backup(device_data)
                 _LOGGER.debug(
@@ -556,6 +566,120 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         self._pending_state = turn_on
         self._pending_since = time.monotonic()
         self.async_write_ha_state()
+
+
+class EG4ACCoupleSwitch(EG4BaseSwitch):
+    """AC Couple function switch (GH #471, cloud client required).
+
+    Toggles the inverter-level ``FUNC_AC_COUPLING_FUNCTION`` — enabling or
+    disabling the AC-coupled source on the smart port outright, regardless
+    of the Start/End SOC window (GH #352's number pair; portal wire name
+    confirmed by two independent reporters in that issue). Distinct from the
+    GridBOSS per-port ``FUNC_AC_COUPLE_EN_{n}`` functions.
+
+    CLOUD-ONLY like the SOC pair: the portal writes the function param and
+    no local register is pinned, so writes route through the cloud client in
+    every mode and state reads from the coordinator's dedicated
+    ``ac_couple_soc`` store (throttled 5-minute getter + carry-forward +
+    post-write seeding), never the parameter cache — a HYBRID parameter
+    refresh rebuilds the cache from local registers alone and would wipe any
+    cloud-seeded value (PR #380 review P1). Holding reg 179 bit 11 is the
+    documented CANDIDATE local register (ivanfmartinez, #471 — Luxpower doc
+    + cross-integration use); a LOCAL path is a follow-up once the bit is
+    pinned by a live raw↔named lockstep toggle (pylxpweb reg-179 note).
+
+    The base class's full-refresh write envelope is deliberately NOT used:
+    the store IS the state source and the acknowledged write seeds it
+    directly (``note_ac_couple_soc_written``), so a full coordinator refresh
+    would burn API calls without re-reading the throttled store.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize the AC couple switch."""
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            entity_key="ac_couple",
+            name="AC Couple",
+            icon="mdi:solar-power-variant",
+            translation_key="ac_couple",
+        )
+
+    @property
+    def _stored_enabled(self) -> bool | None:
+        """FUNC_AC_COUPLING_FUNCTION state from the dedicated store."""
+        store = self._device_data.get("ac_couple_soc") or {}
+        value = store.get("enabled")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def available(self) -> bool:
+        """Available only while the store holds a state (or mid-write).
+
+        Absent state — first cloud fetch pending, a pre-0.9.39b3 pylxpweb
+        getter, or a device whose family genuinely lacks the function param
+        — must show unavailable, never a fake OFF.
+        """
+        if not super().available:
+            return False
+        if self._optimistic_state is not None:
+            return True
+        return self._stored_enabled is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the AC couple function state."""
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+        return self._stored_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the AC couple function."""
+        await self._async_set_ac_couple(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the AC couple function."""
+        await self._async_set_ac_couple(False)
+
+    async def _async_set_ac_couple(self, enabled: bool) -> None:
+        """Write FUNC_AC_COUPLING_FUNCTION through the cloud client."""
+        client = self.coordinator.require_client()
+        method = getattr(client.api.control, "set_inverter_ac_couple_enabled", None)
+        if method is None:
+            raise HomeAssistantError(
+                "Failed to set AC couple: pylxpweb is missing "
+                "set_inverter_ac_couple_enabled (requires >= 0.9.39b3)"
+            )
+        action = "enable" if enabled else "disable"
+        _LOGGER.info("Setting AC couple to %sd for %s", action, self._serial)
+        self._optimistic_state = enabled
+        self.async_write_ha_state()
+        try:
+            result = await method(self._serial, enabled)
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to {action} AC couple for {self._serial}"
+                )
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action} AC couple for {self._serial}: {e}"
+            ) from e
+        # Seed the dedicated store (sibling-preserving) with the acknowledged
+        # state; the next throttled getter read confirms. Clear the
+        # optimistic state first — the seed fires listeners, which publish
+        # the store value.
+        self._optimistic_state = None
+        self.coordinator.note_ac_couple_soc_written(self._serial, "enabled", enabled)
 
 
 class EG4BatteryBackupSwitch(EG4BaseSwitch):

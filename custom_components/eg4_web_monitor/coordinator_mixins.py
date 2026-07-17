@@ -536,6 +536,11 @@ if TYPE_CHECKING:
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
         _last_status_fetch: dict[str, float]
+        # AC couple write-seed registry (GH #471): {serial: {store_key:
+        # {"value": int|bool, "at": monotonic}}} — survives self.data
+        # replacement so a mid-cycle write is not reverted; per-field
+        # timestamps keep each key's seed lifecycle independent (round-2).
+        _ac_couple_soc_seeds: dict[str, dict[str, dict[str, Any]]]
         _daily_api_offset: int
         _daily_api_ymd: tuple[int, int, int]
         _modbus_transport: ModbusTransport | ModbusSerialTransport | None
@@ -1120,7 +1125,39 @@ class DeviceProcessingMixin(_MixinBase):
         if self.data and serial in self.data.get("devices", {}):
             prev = self.data["devices"][serial].get("ac_couple_soc")
             if prev is not None:
-                target["ac_couple_soc"] = prev
+                target["ac_couple_soc"] = self._overlay_ac_couple_seeds(serial, prev)
+
+    def _overlay_ac_couple_seeds(
+        self, serial: str, store: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Re-apply acknowledged-write seeds on top of a store dict.
+
+        Closes the mid-cycle race (PR #471 review): a refresh cycle snapshots
+        the store early (throttled carry-forward), so a write acknowledged
+        while that cycle is in flight lands its ``note_ac_couple_soc_written``
+        seed in the CURRENT ``self.data`` — which the cycle's stale snapshot
+        then replaces on publish, silently reverting the UI until the next
+        5-minute cloud read. The seed registry survives cycles; every carried
+        store re-applies it here, and ``_fetch_ac_couple_soc`` clears it once
+        a cloud read initiated after the write confirms. Identity is
+        preserved when no seed is pending (the carried-dict staleness
+        provenance and the existing identity assertions rely on that).
+
+        A carry-forward cycle never initiated a cloud read, so every pending
+        per-field seed still wins here (no timestamp comparison — that lives
+        in the fetch path, which is the only place a fresh read can supersede
+        a seed).
+        """
+        seeds = getattr(self, "_ac_couple_soc_seeds", {}).get(serial)
+        if not seeds:
+            return store
+        merged = dict(store)
+        latest = store.get("fetched_at") or 0.0
+        for field, seed in seeds.items():
+            merged[field] = seed["value"]
+            latest = max(latest, seed["at"])
+        merged["fetched_at"] = latest
+        return merged
 
     async def _fetch_ac_couple_soc(
         self, inverter: "BaseInverter", target: dict[str, Any]
@@ -1139,6 +1176,11 @@ class DeviceProcessingMixin(_MixinBase):
         failures. Values are whole percent ints, ``None`` when the device
         does not carry the param (models without AC couple support), and
         the END value 255 is the factory disabled/"never stop" sentinel.
+
+        The store also carries ``enabled`` — the FUNC_AC_COUPLING_FUNCTION
+        state backing the AC Couple switch (GH #471), same cloud-only
+        rationale and same getter read. ``None`` when the param is absent
+        or the installed pylxpweb getter predates it (< 0.9.39b3).
         """
         client = self.client
         if client is None:
@@ -1169,19 +1211,31 @@ class DeviceProcessingMixin(_MixinBase):
             # carry-forward here, not escape to the per-device handler and
             # blank the whole inverter for the cycle (the #378 round-2 bug
             # class).
-            limits: dict[str, int | None] = await asyncio.wait_for(
+            limits: dict[str, int | bool | None] = await asyncio.wait_for(
                 getter(serial), timeout=AC_COUPLE_SOC_FETCH_TIMEOUT
             )
             start_soc = limits.get("start_soc")
             end_soc = limits.get("end_soc")
-            if start_soc is None and end_soc is None:
-                prev = (
-                    self.data["devices"][serial].get("ac_couple_soc")
-                    if self.data and serial in self.data.get("devices", {})
-                    else None
-                )
-                if prev is not None and (
-                    prev.get("start_soc") is not None or prev.get("end_soc") is not None
+            enabled = limits.get("enabled")
+            if not isinstance(enabled, bool):
+                # Absent key (pylxpweb < 0.9.39b3 getter) or unparseable —
+                # never let a fake truthy/falsy value reach the switch.
+                enabled = None
+            # What this read actually OBSERVED per field, BEFORE carry-forward
+            # substitutes prior values — the seed-clear step below needs to
+            # distinguish "read saw a concrete value" from "read failed/absent
+            # for this field" (post-#473 review).
+            observed = {"start_soc": start_soc, "end_soc": end_soc, "enabled": enabled}
+            prev = (
+                self.data["devices"][serial].get("ac_couple_soc")
+                if self.data and serial in self.data.get("devices", {})
+                else None
+            ) or {}
+            if start_soc is None and end_soc is None and enabled is None:
+                if (
+                    prev.get("start_soc") is not None
+                    or prev.get("end_soc") is not None
+                    or prev.get("enabled") is not None
                 ):
                     # An all-None read is indistinguishable from a total cloud
                     # range-read failure (pylxpweb's range gather swallows
@@ -1192,18 +1246,72 @@ class DeviceProcessingMixin(_MixinBase):
                     # permanently vanished would pin the last-known values
                     # forever — accepted (the capability is static in
                     # practice); revisit if a real report shows otherwise.
-                    target["ac_couple_soc"] = prev
+                    target["ac_couple_soc"] = self._overlay_ac_couple_seeds(
+                        serial, prev
+                    )
                     return
-            target["ac_couple_soc"] = {
+            else:
+                # Per-field carry-forward (PR #471 review, found independently
+                # by two reviewers): a None FIELD on an otherwise-successful
+                # read is likewise indistinguishable from a PARTIAL range-read
+                # failure — the params' true registers are unpinned, so
+                # same-range locality cannot be assumed and one range can fail
+                # while another succeeds. A known value is never overwritten
+                # with None; genuinely-lacking devices never had one to keep
+                # (same static-capability trade as the all-None branch).
+                if start_soc is None:
+                    start_soc = prev.get("start_soc")
+                if end_soc is None:
+                    end_soc = prev.get("end_soc")
+                if enabled is None:
+                    prev_enabled = prev.get("enabled")
+                    if isinstance(prev_enabled, bool):
+                        enabled = prev_enabled
+            store = {
                 "start_soc": start_soc,
                 "end_soc": end_soc,
+                "enabled": enabled,
                 "fetched_at": now,
             }
+            # Acknowledged-write seeds, evaluated PER FIELD. A field's seed is
+            # SUPERSEDED (dropped) only when this read OBSERVED a concrete value
+            # for it (``observed[field] is not None``) AFTER the write — that
+            # value is newer device truth (the write itself, or a later
+            # external change). It is RETAINED and applied when either the seed
+            # post-dates the read's start (a write that raced this in-flight
+            # read) OR the read did not observe the field at all (a partial
+            # range-read failure returned None): a read that never saw the
+            # field cannot confirm or supersede the write, so clearing on
+            # read-start-time alone would revert a just-written value that a
+            # race-reverted ``self.data`` carried back in (post-#473 review).
+            # Per-field timestamps also stop a later write to a DIFFERENT key
+            # from renewing this one and clobbering an external change.
+            #
+            # This apply-or-clear is DELIBERATELY separate from
+            # _overlay_ac_couple_seeds (used by the carry-forward paths), which
+            # applies every pending seed unconditionally: only this path has a
+            # fresh read to compare a seed against and thus to supersede it. Do
+            # NOT merge the two into one helper (PR #471 review LOW).
+            serial_seeds = getattr(self, "_ac_couple_soc_seeds", {}).get(serial)
+            if serial_seeds:
+                for field in list(serial_seeds):
+                    superseded = (
+                        serial_seeds[field]["at"] <= now
+                        and observed.get(field) is not None
+                    )
+                    if superseded:
+                        del serial_seeds[field]
+                    else:
+                        store[field] = serial_seeds[field]["value"]
+                if not serial_seeds:
+                    self._ac_couple_soc_seeds.pop(serial, None)
+            target["ac_couple_soc"] = store
             _LOGGER.debug(
-                "AC couple SOC limits for %s: start=%s end=%s",
+                "AC couple SOC limits for %s: start=%s end=%s enabled=%s",
                 serial,
-                start_soc,
-                end_soc,
+                store["start_soc"],
+                store["end_soc"],
+                store["enabled"],
             )
         except Exception as e:
             _LOGGER.debug("Could not fetch AC couple SOC limits for %s: %s", serial, e)

@@ -7552,9 +7552,17 @@ class TestACCoupleSOCStore:
         assert target["ac_couple_soc"]["start_soc"] is None
         assert target["ac_couple_soc"]["end_soc"] is None
 
-    async def test_partial_none_read_replaces_store(self, hass, mock_config_entry):
-        """A read with at least one value is fresh device truth and replaces
-        the store wholesale (including a param going absent)."""
+    async def test_partial_none_read_carries_forward_missing_sibling(
+        self, hass, mock_config_entry
+    ):
+        """Per-field carry-forward (PR #471 review, was
+        test_partial_none_read_replaces_store): a present field is fresh device
+        truth, but a None sibling on the same read is indistinguishable from a
+        PARTIAL range-read failure — the SOC params' true registers are
+        unpinned, so same-range locality cannot be assumed. The known sibling
+        is carried forward, NOT wiped to None (the earlier
+        replace-wholesale contract could blank a known value on a transient
+        partial blip)."""
         coordinator = self._coordinator(
             hass, mock_config_entry, limits={"start_soc": 100, "end_soc": None}
         )
@@ -7565,8 +7573,219 @@ class TestACCoupleSOCStore:
         target: dict[str, Any] = {}
         await coordinator._fetch_ac_couple_soc(inverter, target)
 
-        assert target["ac_couple_soc"]["start_soc"] == 100
-        assert target["ac_couple_soc"]["end_soc"] is None
+        assert target["ac_couple_soc"]["start_soc"] == 100  # fresh value wins
+        assert target["ac_couple_soc"]["end_soc"] == 95  # sibling carried, not wiped
+
+    async def test_enabled_only_read_preserves_soc_siblings(
+        self, hass, mock_config_entry
+    ):
+        """Regression (PR #471 review, both directions): an enabled-only read
+        (SOC ranges dropped by a partial failure) must not wipe known
+        start/end SOC — the #352 number entities keep working."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": None, "end_soc": None, "enabled": True},
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "enabled": False, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        store = target["ac_couple_soc"]
+        assert store["start_soc"] == 85  # SOC siblings preserved
+        assert store["end_soc"] == 95
+        assert store["enabled"] is True  # fresh switch state wins
+
+    async def test_soc_only_read_preserves_enabled_sibling(
+        self, hass, mock_config_entry
+    ):
+        """Regression (PR #471 review): a SOC-only read (FUNC range dropped, or
+        a pre-0.9.39b3 getter with no enabled key) must not wipe a known switch
+        state to None — the AC Couple switch stays available."""
+        coordinator = self._coordinator(
+            hass, mock_config_entry, limits={"start_soc": 90, "end_soc": 95}
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": 85, "end_soc": 95, "enabled": True, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        store = target["ac_couple_soc"]
+        assert store["start_soc"] == 90  # fresh value wins
+        assert store["enabled"] is True  # switch state preserved, not wiped
+
+    async def test_inflight_write_seed_survives_stale_read(
+        self, hass, mock_config_entry
+    ):
+        """The mid-cycle race (PR #471 review, HIGH ×2): a write acknowledged
+        while a fetch is in flight (its seed stamp NEWER than the read's start)
+        wins over the read's pre-write cloud state — the switch does not revert.
+        """
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": False},  # stale
+        )
+        inverter = self._inverter()
+        # A write landed during the read: seed stamped in the future relative
+        # to this fetch's start (now = time.monotonic() captured on entry).
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {"enabled": {"value": True, "at": time.monotonic() + 1000}}
+        }
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"]["enabled"] is True  # seed won, no revert
+        # Seed retained (the read was older) for the next cycle.
+        assert "enabled" in coordinator._ac_couple_soc_seeds[self.SERIAL]
+
+    async def test_post_write_read_clears_seed(self, hass, mock_config_entry):
+        """A cloud read INITIATED AFTER the write (seed stamp older than the
+        read's start) is authoritative and clears the seed — normal
+        convergence once the portal reflects the write."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": True},  # confirmed
+        )
+        inverter = self._inverter()
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {"enabled": {"value": True, "at": time.monotonic() - 1000}}
+        }
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"]["enabled"] is True
+        # Whole serial entry dropped once its last field seed cleared.
+        assert self.SERIAL not in coordinator._ac_couple_soc_seeds
+
+    async def test_seed_survives_read_that_missed_the_field(
+        self, hass, mock_config_entry
+    ):
+        """Post-#473 review: a post-write read that did NOT observe the seeded
+        field (its range failed -> None) must NOT clear the seed — it confirmed
+        nothing. Combined with per-field carry-forward pulling a race-reverted
+        pre-write value from self.data, clearing here would revert a just-
+        written switch state for a cycle. The seed is retained and applied."""
+        # The FUNC range failed (enabled=None) while the SOC range succeeded;
+        # self.data was reverted to the pre-write enabled=False by a stale
+        # in-flight cycle, so per-field carry-forward would otherwise pull
+        # False back.
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": None},
+        )
+        inverter = self._inverter()
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {"ac_couple_soc": {"enabled": False, "fetched_at": 1.0}}
+            }
+        }
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {"enabled": {"value": True, "at": time.monotonic() - 1000}}
+        }
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        # Seed wins over the race-reverted carry-forward; write not lost.
+        assert target["ac_couple_soc"]["enabled"] is True
+        assert "enabled" in coordinator._ac_couple_soc_seeds[self.SERIAL]
+
+    async def test_per_field_seed_timestamps_independent(self, hass, mock_config_entry):
+        """PR #471 round-2 (Gemini HIGH): each seeded field carries its OWN
+        timestamp. A newer write to one key must NOT renew an older key's
+        seed and clobber a legitimate external portal change to that older key
+        that an in-flight read picked up."""
+        # In-flight read returns an EXTERNAL start_soc change (50) and the
+        # pre-write enabled (False, stale).
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 50, "end_soc": 95, "enabled": False},
+        )
+        inverter = self._inverter()
+        # start_soc written EARLIER (before this read started); enabled written
+        # LATER (after this read started, still in flight).
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {
+                "start_soc": {"value": 20, "at": time.monotonic() - 10},
+                "enabled": {"value": True, "at": time.monotonic() + 1000},
+            }
+        }
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        store = target["ac_couple_soc"]
+        # start_soc seed OLDER than this read -> dropped -> external 50 wins.
+        assert store["start_soc"] == 50
+        assert "start_soc" not in coordinator._ac_couple_soc_seeds[self.SERIAL]
+        # enabled seed NEWER than this read -> applied and retained.
+        assert store["enabled"] is True
+        assert "enabled" in coordinator._ac_couple_soc_seeds[self.SERIAL]
+
+    async def test_carry_forward_reapplies_write_seed(self, hass, mock_config_entry):
+        """A throttled/failed cycle carries the store forward WITH the seed
+        overlaid — the registry outlives the self.data snapshot the in-flight
+        cycle would otherwise publish, so the acknowledged write persists until
+        a post-write read confirms it."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        prev = {"start_soc": 85, "end_soc": 95, "enabled": False, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {"enabled": {"value": True, "at": time.monotonic()}}
+        }
+
+        target: dict[str, Any] = {}
+        coordinator._carry_forward_ac_couple_soc(self.SERIAL, target)
+
+        assert target["ac_couple_soc"]["enabled"] is True  # seed overlaid
+        assert target["ac_couple_soc"]["start_soc"] == 85  # siblings intact
+
+    async def test_note_written_populates_seed_registry(self, hass, mock_config_entry):
+        """The real seed method records the write in the persistent registry
+        (outside self.data) so it survives a cycle's data replacement."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {self.SERIAL: {"type": "inverter"}}}
+
+        before = time.monotonic()
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "enabled", True)
+
+        entry = coordinator._ac_couple_soc_seeds[self.SERIAL]["enabled"]
+        assert entry["value"] is True
+        # Stamp is a real monotonic reading captured during the call (both
+        # reads use the same clock — compare against a value taken before the
+        # call, never a second live reading, so a leaked time-mock elsewhere
+        # in the suite cannot turn this into a MagicMock comparison).
+        assert isinstance(entry["at"], float)
+        assert entry["at"] >= before
+
+    async def test_note_written_independent_field_timestamps(
+        self, hass, mock_config_entry
+    ):
+        """Round-2: a second write to a DIFFERENT key leaves the first key's
+        seed timestamp untouched (no shared per-serial stamp to renew)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {self.SERIAL: {"type": "inverter"}}}
+
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "start_soc", 20)
+        first_at = coordinator._ac_couple_soc_seeds[self.SERIAL]["start_soc"]["at"]
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "enabled", True)
+
+        seeds = coordinator._ac_couple_soc_seeds[self.SERIAL]
+        assert seeds["start_soc"]["at"] == first_at  # untouched by the enabled write
+        assert seeds["enabled"]["at"] >= first_at
 
     async def test_fetch_skipped_without_client(self, hass, mock_config_entry):
         """Pure LOCAL (no cloud client): no fetch, no store, no crash."""
@@ -7733,6 +7952,115 @@ class TestACCoupleSOCStore:
             entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
         assert entity.native_value == 85
         assert entity.available is True
+
+    # ── FUNC_AC_COUPLING_FUNCTION enable state (GH #471) ──────────────
+
+    async def test_fetch_stores_enabled(self, hass, mock_config_entry):
+        """The getter's enabled bool rides the same fetch into the store."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": True},
+        )
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert target["ac_couple_soc"]["enabled"] is True
+
+    async def test_enabled_absent_from_getter_stores_none(
+        self, hass, mock_config_entry
+    ):
+        """A pre-0.9.39b3 getter result (no enabled key) stores None — the
+        switch goes unavailable while the SOC numbers keep working."""
+        coordinator = self._coordinator(
+            hass, mock_config_entry, limits={"start_soc": 85, "end_soc": 95}
+        )
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert target["ac_couple_soc"]["start_soc"] == 85
+        assert target["ac_couple_soc"]["enabled"] is None
+
+    async def test_enabled_non_bool_normalized_to_none(self, hass, mock_config_entry):
+        """Defensive: a non-bool leaking through the getter must never reach
+        the switch as a fake truthy/falsy state."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": "true"},
+        )
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(self._inverter(), target)
+
+        assert target["ac_couple_soc"]["enabled"] is None
+
+    async def test_enabled_only_read_counts_as_values(self, hass, mock_config_entry):
+        """A device carrying only the function param (SOC window absent) is
+        a real read, not the all-None failure shape — it must be stored."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": None, "end_soc": None, "enabled": False},
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": None, "end_soc": None, "enabled": True, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"]["enabled"] is False  # fresh, not prev
+
+    async def test_all_none_read_does_not_wipe_known_enabled(
+        self, hass, mock_config_entry
+    ):
+        """The all-None carry-forward guard covers enabled too: a known
+        switch state must not be wiped by a total range-read failure."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": None, "end_soc": None, "enabled": None},
+        )
+        inverter = self._inverter()
+        prev = {"start_soc": None, "end_soc": None, "enabled": True, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"ac_couple_soc": prev}}}
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        assert target["ac_couple_soc"] is prev
+
+    async def test_note_written_enabled_preserves_soc_siblings(
+        self, hass, mock_config_entry
+    ):
+        """Seeding the switch state must not blank known SOC values (the
+        #380 P1 sibling-preservation contract extended to the bool key)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "type": "inverter",
+                    "ac_couple_soc": {
+                        "start_soc": 85,
+                        "end_soc": 95,
+                        "enabled": False,
+                        "fetched_at": 1.0,
+                    },
+                }
+            }
+        }
+
+        coordinator.note_ac_couple_soc_written(self.SERIAL, "enabled", True)
+
+        store = coordinator.data["devices"][self.SERIAL]["ac_couple_soc"]
+        assert store["enabled"] is True
+        assert store["start_soc"] == 85
+        assert store["end_soc"] == 95
+        assert store["fetched_at"] > 1.0
 
 
 class TestFirmwarePollCarryForward:

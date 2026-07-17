@@ -233,15 +233,18 @@ automation:
           entity_id: switch.18kpv_1234567890_battery_backup
 ```
 
-### AC Couple Start/End SOC (cloud connection required)
+### AC Couple controls (cloud connection required)
 
-Inverters expose **AC Couple Start SOC** and **AC Couple End SOC** number
-entities: the AC-coupled source on the smart port is enabled when battery SOC
-drops below *Start* and disabled above *End*. Scripting these lets you
-de-energize the smart port on demand — e.g. to safely transfer a grid-tied
-inverter between the grid and the smart port (#352). The parameters are not
-family-specific: they are used live on off-grid 12000XP systems and on-grid
-hybrid LXP systems alike.
+Inverters expose an **AC Couple** switch plus **AC Couple Start SOC** and
+**AC Couple End SOC** number entities. The switch toggles the AC couple
+function itself (`FUNC_AC_COUPLING_FUNCTION`) — off means the AC-coupled
+source on the smart port is de-energized at any battery level (#471). The
+SOC window governs the function while it is enabled: the source is enabled
+when battery SOC drops below *Start* and disabled above *End* (#352).
+Scripting these lets you de-energize the smart port on demand — e.g. to
+safely transfer a grid-tied inverter between the grid and the smart port.
+The parameters are not family-specific: they are used live on off-grid
+12000XP systems and on-grid hybrid LXP systems alike.
 
 Notes:
 
@@ -256,10 +259,25 @@ Notes:
   attribute in that state; 255 cannot be written from the 0-100 slider —
   set any 0-100 value to take control, or restore 255 from the EG4 portal.
 
+For an on-demand transfer, toggling the switch is the simplest lever:
+
 ```yaml
 script:
   drop_smart_port_power:
     alias: "De-energize smart port before transfer"
+    sequence:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.12000xp_1234567890_ac_couple
+```
+
+Alternatively, drive the SOC window (the source stays governed by battery
+level instead of being switched off outright):
+
+```yaml
+script:
+  drop_smart_port_power_via_soc:
+    alias: "De-energize smart port via SOC window"
     sequence:
       - service: number.set_value
         target:

@@ -719,6 +719,9 @@
       },
       "share_battery": {
         "name": "배터리 공유"
+      },
+      "ac_couple": {
+        "name": "AC 커플링"
       }
     },
     "number": {

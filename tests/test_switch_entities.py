@@ -22,6 +22,7 @@ from custom_components.eg4_web_monitor.utils import is_family_control_supported
 from custom_components.eg4_web_monitor.switch import (
     _supports_eps_battery_backup,
     async_setup_entry,
+    EG4ACCoupleSwitch,
     EG4QuickChargeSwitch,
     EG4BatteryBackupSwitch,
     EG4OffGridModeSwitch,
@@ -977,6 +978,308 @@ class TestQuickChargeCacheStatePeek:
 # ── BatteryBackupSwitch ──────────────────────────────────────────────
 
 
+class TestACCoupleSwitch:
+    """AC Couple function switch — cloud client required, family-neutral.
+
+    Toggles FUNC_AC_COUPLING_FUNCTION (GH #471): cloud-only like the #352
+    SOC number pair, state from the coordinator's dedicated ``ac_couple_soc``
+    store (``enabled`` key), writes cloud-routed in every mode. A device
+    that truly lacks the param (or a pre-0.9.39b3 pylxpweb getter) stores
+    ``enabled=None`` and the switch goes unavailable — never a fake OFF.
+    """
+
+    SERIAL = "1234567890"
+
+    @staticmethod
+    def _coordinator(*, store=None, **kwargs):
+        coordinator = _mock_coordinator(**kwargs)
+        if store is not None:
+            coordinator.data["devices"]["1234567890"]["ac_couple_soc"] = store
+
+        def _require_client():
+            if coordinator.client is None:
+                raise HomeAssistantError(
+                    "No local transport or cloud API available for parameter write."
+                )
+            return coordinator.client
+
+        coordinator.require_client = MagicMock(side_effect=_require_client)
+        return coordinator
+
+    def _cloud_write_mock(self, coordinator, *, success=True):
+        mock = AsyncMock(return_value=MagicMock(success=success))
+        coordinator.client.api.control.set_inverter_ac_couple_enabled = mock
+        return mock
+
+    # ── Entity creation gating (cloud client only — no family gate) ───
+
+    @pytest.mark.asyncio
+    async def test_created_with_cloud_client(self, hass):
+        coordinator = self._coordinator(has_http=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
+
+    @pytest.mark.asyncio
+    async def test_created_for_hybrid(self, hass):
+        """HYBRID has a cloud client — the switch is created (cloud-routed)."""
+        coordinator = self._coordinator(has_http=True, has_local=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
+
+    @pytest.mark.asyncio
+    async def test_not_created_in_pure_local(self, hass):
+        """Pure LOCAL has no cloud client — the function param can never be
+        read or written, so the switch is not created."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert not any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
+
+    # ── Reads (dedicated coordinator store) ───────────────────────────
+
+    def test_reads_enabled_true(self):
+        coordinator = self._coordinator(
+            store={"start_soc": 85, "end_soc": 95, "enabled": True}
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is True
+        assert switch.available is True
+
+    def test_reads_enabled_false(self):
+        """A real False is a valid state — distinct from absent/unknown."""
+        coordinator = self._coordinator(store={"enabled": False})
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is False
+        assert switch.available is True
+
+    def test_missing_store_reads_unavailable(self):
+        """No store yet (first cloud fetch pending) -> unavailable, never a
+        fake OFF."""
+        coordinator = self._coordinator()
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is None
+        assert switch.available is False
+
+    def test_none_enabled_reads_unavailable(self):
+        """The SOC pair present but enabled=None (device lacks the function
+        param, or the installed pylxpweb getter predates it) -> the SOC
+        numbers work while the switch stays unavailable."""
+        coordinator = self._coordinator(
+            store={"start_soc": 85, "end_soc": 95, "enabled": None}
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is None
+        assert switch.available is False
+
+    def test_corrupt_store_value_reads_unavailable(self):
+        """Defensive: a non-bool store value must not crash or lie."""
+        coordinator = self._coordinator(store={"enabled": "garbage"})
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is None
+        assert switch.available is False
+
+    def test_survives_parameter_cache_wipe(self):
+        """The #352 P1-A regression shape: hard-replacing the parameter
+        cache (what a HYBRID local parameter refresh does) must not affect
+        this switch — it never reads the parameter cache."""
+        coordinator = self._coordinator(store={"enabled": True})
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is True
+        coordinator.data["parameters"][self.SERIAL] = {"HOLD_AC_CHARGE_POWER_CMD": 50}
+        assert switch.is_on is True
+        assert switch.available is True
+
+    # ── Writes (cloud-routed in every mode, store-seeded) ─────────────
+
+    @pytest.mark.asyncio
+    async def test_turn_on_cloud_write_seeds_store(self):
+        coordinator = self._coordinator(store={"enabled": False})
+        write = self._cloud_write_mock(coordinator)
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        write.assert_awaited_once_with(self.SERIAL, True)
+        coordinator.note_ac_couple_soc_written.assert_called_once_with(
+            self.SERIAL, "enabled", True
+        )
+        # The parameter cache is NOT the storage — no cache seeding, and no
+        # full-refresh write envelope (the store seed converges the UI).
+        coordinator.note_parameters_written.assert_not_called()
+        coordinator.async_refresh.assert_not_awaited()
+        assert switch._optimistic_state is None
+
+    @pytest.mark.asyncio
+    async def test_turn_off_cloud_write_seeds_store(self):
+        coordinator = self._coordinator(store={"enabled": True})
+        write = self._cloud_write_mock(coordinator)
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        write.assert_awaited_once_with(self.SERIAL, False)
+        coordinator.note_ac_couple_soc_written.assert_called_once_with(
+            self.SERIAL, "enabled", False
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_write_routes_via_cloud(self):
+        """HYBRID (attached local transport): the write STILL goes through
+        the cloud client — no pinned local register exists (the #352
+        precedent)."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        write = self._cloud_write_mock(coordinator)
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        write.assert_awaited_once_with(self.SERIAL, True)
+        coordinator.client.api.control.control_function.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_write_preserves_soc_siblings_in_store(self):
+        """Sibling preservation through the REAL coordinator seed method:
+        toggling the switch must not blank known Start/End SOC values."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"start_soc": 85, "end_soc": 95, "enabled": False}
+        )
+        self._cloud_write_mock(coordinator)
+        coordinator.async_update_listeners = MagicMock()
+        coordinator.note_ac_couple_soc_written = MagicMock(
+            side_effect=lambda serial, key, value: (
+                EG4DataUpdateCoordinator.note_ac_couple_soc_written(
+                    coordinator, serial, key, value
+                )
+            )
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        store = coordinator.data["devices"][self.SERIAL]["ac_couple_soc"]
+        assert store["enabled"] is True
+        assert store["start_soc"] == 85  # siblings untouched
+        assert store["end_soc"] == 95
+        assert switch.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_turn_on_populates_seed_registry(self):
+        """PR #471 round-2 review (MEDIUM): prove the switch actually wires
+        into the coordinator's persistent write-seed registry — the race fix.
+
+        The other tests here use a bare MagicMock coordinator, on which
+        ``hasattr(coordinator, "_ac_couple_soc_seeds")`` is always True, so the
+        real seed method's lazy-init never fires and the registry silently
+        stays a MagicMock (no-op). Bind the REAL seed method AND give it a real
+        dict so ``async_turn_on`` -> ``note_ac_couple_soc_written`` is proven
+        end-to-end: a future wiring regression (wrong key/args) would fail here.
+        """
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(store={"enabled": False})
+        self._cloud_write_mock(coordinator)
+        coordinator.async_update_listeners = MagicMock()
+        coordinator._ac_couple_soc_seeds = {}  # real dict, not the auto-mock
+        coordinator.note_ac_couple_soc_written = MagicMock(
+            side_effect=lambda serial, key, value: (
+                EG4DataUpdateCoordinator.note_ac_couple_soc_written(
+                    coordinator, serial, key, value
+                )
+            )
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        seed = coordinator._ac_couple_soc_seeds[self.SERIAL]["enabled"]
+        assert seed["value"] is True  # per-field entry recorded from the switch
+        assert isinstance(seed["at"], float)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_failure_raises_and_reverts(self):
+        coordinator = self._coordinator(store={"enabled": False})
+        self._cloud_write_mock(coordinator, success=False)
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="Failed to enable"):
+            await switch.async_turn_on()
+
+        coordinator.note_ac_couple_soc_written.assert_not_called()
+        assert switch._optimistic_state is None
+        assert switch.is_on is False  # store state unchanged
+
+    @pytest.mark.asyncio
+    async def test_cloud_exception_wrapped_and_reverts(self):
+        """A transport-level exception surfaces as HomeAssistantError and
+        the optimistic state is reverted."""
+        coordinator = self._coordinator(store={"enabled": False})
+        coordinator.client.api.control.set_inverter_ac_couple_enabled = AsyncMock(
+            side_effect=OSError("cloud down")
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="cloud down"):
+            await switch.async_turn_on()
+
+        assert switch._optimistic_state is None
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_old_pylxpweb_missing_method_raises(self):
+        """pylxpweb < 0.9.39b3 lacks set_inverter_ac_couple_enabled — the
+        write raises a version-explicit error instead of AttributeError."""
+        coordinator = self._coordinator(store={"enabled": False})
+        # spec'd control object WITHOUT the new method
+        coordinator.client.api.control = MagicMock(spec=[])
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="0.9.39b3"):
+            await switch.async_turn_on()
+        assert switch._optimistic_state is None
+
+    @pytest.mark.asyncio
+    async def test_write_without_client_raises(self):
+        """No cloud client (defensive: setup gates creation on one) -> the
+        write raises instead of silently doing nothing."""
+        coordinator = self._coordinator(store={"enabled": False})
+        coordinator.client = None
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError):
+            await switch.async_turn_on()
+
+
 class TestBatteryBackupSwitch:
     """Test BatteryBackup (EPS) switch entity."""
 
@@ -1836,9 +2139,11 @@ class TestOffgridBatteryBackupGating:
         # Exact set: portal-backed AC Charge + PV Charge Priority stay, as
         # do EPS / Off Grid Mode / Charge Last / Share Battery (fail-open,
         # no rejection evidence for them; Share Battery is gated like
-        # Charge Last — all control-capable families, #288).
+        # Charge Last — all control-capable families, #288). AC Couple
+        # (GH #471) is cloud-gated, family-neutral — present here too.
         assert self._switch_keys(entities) == {
             "quick_charge",
+            "ac_couple",
             "battery_backup",
             "off_grid_mode",
             "charge_last",
@@ -1884,6 +2189,7 @@ class TestOffgridBatteryBackupGating:
 
         assert self._switch_keys(entities) == {
             "quick_charge",
+            "ac_couple",
             "battery_backup",
             "off_grid_mode",
             "charge_last",
