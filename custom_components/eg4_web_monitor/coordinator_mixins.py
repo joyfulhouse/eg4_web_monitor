@@ -1221,6 +1221,11 @@ class DeviceProcessingMixin(_MixinBase):
                 # Absent key (pylxpweb < 0.9.39b3 getter) or unparseable —
                 # never let a fake truthy/falsy value reach the switch.
                 enabled = None
+            # What this read actually OBSERVED per field, BEFORE carry-forward
+            # substitutes prior values — the seed-clear step below needs to
+            # distinguish "read saw a concrete value" from "read failed/absent
+            # for this field" (post-#473 review).
+            observed = {"start_soc": start_soc, "end_soc": end_soc, "enabled": enabled}
             prev = (
                 self.data["devices"][serial].get("ac_couple_soc")
                 if self.data and serial in self.data.get("devices", {})
@@ -1268,15 +1273,21 @@ class DeviceProcessingMixin(_MixinBase):
                 "enabled": enabled,
                 "fetched_at": now,
             }
-            # Acknowledged-write seeds, evaluated PER FIELD (round-2 review):
-            # a field whose seed landed while this read was in flight (stamp
-            # newer than the read's start) is newer device truth than the
-            # read — apply it and keep the seed; a field whose read started
-            # after its write supersedes that seed — drop just that field, so
-            # a later write to a DIFFERENT key never renews this one and
-            # clobbers a legitimate external change the read picked up.
+            # Acknowledged-write seeds, evaluated PER FIELD. A field's seed is
+            # SUPERSEDED (dropped) only when this read OBSERVED a concrete value
+            # for it (``observed[field] is not None``) AFTER the write — that
+            # value is newer device truth (the write itself, or a later
+            # external change). It is RETAINED and applied when either the seed
+            # post-dates the read's start (a write that raced this in-flight
+            # read) OR the read did not observe the field at all (a partial
+            # range-read failure returned None): a read that never saw the
+            # field cannot confirm or supersede the write, so clearing on
+            # read-start-time alone would revert a just-written value that a
+            # race-reverted ``self.data`` carried back in (post-#473 review).
+            # Per-field timestamps also stop a later write to a DIFFERENT key
+            # from renewing this one and clobbering an external change.
             #
-            # This timestamp-gated apply-or-clear is DELIBERATELY separate from
+            # This apply-or-clear is DELIBERATELY separate from
             # _overlay_ac_couple_seeds (used by the carry-forward paths), which
             # applies every pending seed unconditionally: only this path has a
             # fresh read to compare a seed against and thus to supersede it. Do
@@ -1284,10 +1295,14 @@ class DeviceProcessingMixin(_MixinBase):
             serial_seeds = getattr(self, "_ac_couple_soc_seeds", {}).get(serial)
             if serial_seeds:
                 for field in list(serial_seeds):
-                    if serial_seeds[field]["at"] > now:
-                        store[field] = serial_seeds[field]["value"]
-                    else:
+                    superseded = (
+                        serial_seeds[field]["at"] <= now
+                        and observed.get(field) is not None
+                    )
+                    if superseded:
                         del serial_seeds[field]
+                    else:
+                        store[field] = serial_seeds[field]["value"]
                 if not serial_seeds:
                     self._ac_couple_soc_seeds.pop(serial, None)
             target["ac_couple_soc"] = store

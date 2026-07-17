@@ -7666,6 +7666,40 @@ class TestACCoupleSOCStore:
         # Whole serial entry dropped once its last field seed cleared.
         assert self.SERIAL not in coordinator._ac_couple_soc_seeds
 
+    async def test_seed_survives_read_that_missed_the_field(
+        self, hass, mock_config_entry
+    ):
+        """Post-#473 review: a post-write read that did NOT observe the seeded
+        field (its range failed -> None) must NOT clear the seed — it confirmed
+        nothing. Combined with per-field carry-forward pulling a race-reverted
+        pre-write value from self.data, clearing here would revert a just-
+        written switch state for a cycle. The seed is retained and applied."""
+        # The FUNC range failed (enabled=None) while the SOC range succeeded;
+        # self.data was reverted to the pre-write enabled=False by a stale
+        # in-flight cycle, so per-field carry-forward would otherwise pull
+        # False back.
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={"start_soc": 85, "end_soc": 95, "enabled": None},
+        )
+        inverter = self._inverter()
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {"ac_couple_soc": {"enabled": False, "fetched_at": 1.0}}
+            }
+        }
+        coordinator._ac_couple_soc_seeds = {
+            self.SERIAL: {"enabled": {"value": True, "at": time.monotonic() - 1000}}
+        }
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+
+        # Seed wins over the race-reverted carry-forward; write not lost.
+        assert target["ac_couple_soc"]["enabled"] is True
+        assert "enabled" in coordinator._ac_couple_soc_seeds[self.SERIAL]
+
     async def test_per_field_seed_timestamps_independent(self, hass, mock_config_entry):
         """PR #471 round-2 (Gemini HIGH): each seeded field carries its OWN
         timestamp. A newer write to one key must NOT renew an older key's
