@@ -430,12 +430,14 @@ if reg1 & 0x100:
 | Bit | Parameter Key | HA Entity Key | Entity Type | Purpose |
 |-----|---------------|---------------|-------------|---------|
 | 1 | `FUNC_RUN_WITHOUT_GRID` | `fast_zero_export` | switch | Fast Zero Export — speeds up the zero-export control loop; select as the opposite of Grid Sell Back ([#274](https://github.com/joyfulhouse/eg4_web_monitor/issues/274); grid-tied families only) |
+| 3 | `FUNC_BAT_SHARED` | `share_battery` | switch | Share Battery — one battery bank across paralleled inverters ([#288](https://github.com/joyfulhouse/eg4_web_monitor/issues/288); disabled by default) |
 | 4 | `FUNC_CHARGE_LAST` | `charge_last` | switch | Charge Last — PV serves loads/export first, charges battery last ([#177](https://github.com/joyfulhouse/eg4_web_monitor/issues/177)) |
-| 8 | `FUNC_GREEN_EN` | `off_grid_mode` | switch | Green/Off-Grid Mode |
+| 14 | `FUNC_GREEN_EN` | `off_grid_mode` | switch | Green/Off-Grid Mode (bit 14 hardware-verified 2026-07-21, [#476](https://github.com/joyfulhouse/eg4_web_monitor/issues/476); was wrongly mapped at bit 8) |
 
-> Register 110 holds 14 verified bit fields (`REGISTER_TO_PARAM_KEYS[110]` in
-> pylxpweb `constants/registers.py`); only bits 1, 4 and 8 are mapped to
-> entities. Local writes read-modify-write the register via the
+> Register 110 holds 16 bit fields in one lineage-wide layout
+> (`REGISTER_110_PARAM_KEYS` in pylxpweb `constants/registers.py`; unproven
+> slots are `FUNC_110_BITn` placeholders); only bits 1, 3, 4 and 14 are
+> mapped to entities. Local writes read-modify-write the register via the
 > named-parameter map; cloud writes use the function-control API
 > (`control_function`), which applies the bit server-side.
 >
@@ -448,22 +450,19 @@ if reg1 & 0x100:
 > bit does not make the inverter run without grid. Same bit position in
 > the base (18kPV) and SNA register-110 tables.
 >
-> **EG4_OFFGRID (SNA) layout differs in the upper bits** (PR #220
-> adjudication, eg4-juzg): on 12000XP/6000XP hardware the buzzer is bit 7
-> (not 6) and `FUNC_BATTERY_ECO_EN` is **bit 15** (not 9) — 12000XP live
-> toggle evidence cross-confirmed by the stock SNA cloud decode
-> (`FUNC_BUZZER_EN` the only set flag with raw `0x0080`) and the ant0nkr
-> lxp_modbus reference (Green=14/ECO=15 there). pylxpweb local transports
-> apply `OFFGRID_REGISTER_110_PARAM_KEYS` for this family. Bit 8
-> (`FUNC_GREEN_EN`, the Off Grid Mode switch) deliberately keeps the 18kPV
-> position pending an SNA toggle test — if the lxp_modbus layout fully
-> applies, green may really live at bit 14; a community capture (read 110,
-> toggle Green in the EG4 cloud UI, read 110 again) settles it. Because of
-> that uncertainty the Off Grid Mode switch writes are **cloud-only on
-> EG4_OFFGRID** (server-side bit mapping is always correct; pure-LOCAL
-> setups get an honest error instead of a suspect bit-8 write). No ECO
-> entity exists in the integration; the relocation only corrects the
-> library mapping.
+> **The register-110 layout is unified lineage-wide** ([#476](https://github.com/joyfulhouse/eg4_web_monitor/issues/476),
+> 2026-07-21): a live 18kPV toggle test pinned green mode at **bit 14**
+> (raw `1056 ↔ 17440`, single-bit delta, EG4 cloud decode in lockstep),
+> matching both the 12000XP hardware evidence from PR #220 (buzzer bit 7,
+> `FUNC_BATTERY_ECO_EN` bit 15) and the ant0nkr lxp_modbus reference —
+> every hardware-tested position agrees with the lxp_modbus layout, and
+> the historic 18kPV-specific upper-bit table (green at 8, ECO at 9,
+> buzzer at 6) matched none of them. pylxpweb's base and EG4_OFFGRID
+> tables now share one `REGISTER_110_PARAM_KEYS` list; unproven slots
+> (6, 8-13) are `FUNC_110_BITn` placeholders. The former "cloud-only on
+> EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted: with
+> the bit pinned, local writes work on every family. No ECO entity exists
+> in the integration; that relocation only corrects the library mapping.
 
 ### Power Control Registers
 

@@ -1412,7 +1412,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         value: bool,
         cloud_enable_method: str | None = None,
         cloud_disable_method: str | None = None,
-        cloud_only: bool = False,
     ) -> None:
         """Execute a switch action preferring local transport, falling back to cloud.
 
@@ -1428,13 +1427,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 When omitted, the cloud path writes ``parameter`` directly via
                 the function-control API instead.
             cloud_disable_method: Inverter method name to call when disabling.
-            cloud_only: Never write the local register. Used when the local
-                bit position for ``parameter`` is unverified on the device's
-                family (e.g. FUNC_GREEN_EN on EG4_OFFGRID, whose register-110
-                upper-bit layout is hardware-proven to differ from the 18kPV
-                table the local map derives from) — the cloud applies the bit
-                server-side and is always correct. Without a cloud connection
-                the action fails honestly instead of flipping a suspect bit.
 
         Raises:
             ValueError: If exactly one of ``cloud_enable_method`` /
@@ -1452,14 +1444,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 f"enable={cloud_enable_method!r}, disable={cloud_disable_method!r}"
             )
 
-        if cloud_only and not self.coordinator.has_http_api():
-            raise HomeAssistantError(
-                f"The local register mapping for {action_name} is unverified "
-                "on this device family; a cloud connection is required for "
-                "this control."
-            )
-
-        if not cloud_only and self.coordinator.has_local_transport(self._serial):
+        if self.coordinator.has_local_transport(self._serial):
             try:
                 # When a cloud fallback exists, keep the optimistic state on
                 # local failure: clearing it there would publish the stale

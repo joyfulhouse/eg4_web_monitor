@@ -797,13 +797,12 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
     def is_on(self) -> bool | None:
         """Return True if off-grid mode is enabled, None when unknown.
 
-        An absent FUNC_GREEN_EN key means UNKNOWN, not off: EG4_OFFGRID
-        local reads deliberately omit the key (the SNA register-110 bit
-        for green is unverified — pylxpweb #210), and a successful local
+        An absent FUNC_GREEN_EN key means UNKNOWN, not off: a local
         parameter refresh replaces the serial's parameter dict wholesale
-        (coordinator_mixins._refresh_device_parameters). Returning False
-        for the absent key would silently flip a cloud-confirmed/seeded
-        "on" to "off" after any local refresh on that family.
+        (coordinator_mixins._refresh_device_parameters), so a partial
+        read that missed register 110 must not flip a cloud-confirmed/
+        seeded "on" to "off". Local reads decode the hardware-verified
+        register 110 bit 14 on every family (pylxpweb >= 0.9.39b4, #476).
         """
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
@@ -832,21 +831,6 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
 
         return attributes if attributes else None
 
-    @property
-    def _green_mode_cloud_only(self) -> bool:
-        """Local FUNC_GREEN_EN writes are withheld on EG4_OFFGRID.
-
-        The SNA register-110 upper-bit layout is hardware-proven to differ
-        from the 18kPV table (buzzer at bit 7, ECO at bit 15 — PR #220 /
-        eg4-juzg), and green's true position on this family is unverified
-        (the lxp_modbus reference puts it at bit 14, not the mapped bit 8).
-        A local bit-8 write on SNA hardware would likely flip a CT-sampling
-        config bit while reading back as success. The cloud applies the bit
-        server-side and is always correct, so offgrid green-mode writes are
-        cloud-only until a community toggle capture pins the bit.
-        """
-        return is_offgrid_family(self._device_data)
-
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable off-grid mode."""
         await self._execute_local_with_fallback(
@@ -855,7 +839,6 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=True,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
-            cloud_only=self._green_mode_cloud_only,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -866,7 +849,6 @@ class EG4OffGridModeSwitch(EG4BaseSwitch):
             value=False,
             cloud_enable_method="enable_green_mode",
             cloud_disable_method="disable_green_mode",
-            cloud_only=self._green_mode_cloud_only,
         )
 
 
